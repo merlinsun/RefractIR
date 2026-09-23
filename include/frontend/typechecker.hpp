@@ -29,6 +29,11 @@ namespace refractir {
       TypePtr type; // always a VecType node
     };
 
+    /// Tensor type: carries the full ordered-shape TensorType node.
+    struct TensorTy {
+      TypePtr type;
+    };
+
     struct ArrayTy {
       TypePtr type; // always an ArrayType node
     };
@@ -37,8 +42,8 @@ namespace refractir {
       TypePtr type; // always a StructType node
     };
 
-    using Variant =
-        std::variant<BoolTy, BVTy, FloatTy, PtrTy, VecTy, ArrayTy, StructTy, std::monostate>;
+    using Variant = std::variant<
+        BoolTy, BVTy, FloatTy, PtrTy, VecTy, TensorTy, ArrayTy, StructTy, std::monostate>;
     Variant v;
 
     bool isBool() const { return std::holds_alternative<BoolTy>(v); }
@@ -58,6 +63,10 @@ namespace refractir {
     bool isVec() const { return std::holds_alternative<VecTy>(v); }
 
     TypePtr vecType() const { return std::get<VecTy>(v).type; }
+
+    bool isTensor() const { return std::holds_alternative<TensorTy>(v); }
+
+    TypePtr tensorType() const { return std::get<TensorTy>(v).type; }
 
     bool isArray() const { return std::holds_alternative<ArrayTy>(v); }
 
@@ -153,6 +162,11 @@ namespace refractir {
         const Atom &a, const std::unordered_map<std::string, VarInfo> &vars,
         const std::unordered_map<std::string, SymInfo> &syms, TypeAnnotations &ann, DiagBag &diags,
         std::optional<std::uint32_t> expectedBits, TypePtr ptrCtx = nullptr
+    );
+
+    Ty typeOfTensorAtom(
+        const TensorAtom &atom, const std::unordered_map<std::string, VarInfo> &vars,
+        const std::unordered_map<std::string, SymInfo> &syms, DiagBag &diags
     );
 
     TypePtr typeOfLValue(

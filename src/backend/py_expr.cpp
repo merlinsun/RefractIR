@@ -193,6 +193,8 @@ namespace refractir {
             return loadAtomStr(arg);
           } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
             return ptrIndexAtomStr(arg);
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            throw std::runtime_error("python target does not support tensor atoms");
           } else {
             static_assert(std::is_same_v<T, PtrFieldAtom>);
             return ptrFieldAtomStr(arg);

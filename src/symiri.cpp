@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -5,11 +7,15 @@
 #include <vector>
 
 #include "analysis/cfg.hpp"
+#include "analysis/tensor.hpp"
 #include "cxxopts.hpp"
 #include "error.hpp"
 #include "frontend/link_resolver.hpp"
 #include "frontend/pipeline.hpp"
 #include "interp/interpreter.hpp"
+#include "interp/tensor.hpp"
+#include "interp/tensor_io.hpp"
+#include "interp/tensor_numeric.hpp"
 
 int main(int argc, char **argv) {
   using namespace refractir;
@@ -21,6 +27,12 @@ int main(int argc, char **argv) {
     ("input", "Input .sir file", cxxopts::value<std::string>())
     ("args", "Argument values for the entry function's parameters", cxxopts::value<std::vector<std::string>>())
     ("main", "Entry function to execute", cxxopts::value<std::string>()->default_value("@main"))
+    ("entry", "Entry function for typed tensor input/output", cxxopts::value<std::string>())
+    ("tensor-describe", "Describe a checked entry's typed buffer signature", cxxopts::value<bool>()->default_value("false"))
+    ("tensor-input", "Little-endian typed input buffer", cxxopts::value<std::string>())
+    ("tensor-output", "Little-endian typed result buffer", cxxopts::value<std::string>())
+    ("tensor-reference-bits", "Numerical tensor reference precision (128 or 256)", cxxopts::value<unsigned>()->default_value("128"))
+    ("tensor-reference-stability", "Run tensor references at 128 and 256 bits and compare each atom", cxxopts::value<bool>()->default_value("false"))
     ("sym", "Bind a symbol (name=value)", cxxopts::value<std::vector<std::string>>())
     ("check", "Check semantics only (do not execute)", cxxopts::value<bool>()->default_value("false"))
     ("dump-trace", "Dump executed blocks and variable updates", cxxopts::value<bool>()->default_value("false"))
@@ -120,6 +132,7 @@ int main(int argc, char **argv) {
 
     bool werror = checkOpts.warningsAreErrors;
     bool nowarn = result["w"].as<bool>();
+    const bool describeTensor = result["tensor-describe"].as<bool>();
 
     DiagBag diags;
     if (!checkProgram(prog, diags, checkOpts)) {
@@ -132,7 +145,15 @@ int main(int argc, char **argv) {
       return ExitCode::StaticError;
     }
 
-    if (!nowarn) {
+    if (!checkTensorCapabilities(prog, TensorConsumer::Reference, diags)) {
+      std::cerr << "Errors:\n";
+      for (const auto &d: diags.diags)
+        if (d.level == DiagLevel::Error)
+          printMessage(std::cerr, src, d.span, d.message, d.level);
+      return ExitCode::StaticError;
+    }
+
+    if (!nowarn && !describeTensor) {
       for (const auto &d: diags.diags) {
         if (d.level == DiagLevel::Warning) {
           printMessage(std::cout, src, d.span, d.message, d.level);
@@ -141,6 +162,97 @@ int main(int argc, char **argv) {
     }
 
     if (result["check"].as<bool>()) {
+      return 0;
+    }
+
+    const bool hasTensorInput = result.count("tensor-input") != 0;
+    const bool hasTensorOutput = result.count("tensor-output") != 0;
+    const bool typedTensorRun = describeTensor || hasTensorInput || hasTensorOutput;
+    if (typedTensorRun) {
+      const std::string entryName =
+          result.count("entry") ? result["entry"].as<std::string>() : mainFunc;
+      if (describeTensor) {
+        if (hasTensorInput || hasTensorOutput)
+          throw std::runtime_error("--tensor-describe cannot be combined with tensor input/output");
+        std::cout << describeTensorEntry(prog, entryName);
+        return 0;
+      }
+      if (!hasTensorInput || !hasTensorOutput)
+        throw std::runtime_error("--tensor-input and --tensor-output must be supplied together");
+
+      setTensorReferenceBits(result["tensor-reference-bits"].as<unsigned>());
+
+      std::string lookupName = entryName;
+      if (lookupName.empty() || lookupName.front() != '@')
+        lookupName.insert(lookupName.begin(), '@');
+      const auto entry =
+          std::find_if(prog.funs.begin(), prog.funs.end(), [&](const FunDecl &function) {
+            return function.name.name == lookupName;
+          });
+      if (entry == prog.funs.end())
+        throw std::runtime_error("Entry function not found: " + entryName);
+      std::vector<TensorTypeInfo> parameterTypes;
+      parameterTypes.reserve(entry->params.size());
+      for (const auto &param: entry->params)
+        parameterTypes.push_back(tensorTypeInfo(param.type));
+      std::ifstream tensorInput(result["tensor-input"].as<std::string>(), std::ios::binary);
+      if (!tensorInput)
+        throw std::runtime_error("Could not open tensor input file");
+      auto arguments = readTensorArguments(tensorInput, parameterTypes);
+      const bool checkStability = result["tensor-reference-stability"].as<bool>();
+      std::optional<RuntimeValue> value;
+      if (checkStability) {
+        std::vector<TensorTraceEntry> trace128;
+        std::vector<TensorTraceEntry> trace256;
+        const auto runWithTrace = [&](unsigned bits, std::vector<TensorTraceEntry> &trace) {
+          setTensorReferenceBits(bits);
+          setTensorTraceHook([&trace](const SourceSpan &span, const RuntimeValue &nodeValue) {
+            trace.push_back(TensorTraceEntry{span, nodeValue});
+          });
+          try {
+            Interpreter interpreter(prog);
+            auto output = interpreter.runTyped(entryName, symBindings, arguments);
+            setTensorTraceHook({});
+            return output;
+          } catch (...) {
+            setTensorTraceHook({});
+            throw;
+          }
+        };
+        (void) runWithTrace(128, trace128);
+        value = runWithTrace(256, trace256);
+        if (!tensorTracesEqual(trace128, trace256))
+          throw std::runtime_error(
+              "oracle_unstable: tensor atom results differ at 128 and 256 bits"
+          );
+      } else {
+        setTensorReferenceBits(result["tensor-reference-bits"].as<unsigned>());
+        Interpreter interpreter(prog);
+        value = interpreter.runTyped(entryName, symBindings, arguments);
+      }
+      if (!value)
+        throw std::runtime_error("typed tensor entry returned no value");
+
+      std::ostringstream encoded(std::ios::out | std::ios::binary);
+      writeTensorResult(encoded, *value, tensorTypeInfo(entry->retType));
+      const auto outputPath = std::filesystem::path(result["tensor-output"].as<std::string>());
+      auto temporaryPath = outputPath;
+      temporaryPath += ".tmp";
+      try {
+        std::ofstream output(temporaryPath, std::ios::binary | std::ios::trunc);
+        if (!output)
+          throw std::runtime_error("Could not open temporary tensor output file");
+        const auto contents = encoded.str();
+        output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        output.close();
+        if (!output)
+          throw std::runtime_error("Failed to write tensor output file");
+        std::filesystem::rename(temporaryPath, outputPath);
+      } catch (...) {
+        std::error_code ignored;
+        std::filesystem::remove(temporaryPath, ignored);
+        throw;
+      }
       return 0;
     }
 

@@ -187,6 +187,8 @@ namespace refractir {
             if (intr)
               return intr->retType;
             return nullptr;
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            return arg.resolvedType;
           }
           return nullptr;
         },

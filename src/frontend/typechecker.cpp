@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <functional>
 #include "analysis/cfg.hpp"
+#include "analysis/tensor.hpp"
 #include "analysis/type_utils.hpp"
 
 namespace refractir {
@@ -30,7 +31,7 @@ namespace refractir {
   // of vector.
   static void validateTypeWF(
       const TypePtr &t, DiagBag &diags, bool insideVec = false, bool insideField = false,
-      bool insideArray = false
+      bool insideArray = false, bool insidePtr = false
   ) {
     if (!t)
       return;
@@ -55,14 +56,41 @@ namespace refractir {
                 !std::holds_alternative<FloatType>(x.elem->v)) {
               diags.error("Vector lane type must be a scalar (iN, f32, f64)", t->span);
             }
-            validateTypeWF(x.elem, diags, true, false, false);
+            validateTypeWF(x.elem, diags, true, false, false, false);
+          } else if constexpr (std::is_same_v<X, TensorType>) {
+            if (insideVec || insideField || insideArray || insidePtr)
+              diags.error(
+                  "tensor-type: tensors cannot be nested in vectors, aggregates, or pointers",
+                  t->span
+              );
+            if (x.shape.empty())
+              diags.error("tensor-profile: rank-zero tensors are not supported", t->span);
+            if (x.shape.size() > 3)
+              diags.error("tensor-profile: tensor rank exceeds 3", t->span);
+            for (const auto dim: x.shape) {
+              if (dim == 0)
+                diags.error("tensor-shape: dimensions must be positive", t->span);
+              else if ((dim & (dim - 1)) != 0)
+                diags.error("tensor-profile: dimensions must be powers of two", t->span);
+            }
+            try {
+              if (tensorElementCount(x.shape) > 256)
+                diags.error("tensor-profile: tensor exceeds 256 elements", t->span);
+            } catch (const std::exception &e) {
+              diags.error(e.what(), t->span);
+            }
+            const auto intBits = TypeUtils::getIntBitWidth(x.elem);
+            const auto floatBits = TypeUtils::getFloatBitWidth(x.elem);
+            if ((!intBits || *intBits != 32) && (!floatBits || *floatBits != 32))
+              diags.error("tensor-type: tensor element type must be i32 or f32", t->span);
+            validateTypeWF(x.elem, diags, false, false, false, false);
           } else if constexpr (std::is_same_v<X, PtrType>) {
             // ptr <N> T is forbidden (§6.8.1).
             if (x.pointee && std::holds_alternative<VecType>(x.pointee->v))
               diags.error("Pointer to vector (ptr <N> T) is not supported", t->span);
-            validateTypeWF(x.pointee, diags, false, false, false);
+            validateTypeWF(x.pointee, diags, false, false, false, true);
           } else if constexpr (std::is_same_v<X, ArrayType>) {
-            validateTypeWF(x.elem, diags, false, false, true);
+            validateTypeWF(x.elem, diags, false, false, true, false);
           }
           // StructType: validated separately in collectStructs.
         },
@@ -440,6 +468,7 @@ namespace refractir {
     auto at = TypeUtils::asArray(targetType);
     auto st = TypeUtils::asStruct(targetType);
     auto vt = TypeUtils::asVec(targetType);
+    auto tt = TypeUtils::asTensor(targetType);
 
     if (iv.kind == InitVal::Kind::Aggregate) {
       const auto &elements = std::get<std::vector<InitValPtr>>(iv.value);
@@ -486,6 +515,29 @@ namespace refractir {
         for (const auto &elem: elements) {
           checkInitVal(*elem, vt->elem, vars, syms, diags);
         }
+      } else if (tt) {
+        std::uint32_t expectedCount = 0;
+        try {
+          expectedCount = tensorElementCount(tt->shape);
+        } catch (const std::exception &e) {
+          diags.error(e.what(), iv.span);
+          return;
+        }
+        if (elements.size() != expectedCount) {
+          diags.error(
+              "tensor-shape: initializer element count mismatch: expected " +
+                  std::to_string(expectedCount) + ", got " + std::to_string(elements.size()),
+              iv.span
+          );
+          return;
+        }
+        for (const auto &elem: elements) {
+          if (elem->kind == InitVal::Kind::Aggregate) {
+            diags.error("tensor-shape: tensor initializer must be a flat list", elem->span);
+            continue;
+          }
+          checkInitVal(*elem, tt->elem, vars, syms, diags);
+        }
       } else {
         diags.error("Aggregate initializer for non-aggregate type", iv.span);
       }
@@ -509,6 +561,8 @@ namespace refractir {
         // scalar type. Recursing on `elem` lets the existing leaf-check
         // reject `let %v: <4> i32 = 1.5;` etc.
         collect(inner_vt->elem);
+      } else if (auto inner_tt = TypeUtils::asTensor(t)) {
+        targetLeaves.push_back(inner_tt->elem);
       } else {
         targetLeaves.push_back(t);
       }
@@ -571,6 +625,11 @@ namespace refractir {
         );
         return;
       }
+      if (TypeUtils::isTensor(initType)) {
+        if (!TypeUtils::areTypesEqual(targetType, initType))
+          diags.error("tensor-type: tensor initializer shape or element type mismatch", iv.span);
+        return;
+      }
       // Whole-vector / whole-pointer init: if initType matches the target type
       // exactly, accept without descending. This covers `let %w: <4> i32 = %v;`
       // and `let %p: ptr T = %q;`.
@@ -631,9 +690,10 @@ namespace refractir {
     bool isRetFloat = f.retType && std::holds_alternative<FloatType>(f.retType->v);
     bool isRetPtr = f.retType && std::holds_alternative<PtrType>(f.retType->v);
     bool isRetVec = f.retType && std::holds_alternative<VecType>(f.retType->v);
+    bool isRetTensor = TypeUtils::isTensor(f.retType);
 
-    if (!retBits && !isRetFloat && !isRetPtr && !isRetVec)
-      diags.error("Return type must be a scalar, pointer, or vector type", f.span);
+    if (!retBits && !isRetFloat && !isRetPtr && !isRetVec && !isRetTensor)
+      diags.error("Return type must be a scalar, pointer, vector, or tensor type", f.span);
 
     for (const auto &b: f.blocks) {
       for (const auto &ins: b.instrs) {
@@ -671,6 +731,17 @@ namespace refractir {
                     else if (!TypeUtils::areTypesEqual(rhsTy.vecType(), lt))
                       diags.error("Vector type mismatch in assignment", arg.rhs.span);
                     (void) lvt;
+                  } else if (TypeUtils::isTensor(lt)) {
+                    Ty rhsTy = typeOfExpr(arg.rhs, vars, syms, ann, diags, std::nullopt);
+                    if (!rhsTy.isTensor())
+                      diags.error(
+                          "tensor-type: expected tensor expression on assignment RHS", arg.rhs.span
+                      );
+                    else if (!TypeUtils::areTypesEqual(rhsTy.tensorType(), lt))
+                      diags.error(
+                          "tensor-type: tensor shape or element type mismatch in assignment",
+                          arg.rhs.span
+                      );
                   } else if (std::holds_alternative<ArrayType>(lt->v) ||
                              std::holds_alternative<StructType>(lt->v)) {
                     diags.error("Aggregate-typed assignment is not supported", arg.lhs.span);
@@ -775,6 +846,14 @@ namespace refractir {
                     diags.error("Expected vector return value", arg.value->span);
                   else if (!TypeUtils::areTypesEqual(rhsTy.vecType(), f.retType))
                     diags.error("Return vector type mismatch", arg.value->span);
+                } else if (isRetTensor) {
+                  rhsTy = typeOfExpr(*arg.value, vars, syms, ann, diags, std::nullopt);
+                  if (!rhsTy.isTensor())
+                    diags.error("tensor-type: expected tensor return value", arg.value->span);
+                  else if (!TypeUtils::areTypesEqual(rhsTy.tensorType(), f.retType))
+                    diags.error(
+                        "tensor-type: tensor return shape or element type mismatch", arg.value->span
+                    );
                 }
               } else if (!arg.value) {
                 diags.error("Missing return value", arg.span);
@@ -797,6 +876,10 @@ namespace refractir {
     }
     TypePtr cur = it->second.type;
     for (const auto &acc: lv.accesses) {
+      if (TypeUtils::asTensor(cur)) {
+        diags.error("tensor-type: tensor elements cannot be accessed as lvalues", lv.span);
+        return nullptr;
+      }
       if (auto ai = std::get_if<AccessIndex>(&acc)) {
         if (auto vt = TypeUtils::asVec(cur)) {
           // Vector lane access: lv[i] : T_elem. Bounds-check
@@ -899,6 +982,12 @@ namespace refractir {
             : t.isFloat() ? std::optional(t.floatBits())
                           : expectedBits
         );
+        if (t.isTensor() || ti.isTensor()) {
+          diags.error(
+              "tensor-type: ordinary expression operators do not lift to tensors", tail.span
+          );
+          continue;
+        }
         // Vector chain: both atoms must agree on vector type, but
         // a scalar literal atom (`CoefAtom` of IntLit/FloatLit) broadcasts
         // to the running vector type, mirroring §6.11.
@@ -934,6 +1023,335 @@ namespace refractir {
       }
     }
     return t;
+  }
+
+  Ty TypeChecker::typeOfTensorAtom(
+      const TensorAtom &atom, const std::unordered_map<std::string, VarInfo> &vars,
+      const std::unordered_map<std::string, SymInfo> &syms, DiagBag &diags
+  ) {
+    auto requireOperandCount = [&](std::size_t count) {
+      if (atom.operands.size() == count)
+        return true;
+      diags.error("tensor-type: wrong operand count for tensor operator", atom.span);
+      return false;
+    };
+    auto namedType = [&](const Coef &operand) -> TypePtr {
+      const auto id = std::get_if<LocalOrSymId>(&operand);
+      if (!id)
+        return nullptr;
+      return std::visit(
+          [&](const auto &name) -> TypePtr {
+            if constexpr (std::is_same_v<std::decay_t<decltype(name)>, LocalId>) {
+              const auto it = vars.find(name.name);
+              return it == vars.end() ? nullptr : it->second.type;
+            } else {
+              const auto it = syms.find(name.name);
+              return it == syms.end() ? nullptr : it->second.type;
+            }
+          },
+          *id
+      );
+    };
+    auto isTensorScalar = [](const TypePtr &type) {
+      const auto bits = TypeUtils::getScalarBitWidth(type);
+      return bits && *bits == 32;
+    };
+    auto resolveOperand = [&](std::size_t index, TypePtr expectedElem = nullptr) {
+      const auto expectedBits = expectedElem ? TypeUtils::getScalarBitWidth(expectedElem)
+                                             : std::optional<std::uint32_t>{};
+      return typeOfCoef(atom.operands.at(index), vars, syms, diags, expectedBits);
+    };
+    auto makeResult = [&](const Shape &shape, const TypePtr &elementType) -> Ty {
+      if (shape.empty()) {
+        atom.resolvedType = elementType;
+        if (const auto bits = TypeUtils::getIntBitWidth(elementType))
+          return Ty{Ty::BVTy{*bits}};
+        if (const auto bits = TypeUtils::getFloatBitWidth(elementType))
+          return Ty{Ty::FloatTy{*bits}};
+        return Ty{std::monostate{}};
+      }
+      TypePtr result = std::make_shared<Type>();
+      result->v = TensorType{shape, elementType, atom.span};
+      result->span = atom.span;
+      atom.resolvedType = result;
+      return Ty{Ty::TensorTy{std::move(result)}};
+    };
+    auto validateShape = [&](const Shape &shape) {
+      if (shape.empty()) {
+        diags.error("tensor-profile: tensor result must have rank one through three", atom.span);
+        return false;
+      }
+      if (shape.size() > 3) {
+        diags.error("tensor-profile: tensor result rank exceeds 3", atom.span);
+        return false;
+      }
+      for (const auto dim: shape) {
+        if (dim == 0) {
+          diags.error("tensor-shape: dimensions must be positive", atom.span);
+          return false;
+        }
+        if ((dim & (dim - 1)) != 0) {
+          diags.error("tensor-profile: dimensions must be powers of two", atom.span);
+          return false;
+        }
+      }
+      try {
+        if (tensorElementCount(shape) > 256) {
+          diags.error("tensor-profile: tensor exceeds 256 elements", atom.span);
+          return false;
+        }
+      } catch (const std::exception &error) {
+        diags.error(error.what(), atom.span);
+        return false;
+      }
+      return true;
+    };
+    auto sourceShapeAndElement = [&](const TypePtr &type, Shape &shape, TypePtr &element) {
+      if (const auto tensor = TypeUtils::asTensor(type)) {
+        shape = tensor->shape;
+        element = tensor->elem;
+        return true;
+      }
+      if (TypeUtils::isScalar(type)) {
+        shape.clear();
+        element = type;
+        return true;
+      }
+      diags.error("tensor-type: operand must be a scalar or tensor", atom.span);
+      return false;
+    };
+    auto operandWithElemHint = [&](std::size_t index, TypePtr hint) {
+      TypePtr type = namedType(atom.operands.at(index));
+      if (!type)
+        type = resolveOperand(index, hint);
+      return type;
+    };
+    auto typeFromElement = [&](const TypePtr &element) -> Ty {
+      if (const auto bits = TypeUtils::getIntBitWidth(element))
+        return Ty{Ty::BVTy{*bits}};
+      if (const auto bits = TypeUtils::getFloatBitWidth(element))
+        return Ty{Ty::FloatTy{*bits}};
+      return Ty{std::monostate{}};
+    };
+    auto checkedAxis = [&](std::int64_t axis, std::uint32_t rank, std::uint32_t &normalized) {
+      try {
+        normalized = normalizeTensorAxis(axis, rank);
+        return true;
+      } catch (const std::exception &error) {
+        diags.error(error.what(), atom.span);
+        return false;
+      }
+    };
+
+    if (atom.op == TensorOp::Iota) {
+      if (!requireOperandCount(0) || !validateShape(atom.attribute))
+        return Ty{std::monostate{}};
+      std::uint32_t axis = 0;
+      if (!checkedAxis(atom.axis, static_cast<std::uint32_t>(atom.attribute.size()), axis))
+        return Ty{std::monostate{}};
+      (void) axis;
+      TypePtr i32 = std::make_shared<Type>();
+      i32->v = IntType{IntType::Kind::I32, std::nullopt, atom.span};
+      i32->span = atom.span;
+      return makeResult(atom.attribute, i32);
+    }
+
+    if (atom.op == TensorOp::Extract || atom.op == TensorOp::Expand ||
+        atom.op == TensorOp::Broadcast || atom.op == TensorOp::Transpose ||
+        atom.op == TensorOp::Sum || atom.op == TensorOp::ReduceMin ||
+        atom.op == TensorOp::ReduceMax || atom.op == TensorOp::Softmax ||
+        atom.op == TensorOp::Exp) {
+      if (!requireOperandCount(1))
+        return Ty{std::monostate{}};
+      TypePtr type = resolveOperand(0);
+      Shape sourceShape;
+      TypePtr elementType;
+      if (!sourceShapeAndElement(type, sourceShape, elementType))
+        return Ty{std::monostate{}};
+      if (!isTensorScalar(elementType)) {
+        diags.error("tensor-type: tensor operands require i32 or f32 elements", atom.span);
+        return Ty{std::monostate{}};
+      }
+
+      if (atom.op == TensorOp::Extract) {
+        const auto tensor = TypeUtils::asTensor(type);
+        if (!tensor) {
+          diags.error("tensor-type: extract requires a tensor operand", atom.span);
+          return Ty{std::monostate{}};
+        }
+        if (atom.attribute.size() != sourceShape.size()) {
+          diags.error("tensor-shape: extraction coordinate rank mismatch", atom.span);
+          return Ty{std::monostate{}};
+        }
+        for (std::size_t i = 0; i < sourceShape.size(); ++i) {
+          if (atom.attribute[i] >= sourceShape[i]) {
+            diags.error("tensor-shape: extraction coordinate is out of bounds", atom.span);
+            return Ty{std::monostate{}};
+          }
+        }
+        atom.resolvedType = elementType;
+        return typeFromElement(elementType);
+      }
+
+      if (atom.op == TensorOp::Expand) {
+        Shape output = sourceShape;
+        const auto outputRank = static_cast<std::uint32_t>(sourceShape.size() + 1);
+        std::uint32_t axis = 0;
+        if (!checkedAxis(atom.axis, outputRank, axis))
+          return Ty{std::monostate{}};
+        output.insert(output.begin() + axis, 1);
+        if (!validateShape(output))
+          return Ty{std::monostate{}};
+        return makeResult(output, elementType);
+      }
+
+      if (atom.op == TensorOp::Broadcast) {
+        if (!validateShape(atom.attribute))
+          return Ty{std::monostate{}};
+        if (atom.attribute.size() < sourceShape.size()) {
+          diags.error("tensor-broadcast: explicit broadcast cannot reduce rank", atom.span);
+          return Ty{std::monostate{}};
+        }
+        try {
+          const auto inferred = tensorBroadcastShape(sourceShape, atom.attribute);
+          if (inferred != atom.attribute) {
+            diags.error(
+                "tensor-broadcast: broadcast cannot shrink a non-singleton dimension", atom.span
+            );
+            return Ty{std::monostate{}};
+          }
+        } catch (const std::exception &error) {
+          diags.error(error.what(), atom.span);
+          return Ty{std::monostate{}};
+        }
+        return makeResult(atom.attribute, elementType);
+      }
+
+      if (atom.op == TensorOp::Transpose) {
+        if (!TypeUtils::asTensor(type)) {
+          diags.error("tensor-type: transpose requires a tensor operand", atom.span);
+          return Ty{std::monostate{}};
+        }
+        if (atom.attribute.size() != sourceShape.size()) {
+          diags.error("tensor-permutation: permutation rank mismatch", atom.span);
+          return Ty{std::monostate{}};
+        }
+        std::vector<bool> seen(sourceShape.size(), false);
+        Shape output(sourceShape.size());
+        for (std::size_t i = 0; i < atom.attribute.size(); ++i) {
+          const auto sourceAxis = atom.attribute[i];
+          if (sourceAxis >= sourceShape.size() || seen[sourceAxis]) {
+            diags.error("tensor-permutation: axes must form a permutation", atom.span);
+            return Ty{std::monostate{}};
+          }
+          seen[sourceAxis] = true;
+          output[i] = sourceShape[sourceAxis];
+        }
+        return makeResult(output, elementType);
+      }
+
+      if (atom.op == TensorOp::Sum || atom.op == TensorOp::ReduceMin ||
+          atom.op == TensorOp::ReduceMax) {
+        if (!TypeUtils::asTensor(type)) {
+          diags.error("tensor-type: reduction requires a tensor operand", atom.span);
+          return Ty{std::monostate{}};
+        }
+        std::uint32_t axis = 0;
+        if (!checkedAxis(atom.axis, static_cast<std::uint32_t>(sourceShape.size()), axis))
+          return Ty{std::monostate{}};
+        (void) axis;
+        Shape output;
+        try {
+          output = tensorReduceShape(sourceShape, atom.axis, atom.keepDims);
+        } catch (const std::exception &error) {
+          diags.error(error.what(), atom.span);
+          return Ty{std::monostate{}};
+        }
+        return makeResult(output, elementType);
+      }
+
+      if (atom.op == TensorOp::Softmax) {
+        if (!TypeUtils::asTensor(type)) {
+          diags.error("tensor-type: softmax requires a tensor operand", atom.span);
+          return Ty{std::monostate{}};
+        }
+        if (!TypeUtils::getFloatBitWidth(elementType)) {
+          diags.error("tensor-type: softmax requires f32 elements", atom.span);
+          return Ty{std::monostate{}};
+        }
+        std::uint32_t axis = 0;
+        if (!checkedAxis(atom.axis, static_cast<std::uint32_t>(sourceShape.size()), axis))
+          return Ty{std::monostate{}};
+        (void) axis;
+        return makeResult(sourceShape, elementType);
+      }
+
+      if (atom.op == TensorOp::Exp) {
+        if (!TypeUtils::getFloatBitWidth(elementType)) {
+          diags.error("tensor-type: exp requires f32 elements", atom.span);
+          return Ty{std::monostate{}};
+        }
+        return makeResult(sourceShape, elementType);
+      }
+    }
+
+    if (atom.op == TensorOp::Add || atom.op == TensorOp::Sub || atom.op == TensorOp::Mul ||
+        atom.op == TensorOp::Div || atom.op == TensorOp::Min || atom.op == TensorOp::Max ||
+        atom.op == TensorOp::And || atom.op == TensorOp::Or || atom.op == TensorOp::Xor) {
+      if (!requireOperandCount(2))
+        return Ty{std::monostate{}};
+      TypePtr hint = namedType(atom.operands[0]);
+      if (!TypeUtils::asTensor(hint))
+        hint = namedType(atom.operands[1]);
+      if (!TypeUtils::asTensor(hint)) {
+        diags.error("tensor-type: at least one binary operand must be a tensor", atom.span);
+        return Ty{std::monostate{}};
+      }
+      TypePtr hintedElement = TypeUtils::asTensor(hint)->elem;
+      TypePtr leftType = operandWithElemHint(0, hintedElement);
+      TypePtr rightType = operandWithElemHint(1, hintedElement);
+      Shape leftShape;
+      Shape rightShape;
+      TypePtr leftElement;
+      TypePtr rightElement;
+      if (!sourceShapeAndElement(leftType, leftShape, leftElement) ||
+          !sourceShapeAndElement(rightType, rightShape, rightElement))
+        return Ty{std::monostate{}};
+      if (!isTensorScalar(leftElement) || !isTensorScalar(rightElement)) {
+        diags.error("tensor-type: tensor operands require i32 or f32 elements", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (!TypeUtils::areTypesEqual(leftElement, rightElement)) {
+        diags.error("tensor-type: binary operands must have the same element type", atom.span);
+        return Ty{std::monostate{}};
+      }
+      const bool integer = TypeUtils::getIntBitWidth(leftElement).has_value();
+      if ((atom.op == TensorOp::Div && integer) ||
+          ((atom.op == TensorOp::And || atom.op == TensorOp::Or || atom.op == TensorOp::Xor) &&
+           !integer)) {
+        diags.error("tensor-type: operator is not defined for this element type", atom.span);
+        return Ty{std::monostate{}};
+      }
+      Shape output;
+      try {
+        output = tensorBroadcastShape(leftShape, rightShape);
+      } catch (const std::exception &error) {
+        diags.error(error.what(), atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (output.empty()) {
+        diags.error(
+            "tensor-type: scalar-only binary operations use ordinary SIR operators", atom.span
+        );
+        return Ty{std::monostate{}};
+      }
+      if (!validateShape(output))
+        return Ty{std::monostate{}};
+      return makeResult(output, leftElement);
+    }
+
+    diags.error("tensor-type: unsupported tensor operator", atom.span);
+    return Ty{std::monostate{}};
   }
 
   Ty TypeChecker::typeOfAtom(
@@ -1089,6 +1507,8 @@ namespace refractir {
               return Ty{Ty::ArrayTy{ct}};
             if (std::holds_alternative<StructType>(ct->v))
               return Ty{Ty::StructTy{ct}};
+            if (std::holds_alternative<TensorType>(ct->v))
+              return Ty{Ty::TensorTy{ct}};
             return Ty{std::monostate{}};
           } else if constexpr (std::is_same_v<T, RValueAtom>) {
             auto rt = typeOfLValue(arg.rval, vars, syms, diags);
@@ -1106,6 +1526,8 @@ namespace refractir {
               return Ty{Ty::ArrayTy{rt}};
             if (rt && std::holds_alternative<StructType>(rt->v))
               return Ty{Ty::StructTy{rt}};
+            if (rt && std::holds_alternative<TensorType>(rt->v))
+              return Ty{Ty::TensorTy{rt}};
             return Ty{std::monostate{}};
           } else if constexpr (std::is_same_v<T, CmpAtom>) {
             // cmp: result is i1 (scalar) or <N> i1 (vector).
@@ -1491,6 +1913,9 @@ namespace refractir {
                 ok = TypeUtils::areTypesEqual(argTy.ptrType(), paramT);
               } else if (argTy.isVec() && paramT && std::holds_alternative<VecType>(paramT->v)) {
                 ok = TypeUtils::areTypesEqual(argTy.vecType(), paramT);
+              } else if (argTy.isTensor() && paramT &&
+                         std::holds_alternative<TensorType>(paramT->v)) {
+                ok = TypeUtils::areTypesEqual(argTy.tensorType(), paramT);
               } else if (argTy.isBV() && paramT && std::holds_alternative<IntType>(paramT->v)) {
                 auto pb = TypeUtils::getIntBitWidth(paramT);
                 ok = pb && argTy.bvBits() == *pb;
@@ -1528,11 +1953,15 @@ namespace refractir {
               return Ty{Ty::PtrTy{rt}};
             if (std::holds_alternative<VecType>(rt->v))
               return Ty{Ty::VecTy{rt}};
+            if (std::holds_alternative<TensorType>(rt->v))
+              return Ty{Ty::TensorTy{rt}};
             if (std::holds_alternative<StructType>(rt->v))
               return Ty{Ty::StructTy{rt}};
             if (std::holds_alternative<ArrayType>(rt->v))
               return Ty{Ty::ArrayTy{rt}};
             return Ty{std::monostate{}};
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            return typeOfTensorAtom(arg, vars, syms, diags);
           }
           return Ty{std::monostate{}};
         },
@@ -1654,6 +2083,8 @@ namespace refractir {
       return Ty{Ty::ArrayTy{t}};
     if (std::holds_alternative<StructType>(t->v))
       return Ty{Ty::StructTy{t}};
+    if (std::holds_alternative<TensorType>(t->v))
+      return Ty{Ty::TensorTy{t}};
     return Ty{std::monostate{}};
   }
 
@@ -1668,6 +2099,8 @@ namespace refractir {
         c.rhs, vars, syms, ann, diags, t1.isBV() ? std::optional(t1.bvBits()) : std::nullopt,
         rhsPtrCtx
     );
+    if (t1.isTensor() || t2.isTensor())
+      diags.error("tensor-type: tensors cannot be used as scalar conditions", c.span);
     if (t1.isBV() && t2.isBV() && t1.bvBits() != t2.bvBits())
       diags.error("Bitwidth mismatch in condition", c.span);
     if (t1.isPtr() && !t2.isPtr())

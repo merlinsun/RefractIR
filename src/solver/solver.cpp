@@ -437,16 +437,17 @@ namespace refractir {
       auto sv = createSymbolicValue(s.type, s.name.name, solver, &pathConstraints);
       store[s.name.name] = sv;
 
-      // Vector sym: collect the per-lane terms so the domain/fix
-      // logic below can apply constraints per lane. For scalar sym this
-      // is just `{sv.term}` (one element).
+      // Vector and tensor symbols expand to independent scalar terms for
+      // domain/fix constraints. Scalar symbols contribute one term.
       std::vector<smt::Term> symLaneTerms;
       TypePtr symLaneType;
-      if (sv.kind == SymbolicValue::Kind::Vec) {
+      if (sv.kind == SymbolicValue::Kind::Vec || sv.kind == SymbolicValue::Kind::Tensor) {
         for (const auto &lane: sv.arrayVal)
           symLaneTerms.push_back(lane.term);
         if (auto vt = std::get_if<VecType>(&s.type->v))
           symLaneType = vt->elem;
+        else if (auto tt = std::get_if<TensorType>(&s.type->v))
+          symLaneType = tt->elem;
       } else {
         symLaneTerms.push_back(sv.term);
         symLaneType = s.type;
@@ -689,6 +690,14 @@ namespace refractir {
                         collectEq(a.arrayVal[k], b.arrayVal[k], out);
                       return;
                     }
+                    case SymbolicValue::Kind::Tensor: {
+                      if (a.tensorShape != b.tensorShape)
+                        return;
+                      size_t n = std::min(a.arrayVal.size(), b.arrayVal.size());
+                      for (size_t k = 0; k < n; ++k)
+                        collectEq(a.arrayVal[k], b.arrayVal[k], out);
+                      return;
+                    }
                     case SymbolicValue::Kind::Struct:
                       for (const auto &[fname, fv]: a.structVal) {
                         auto it = b.structVal.find(fname);
@@ -789,6 +798,14 @@ namespace refractir {
           for (const auto &lane: sv.arrayVal)
             lanes.push_back(extractValue(lane.term));
           finalRes.vecModel[s.name.name] = std::move(lanes);
+          continue;
+        }
+        if (sv.kind == SymbolicValue::Kind::Tensor) {
+          std::vector<Result::ModelVal> leaves;
+          leaves.reserve(sv.arrayVal.size());
+          for (const auto &leaf: sv.arrayVal)
+            leaves.push_back(extractValue(leaf.term));
+          finalRes.tensorModel[s.name.name] = std::move(leaves);
           continue;
         }
         finalRes.model[s.name.name] = extractValue(sv.term);
@@ -927,6 +944,15 @@ namespace refractir {
             if (declType && std::holds_alternative<VecType>(declType->v))
               elemTy = std::get<VecType>(declType->v).elem;
             out.elems.reserve(sv.arrayVal.size());
+            for (const auto &e: sv.arrayVal)
+              out.elems.push_back(extractLet(e, elemTy));
+            return out;
+          }
+          case SymbolicValue::Kind::Tensor: {
+            out.kind = LetExitValue::Kind::Tensor;
+            out.elems.reserve(sv.arrayVal.size());
+            const auto tensorType = declType ? std::get_if<TensorType>(&declType->v) : nullptr;
+            const auto elemTy = tensorType ? tensorType->elem : TypePtr{};
             for (const auto &e: sv.arrayVal)
               out.elems.push_back(extractLet(e, elemTy));
             return out;

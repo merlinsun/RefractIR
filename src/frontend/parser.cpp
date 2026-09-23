@@ -79,6 +79,15 @@ namespace refractir {
 
   TypePtr Parser::parseType() {
     SourcePos b = peek().span.begin;
+    if (is(TokenKind::Ident) && peek().lexeme == "tensor") {
+      consume(TokenKind::Ident, "'tensor'");
+      Shape shape = parseTensorList("tensor dimension");
+      TypePtr elem = parseType();
+      return std::make_shared<Type>(
+          TensorType{std::move(shape), std::move(elem), SourceSpan{b, prevEnd()}},
+          SourceSpan{b, prevEnd()}
+      );
+    }
     if (is(TokenKind::IntType)) {
       std::string lex = consume(TokenKind::IntType, "integer type").lexeme;
       int bits = std::stoi(lex.substr(1));
@@ -135,6 +144,138 @@ namespace refractir {
       );
     }
     errorHere("Expected a type (iN, f32/f64, array type, struct type @Name, ptr T, or <N> T)");
+  }
+
+  std::vector<std::uint32_t> Parser::parseTensorList(const char *description) {
+    consume(TokenKind::LBracket, "'['");
+    std::vector<std::uint32_t> values;
+    if (!is(TokenKind::RBracket)) {
+      while (true) {
+        const auto &token = consume(TokenKind::IntLit, description);
+        std::int64_t value;
+        try {
+          value = parseIntegerLiteral(token.lexeme);
+        } catch (const std::exception &) {
+          throw ParseError(std::string("tensor-shape: invalid ") + description, token.span);
+        }
+        if (value < 0 || static_cast<std::uint64_t>(value) > UINT32_MAX)
+          throw ParseError(std::string("tensor-shape: invalid ") + description, token.span);
+        values.push_back(static_cast<std::uint32_t>(value));
+        if (!tryConsume(TokenKind::Comma))
+          break;
+      }
+    }
+    consume(TokenKind::RBracket, "']' after tensor list");
+    return values;
+  }
+
+  std::int64_t Parser::parseTensorAxis() {
+    bool negative = tryConsume(TokenKind::Minus);
+    if (is(TokenKind::LocalId) || is(TokenKind::SymId))
+      throw ParseError("tensor-axis: axis must be an integer literal", peek().span);
+    const auto &token = consume(TokenKind::IntLit, "signed tensor axis");
+    std::int64_t value;
+    try {
+      value = parseIntegerLiteral(token.lexeme);
+    } catch (const std::exception &) {
+      throw ParseError("tensor-axis: invalid integer literal", token.span);
+    }
+    if (negative) {
+      if (value == INT64_MIN)
+        throw ParseError("tensor-axis: axis literal is out of range", token.span);
+      value = -value;
+    }
+    return value;
+  }
+
+  Atom Parser::parseTensorAtom() {
+    const SourcePos begin = peek().span.begin;
+    consume(TokenKind::Ident, "'tensor'");
+    const auto &operatorToken = consume(TokenKind::Ident, "tensor operator");
+    TensorAtom atom;
+    auto parseOperand = [&]() { atom.operands.push_back(parseCoef()); };
+    auto comma = [&]() { consume(TokenKind::Comma, "','"); };
+
+    if (operatorToken.lexeme == "add" || operatorToken.lexeme == "sub" ||
+        operatorToken.lexeme == "mul" || operatorToken.lexeme == "div" ||
+        operatorToken.lexeme == "min" || operatorToken.lexeme == "max" ||
+        operatorToken.lexeme == "and" || operatorToken.lexeme == "or" ||
+        operatorToken.lexeme == "xor") {
+      if (operatorToken.lexeme == "add")
+        atom.op = TensorOp::Add;
+      else if (operatorToken.lexeme == "sub")
+        atom.op = TensorOp::Sub;
+      else if (operatorToken.lexeme == "mul")
+        atom.op = TensorOp::Mul;
+      else if (operatorToken.lexeme == "div")
+        atom.op = TensorOp::Div;
+      else if (operatorToken.lexeme == "min")
+        atom.op = TensorOp::Min;
+      else if (operatorToken.lexeme == "max")
+        atom.op = TensorOp::Max;
+      else if (operatorToken.lexeme == "and")
+        atom.op = TensorOp::And;
+      else if (operatorToken.lexeme == "or")
+        atom.op = TensorOp::Or;
+      else
+        atom.op = TensorOp::Xor;
+      parseOperand();
+      comma();
+      parseOperand();
+    } else if (operatorToken.lexeme == "exp") {
+      atom.op = TensorOp::Exp;
+      parseOperand();
+    } else if (operatorToken.lexeme == "iota") {
+      atom.op = TensorOp::Iota;
+      atom.attribute = parseTensorList("iota dimension");
+      comma();
+      atom.axis = parseTensorAxis();
+    } else if (operatorToken.lexeme == "extract") {
+      atom.op = TensorOp::Extract;
+      parseOperand();
+      comma();
+      atom.attribute = parseTensorList("extract coordinate");
+    } else if (operatorToken.lexeme == "expand") {
+      atom.op = TensorOp::Expand;
+      parseOperand();
+      comma();
+      atom.axis = parseTensorAxis();
+    } else if (operatorToken.lexeme == "broadcast") {
+      atom.op = TensorOp::Broadcast;
+      parseOperand();
+      comma();
+      atom.attribute = parseTensorList("broadcast dimension");
+    } else if (operatorToken.lexeme == "transpose") {
+      atom.op = TensorOp::Transpose;
+      parseOperand();
+      comma();
+      atom.attribute = parseTensorList("transpose axis");
+    } else if (operatorToken.lexeme == "sum" || operatorToken.lexeme == "rmin" ||
+               operatorToken.lexeme == "rmax") {
+      atom.op = operatorToken.lexeme == "sum"    ? TensorOp::Sum
+                : operatorToken.lexeme == "rmin" ? TensorOp::ReduceMin
+                                                 : TensorOp::ReduceMax;
+      parseOperand();
+      comma();
+      atom.axis = parseTensorAxis();
+      comma();
+      const auto &mode = consume(TokenKind::Ident, "'keep' or 'drop'");
+      if (mode.lexeme != "keep" && mode.lexeme != "drop")
+        throw ParseError("tensor-shape: expected 'keep' or 'drop'", mode.span);
+      atom.keepDims = mode.lexeme == "keep";
+    } else if (operatorToken.lexeme == "softmax") {
+      atom.op = TensorOp::Softmax;
+      parseOperand();
+      comma();
+      atom.axis = parseTensorAxis();
+    } else {
+      throw ParseError(
+          "tensor-type: unknown tensor operator '" + operatorToken.lexeme + "'", operatorToken.span
+      );
+    }
+
+    atom.span = SourceSpan{begin, prevEnd()};
+    return Atom{std::move(atom), SourceSpan{begin, prevEnd()}};
   }
 
   SourcePos Parser::prevEnd() const {
@@ -754,6 +895,9 @@ namespace refractir {
 
   Atom Parser::parseAtom() {
     SourcePos b = peek().span.begin;
+
+    if (is(TokenKind::Ident) && peek().lexeme == "tensor")
+      return parseTensorAtom();
 
     if (is(TokenKind::KwCall)) {
       return parseCallAtom();

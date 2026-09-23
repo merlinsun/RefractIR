@@ -249,6 +249,12 @@ namespace refractir {
           } else if constexpr (std::is_same_v<T, VecType>) {
             out_ << "<" << arg.size << "> ";
             dumpType(arg.elem);
+          } else if constexpr (std::is_same_v<T, TensorType>) {
+            out_ << "tensor [";
+            for (std::size_t i = 0; i < arg.shape.size(); ++i)
+              out_ << (i ? ", " : "") << arg.shape[i];
+            out_ << "] ";
+            dumpType(arg.elem);
           }
         },
         t->v
@@ -338,6 +344,36 @@ namespace refractir {
               dumpExpr(*arg.args[i]);
             }
             out_ << ")";
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            auto dumpList = [&](const std::vector<std::uint32_t> &values) {
+              out_ << "[";
+              for (std::size_t i = 0; i < values.size(); ++i)
+                out_ << (i ? ", " : "") << values[i];
+              out_ << "]";
+            };
+            out_ << "tensor " << tensorOpName(arg.op) << " ";
+            if (arg.op == TensorOp::Iota) {
+              dumpList(arg.attribute);
+              out_ << ", " << arg.axis;
+            } else {
+              for (std::size_t i = 0; i < arg.operands.size(); ++i) {
+                if (i)
+                  out_ << ", ";
+                dumpCoef(arg.operands[i]);
+              }
+              if (arg.op == TensorOp::Extract || arg.op == TensorOp::Broadcast ||
+                  arg.op == TensorOp::Transpose) {
+                out_ << ", ";
+                dumpList(arg.attribute);
+              } else if (arg.op == TensorOp::Expand || arg.op == TensorOp::Softmax ||
+                         arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
+                         arg.op == TensorOp::ReduceMax) {
+                out_ << ", " << arg.axis;
+                if (arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
+                    arg.op == TensorOp::ReduceMax)
+                  out_ << ", " << (arg.keepDims ? "keep" : "drop");
+              }
+            }
           }
         },
         a.v

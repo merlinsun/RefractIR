@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <sstream>
 #include <stdexcept>
+#include "analysis/tensor.hpp"
 #include "analysis/type_utils.hpp"
 #include "ast/ast.hpp"
 #include "internal.hpp"
@@ -37,6 +38,8 @@ namespace refractir {
         s += ">";
         return s;
       }
+      case RuntimeValue::Kind::Tensor:
+        return "tensor";
     }
     return "?";
   }
@@ -50,6 +53,12 @@ namespace refractir {
       res.kind = RuntimeValue::Kind::Vec;
       for (size_t i = 0; i < vt->size; ++i)
         res.arrayVal.push_back(makeUndef(vt->elem));
+    } else if (auto tt = TypeUtils::asTensor(t)) {
+      res.kind = RuntimeValue::Kind::Tensor;
+      res.tensorShape = tt->shape;
+      res.bits = 32;
+      for (std::uint32_t i = 0; i < tensorElementCount(tt->shape); ++i)
+        res.arrayVal.push_back(makeUndef(tt->elem));
     } else if (auto at = TypeUtils::asArray(t)) {
       res.kind = RuntimeValue::Kind::Array;
       for (size_t i = 0; i < at->size; ++i)
@@ -124,6 +133,21 @@ namespace refractir {
         res.arrayVal.push_back(scalarOf(vt->elem, sv));
       return res;
     }
+    if (auto tt = TypeUtils::asTensor(s.type)) {
+      const auto count = tensorElementCount(tt->shape);
+      if (vals.size() != 1 && vals.size() != count)
+        throw std::runtime_error(
+            "Tensor symbol " + s.name.name + " expects one splat value or " +
+            std::to_string(count) + " element values"
+        );
+      RuntimeValue res;
+      res.kind = RuntimeValue::Kind::Tensor;
+      res.tensorShape = tt->shape;
+      res.bits = 32;
+      for (std::uint32_t i = 0; i < count; ++i)
+        res.arrayVal.push_back(scalarOf(tt->elem, vals.size() == 1 ? vals.front() : vals[i]));
+      return res;
+    }
     if (vals.size() != 1)
       throw std::runtime_error(
           "Symbol " + s.name.name + " is scalar but was bound with " + std::to_string(vals.size()) +
@@ -134,7 +158,7 @@ namespace refractir {
 
   RuntimeValue Interpreter::broadcast(const TypePtr &t, const RuntimeValue &v) {
     if (v.kind == RuntimeValue::Kind::Vec || v.kind == RuntimeValue::Kind::Array ||
-        v.kind == RuntimeValue::Kind::Struct) {
+        v.kind == RuntimeValue::Kind::Struct || v.kind == RuntimeValue::Kind::Tensor) {
       return v;
     }
     if (auto vt = TypeUtils::asVec(t)) {
@@ -150,6 +174,14 @@ namespace refractir {
       res.kind = RuntimeValue::Kind::Array;
       for (size_t i = 0; i < at->size; ++i)
         res.arrayVal.push_back(broadcast(at->elem, v));
+      return res;
+    } else if (auto tt = TypeUtils::asTensor(t)) {
+      RuntimeValue res;
+      res.kind = RuntimeValue::Kind::Tensor;
+      res.tensorShape = tt->shape;
+      res.bits = 32;
+      for (std::uint32_t i = 0; i < tensorElementCount(tt->shape); ++i)
+        res.arrayVal.push_back(broadcast(tt->elem, v));
       return res;
     } else if (auto st = TypeUtils::asStruct(t)) {
       RuntimeValue res;
@@ -200,6 +232,14 @@ namespace refractir {
         for (size_t i = 0; i < elements.size(); ++i)
           res.arrayVal.push_back(evalInit(*elements[i], at->elem, store));
         return res;
+      } else if (auto tt = TypeUtils::asTensor(t)) {
+        RuntimeValue res;
+        res.kind = RuntimeValue::Kind::Tensor;
+        res.tensorShape = tt->shape;
+        res.bits = 32;
+        for (const auto &element: elements)
+          res.arrayVal.push_back(evalInit(*element, tt->elem, store));
+        return res;
       } else if (auto st = TypeUtils::asStruct(t)) {
         RuntimeValue res;
         res.kind = RuntimeValue::Kind::Struct;
@@ -249,7 +289,8 @@ namespace refractir {
         v.floatVal = static_cast<double>(static_cast<float>(v.floatVal));
     }
 
-    if (TypeUtils::asArray(t) || TypeUtils::asStruct(t) || TypeUtils::asVec(t)) {
+    if (TypeUtils::asArray(t) || TypeUtils::asStruct(t) || TypeUtils::asVec(t) ||
+        TypeUtils::asTensor(t)) {
       return broadcast(t, v);
     }
     return v;

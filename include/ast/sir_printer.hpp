@@ -25,6 +25,15 @@ namespace refractir {
             &vecModel
     ) : out_(out), model_(model), vecModel_(vecModel) {}
 
+    explicit SIRPrinter(
+        std::ostream &out,
+        const std::unordered_map<std::string, SymbolicExecutor::Result::ModelVal> &model,
+        const std::unordered_map<std::string, std::vector<SymbolicExecutor::Result::ModelVal>>
+            &vecModel,
+        const std::unordered_map<std::string, std::vector<SymbolicExecutor::Result::ModelVal>>
+            &tensorModel
+    ) : out_(out), model_(model), vecModel_(vecModel), tensorModel_(tensorModel) {}
+
     void print(const Program &p);
 
     // Publicly exposed so a caller that persists type information can
@@ -43,6 +52,9 @@ namespace refractir {
     // solver. References to a vec sym `%?v` are rewritten to a synthetic
     // local `%v__solved` whose init list carries these lane values.
     std::unordered_map<std::string, std::vector<SymbolicExecutor::Result::ModelVal>> vecModel_;
+    // Flattened row-major values for tensor syms, materialized as typed
+    // flat-list lets so tensor atoms can continue to reference a local.
+    std::unordered_map<std::string, std::vector<SymbolicExecutor::Result::ModelVal>> tensorModel_;
     int indent_level_ = 0;
 
     // Translate `%?v` / `@?v` to a corresponding local identifier suitable

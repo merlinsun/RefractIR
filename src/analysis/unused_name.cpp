@@ -92,6 +92,11 @@ namespace refractir {
               // referenced inside `call @f(args...)` are marked used.
               for (const auto &ap: arg.args)
                 recurseExpr(*ap, recurseExpr);
+            } else if constexpr (std::is_same_v<T, TensorAtom>) {
+              for (const auto &operand: arg.operands) {
+                if (const auto id = std::get_if<LocalOrSymId>(&operand))
+                  std::visit([&](auto &&name) { used.insert(name.name); }, *id);
+              }
             }
           },
           a.v

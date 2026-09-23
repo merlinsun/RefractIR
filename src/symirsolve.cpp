@@ -198,6 +198,36 @@ int main(int argc, char **argv) {
             mfs << refractir::formatDouble(std::get<double>(val));
           first = false;
         }
+        for (const auto &[name, values]: res.tensorModel) {
+          if (!first)
+            mfs << ",\n";
+          mfs << "    \"" << name << "\": [";
+          for (size_t i = 0; i < values.size(); ++i) {
+            if (i)
+              mfs << ", ";
+            if (std::holds_alternative<int64_t>(values[i]))
+              mfs << std::get<int64_t>(values[i]);
+            else
+              mfs << refractir::formatDouble(std::get<double>(values[i]));
+          }
+          mfs << "]";
+          first = false;
+        }
+        for (const auto &[name, values]: res.vecModel) {
+          if (!first)
+            mfs << ",\n";
+          mfs << "    \"" << name << "\": [";
+          for (size_t i = 0; i < values.size(); ++i) {
+            if (i)
+              mfs << ", ";
+            if (std::holds_alternative<int64_t>(values[i]))
+              mfs << std::get<int64_t>(values[i]);
+            else
+              mfs << refractir::formatDouble(std::get<double>(values[i]));
+          }
+          mfs << "]";
+          first = false;
+        }
         mfs << "\n  }\n";
         mfs << "}\n";
       }
@@ -225,7 +255,7 @@ int main(int argc, char **argv) {
             ofs, res.paramModel,
             res.retModel.has_value() ? formatModelValue(*res.retModel) : std::string{}
         );
-        SIRPrinter printer(ofs, res.model, res.vecModel);
+        SIRPrinter printer(ofs, res.model, res.vecModel, res.tensorModel);
         printer.print(prog);
       }
 

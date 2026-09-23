@@ -63,6 +63,12 @@ namespace refractir {
         const std::vector<std::string> &paramArgs = {}, bool dumpExec = false,
         bool dumpCall = false);
 
+    /// Execute with already-decoded, type-checked parameter values.
+    std::optional<RuntimeValue> runTyped(
+        const std::string &entryFuncName, const SymBindings &symBindings,
+        const std::vector<RuntimeValue> &paramArgs
+    );
+
     // RuntimeValue and Store are defined in interp/value.hpp at namespace
     // scope so the memory / type-layout collaborators can share them.
 
@@ -142,6 +148,10 @@ namespace refractir {
     // Store would observe the stale pre-call value.
     void syncStoreFromHeap(Store &store);
 
+    // Reset per-run interpreter state shared by the textual and typed entry
+    // points.
+    void beginRun(bool dumpExec, bool dumpCall);
+
     // Run the body of a function whose Store has already been
     // populated. Used by both execFunction (top-level) and callFunction
     // (nested). A `ret` with a value writes it to `outRet` when that is
@@ -183,6 +193,7 @@ namespace refractir {
     RuntimeValue evalLoadAtom(const LoadAtom &arg, const Store &store);
     RuntimeValue evalPtrIndexAtom(const PtrIndexAtom &arg, const Store &store);
     RuntimeValue evalPtrFieldAtom(const PtrFieldAtom &arg, const Store &store);
+    RuntimeValue evalTensorAtom(const TensorAtom &arg, const Store &store);
     RuntimeValue evalCastAtom(const CastAtom &arg, const Store &store);
     RuntimeValue evalCallAtom(const CallAtom &arg, const Store &store);
     // Execute a built-in intrinsic. Argument values are already

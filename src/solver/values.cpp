@@ -1,4 +1,5 @@
 #include <stdexcept>
+#include "analysis/tensor.hpp"
 #include "analysis/type_utils.hpp"
 #include "internal.hpp"
 #include "solver/solver.hpp"
@@ -46,6 +47,8 @@ namespace refractir {
       // is in each lane?" gets the right answer.
       return getSort(vt->elem, solver);
     }
+    if (auto tensor = std::get_if<TensorType>(&t->v))
+      return getSort(tensor->elem, solver);
     throw std::runtime_error("Unknown type or empty struct in getSort");
   }
 
@@ -54,7 +57,15 @@ namespace refractir {
       std::vector<smt::Term> *finiteSink
   ) {
     SymbolicValue res;
-    if (auto at = std::get_if<ArrayType>(&t->v)) {
+    if (auto tensor = std::get_if<TensorType>(&t->v)) {
+      res.kind = SymbolicValue::Kind::Tensor;
+      res.tensorShape = tensor->shape;
+      const auto count = tensorElementCount(tensor->shape);
+      for (std::uint32_t i = 0; i < count; ++i)
+        res.arrayVal.push_back(createSymbolicValue(
+            tensor->elem, name + "[" + std::to_string(i) + "]", solver, finiteSink
+        ));
+    } else if (auto at = std::get_if<ArrayType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Array;
       for (size_t i = 0; i < at->size; ++i) {
         res.arrayVal.push_back(
@@ -97,7 +108,13 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::makeUndef(const TypePtr &t, smt::ISolver &solver) {
     SymbolicValue res;
-    if (auto at = std::get_if<ArrayType>(&t->v)) {
+    if (auto tensor = std::get_if<TensorType>(&t->v)) {
+      res.kind = SymbolicValue::Kind::Tensor;
+      res.tensorShape = tensor->shape;
+      const auto count = tensorElementCount(tensor->shape);
+      for (std::uint32_t i = 0; i < count; ++i)
+        res.arrayVal.push_back(makeUndef(tensor->elem, solver));
+    } else if (auto at = std::get_if<ArrayType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Array;
       for (size_t i = 0; i < at->size; ++i)
         res.arrayVal.push_back(makeUndef(at->elem, solver));
@@ -121,7 +138,15 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::broadcast(const TypePtr &t, smt::Term val, smt::ISolver &solver) {
-    if (std::holds_alternative<ArrayType>(t->v)) {
+    if (auto tensor = std::get_if<TensorType>(&t->v)) {
+      SymbolicValue res;
+      res.kind = SymbolicValue::Kind::Tensor;
+      res.tensorShape = tensor->shape;
+      const auto count = tensorElementCount(tensor->shape);
+      for (std::uint32_t i = 0; i < count; ++i)
+        res.arrayVal.push_back(broadcast(tensor->elem, val, solver));
+      return res;
+    } else if (std::holds_alternative<ArrayType>(t->v)) {
       SymbolicValue res;
       res.kind = SymbolicValue::Kind::Array;
       const auto &at = std::get<ArrayType>(t->v);
@@ -199,6 +224,13 @@ namespace refractir {
         res.kind = SymbolicValue::Kind::Array;
         for (size_t i = 0; i < elements.size(); ++i)
           res.arrayVal.push_back(evalInit(*elements[i], at->elem, solver, store, pc, ub));
+        return res;
+      } else if (auto tt = std::get_if<TensorType>(&t->v)) {
+        SymbolicValue res;
+        res.kind = SymbolicValue::Kind::Tensor;
+        res.tensorShape = tt->shape;
+        for (const auto &element: elements)
+          res.arrayVal.push_back(evalInit(*element, tt->elem, solver, store, pc, ub));
         return res;
       } else if (auto vt = std::get_if<VecType>(&t->v)) {
         SymbolicValue res;

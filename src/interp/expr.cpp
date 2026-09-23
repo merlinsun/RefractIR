@@ -5,6 +5,8 @@
 #include "frontend/diagnostics.hpp"
 #include "internal.hpp"
 #include "interp/interpreter.hpp"
+#include "interp/tensor.hpp"
+#include "interp/tensor_numeric.hpp"
 
 namespace refractir {
 
@@ -163,11 +165,30 @@ namespace refractir {
             return evalCastAtom(arg, store);
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             return evalCallAtom(arg, store);
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            return evalTensorAtom(arg, store);
           }
           return RuntimeValue{};
         },
         a.v
     );
+  }
+
+  RuntimeValue Interpreter::evalTensorAtom(const TensorAtom &arg, const Store &store) {
+    if (!arg.resolvedType)
+      throw std::runtime_error("tensor atom reached the interpreter without checked type metadata");
+    std::vector<RuntimeValue> operands;
+    operands.reserve(arg.operands.size());
+    for (const auto &operand: arg.operands)
+      operands.push_back(evalCoef(operand, store));
+    const auto resultType = tensorTypeInfo(arg.resolvedType);
+    const bool numerical = resultType.element == TensorElement::F32 && arg.op != TensorOp::Iota &&
+                           arg.op != TensorOp::Extract && arg.op != TensorOp::Expand &&
+                           arg.op != TensorOp::Broadcast && arg.op != TensorOp::Transpose;
+    auto result = numerical ? evalTensorNumeric(arg, operands, resultType, tensorReferenceBits())
+                            : evalTensorExact(arg, operands, resultType);
+    traceTensorValue(arg.span, result);
+    return result;
   }
 
   RuntimeValue Interpreter::evalOpAtom(const OpAtom &arg, const Store &store) {

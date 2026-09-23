@@ -71,6 +71,11 @@ namespace refractir {
     static const VecType *asVec(const TypePtr &t);
 
     /**
+     * Casts to TensorType if possible, otherwise returns nullptr.
+     */
+    static const TensorType *asTensor(const TypePtr &t);
+
+    /**
      * Casts to PtrType if possible, otherwise returns nullptr.
      */
     static const PtrType *asPtr(const TypePtr &t);
@@ -94,6 +99,11 @@ namespace refractir {
      * True iff the type is a vector type `<N> T`.
      */
     static bool isVec(const TypePtr &t);
+
+    /**
+     * True iff `t` is a fixed-shape tensor value.
+     */
+    static bool isTensor(const TypePtr &t);
 
     /**
      * True iff the type is an integer type `iN`.

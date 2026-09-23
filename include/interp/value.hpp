@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "ast/tensor.hpp"
 
 namespace refractir {
 
@@ -15,7 +17,7 @@ namespace refractir {
    * full Interpreter definition.
    */
   struct RuntimeValue {
-    enum class Kind { Int, Float, Array, Struct, Undef, Ptr, Vec } kind = Kind::Undef;
+    enum class Kind { Int, Float, Array, Struct, Undef, Ptr, Vec, Tensor } kind = Kind::Undef;
     std::int64_t intVal = 0;
     double floatVal = 0.0;
     std::uint32_t bits = 64;    // bitwidth for Int or Float (32/64)
@@ -23,7 +25,12 @@ namespace refractir {
     std::uint64_t ptrBase = 0;  // for Ptr kind: provenance object ID (ObjectInfo::provId)
     std::uint64_t elemSize = 1; // for Ptr kind: static element size of the pointee type
     std::vector<RuntimeValue> arrayVal;
-    std::unordered_map<std::string, RuntimeValue> structVal;
+    // Tensor values use flat row-major leaves and keep their logical shape
+    // separate from arrays and vectors.
+    Shape tensorShape;
+    // See SymbolicValue::structVal: GCC 11's unordered_map requires a
+    // complete mapped value type at this recursive member declaration.
+    std::map<std::string, RuntimeValue> structVal;
     // Vec: same shape as Array (per-lane RuntimeValue tuple),
     // but represents a vector value (no address; not in heap_; lane-wise
     // arithmetic). Element kind matches the lane scalar type.

@@ -15,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 #include <utility>
@@ -40,6 +41,7 @@
 #include "reify/id_gen.hpp"
 #include "reify/path_sampler.hpp"
 #include "reify/state_profile.hpp"
+#include "reify/tensor_gen.hpp"
 #include "reify/var_catalogue.hpp"
 #include "solver/solved_header.hpp"
 #include "solver/solver.hpp"
@@ -942,6 +944,18 @@ static void refreshDescriptor(
 
   // clang-format off
     opts.add_options()
+      ("profile",           "Generation profile (scalar or tensor)",
+                            cxxopts::value<std::string>()->default_value("scalar"))
+      ("tensor-dtype",      "Tensor profile element type (i32 or f32)",
+                            cxxopts::value<std::string>()->default_value("i32"))
+      ("tensor-property",   "Tensor postcondition family (coordinates, sum-target, softmax-dominance)",
+                            cxxopts::value<std::string>())
+      ("tensor-synthesis",  "Tensor candidate route (construction, exact, cvc5)",
+                            cxxopts::value<std::string>()->default_value("construction"))
+      ("tensor-cvc5",       "cvc5 executable for the optional tensor real-synthesis route",
+                            cxxopts::value<std::string>())
+      ("tensor-cvc5-feasibility", "Matching cvc5 feasibility record for real-synthesis campaigns",
+                            cxxopts::value<std::string>())
       ("n,n-funcs",         "Number of leaf functions to generate",
                             cxxopts::value<int>()->default_value("1"))
       // Type control
@@ -1267,6 +1281,70 @@ int main(int argc, char **argv) {
   if (result.count("help")) {
     std::cout << opts.help() << "\n";
     return 0;
+  }
+
+  const std::string profile = result["profile"].as<std::string>();
+  if (profile != "scalar" && profile != "tensor") {
+    std::cerr << "error: unknown generation profile '" << profile
+              << "' (expected scalar or tensor)\n";
+    return 2;
+  }
+  if (profile == "tensor") {
+    static constexpr std::string_view scalarOnlyFlags[] = {
+        "no-fp",          "no-vec",          "no-agg-ptr",         "no-crc32",
+        "require-ub",     "require-nonterm", "require-reducible",  "keep-require",
+        "keep-ub-guards", "keep-symbolic",   "emit-desc",          "emit-main",
+        "validate",       "no-divmod",       "no-select",          "no-intrinsics",
+        "no-ptrarith",    "emit-state",      "structured-lowering"
+    };
+    for (const auto flag: scalarOnlyFlags) {
+      if (result.count(std::string(flag))) {
+        std::cerr << "error: --" << flag << " is not supported by the tensor profile\n";
+        return 2;
+      }
+    }
+    if (result.count("n-examples") || result.count("n-concretes") || result.count("n-params") ||
+        result.count("n-vars") || result.count("n-stmts") || result.count("min-atoms") ||
+        result.count("max-atoms") || result.count("vec-lowering") || result.count("n-bbls") ||
+        result.count("p-branch") || result.count("p-backedge") || result.count("timeout")) {
+      std::cerr << "error: scalar generation controls are not supported by the tensor profile\n";
+      return 2;
+    }
+
+    refractir::reify::TensorGenerationOptions tensorOptions;
+    tensorOptions.dtype = result["tensor-dtype"].as<std::string>();
+    tensorOptions.property =
+        result.count("tensor-property") ? result["tensor-property"].as<std::string>() : "";
+    tensorOptions.synthesis = result["tensor-synthesis"].as<std::string>();
+    tensorOptions.target = result["target"].as<std::string>();
+    tensorOptions.count = static_cast<std::uint32_t>(std::max(0, result["n-funcs"].as<int>()));
+    tensorOptions.seed = result.count("seed") ? result["seed"].as<std::uint32_t>()
+                                              : static_cast<std::uint32_t>(std::random_device{}());
+    tensorOptions.attemptBudget =
+        result.count("max-retries")
+            ? static_cast<std::uint32_t>(std::max(0, result["max-retries"].as<int>()))
+            : 100;
+    tensorOptions.outputDirectory = result["output-dir"].as<std::string>();
+    if (result.count("tensor-cvc5"))
+      tensorOptions.cvc5Executable = result["tensor-cvc5"].as<std::string>();
+    if (result.count("tensor-cvc5-feasibility"))
+      tensorOptions.cvc5FeasibilityRecord = result["tensor-cvc5-feasibility"].as<std::string>();
+    if (tensorOptions.synthesis == "cvc5" &&
+        (tensorOptions.cvc5Executable.empty() || tensorOptions.cvc5FeasibilityRecord.empty())) {
+      tensorOptions.outputDirectory = result["output-dir"].as<std::string>();
+      auto generation = refractir::reify::generateTensorCases(tensorOptions);
+      std::cerr << "error: cvc5 synthesis requires --tensor-cvc5 and "
+                   "--tensor-cvc5-feasibility; "
+                << generation.reason << "\n";
+      return generation.exitCode();
+    }
+    auto generation = refractir::reify::generateTensorCases(tensorOptions);
+    std::cout << "rysmith: tensor generation requested=" << generation.requested
+              << " emitted=" << generation.emitted << " rejected=" << generation.rejected
+              << " status=" << generation.status << "\n";
+    if (!generation.reason.empty())
+      std::cerr << "error: " << generation.reason << "\n";
+    return generation.exitCode();
   }
 
   // ---- Parse domains -------------------------------------------------------

@@ -63,7 +63,7 @@ namespace refractir {
       // 1. Symbols. If a model is present, scalar syms get substituted
       //    inline at use sites and are dropped here; vec syms get
       //    materialized as synthetic let-decls (see step 1b).
-      bool hasModel = !model_.empty() || !vecModel_.empty();
+      bool hasModel = !model_.empty() || !vecModel_.empty() || !tensorModel_.empty();
       if (!hasModel) {
         for (const auto &s: f.syms) {
           indent();
@@ -94,6 +94,29 @@ namespace refractir {
       for (const auto &s: f.syms) {
         auto it = vecModel_.find(s.name.name);
         if (it == vecModel_.end())
+          continue;
+        indent();
+        out_ << "let " << vecSymLocalName(s.name.name) << ": ";
+        printType(s.type);
+        out_ << " = {";
+        for (size_t k = 0; k < it->second.size(); ++k) {
+          const auto &v = it->second[k];
+          if (std::holds_alternative<int64_t>(v))
+            out_ << std::get<int64_t>(v);
+          else
+            printDouble(out_, std::get<double>(v));
+          if (k + 1 < it->second.size())
+            out_ << ", ";
+        }
+        out_ << "};\n";
+      }
+
+      // Tensor sym references are coefficients inside tensor atoms, so they
+      // use the same synthetic-local rewrite as vector syms. Tensor init
+      // lists are flat and preserve the row-major model order.
+      for (const auto &s: f.syms) {
+        auto it = tensorModel_.find(s.name.name);
+        if (it == tensorModel_.end())
           continue;
         indent();
         out_ << "let " << vecSymLocalName(s.name.name) << ": ";
@@ -273,6 +296,12 @@ namespace refractir {
           } else if constexpr (std::is_same_v<T, VecType>) {
             out_ << "<" << arg.size << "> ";
             printType(arg.elem);
+          } else if constexpr (std::is_same_v<T, TensorType>) {
+            out_ << "tensor [";
+            for (std::size_t i = 0; i < arg.shape.size(); ++i)
+              out_ << (i ? ", " : "") << arg.shape[i];
+            out_ << "] ";
+            printType(arg.elem);
           }
         },
         t->v
@@ -323,8 +352,8 @@ namespace refractir {
                   } else if constexpr (std::is_same_v<S, FloatLit>) {
                     printDouble(out_, src.value);
                   } else if constexpr (std::is_same_v<S, SymId>) {
-                    if (vecModel_.count(src.name)) {
-                      // Vec sym — substitute with the synthetic local.
+                    if (vecModel_.count(src.name) || tensorModel_.count(src.name)) {
+                      // Aggregate sym — substitute with its synthetic local.
                       out_ << vecSymLocalName(src.name);
                     } else if (model_.count(src.name)) {
                       auto val = model_.at(src.name);
@@ -371,6 +400,36 @@ namespace refractir {
               printExpr(*arg.args[i]);
             }
             out_ << ")";
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            auto printList = [&](const std::vector<std::uint32_t> &values) {
+              out_ << "[";
+              for (std::size_t i = 0; i < values.size(); ++i)
+                out_ << (i ? ", " : "") << values[i];
+              out_ << "]";
+            };
+            out_ << "tensor " << tensorOpName(arg.op) << " ";
+            if (arg.op == TensorOp::Iota) {
+              printList(arg.attribute);
+              out_ << ", " << arg.axis;
+            } else {
+              for (std::size_t i = 0; i < arg.operands.size(); ++i) {
+                if (i)
+                  out_ << ", ";
+                printCoef(arg.operands[i]);
+              }
+              if (arg.op == TensorOp::Extract || arg.op == TensorOp::Broadcast ||
+                  arg.op == TensorOp::Transpose) {
+                out_ << ", ";
+                printList(arg.attribute);
+              } else if (arg.op == TensorOp::Expand || arg.op == TensorOp::Softmax ||
+                         arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
+                         arg.op == TensorOp::ReduceMax) {
+                out_ << ", " << arg.axis;
+                if (arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
+                    arg.op == TensorOp::ReduceMax)
+                  out_ << ", " << (arg.keepDims ? "keep" : "drop");
+              }
+            }
           }
         },
         a.v
@@ -417,7 +476,7 @@ namespace refractir {
           } else {
             std::visit(
                 [this](auto &&id) {
-                  if (vecModel_.count(id.name)) {
+                  if (vecModel_.count(id.name) || tensorModel_.count(id.name)) {
                     out_ << vecSymLocalName(id.name);
                   } else if (model_.count(id.name)) {
                     auto val = model_.at(id.name);
@@ -454,7 +513,7 @@ namespace refractir {
           } else {
             std::visit(
                 [this](auto &&id) {
-                  if (vecModel_.count(id.name)) {
+                  if (vecModel_.count(id.name) || tensorModel_.count(id.name)) {
                     out_ << vecSymLocalName(id.name);
                   } else if (model_.count(id.name)) {
                     auto val = model_.at(id.name);
@@ -484,7 +543,7 @@ namespace refractir {
         break;
       case InitVal::Kind::Sym: {
         auto name = std::get<SymId>(iv.value).name;
-        if (vecModel_.count(name)) {
+        if (vecModel_.count(name) || tensorModel_.count(name)) {
           out_ << vecSymLocalName(name);
         } else if (model_.count(name)) {
           auto val = model_.at(name);

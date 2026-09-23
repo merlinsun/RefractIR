@@ -84,6 +84,10 @@ namespace refractir {
       auto vb = std::get_if<VecType>(&b->v);
       return va->size == vb->size && areTypesEqual(va->elem, vb->elem);
     }
+    if (const auto ta = std::get_if<TensorType>(&a->v)) {
+      const auto tb = std::get_if<TensorType>(&b->v);
+      return ta->shape == tb->shape && areTypesEqual(ta->elem, tb->elem);
+    }
     return false;
   }
 
@@ -105,7 +109,15 @@ namespace refractir {
     return t ? std::get_if<VecType>(&t->v) : nullptr;
   }
 
+  const TensorType *TypeUtils::asTensor(const TypePtr &t) {
+    return t ? std::get_if<TensorType>(&t->v) : nullptr;
+  }
+
   bool TypeUtils::isVec(const TypePtr &t) { return t && std::holds_alternative<VecType>(t->v); }
+
+  bool TypeUtils::isTensor(const TypePtr &t) {
+    return t && std::holds_alternative<TensorType>(t->v);
+  }
 
   const PtrType *TypeUtils::asPtr(const TypePtr &t) {
     return t ? std::get_if<PtrType>(&t->v) : nullptr;

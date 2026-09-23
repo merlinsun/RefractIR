@@ -10,37 +10,72 @@
 #include <xmmintrin.h>
 #endif
 #include "analysis/cfg.hpp"
+#include "analysis/tensor.hpp"
 #include "analysis/type_utils.hpp"
 #include "error.hpp"
 #include "frontend/diagnostics.hpp"
 #include "internal.hpp"
+#include "interp/tensor.hpp"
 
 namespace refractir {
+  namespace {
+
+    void configureTensorReferenceFpEnvironment() {
+      std::fesetround(FE_TONEAREST);
+#if defined(__SSE__) || defined(__x86_64__) || defined(_M_X64)
+      _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_OFF);
+      _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_OFF);
+#endif
+    }
+
+    void validateTypedScalar(const RuntimeValue &value, TensorElement element) {
+      if (element == TensorElement::I32) {
+        if (value.kind != RuntimeValue::Kind::Int || value.bits != 32 || value.intVal < INT32_MIN ||
+            value.intVal > INT32_MAX)
+          throw std::runtime_error("typed i32 argument has the wrong kind, width, or range");
+      } else if (value.kind != RuntimeValue::Kind::Float || value.bits != 32 ||
+                 !std::isfinite(value.floatVal) ||
+                 !std::isfinite(static_cast<float>(value.floatVal))) {
+        throw std::runtime_error("typed f32 argument is non-finite or has the wrong type");
+      }
+    }
+
+    void validateTypedArgument(const RuntimeValue &value, const TypePtr &type) {
+      const auto info = tensorTypeInfo(type);
+      if (info.shape.empty()) {
+        if (value.kind == RuntimeValue::Kind::Tensor)
+          throw std::runtime_error("typed scalar argument received a tensor value");
+        validateTypedScalar(value, info.element);
+        return;
+      }
+      if (value.kind != RuntimeValue::Kind::Tensor || value.tensorShape != info.shape ||
+          value.arrayVal.size() != tensorElementCount(info.shape))
+        throw std::runtime_error("typed tensor argument shape or element count mismatch");
+      for (const auto &scalar: value.arrayVal)
+        validateTypedScalar(scalar, info.element);
+    }
+
+  } // namespace
 
   Interpreter::Interpreter(const Program &prog) : Interpreter(prog, std::cout) {}
 
   Interpreter::Interpreter(const Program &prog, std::ostream &out) :
       prog_(prog), out_(out), typeLayout_(prog), memory_(typeLayout_) {}
 
-  std::optional<RuntimeValue> Interpreter::run(
-      const std::string &entryFuncName, const SymBindings &symBindings,
-      const std::vector<std::string> &paramArgs, bool dumpExec, bool dumpCall
-  ) {
-    // Ensure IEEE 754 RNE rounding mode regardless of process FP environment.
-    std::fesetround(FE_TONEAREST);
-    // Spec §2.9 guarantees subnormals are first-class (no flush-to-zero).
-    // Defensively clear MXCSR FTZ and DAZ in case a parent process or an
-    // upstream library toggled them on before invoking symiri — those bits
-    // survive across some entry paths and would silently flush f32 subnormals
-    // in the interpreter's arithmetic.
-#if defined(__SSE__) || defined(__x86_64__) || defined(_M_X64)
-    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_OFF);
-    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_OFF);
-#endif
+  void Interpreter::beginRun(bool dumpExec, bool dumpCall) {
+    // Keep the reference independent of the caller's floating-point mode.
+    configureTensorReferenceFpEnvironment();
     dumpExec_ = dumpExec;
     dumpCall_ = dumpCall;
     nextFrameId_ = 0;
     blockSteps_ = 0;
+  }
+
+  std::optional<RuntimeValue> Interpreter::run(
+      const std::string &entryFuncName, const SymBindings &symBindings,
+      const std::vector<std::string> &paramArgs, bool dumpExec, bool dumpCall
+  ) {
+    beginRun(dumpExec, dumpCall);
     const FunDecl *entry = nullptr;
     for (const auto &f: prog_.funs) {
       if (f.name.name == entryFuncName) {
@@ -102,6 +137,41 @@ namespace refractir {
     }
     symBindings_ = &symBindings;
     std::optional<RuntimeValue> result = execFunction(*entry, args, symBindings);
+    symBindings_ = nullptr;
+    printResult(result);
+    return result;
+  }
+
+  std::optional<RuntimeValue> Interpreter::runTyped(
+      const std::string &entryFuncName, const SymBindings &symBindings,
+      const std::vector<RuntimeValue> &paramArgs
+  ) {
+    beginRun(false, false);
+
+    const FunDecl *entry = nullptr;
+    const std::string globalEntryName = !entryFuncName.empty() && entryFuncName.front() == '@'
+                                            ? entryFuncName
+                                            : "@" + entryFuncName;
+    for (const auto &function: prog_.funs)
+      if (function.name.name == globalEntryName) {
+        entry = &function;
+        break;
+      }
+    if (!entry)
+      throw std::runtime_error("Entry function not found: " + entryFuncName);
+    if (paramArgs.size() != entry->params.size())
+      throw std::runtime_error("typed argument count does not match entry signature");
+    for (std::size_t i = 0; i < paramArgs.size(); ++i)
+      validateTypedArgument(paramArgs[i], entry->params[i].type);
+
+    symBindings_ = &symBindings;
+    std::optional<RuntimeValue> result;
+    try {
+      result = execFunction(*entry, paramArgs, symBindings);
+    } catch (...) {
+      symBindings_ = nullptr;
+      throw;
+    }
     symBindings_ = nullptr;
     printResult(result);
     return result;

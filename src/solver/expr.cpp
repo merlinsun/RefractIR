@@ -152,6 +152,8 @@ namespace refractir {
             return evalLoadAtom(arg, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             return evalCallAtom(arg, solver, store, pc, ub);
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            return evalTensorAtom(arg, solver, store, ub);
           }
           return SymbolicValue(SymbolicValue::Kind::Undef);
         },

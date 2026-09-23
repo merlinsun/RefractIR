@@ -156,6 +156,18 @@ namespace refractir {
                 );
               } else if constexpr (std::is_same_v<T, UnaryAtom>) {
                 checkLValue(arg.rval);
+              } else if constexpr (std::is_same_v<T, TensorAtom>) {
+                for (const auto &operand: arg.operands) {
+                  if (const auto id = std::get_if<LocalOrSymId>(&operand)) {
+                    if (const auto local = std::get_if<LocalId>(id)) {
+                      if (state.count(local->name) && !state.at(local->name))
+                        diags_.error(
+                            "Read of uninitialized local in tensor operand: " + local->name,
+                            local->span
+                        );
+                    }
+                  }
+                }
               }
             },
             a.v

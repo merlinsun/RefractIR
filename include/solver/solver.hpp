@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <optional>
 #include <random>
 #include <span>
@@ -70,10 +71,12 @@ namespace refractir {
     using ModelVal = std::variant<int64_t, double>;
 
     struct LetExitValue {
-      enum class Kind { Int, Float, Array, Struct, Vec, Ptr, Undef } kind = Kind::Undef;
+      enum class Kind { Int, Float, Array, Struct, Vec, Tensor, Ptr, Undef } kind = Kind::Undef;
       ModelVal scalar;
       std::vector<LetExitValue> elems;
-      std::unordered_map<std::string, LetExitValue> fields;
+      // See SymbolicValue::structVal: the recursive mapped value must not be
+      // instantiated until this type is complete on GCC 11.
+      std::map<std::string, LetExitValue> fields;
       // Ptr only: `targetLocal` is the entry-function let / param the
       // pointer's provenance base resolves to (FNV-1a inverse of the
       // model value of SymbolicValue::prov_base). `targetOffset` is
@@ -105,6 +108,9 @@ namespace refractir {
       // a single map type fits both `<N> iM` and `<N> fM` cases —
       // consumers reinterpret as needed).
       std::unordered_map<std::string, std::vector<ModelVal>> vecModel;
+      // Flattened row-major leaves for tensor symbols. Their declared types
+      // retain the logical shape.
+      std::unordered_map<std::string, std::vector<ModelVal>> tensorModel;
       // Solved values for the entry function's parameters
       // (treated as symbols by the solver but printed verbatim in the
       // output). Empty when the entry has no parameters.
@@ -251,6 +257,10 @@ namespace refractir {
     );
     SymbolicValue evalCallAtom(
         const CallAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+        std::vector<smt::Term> &ub
+    );
+    SymbolicValue evalTensorAtom(
+        const TensorAtom &arg, smt::ISolver &solver, SymbolicStore &store,
         std::vector<smt::Term> &ub
     );
     smt::Term evalCoef(
@@ -442,12 +452,15 @@ namespace refractir {
         return iv;
       }
       case LEV::Kind::Array:
-      case LEV::Kind::Vec: {
+      case LEV::Kind::Vec:
+      case LEV::Kind::Tensor: {
         TypePtr elemTy;
         if (declType && std::holds_alternative<ArrayType>(declType->v))
           elemTy = std::get<ArrayType>(declType->v).elem;
         else if (declType && std::holds_alternative<VecType>(declType->v))
           elemTy = std::get<VecType>(declType->v).elem;
+        else if (declType && std::holds_alternative<TensorType>(declType->v))
+          elemTy = std::get<TensorType>(declType->v).elem;
         std::vector<InitValPtr> children;
         children.reserve(lev.elems.size());
         for (const auto &c: lev.elems)

@@ -1,14 +1,18 @@
 #include "backend/emit.hpp"
 
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <system_error>
 
 #include "analysis/reducibility.hpp"
+#include "analysis/tensor.hpp"
 #include "backend/c_backend.hpp"
 #include "backend/c_vec_lowering.hpp"
 #include "backend/py_backend.hpp"
 #include "backend/py_vec_lowering.hpp"
+#include "backend/triton_backend.hpp"
 #include "backend/wasm_backend.hpp"
 #include "backend/wasm_vec_lowering.hpp"
 #include "frontend/pipeline.hpp"
@@ -26,9 +30,9 @@ namespace refractir {
 
     // A program must be well-formed before a backend walks it: the backends
     // read the types the checker assigns and assume every branch resolves.
-    bool checked(Program &prog, bool verbose) {
+    bool checked(Program &prog, bool verbose, TensorConsumer consumer) {
       DiagBag diags;
-      if (checkProgram(prog, diags))
+      if (checkProgram(prog, diags) && checkTensorCapabilities(prog, consumer, diags))
         return true;
       if (verbose) {
         std::cerr << "emit: the program did not pass the checks:\n";
@@ -65,7 +69,7 @@ namespace refractir {
   bool emitC(
       Program &prog, const fs::path &outDir, const std::string &primaryStem, const EmitOptions &opts
   ) {
-    if (!checked(prog, opts.verbose))
+    if (!checked(prog, opts.verbose, TensorConsumer::C))
       return false;
     if (opts.structuredLowering && !everyFunReducible(prog, opts.verbose))
       return false;
@@ -102,7 +106,7 @@ namespace refractir {
   }
 
   bool emitWasm(Program &prog, const fs::path &outFile, const EmitOptions &opts) {
-    if (!checked(prog, opts.verbose))
+    if (!checked(prog, opts.verbose, TensorConsumer::Wasm))
       return false;
     if (opts.structuredLowering && !everyFunReducible(prog, opts.verbose))
       return false;
@@ -133,7 +137,7 @@ namespace refractir {
   }
 
   bool emitPy(Program &prog, const fs::path &outFile, const EmitOptions &opts) {
-    if (!checked(prog, opts.verbose))
+    if (!checked(prog, opts.verbose, TensorConsumer::Python))
       return false;
     // Python has no goto, so the backend structures whatever it is given.
     if (!everyFunReducible(prog, opts.verbose))
@@ -158,6 +162,57 @@ namespace refractir {
       pb.emit(prog);
     } catch (const std::exception &e) {
       note(opts.verbose, std::string("the python backend failed: ") + e.what());
+      return false;
+    }
+    return true;
+  }
+
+  bool emitTriton(Program &prog, const fs::path &outFile, const EmitOptions &opts) {
+    if (opts.keepRequire) {
+      note(opts.verbose, "tensor-profile: --keep-require is not supported for Triton emission");
+      return false;
+    }
+    if (opts.splitBySource || opts.structuredLowering || !opts.vecLowering.empty()) {
+      note(
+          opts.verbose,
+          "tensor-profile: the selected code-generation option does not apply to Triton"
+      );
+      return false;
+    }
+    if (!checked(prog, opts.verbose, TensorConsumer::Triton))
+      return false;
+
+    std::ostringstream rendered;
+    try {
+      TritonBackend backend(rendered, opts.entry, opts.tensorSoftmaxLowering);
+      backend.emit(prog);
+    } catch (const std::exception &e) {
+      note(opts.verbose, e.what());
+      return false;
+    }
+
+    const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
+    fs::path temporaryPath = outFile;
+    temporaryPath += ".tmp." + std::to_string(ticks);
+    std::ofstream temporary(temporaryPath, std::ios::binary | std::ios::trunc);
+    if (!temporary) {
+      note(opts.verbose, "cannot open temporary output " + temporaryPath.string());
+      return false;
+    }
+    temporary << rendered.str();
+    temporary.close();
+    if (!temporary) {
+      std::error_code ignored;
+      fs::remove(temporaryPath, ignored);
+      note(opts.verbose, "cannot finish temporary output " + temporaryPath.string());
+      return false;
+    }
+    std::error_code error;
+    fs::rename(temporaryPath, outFile, error);
+    if (error) {
+      std::error_code ignored;
+      fs::remove(temporaryPath, ignored);
+      note(opts.verbose, "cannot replace " + outFile.string() + ": " + error.message());
       return false;
     }
     return true;
@@ -190,6 +245,8 @@ namespace refractir {
         return emitWasm(prog, outPath, opts);
       if (target == "python")
         return emitPy(prog, outPath, opts);
+      if (target == "triton")
+        return emitTriton(prog, outPath, opts);
       note(opts.verbose, "unknown target " + target);
       return false;
     } catch (const std::exception &e) {

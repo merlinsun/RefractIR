@@ -223,6 +223,10 @@ namespace refractir::reify {
               if (auto id = std::get_if<LocalOrSymId>(&arg.index))
                 std::visit([&](auto &&v) { rs.reads.insert(v.name); }, *id);
               return true;
+            } else if constexpr (std::is_same_v<T, TensorAtom>) {
+              for (const auto &operand: arg.operands)
+                scanCoef(operand, rs);
+              return true;
             } else {
               static_assert(std::is_same_v<T, PtrFieldAtom>);
               rs.mem = true;

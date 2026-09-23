@@ -1,8 +1,10 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "ast/tensor.hpp"
 #include "solver/smt.hpp"
 
 namespace refractir {
@@ -19,11 +21,16 @@ namespace refractir {
     // Vec: N-lane tuple (held in arrayVal, same shape as Array).
     // Distinguished from Array so the solver can apply lane-wise UB
     // semantics and the C-backend-compatible 0/1 mask representation.
-    enum class Kind { Int, Array, Struct, Undef, Vec } kind = Kind::Undef;
+    enum class Kind { Int, Array, Struct, Undef, Vec, Tensor } kind = Kind::Undef;
     smt::Term term;       // For scalar Int (the BV value)
     smt::Term is_defined; // Boolean term: true if value is defined
     std::vector<SymbolicValue> arrayVal;
-    std::unordered_map<std::string, SymbolicValue> structVal;
+    Shape tensorShape;
+    // Keep the recursive mapped value behind a node-based container whose
+    // node is instantiated after SymbolicValue is complete. GCC 11's
+    // libstdc++ cannot instantiate unordered_map with an incomplete mapped
+    // type here.
+    std::map<std::string, SymbolicValue> structVal;
 
     smt::Term prov_base; // Pointer provenance base tag (BV64)
     smt::Term prov_size; // Pointer provenance size in tag-units (BV64)

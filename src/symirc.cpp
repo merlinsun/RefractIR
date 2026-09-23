@@ -8,8 +8,10 @@
 #include "analysis/loop_info.hpp"
 #include "analysis/structured_lowering.hpp"
 #include "analysis/structurizer.hpp"
+#include "analysis/tensor.hpp"
 #include "ast/ast_dumper.hpp"
 #include "backend/c_backend.hpp"
+#include "backend/emit.hpp"
 #include "backend/py_backend.hpp"
 #include "backend/wasm_backend.hpp"
 #include "backend/wasm_vec_lowering.hpp"
@@ -27,7 +29,10 @@ int main(int argc, char **argv) {
   options.add_options()
     ("input", "Input .sir file", cxxopts::value<std::string>())
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
-    ("target", "Backend target (c, wasm, python)", cxxopts::value<std::string>()->default_value("c"))
+    ("target", "Backend target (c, wasm, python, triton)", cxxopts::value<std::string>()->default_value("c"))
+    ("entry", "Triton entry function", cxxopts::value<std::string>()->default_value("kernel"))
+    ("tensor-softmax-lowering", "Triton softmax lowering: direct|decomposed", cxxopts::value<std::string>()->default_value("direct"))
+    ("keep-require", "Triton target: reject emission when source require checks are retained", cxxopts::value<bool>()->default_value("false"))
     ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("structured-lowering", "Emit structured control flow (loops/ifs) instead of goto; implies --require-reducible (C target)", cxxopts::value<bool>()->default_value("false"))
     ("dump-ast", "Dump AST to stdout and exit", cxxopts::value<bool>()->default_value("false"))
@@ -118,6 +123,19 @@ int main(int argc, char **argv) {
       return ExitCode::StaticError;
     }
 
+    const TensorConsumer tensorConsumer = target == "c"        ? TensorConsumer::C
+                                          : target == "wasm"   ? TensorConsumer::Wasm
+                                          : target == "python" ? TensorConsumer::Python
+                                          : target == "triton" ? TensorConsumer::Triton
+                                                               : TensorConsumer::Reference;
+    if (!checkTensorCapabilities(prog, tensorConsumer, diags)) {
+      std::cerr << "Errors:\n";
+      for (const auto &d: diags.diags)
+        if (d.level == DiagLevel::Error)
+          printMessage(std::cerr, src, d.span, d.message, d.level);
+      return ExitCode::StaticError;
+    }
+
     // Print warnings
     if (!nowarn) {
       for (const auto &d: diags.diags) {
@@ -156,6 +174,24 @@ int main(int argc, char **argv) {
           }
         }
       }
+      return 0;
+    }
+
+    if (target == "triton") {
+      EmitOptions tensorOptions;
+      tensorOptions.verbose = true;
+      tensorOptions.entry = result["entry"].as<std::string>();
+      tensorOptions.tensorSoftmaxLowering = result["tensor-softmax-lowering"].as<std::string>();
+      tensorOptions.keepRequire = result["keep-require"].as<bool>();
+      tensorOptions.structuredLowering = result["structured-lowering"].as<bool>();
+      tensorOptions.splitBySource = result["split-by-source"].as<bool>();
+      if (result.count("vec-lowering"))
+        tensorOptions.vecLowering = result["vec-lowering"].as<std::string>();
+      const auto outPath = result.count("output")
+                               ? std::filesystem::path(result["output"].as<std::string>())
+                               : std::filesystem::path(inputPath).replace_extension(".py");
+      if (!emitTriton(prog, outPath, tensorOptions))
+        return 1;
       return 0;
     }
 

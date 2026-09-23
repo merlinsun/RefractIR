@@ -35,6 +35,9 @@ namespace refractir {
     BlockLabel parseBlockLabel();
 
     TypePtr parseType();
+    std::vector<std::uint32_t> parseTensorList(const char *description);
+    std::int64_t parseTensorAxis();
+    Atom parseTensorAtom();
     SourcePos prevEnd() const;
 
     StructDecl parseStructDecl();

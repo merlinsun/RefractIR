@@ -156,9 +156,13 @@ namespace refractir {
       auto fSize = f.prov_size.internal ? f.prov_size : zero;
       res.prov_base = solver.make_term(smt::Kind::ITE, {cond, tBase, fBase});
       res.prov_size = solver.make_term(smt::Kind::ITE, {cond, tSize, fSize});
-    } else if (t.kind == SymbolicValue::Kind::Array || t.kind == SymbolicValue::Kind::Vec) {
+    } else if (t.kind == SymbolicValue::Kind::Array || t.kind == SymbolicValue::Kind::Vec ||
+               t.kind == SymbolicValue::Kind::Tensor) {
       if (t.arrayVal.size() != f.arrayVal.size())
         throw std::runtime_error("Muxing arrays/vectors of different sizes");
+      if (t.kind == SymbolicValue::Kind::Tensor && t.tensorShape != f.tensorShape)
+        throw std::runtime_error("Muxing tensors with different shapes");
+      res.tensorShape = t.tensorShape;
       for (size_t i = 0; i < t.arrayVal.size(); ++i) {
         res.arrayVal.push_back(muxSymbolicValue(cond, t.arrayVal[i], f.arrayVal[i], solver));
       }

@@ -220,6 +220,8 @@ namespace refractir {
                   return res;
                 }
             return nullptr;
+          } else if constexpr (std::is_same_v<T, TensorAtom>) {
+            return nullptr;
           } else {
             static_assert(std::is_same_v<T, PtrFieldAtom>);
             // ptrfield p, f : ptr @S -> ptr FieldType

@@ -12,6 +12,7 @@
 #include <system_error>
 #include <variant>
 #include <vector>
+#include "ast/tensor.hpp"
 
 namespace refractir {
 
@@ -169,10 +170,20 @@ namespace refractir {
   };
 
   /**
+   * Fixed-rank tensor value with a statically-known ordered shape.
+   */
+  struct TensorType {
+    Shape shape;
+    TypePtr elem;
+    SourceSpan span;
+  };
+
+  /**
    * Wrapper for all possible types in RefractIR.
    */
   struct Type {
-    using Variant = std::variant<IntType, FloatType, StructType, ArrayType, PtrType, VecType>;
+    using Variant =
+        std::variant<IntType, FloatType, StructType, ArrayType, PtrType, VecType, TensorType>;
     Variant v;
     SourceSpan span;
   };
@@ -417,12 +428,30 @@ namespace refractir {
   };
 
   /**
+   * Tensor operator atom. `operands` are the source scalar/tensor operands;
+   * `attribute` stores a shape, coordinate, or axis permutation where the
+   * operator grammar requires one. `axis` and `keepDims` store reduction and
+   * axis-operation attributes.
+   */
+  struct TensorAtom {
+    TensorOp op = TensorOp::Add;
+    std::vector<Coef> operands;
+    std::vector<std::uint32_t> attribute;
+    std::int64_t axis = 0;
+    bool keepDims = false;
+    SourceSpan span;
+    // Filled by the type checker so evaluators can consume an already-checked
+    // tensor expression without repeating shape inference.
+    mutable TypePtr resolvedType;
+  };
+
+  /**
    * The fundamental building block of expressions.
    */
   struct Atom {
     using Variant = std::variant<
         OpAtom, SelectAtom, CoefAtom, RValueAtom, CastAtom, UnaryAtom, AddrAtom, LoadAtom, CmpAtom,
-        PtrIndexAtom, PtrFieldAtom, CallAtom>;
+        PtrIndexAtom, PtrFieldAtom, CallAtom, TensorAtom>;
     Variant v;
     SourceSpan span;
   };

@@ -45,6 +45,10 @@ namespace refractir {
     bool splitBySource = false;
     // Report the reason for a failure on stderr.
     bool verbose = false;
+    // Triton selects one ordinary RefractIR function as a kernel entry.
+    std::string entry = "kernel";
+    // Triton numerical softmax lowering: direct or decomposed.
+    std::string tensorSoftmaxLowering = "direct";
   };
 
   // Compile to C. Writes `<outDir>/<primaryStem>.c`, or one file per source
@@ -61,8 +65,12 @@ namespace refractir {
   // structures unconditionally.
   bool emitPy(Program &prog, const std::filesystem::path &outFile, const EmitOptions &opts);
 
+  // Emit one complete-tile Triton JIT kernel. The file is replaced only after
+  // checking and rendering both succeed.
+  bool emitTriton(Program &prog, const std::filesystem::path &outFile, const EmitOptions &opts);
+
   // Parse a `.sir` file and compile it for `target` ("c", "wasm" or
-  // "python"). The C target writes one file here whatever `opts` says, since
+  // "python" or "triton"). The C target writes one file here whatever `opts` says, since
   // `outPath` names a file rather than a directory.
   bool emitSirFile(
       const std::filesystem::path &sirPath, const std::string &target,
