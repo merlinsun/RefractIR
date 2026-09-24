@@ -142,7 +142,7 @@ namespace refractir {
 
     bool containsTensorAtom(const Atom &atom) { return std::holds_alternative<TensorAtom>(atom.v); }
 
-    bool programHasTensorAtom(const Program &prog) {
+    bool functionHasTensorAtom(const FunDecl &function) {
       auto hasExpr = [](const Expr &expr) {
         if (containsTensorAtom(expr.first))
           return true;
@@ -150,39 +150,41 @@ namespace refractir {
           return containsTensorAtom(tail.atom);
         });
       };
-      for (const auto &function: prog.funs) {
-        for (const auto &local: function.lets)
-          if (local.init && local.init->kind == InitVal::Kind::Atom &&
-              containsTensorAtom(*std::get<AtomPtr>(local.init->value)))
-            return true;
-        for (const auto &block: function.blocks) {
-          for (const auto &instruction: block.instrs) {
-            bool found = std::visit(
-                [&](const auto &ins) {
-                  using T = std::decay_t<decltype(ins)>;
-                  if constexpr (std::is_same_v<T, AssignInstr>)
-                    return hasExpr(ins.rhs);
-                  else if constexpr (std::is_same_v<T, StoreInstr>)
-                    return hasExpr(ins.ptr) || hasExpr(ins.val);
-                  else if constexpr (std::is_same_v<T, AssumeInstr> ||
-                                     std::is_same_v<T, RequireInstr>)
-                    return hasExpr(ins.cond.lhs) || hasExpr(ins.cond.rhs);
-                  return false;
-                },
-                instruction
-            );
-            if (found)
-              return true;
-          }
-          if (const auto branch = std::get_if<BrTerm>(&block.term);
-              branch && branch->cond && (hasExpr(branch->cond->lhs) || hasExpr(branch->cond->rhs)))
-            return true;
-          if (const auto ret = std::get_if<RetTerm>(&block.term);
-              ret && ret->value && hasExpr(*ret->value))
+      for (const auto &local: function.lets)
+        if (local.init && local.init->kind == InitVal::Kind::Atom &&
+            containsTensorAtom(*std::get<AtomPtr>(local.init->value)))
+          return true;
+      for (const auto &block: function.blocks) {
+        for (const auto &instruction: block.instrs) {
+          bool found = std::visit(
+              [&](const auto &ins) {
+                using T = std::decay_t<decltype(ins)>;
+                if constexpr (std::is_same_v<T, AssignInstr>)
+                  return hasExpr(ins.rhs);
+                else if constexpr (std::is_same_v<T, StoreInstr>)
+                  return hasExpr(ins.ptr) || hasExpr(ins.val);
+                else if constexpr (std::is_same_v<T, AssumeInstr> ||
+                                   std::is_same_v<T, RequireInstr>)
+                  return hasExpr(ins.cond.lhs) || hasExpr(ins.cond.rhs);
+                return false;
+              },
+              instruction
+          );
+          if (found)
             return true;
         }
+        if (const auto branch = std::get_if<BrTerm>(&block.term);
+            branch && branch->cond && (hasExpr(branch->cond->lhs) || hasExpr(branch->cond->rhs)))
+          return true;
+        if (const auto ret = std::get_if<RetTerm>(&block.term);
+            ret && ret->value && hasExpr(*ret->value))
+          return true;
       }
       return false;
+    }
+
+    bool programHasTensorAtom(const Program &prog) {
+      return std::any_of(prog.funs.begin(), prog.funs.end(), functionHasTensorAtom);
     }
 
     bool expressionHasCallAtom(const Expr &expr) {
@@ -276,7 +278,7 @@ namespace refractir {
     for (auto &[message, span]: profileErrors)
       diags.error(message, span);
     for (const auto &function: prog.funs) {
-      if (!functionHasTensorType(function, structs))
+      if (!functionHasTensorType(function, structs) && !functionHasTensorAtom(function))
         continue;
       if (function.blocks.size() != 1 ||
           !std::holds_alternative<RetTerm>(function.blocks.front().term))
