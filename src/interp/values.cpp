@@ -144,8 +144,13 @@ namespace refractir {
       res.kind = RuntimeValue::Kind::Tensor;
       res.tensorShape = tt->shape;
       res.bits = 32;
-      for (std::uint32_t i = 0; i < count; ++i)
-        res.arrayVal.push_back(scalarOf(tt->elem, vals.size() == 1 ? vals.front() : vals[i]));
+      for (std::uint32_t i = 0; i < count; ++i) {
+        RuntimeValue element = scalarOf(tt->elem, vals.size() == 1 ? vals.front() : vals[i]);
+        if (element.kind == RuntimeValue::Kind::Float &&
+            TypeUtils::getFloatBitWidth(tt->elem) == 32)
+          element.floatVal = static_cast<double>(static_cast<float>(element.floatVal));
+        res.arrayVal.push_back(std::move(element));
+      }
       return res;
     }
     if (vals.size() != 1)
@@ -180,8 +185,13 @@ namespace refractir {
       res.kind = RuntimeValue::Kind::Tensor;
       res.tensorShape = tt->shape;
       res.bits = 32;
-      for (std::uint32_t i = 0; i < tensorElementCount(tt->shape); ++i)
-        res.arrayVal.push_back(broadcast(tt->elem, v));
+      for (std::uint32_t i = 0; i < tensorElementCount(tt->shape); ++i) {
+        RuntimeValue element = broadcast(tt->elem, v);
+        if (element.kind == RuntimeValue::Kind::Float &&
+            TypeUtils::getFloatBitWidth(tt->elem) == 32)
+          element.floatVal = static_cast<double>(static_cast<float>(element.floatVal));
+        res.arrayVal.push_back(std::move(element));
+      }
       return res;
     } else if (auto st = TypeUtils::asStruct(t)) {
       RuntimeValue res;

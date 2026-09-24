@@ -92,7 +92,7 @@ namespace refractir {
       if (value.kind != RuntimeValue::Kind::Float || value.bits != 32 ||
           !std::isfinite(value.floatVal) || !std::isfinite(static_cast<float>(value.floatVal)))
         throw std::runtime_error("tensor numerical reference operand is not a finite f32 value");
-      return RefFloat<Bits>(value.floatVal);
+      return RefFloat<Bits>(static_cast<float>(value.floatVal));
     }
 
     template<unsigned Bits>

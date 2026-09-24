@@ -194,17 +194,25 @@ namespace refractir {
 
   void TritonBackend::addLine(std::string line) { body_.push_back(std::move(line)); }
 
-  std::string TritonBackend::nextTemporary(const std::string &stem) {
-    return "_sir_" + stem + "_tmp" + std::to_string(temporaryId_++);
+  std::string TritonBackend::freshPythonName(const std::string &base) {
+    std::string candidate = base;
+    for (std::uint32_t suffix = 1; usedPythonNames_.contains(candidate); ++suffix)
+      candidate = base + "_" + std::to_string(suffix);
+    usedPythonNames_.insert(candidate);
+    return candidate;
   }
 
-  void TritonBackend::emitOffsets(const std::string &name, const Shape &shape) {
+  std::string TritonBackend::nextTemporary(const std::string &stem) {
+    return freshPythonName("_sir_" + stem + "_tmp" + std::to_string(temporaryId_++));
+  }
+
+  std::string TritonBackend::emitOffsets(const std::string &name, const Shape &shape) {
     if (shape.empty())
-      return;
+      return {};
     std::vector<std::string> terms;
     terms.reserve(shape.size());
     for (std::size_t axis = 0; axis < shape.size(); ++axis) {
-      const auto axisName = name + "_d" + std::to_string(axis);
+      const auto axisName = freshPythonName(name + "_d" + std::to_string(axis));
       std::string range = "tl.arange(0, " + std::to_string(shape[axis]) + ")";
       if (shape.size() > 1) {
         range += "[";
@@ -219,22 +227,25 @@ namespace refractir {
       const auto stride = productAfter(shape, axis);
       terms.push_back(axisName + (stride == 1 ? "" : " * " + std::to_string(stride)));
     }
-    std::string offsets = name + "_offsets = ";
+    const auto offsetName = freshPythonName(name + "_offsets");
+    std::string offsets = offsetName + " = ";
     for (std::size_t i = 0; i < terms.size(); ++i) {
       if (i)
         offsets += " + ";
       offsets += terms[i];
     }
     addLine(std::move(offsets));
+    return offsetName;
   }
 
   void TritonBackend::emitInput(const ParamDecl &param) {
     const auto variable = pythonName(param.name.name);
-    const auto pointer = variable.substr(5) + "_ptr";
+    const auto pointer = freshPythonName(variable.substr(5) + "_ptr");
+    parameterPointers_[param.name.name] = pointer;
     const auto shape = valueShape(param.type);
     types_[param.name.name] = param.type;
-    emitOffsets(variable, shape);
-    const auto address = shape.empty() ? pointer : pointer + " + " + variable + "_offsets";
+    const auto offsets = emitOffsets(variable, shape);
+    const auto address = shape.empty() ? pointer : pointer + " + " + offsets;
     addLine(variable + " = tl.load(" + address + ")");
     values_[param.name.name] = Value{param.type, variable};
   }
@@ -287,13 +298,18 @@ namespace refractir {
               throw std::runtime_error(
                   "tensor-profile: scalar modulo is unsupported in Triton entry"
               );
+            const auto lhs = lowerCoef(arg.coef);
+            const auto rhs = lowerLValue(arg.rval);
+            if (arg.op == AtomOpKind::LShr)
+              return "tl.cast((tl.cast(" + lhs + ", tl.uint32) >> " + rhs + "), tl.int32)";
             std::string op;
             switch (arg.op) {
               case AtomOpKind::Mul:
                 op = "*";
                 break;
               case AtomOpKind::Div:
-                op = "/";
+                op = TypeUtils::getIntBitWidth(types_.at(arg.rval.base.name)).has_value() ? "//"
+                                                                                          : "/";
                 break;
               case AtomOpKind::And:
                 op = "&";
@@ -308,13 +324,14 @@ namespace refractir {
                 op = "<<";
                 break;
               case AtomOpKind::Shr:
-              case AtomOpKind::LShr:
                 op = ">>";
+                break;
+              case AtomOpKind::LShr:
                 break;
               case AtomOpKind::Mod:
                 break;
             }
-            return "(" + lowerCoef(arg.coef) + " " + op + " " + lowerLValue(arg.rval) + ")";
+            return "(" + lhs + " " + op + " " + rhs + ")";
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
             return "(~" + lowerLValue(arg.rval) + ")";
           } else {
@@ -548,7 +565,14 @@ namespace refractir {
     values_.clear();
     types_.clear();
     body_.clear();
+    parameterPointers_.clear();
+    usedPythonNames_.clear();
     temporaryId_ = 0;
+    for (const auto &param: function.params)
+      usedPythonNames_.insert(pythonName(param.name.name));
+    for (const auto &let: function.lets)
+      usedPythonNames_.insert(pythonName(let.name.name));
+    usedPythonNames_.insert("out_ptr");
     for (const auto &param: function.params)
       emitInput(param);
     for (const auto &let: function.lets)
@@ -562,8 +586,8 @@ namespace refractir {
     if (returnShape.empty()) {
       addLine("tl.store(out_ptr, " + result + ")");
     } else {
-      emitOffsets("_sir_out", returnShape);
-      addLine("tl.store(out_ptr + _sir_out_offsets, " + result + ")");
+      const auto offsets = emitOffsets("_sir_out", returnShape);
+      addLine("tl.store(out_ptr + " + offsets + ", " + result + ")");
     }
 
     out_ << "import triton\n";
@@ -573,7 +597,7 @@ namespace refractir {
     for (std::size_t i = 0; i < function.params.size(); ++i) {
       if (i)
         out_ << ", ";
-      out_ << pythonName(function.params[i].name.name).substr(5) << "_ptr";
+      out_ << parameterPointers_.at(function.params[i].name.name);
     }
     if (!function.params.empty())
       out_ << ", ";

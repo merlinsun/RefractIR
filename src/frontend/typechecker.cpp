@@ -536,6 +536,12 @@ namespace refractir {
             diags.error("tensor-shape: tensor initializer must be a flat list", elem->span);
             continue;
           }
+          if (elem->kind == InitVal::Kind::Undef) {
+            diags.error(
+                "tensor-init: partially undefined tensor values are not supported", elem->span
+            );
+            continue;
+          }
           checkInitVal(*elem, tt->elem, vars, syms, diags);
         }
       } else {

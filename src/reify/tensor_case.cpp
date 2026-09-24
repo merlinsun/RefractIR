@@ -207,6 +207,14 @@ namespace refractir::reify {
           out << ',';
         out << jsonString(testCase.operators[i]);
       }
+      out << "],\"shape_axes\":[";
+      for (std::size_t i = 0; i < testCase.shapeAxes.size(); ++i) {
+        if (i)
+          out << ',';
+        out << "{\"shape\":";
+        writeShape(out, testCase.shapeAxes[i].first);
+        out << ",\"axis\":" << testCase.shapeAxes[i].second << '}';
+      }
       out << "],\"generator\":{\"version\":\"tensor-v1\",\"seed\":" << testCase.seed
           << ",\"synthesis\":" << jsonString(testCase.synthesis) << ",\"node_limit\":8},\"files\":{"
           << "\"program.sir\":{\"bytes\":" << program.size()

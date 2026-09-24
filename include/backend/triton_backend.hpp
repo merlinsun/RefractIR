@@ -4,6 +4,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "ast/ast.hpp"
@@ -28,12 +29,14 @@ namespace refractir {
     const FunDecl *function_ = nullptr;
     std::unordered_map<std::string, TypePtr> types_;
     std::unordered_map<std::string, Value> values_;
+    std::unordered_map<std::string, std::string> parameterPointers_;
+    std::unordered_set<std::string> usedPythonNames_;
     std::vector<std::string> body_;
     std::uint32_t temporaryId_ = 0;
 
     void emitFunction(const FunDecl &function);
     void emitInput(const ParamDecl &param);
-    void emitOffsets(const std::string &name, const Shape &shape);
+    std::string emitOffsets(const std::string &name, const Shape &shape);
     void emitInstruction(const Instr &instruction);
     void emitInitializer(const LetDecl &let);
     std::string lowerExpr(const Expr &expr);
@@ -42,6 +45,7 @@ namespace refractir {
     std::string lowerCoef(const Coef &coef);
     std::string lowerLValue(const LValue &lvalue);
     std::string nextTemporary(const std::string &stem);
+    std::string freshPythonName(const std::string &base);
     std::string pythonName(const std::string &sirName) const;
     std::string dtypeName(const TypePtr &type) const;
     Shape valueShape(const TypePtr &type) const;

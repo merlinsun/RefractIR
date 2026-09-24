@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -48,6 +49,8 @@ namespace refractir::reify {
       std::string finalSource;
       std::vector<TensorCaseBuffer> inputs;
       std::vector<std::string> operators;
+      std::vector<std::pair<Shape, std::int32_t>> shapeAxes;
+      std::string propertySource;
       std::string outputShape;
       TensorElement outputElement = TensorElement::I32;
     };
@@ -281,38 +284,89 @@ namespace refractir::reify {
       return replaceOnce(std::move(result), scalarTerm, tensorTerm);
     }
 
-    std::string coordinatesSource() {
-      return R"(fun @kernel(%base: i32) : i32 {
-  sym %?a : value i32 in [0, 10];
-  sym %?b : value i32 in [0, 10];
-  sym %?k : value i32 in [-10, 10];
-  let mut %row: tensor [2, 4] i32 = undef;
-  let mut %col: tensor [2, 4] i32 = undef;
-  let mut %ar: tensor [2, 4] i32 = undef;
-  let mut %bc: tensor [2, 4] i32 = undef;
-  let mut %sum: tensor [2, 4] i32 = undef;
-  let mut %partial: tensor [2, 4] i32 = undef;
-  let mut %out: tensor [2, 4] i32 = undef;
-  let mut %p00: i32 = undef;
-  let mut %p10: i32 = undef;
-  let mut %p01: i32 = undef;
-^entry:
-  %row = tensor iota [2, 4], 0;
-  %col = tensor iota [2, 4], 1;
-  %ar = tensor mul %row, %?a;
-  %bc = tensor mul %col, %?b;
-  %sum = tensor add %ar, %bc;
-  %partial = tensor add %sum, %?k;
-  %out = tensor add %partial, %base;
-  %p00 = tensor extract %out, [0, 0];
-  %p10 = tensor extract %out, [1, 0];
-  %p01 = tensor extract %out, [0, 1];
-  require %p00 == 1;
-  require %p10 == 8;
-  require %p01 == 4;
-  ret %p00;
-}
-)";
+    std::string sirShape(const Shape &shape) {
+      std::ostringstream text;
+      text << '[';
+      for (std::size_t i = 0; i < shape.size(); ++i) {
+        if (i)
+          text << ", ";
+        text << shape[i];
+      }
+      text << ']';
+      return text.str();
+    }
+
+    std::string sirCoordinates(const Shape &coordinates) { return sirShape(coordinates); }
+
+    std::string tensorI32Type(const Shape &shape) { return "tensor " + sirShape(shape) + " i32"; }
+
+    std::string tensorF32Type(const Shape &shape) { return "tensor " + sirShape(shape) + " f32"; }
+
+    Shape zeroCoordinates(const Shape &shape) { return Shape(shape.size(), 0); }
+
+    std::uint32_t rowMajorIndex(const Shape &shape, const Shape &coordinates) {
+      if (shape.size() != coordinates.size())
+        throw std::runtime_error("generator coordinate rank does not match its shape");
+      std::uint32_t index = 0;
+      for (std::size_t i = 0; i < shape.size(); ++i) {
+        if (coordinates[i] >= shape[i])
+          throw std::runtime_error("generator coordinate is out of bounds");
+        index = index * shape[i] + coordinates[i];
+      }
+      return index;
+    }
+
+    std::string coordinatesSource(const Shape &shape, bool swapAxes, bool reorderAdds) {
+      const std::uint32_t rowAxis = swapAxes ? 1 : 0;
+      const std::uint32_t colAxis = swapAxes ? 0 : 1;
+      const std::string rowCoefficient = rowAxis == 0 ? "%?a" : "%?b";
+      const std::string colCoefficient = colAxis == 0 ? "%?a" : "%?b";
+      const Shape origin = zeroCoordinates(shape);
+      Shape rowStep = origin;
+      Shape colStep = origin;
+      rowStep[0] = 1;
+      colStep[1] = 1;
+      std::ostringstream source;
+      source << "fun @kernel(%base: i32) : i32 {\n"
+             << "  sym %?a : value i32 in [0, 10];\n"
+             << "  sym %?b : value i32 in [0, 10];\n"
+             << "  sym %?k : value i32 in [-10, 10];\n"
+             << "  let mut %row: " << tensorI32Type(shape) << " = undef;\n"
+             << "  let mut %col: " << tensorI32Type(shape) << " = undef;\n"
+             << "  let mut %ar: " << tensorI32Type(shape) << " = undef;\n"
+             << "  let mut %bc: " << tensorI32Type(shape) << " = undef;\n"
+             << "  let mut %sum: " << tensorI32Type(shape) << " = undef;\n"
+             << "  let mut %partial: " << tensorI32Type(shape) << " = undef;\n"
+             << "  let mut %out: " << tensorI32Type(shape) << " = undef;\n"
+             << "  let mut %p00: i32 = undef;\n"
+             << "  let mut %p10: i32 = undef;\n"
+             << "  let mut %p01: i32 = undef;\n"
+             << "^entry:\n"
+             << "  %row = tensor iota " << sirShape(shape) << ", " << rowAxis << ";\n"
+             << "  %col = tensor iota " << sirShape(shape) << ", " << colAxis << ";\n"
+             << "  %ar = tensor mul %row, " << rowCoefficient << ";\n"
+             << "  %bc = tensor mul %col, " << colCoefficient << ";\n";
+      if (reorderAdds) {
+        source << "  %sum = tensor add %ar, %?k;\n"
+               << "  %partial = tensor add %sum, %bc;\n";
+      } else {
+        source << "  %sum = tensor add %ar, %bc;\n"
+               << "  %partial = tensor add %sum, %?k;\n";
+      }
+      source << "  %out = tensor add %partial, %base;\n"
+             << "  %p00 = tensor extract %out, " << sirCoordinates(origin) << ";\n"
+             << "  %p10 = tensor extract %out, " << sirCoordinates(rowStep) << ";\n"
+             << "  %p01 = tensor extract %out, " << sirCoordinates(colStep) << ";\n"
+             << "  require %p00 == 1;\n"
+             << "  require %p10 == 8;\n"
+             << "  require %p01 == 4;\n"
+             << "  ret %p00;\n"
+             << "}\n";
+      return source.str();
+    }
+
+    std::string coordinatesProperty(const Shape &shape) {
+      return "On tensor " + sirShape(shape) + ", output[i] = 7*i0 + 3*i1 + 1.";
     }
 
     std::string sumTargetSource(bool symbolic) {
@@ -347,21 +401,96 @@ namespace refractir::reify {
 )";
     }
 
-    std::string softmaxSource() {
-      return R"(fun @kernel(%x: tensor [2, 4] f32) : tensor [2, 4] f32 {
-  let mut %out: tensor [2, 4] f32 = undef;
-  let mut %last: f32 = undef;
-  let mut %first: f32 = undef;
-^entry:
-  %out = tensor softmax %x, 1;
-  %last = tensor extract %out, [0, 3];
-  %first = tensor extract %out, [1, 0];
-  // SIR uses canonical decimal float literals; 0.8 rounds to f32 bits 3f4ccccd.
-  require %last > 0.8;
-  require %first > 0.8;
-  ret %out;
-}
-)";
+    std::string softmaxSource(
+        const Shape &shape, std::uint32_t axis, std::int32_t axisSpelling,
+        std::uint32_t composition, const Shape &lastCoordinates,
+        const std::optional<Shape> &firstCoordinates
+    ) {
+      const Shape keptShape = [&] {
+        auto result = shape;
+        result[axis] = 1;
+        return result;
+      }();
+      const Shape reducedShape = [&] {
+        auto result = shape;
+        result.erase(result.begin() + axis);
+        return result;
+      }();
+      std::ostringstream source;
+      source << "fun @kernel(%x: " << tensorF32Type(shape) << ") : " << tensorF32Type(shape)
+             << " {\n"
+             << "  let mut %out: " << tensorF32Type(shape) << " = undef;\n"
+             << "  let mut %last: f32 = undef;\n";
+      if (firstCoordinates)
+        source << "  let mut %first: f32 = undef;\n";
+
+      if (composition == 1) {
+        source << "  let mut %maximum: "
+               << (reducedShape.empty() ? "f32" : tensorF32Type(reducedShape)) << " = undef;\n"
+               << "  let mut %expanded: " << tensorF32Type(keptShape) << " = undef;\n"
+               << "  let mut %shifted: " << tensorF32Type(shape) << " = undef;\n"
+               << "  let mut %exps: " << tensorF32Type(shape) << " = undef;\n"
+               << "  let mut %denom: " << tensorF32Type(keptShape) << " = undef;\n";
+      } else if (composition == 2) {
+        std::vector<std::uint32_t> permutation(shape.size());
+        std::iota(permutation.rbegin(), permutation.rend(), 0u);
+        Shape transposedShape(shape.size());
+        for (std::size_t i = 0; i < permutation.size(); ++i)
+          transposedShape[i] = shape[permutation[i]];
+        source << "  let mut %transposed: " << tensorF32Type(transposedShape) << " = undef;\n"
+               << "  let mut %normalized: " << tensorF32Type(transposedShape) << " = undef;\n";
+      } else if (composition == 3) {
+        source << "  let mut %broadcasted: " << tensorF32Type(shape) << " = undef;\n";
+      } else if (composition >= 4) {
+        source << "  let mut %normalized: " << tensorF32Type(shape) << " = undef;\n";
+      }
+
+      source << "^entry:\n";
+      if (composition == 1) {
+        source << "  %maximum = tensor rmax %x, " << axisSpelling << ", drop;\n"
+               << "  %expanded = tensor expand %maximum, " << axis << ";\n"
+               << "  %shifted = tensor sub %x, %expanded;\n"
+               << "  %exps = tensor exp %shifted;\n"
+               << "  %denom = tensor sum %exps, " << axisSpelling << ", keep;\n"
+               << "  %out = tensor div %exps, %denom;\n";
+      } else if (composition == 2 && shape.size() > 1) {
+        std::vector<std::uint32_t> permutation(shape.size());
+        std::iota(permutation.rbegin(), permutation.rend(), 0u);
+        Shape transposedShape(shape.size());
+        Shape inverse(shape.size());
+        std::uint32_t transposedAxis = 0;
+        for (std::size_t i = 0; i < permutation.size(); ++i) {
+          transposedShape[i] = shape[permutation[i]];
+          inverse[permutation[i]] = static_cast<std::uint32_t>(i);
+          if (permutation[i] == axis)
+            transposedAxis = static_cast<std::uint32_t>(i);
+        }
+        const auto transposedAxisSpelling = axisSpelling < 0
+                                                ? static_cast<std::int32_t>(transposedAxis) -
+                                                      static_cast<std::int32_t>(shape.size())
+                                                : static_cast<std::int32_t>(transposedAxis);
+        source << "  %transposed = tensor transpose %x, "
+               << sirShape(Shape(permutation.begin(), permutation.end())) << ";\n"
+               << "  %normalized = tensor softmax %transposed, " << transposedAxisSpelling << ";\n"
+               << "  %out = tensor transpose %normalized, " << sirShape(inverse) << ";\n";
+      } else if (composition == 3) {
+        source << "  %broadcasted = tensor broadcast %x, " << sirShape(shape) << ";\n"
+               << "  %out = tensor softmax %broadcasted, " << axisSpelling << ";\n";
+      } else if (composition == 4 || composition == 5) {
+        source << "  %normalized = tensor softmax %x, " << axisSpelling << ";\n"
+               << "  %out = tensor " << (composition == 4 ? "max" : "min")
+               << " %normalized, %normalized;\n";
+      } else {
+        source << "  %out = tensor softmax %x, " << axisSpelling << ";\n";
+      }
+      source << "  %last = tensor extract %out, " << sirCoordinates(lastCoordinates) << ";\n";
+      if (firstCoordinates)
+        source << "  %first = tensor extract %out, " << sirCoordinates(*firstCoordinates) << ";\n";
+      source << "  require %last > 0.8;\n";
+      if (firstCoordinates)
+        source << "  require %first > 0.8;\n";
+      source << "  ret %out;\n}\n";
+      return source.str();
     }
 
     [[nodiscard]] auto makeSolverFactory() {
@@ -403,12 +532,45 @@ namespace refractir::reify {
       return static_cast<std::int32_t>(value);
     }
 
+    std::vector<std::int32_t> modelTensorI32(
+        const std::unordered_map<std::string, std::vector<SymbolicExecutor::Result::ModelVal>>
+            &model,
+        const std::string &name
+    ) {
+      const auto found = model.find(name);
+      if (found == model.end())
+        throw std::runtime_error("exact tensor model omitted tensor " + name);
+      std::vector<std::int32_t> values;
+      values.reserve(found->second.size());
+      for (const auto &element: found->second) {
+        if (!std::holds_alternative<std::int64_t>(element))
+          throw std::runtime_error("exact tensor model contains a non-integer element");
+        const auto value = std::get<std::int64_t>(element);
+        if (value < INT32_MIN || value > INT32_MAX)
+          throw std::runtime_error("exact tensor model value is outside i32");
+        values.push_back(static_cast<std::int32_t>(value));
+      }
+      return values;
+    }
+
     Candidate coordinatesCandidate(const TensorGenerationOptions &options, std::mt19937 &random) {
       Candidate candidate;
-      candidate.solverSource = coordinatesSource();
-      candidate.outputShape = "tensor [2, 4] i32";
+      const std::array<Shape, 4> shapes{Shape{2, 4}, Shape{4, 2}, Shape{2, 2, 2}, Shape{4, 2, 1}};
+      std::uniform_int_distribution<std::size_t> chooseShape(0, shapes.size() - 1);
+      std::uniform_int_distribution<std::uint32_t> chooseBit(0, 1);
+      const Shape &shape = shapes[chooseShape(random)];
+      const bool swapAxes = chooseBit(random) != 0;
+      const bool reorderAdds = chooseBit(random) != 0;
+      const std::uint32_t rowAxis = swapAxes ? 1 : 0;
+      const std::uint32_t colAxis = swapAxes ? 0 : 1;
+      candidate.solverSource = coordinatesSource(shape, swapAxes, reorderAdds);
+      candidate.outputShape = tensorI32Type(shape);
       candidate.outputElement = TensorElement::I32;
       candidate.operators = {"iota", "mul", "add", "extract"};
+      candidate.shapeAxes = {
+          {shape, static_cast<std::int32_t>(rowAxis)}, {shape, static_cast<std::int32_t>(colAxis)}
+      };
+      candidate.propertySource = coordinatesProperty(shape);
       std::int32_t base = 0;
       std::int32_t intercept = 1;
       std::unordered_map<std::string, SymbolicExecutor::Result::ModelVal> model;
@@ -431,7 +593,8 @@ namespace refractir::reify {
       }
       (void) intercept;
       auto materialized = printWithModel(candidate.solverSource, model);
-      candidate.finalSource = tensorReturnSource(materialized, "tensor [2, 4] i32", "%p00", "%out");
+      candidate.finalSource =
+          tensorReturnSource(materialized, candidate.outputShape, "%p00", "%out");
       candidate.inputs.push_back({"base", TensorElement::I32, {}, encodeI32(base)});
       return candidate;
     }
@@ -443,18 +606,20 @@ namespace refractir::reify {
       candidate.outputShape = "tensor [2] i32";
       candidate.outputElement = TensorElement::I32;
       candidate.operators = {"sum", "extract"};
+      candidate.shapeAxes = {{Shape{2, 4}, 1}};
+      candidate.propertySource = "For tensor [2,4], row sums equal [10,-6].";
       if (exact) {
         const auto solved = solveCandidate(candidate.solverSource, seed);
         if (!solved.sat) {
           const std::string status = solved.unsat ? "unsat" : "unknown";
           throw std::runtime_error("exact_smt_" + status + ": " + solved.message);
         }
-        candidate.finalSource = tensorReturnSource(
-            printWithModel(
-                candidate.solverSource, solved.model, solved.vecModel, solved.tensorModel
-            ),
-            "tensor [2] i32", "%r0", "%rows"
-        );
+        const auto values = modelTensorI32(solved.tensorModel, "%?x");
+        if (values.size() != 8)
+          throw std::runtime_error("exact sum target produced the wrong input element count");
+        candidate.finalSource =
+            tensorReturnSource(sumTargetSource(false), "tensor [2] i32", "%r0", "%rows");
+        candidate.inputs.push_back({"x", TensorElement::I32, {2, 4}, encodeI32Tensor(values)});
       } else {
         std::mt19937 random(seed);
         std::uniform_int_distribution<std::int32_t> small(-3, 3);
@@ -478,22 +643,132 @@ namespace refractir::reify {
 
     Candidate softmaxCandidate(std::uint32_t seed, std::uint32_t attempt) {
       Candidate candidate;
-      candidate.solverSource = softmaxSource();
+      std::mt19937 random(seed + attempt * 0x9e3779b9U);
+      std::uniform_int_distribution<std::uint32_t> rankDistribution(1, 3);
+      std::uniform_int_distribution<std::size_t> dimensionDistribution(0, 2);
+      std::uniform_int_distribution<std::uint32_t> bitDistribution(0, 1);
+      std::uniform_int_distribution<std::uint32_t> compositionDistribution(0, 5);
+      constexpr std::array<std::uint32_t, 3> dimensionChoices{1, 2, 4};
+      Shape shape(rankDistribution(random));
+      for (auto &dimension: shape)
+        dimension = dimensionChoices[dimensionDistribution(random)];
+
+      std::vector<std::uint32_t> reducibleAxes;
+      for (std::uint32_t candidateAxis = 0; candidateAxis < shape.size(); ++candidateAxis)
+        if (shape[candidateAxis] > 1)
+          reducibleAxes.push_back(candidateAxis);
+      if (reducibleAxes.empty()) {
+        std::uniform_int_distribution<std::size_t> chooseAxis(0, shape.size() - 1);
+        shape[chooseAxis(random)] = 2;
+        for (std::uint32_t candidateAxis = 0; candidateAxis < shape.size(); ++candidateAxis)
+          if (shape[candidateAxis] > 1)
+            reducibleAxes.push_back(candidateAxis);
+      }
+      std::uniform_int_distribution<std::size_t> axisDistribution(0, reducibleAxes.size() - 1);
+      const std::uint32_t axis = reducibleAxes[axisDistribution(random)];
+      std::int32_t axisSpelling = static_cast<std::int32_t>(axis);
+      if (bitDistribution(random) != 0)
+        axisSpelling -= static_cast<std::int32_t>(shape.size());
+      const auto composition = compositionDistribution(random);
+      const auto axisSize = shape[axis];
+      const auto requiredGap =
+          static_cast<std::int32_t>(std::floor(std::log(4.0 * static_cast<double>(axisSize - 1)))) +
+          1;
+      const auto gap = requiredGap - (attempt == 0 ? 1 : 0);
+      Shape lastCoordinates = zeroCoordinates(shape);
+      lastCoordinates[axis] = axisSize - 1;
+      std::optional<Shape> firstCoordinates;
+      for (std::size_t otherAxis = 0; otherAxis < shape.size(); ++otherAxis) {
+        if (otherAxis != axis && shape[otherAxis] > 1) {
+          Shape second = zeroCoordinates(shape);
+          second[otherAxis] = 1;
+          firstCoordinates = std::move(second);
+          break;
+        }
+      }
+      if (firstCoordinates)
+        (*firstCoordinates)[axis] = 0;
+      candidate.solverSource =
+          softmaxSource(shape, axis, axisSpelling, composition, lastCoordinates, firstCoordinates);
       candidate.finalSource = candidate.solverSource;
-      candidate.outputShape = "tensor [2, 4] f32";
+      candidate.outputShape = tensorF32Type(shape);
       candidate.outputElement = TensorElement::F32;
-      candidate.operators = {"softmax", "extract"};
-      // The first bounded proposal intentionally sits below 4/5. Every
-      // following candidate grows the gap and is validated by the reference.
-      const std::int32_t gap = 2 + static_cast<std::int32_t>(attempt % 3);
-      const std::int32_t row0 = static_cast<std::int32_t>((seed + attempt * 3) % 5) - 2;
-      const std::int32_t row1 = row0 + 3;
-      const std::vector<float> values{
-          static_cast<float>(row0),       static_cast<float>(row0),       static_cast<float>(row0),
-          static_cast<float>(row0 + gap), static_cast<float>(row1 + gap), static_cast<float>(row1),
-          static_cast<float>(row1),       static_cast<float>(row1)
-      };
-      candidate.inputs.push_back({"x", TensorElement::F32, {2, 4}, encodeF32Tensor(values)});
+      candidate.shapeAxes.push_back({shape, static_cast<std::int32_t>(axis)});
+      if (composition == 1) {
+        candidate.operators = {"rmax", "expand", "sub", "exp", "sum", "div", "extract"};
+      } else if (composition == 2 && shape.size() > 1) {
+        std::vector<std::uint32_t> permutation(shape.size());
+        std::iota(permutation.rbegin(), permutation.rend(), 0u);
+        Shape transposedShape(shape.size());
+        std::uint32_t transposedAxis = 0;
+        for (std::size_t i = 0; i < permutation.size(); ++i) {
+          transposedShape[i] = shape[permutation[i]];
+          if (permutation[i] == axis)
+            transposedAxis = static_cast<std::uint32_t>(i);
+        }
+        candidate.operators = {"transpose", "softmax", "extract"};
+        candidate.shapeAxes.push_back({transposedShape, static_cast<std::int32_t>(transposedAxis)});
+      } else if (composition == 3) {
+        candidate.operators = {"broadcast", "softmax", "extract"};
+      } else if (composition == 4) {
+        candidate.operators = {"softmax", "max", "extract"};
+      } else if (composition == 5) {
+        candidate.operators = {"softmax", "min", "extract"};
+      } else {
+        candidate.operators = {"softmax", "extract"};
+      }
+      candidate.propertySource = "On tensor " + sirShape(shape) + ", softmax axis " +
+                                 std::to_string(axis) + " exceeds 4/5 at " +
+                                 sirCoordinates(lastCoordinates) + ".";
+      if (firstCoordinates)
+        candidate.propertySource +=
+            " A second group at " + sirCoordinates(*firstCoordinates) + " also exceeds 4/5.";
+
+      Shape groupShape = shape;
+      groupShape.erase(groupShape.begin() + axis);
+      std::uint32_t groupCount = 1;
+      for (const auto dimension: groupShape)
+        groupCount *= dimension;
+      std::uniform_int_distribution<std::int32_t> offsetDistribution(-4, 4);
+      std::vector<std::int32_t> groupOffsets(groupCount);
+      for (auto &offset: groupOffsets)
+        offset = offsetDistribution(random);
+      std::vector<std::int32_t> dominantAxes(groupCount, -1);
+      dominantAxes[0] = static_cast<std::int32_t>(axisSize - 1);
+      if (firstCoordinates) {
+        Shape secondGroupCoordinates;
+        secondGroupCoordinates.reserve(firstCoordinates->size() - 1);
+        for (std::size_t coordinateAxis = 0; coordinateAxis < firstCoordinates->size();
+             ++coordinateAxis)
+          if (coordinateAxis != axis)
+            secondGroupCoordinates.push_back((*firstCoordinates)[coordinateAxis]);
+        const auto secondGroup = rowMajorIndex(groupShape, secondGroupCoordinates);
+        if (groupOffsets[secondGroup] == groupOffsets[0])
+          groupOffsets[secondGroup] = groupOffsets[secondGroup] == 4
+                                          ? groupOffsets[secondGroup] - 1
+                                          : groupOffsets[secondGroup] + 1;
+        dominantAxes[secondGroup] = 0;
+      }
+      std::vector<float> values(tensorElementCount(shape), 0.0f);
+      for (std::uint32_t flat = 0; flat < values.size(); ++flat) {
+        Shape coordinates(shape.size());
+        auto remaining = flat;
+        for (std::size_t coordinateAxis = shape.size(); coordinateAxis-- > 0;) {
+          coordinates[coordinateAxis] = remaining % shape[coordinateAxis];
+          remaining /= shape[coordinateAxis];
+        }
+        Shape groupCoordinates;
+        groupCoordinates.reserve(groupShape.size());
+        for (std::size_t coordinateAxis = 0; coordinateAxis < coordinates.size(); ++coordinateAxis)
+          if (coordinateAxis != axis)
+            groupCoordinates.push_back(coordinates[coordinateAxis]);
+        const auto group = rowMajorIndex(groupShape, groupCoordinates);
+        values[flat] = static_cast<float>(groupOffsets[group]);
+        if (dominantAxes[group] >= 0 &&
+            coordinates[axis] == static_cast<std::uint32_t>(dominantAxes[group]))
+          values[flat] += static_cast<float>(gap);
+      }
+      candidate.inputs.push_back({"x", TensorElement::F32, shape, encodeF32Tensor(values)});
       return candidate;
     }
 
@@ -509,7 +784,8 @@ namespace refractir::reify {
       testCase.seed = options.seed;
       testCase.synthesis = options.synthesis;
       testCase.propertyId = propertyId;
-      testCase.propertySource = propertySource;
+      testCase.propertySource =
+          candidate.propertySource.empty() ? propertySource : candidate.propertySource;
       testCase.inputs = std::move(candidate.inputs);
       testCase.outputShape =
           TypeUtils::asTensor(entry.retType) ? TypeUtils::asTensor(entry.retType)->shape : Shape{};
@@ -518,6 +794,7 @@ namespace refractir::reify {
                                              : entry.retType
       );
       testCase.operators = std::move(candidate.operators);
+      testCase.shapeAxes = std::move(candidate.shapeAxes);
       testCase.numericComparison = testCase.outputElement == TensorElement::F32;
       if (testCase.numericComparison)
         testCase.propertyThresholdF32Bits = "3f4ccccd";

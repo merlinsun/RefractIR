@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ast/tensor.hpp"
@@ -27,6 +28,7 @@ namespace refractir::reify {
     std::string evidenceKind;
     std::string evidenceStatus;
     std::vector<std::string> operators;
+    std::vector<std::pair<Shape, std::int32_t>> shapeAxes;
     std::vector<TensorCaseBuffer> inputs;
     Shape outputShape;
     TensorElement outputElement = TensorElement::I32;

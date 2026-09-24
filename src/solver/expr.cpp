@@ -129,6 +129,19 @@ namespace refractir {
             return evalSelectAtom(arg, solver, store, pc, ub, expectedSort);
           } else if constexpr (std::is_same_v<T, CoefAtom>) {
 
+            if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
+              const auto &value = store.at(std::visit([](auto &&part) { return part.name; }, *id));
+              if (value.kind == SymbolicValue::Kind::Tensor) {
+                for (const auto &leaf: value.arrayVal) {
+                  if (leaf.kind == SymbolicValue::Kind::Undef)
+                    ub.push_back(solver.make_false());
+                  else if (leaf.is_defined.internal)
+                    ub.push_back(leaf.is_defined);
+                }
+                return value;
+              }
+            }
+
             smt::Term term = evalCoef(arg.coef, solver, store, expectedSort);
             auto bv64 = solver.make_bv_sort(64);
             auto zero = solver.make_bv_value_int64(bv64, 0);

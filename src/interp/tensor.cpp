@@ -75,6 +75,9 @@ namespace refractir {
         if (value.kind != RuntimeValue::Kind::Float || value.bits != 32 ||
             !std::isfinite(value.floatVal))
           throw std::runtime_error("tensor f32 operand is not a finite f32 value");
+        value.floatVal = static_cast<double>(static_cast<float>(value.floatVal));
+        if (!std::isfinite(value.floatVal))
+          throw UndefinedBehaviorError("UB: non-finite tensor f32 value");
       }
       return value;
     }

@@ -5,6 +5,7 @@
 #include <limits>
 #include <string>
 #include <type_traits>
+#include <unordered_set>
 #include "analysis/type_utils.hpp"
 
 namespace refractir {
@@ -58,7 +59,7 @@ namespace refractir {
 
     bool containsTensorType(
         const TypePtr &type, const TypeUtils::StructTable &structs,
-        std::vector<std::string> *errors = nullptr
+        std::unordered_set<std::string> &visitedStructs, std::vector<std::string> *errors
     ) {
       if (!type)
         return false;
@@ -90,19 +91,27 @@ namespace refractir {
         return true;
       }
       if (const auto array = std::get_if<ArrayType>(&type->v))
-        return containsTensorType(array->elem, structs, errors);
+        return containsTensorType(array->elem, structs, visitedStructs, errors);
       if (const auto ptr = std::get_if<PtrType>(&type->v))
-        return containsTensorType(ptr->pointee, structs, errors);
+        return containsTensorType(ptr->pointee, structs, visitedStructs, errors);
       if (const auto structure = std::get_if<StructType>(&type->v)) {
         const auto it = structs.find(structure->name.name);
-        if (it == structs.end())
+        if (it == structs.end() || !visitedStructs.insert(structure->name.name).second)
           return false;
         bool result = false;
         for (const auto &field: it->second->fields)
-          result = containsTensorType(field.type, structs, errors) || result;
+          result = containsTensorType(field.type, structs, visitedStructs, errors) || result;
         return result;
       }
       return false;
+    }
+
+    bool containsTensorType(
+        const TypePtr &type, const TypeUtils::StructTable &structs,
+        std::vector<std::string> *errors = nullptr
+    ) {
+      std::unordered_set<std::string> visitedStructs;
+      return containsTensorType(type, structs, visitedStructs, errors);
     }
 
     template<typename F>
@@ -165,6 +174,9 @@ namespace refractir {
             if (found)
               return true;
           }
+          if (const auto branch = std::get_if<BrTerm>(&block.term);
+              branch && branch->cond && (hasExpr(branch->cond->lhs) || hasExpr(branch->cond->rhs)))
+            return true;
           if (const auto ret = std::get_if<RetTerm>(&block.term);
               ret && ret->value && hasExpr(*ret->value))
             return true;
