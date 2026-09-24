@@ -298,7 +298,7 @@ namespace refractir {
               throw std::runtime_error(
                   "tensor-profile: scalar modulo is unsupported in Triton entry"
               );
-            auto lhs = lowerCoef(arg.coef);
+            const auto lhs = lowerCoef(arg.coef);
             const auto rhs = lowerLValue(arg.rval);
             if (arg.op == AtomOpKind::LShr)
               return "tl.cast((tl.cast(" + lhs + ", tl.uint32) >> " + rhs + "), tl.int32)";
@@ -308,13 +308,8 @@ namespace refractir {
                 op = "*";
                 break;
               case AtomOpKind::Div:
-                if (TypeUtils::getIntBitWidth(types_.at(arg.rval.base.name))) {
-                  op = "//";
-                  if (std::holds_alternative<IntLit>(arg.coef))
-                    lhs = "tl.full((), " + lhs + ", tl.int32)";
-                } else {
-                  op = "/";
-                }
+                op = TypeUtils::getIntBitWidth(types_.at(arg.rval.base.name)).has_value() ? "//"
+                                                                                          : "/";
                 break;
               case AtomOpKind::And:
                 op = "&";

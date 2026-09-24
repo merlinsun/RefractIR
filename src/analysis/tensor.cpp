@@ -140,19 +140,53 @@ namespace refractir {
       }
     }
 
-    bool containsTensorAtom(const Atom &atom) { return std::holds_alternative<TensorAtom>(atom.v); }
+    template<typename AtomType>
+    bool expressionContainsAtom(const Expr &expr);
+
+    template<typename AtomType>
+    bool conditionContainsAtom(const Cond &cond);
+
+    template<typename AtomType>
+    bool atomContainsAtom(const Atom &atom) {
+      if (std::holds_alternative<AtomType>(atom.v))
+        return true;
+      return std::visit(
+          [](const auto &value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SelectAtom>) {
+              return (value.cond && conditionContainsAtom<AtomType>(*value.cond)) ||
+                     (value.maskExpr && expressionContainsAtom<AtomType>(*value.maskExpr));
+            } else if constexpr (std::is_same_v<T, CallAtom>) {
+              return std::any_of(value.args.begin(), value.args.end(), [](const auto &arg) {
+                return arg && expressionContainsAtom<AtomType>(*arg);
+              });
+            }
+            return false;
+          },
+          atom.v
+      );
+    }
+
+    template<typename AtomType>
+    bool expressionContainsAtom(const Expr &expr) {
+      if (atomContainsAtom<AtomType>(expr.first))
+        return true;
+      return std::any_of(expr.rest.begin(), expr.rest.end(), [](const Expr::Tail &tail) {
+        return atomContainsAtom<AtomType>(tail.atom);
+      });
+    }
+
+    template<typename AtomType>
+    bool conditionContainsAtom(const Cond &cond) {
+      return expressionContainsAtom<AtomType>(cond.lhs) ||
+             expressionContainsAtom<AtomType>(cond.rhs);
+    }
 
     bool functionHasTensorAtom(const FunDecl &function) {
-      auto hasExpr = [](const Expr &expr) {
-        if (containsTensorAtom(expr.first))
-          return true;
-        return std::any_of(expr.rest.begin(), expr.rest.end(), [](const Expr::Tail &tail) {
-          return containsTensorAtom(tail.atom);
-        });
-      };
+      auto hasExpr = [](const Expr &expr) { return expressionContainsAtom<TensorAtom>(expr); };
       for (const auto &local: function.lets)
         if (local.init && local.init->kind == InitVal::Kind::Atom &&
-            containsTensorAtom(*std::get<AtomPtr>(local.init->value)))
+            atomContainsAtom<TensorAtom>(*std::get<AtomPtr>(local.init->value)))
           return true;
       for (const auto &block: function.blocks) {
         for (const auto &instruction: block.instrs) {
@@ -187,19 +221,12 @@ namespace refractir {
       return std::any_of(prog.funs.begin(), prog.funs.end(), functionHasTensorAtom);
     }
 
-    bool expressionHasCallAtom(const Expr &expr) {
-      auto isCall = [](const Atom &atom) { return std::holds_alternative<CallAtom>(atom.v); };
-      if (isCall(expr.first))
-        return true;
-      return std::any_of(expr.rest.begin(), expr.rest.end(), [&](const Expr::Tail &tail) {
-        return isCall(tail.atom);
-      });
-    }
+    bool expressionHasCallAtom(const Expr &expr) { return expressionContainsAtom<CallAtom>(expr); }
 
     bool tensorFunctionHasCall(const FunDecl &function) {
       for (const auto &local: function.lets)
         if (local.init && local.init->kind == InitVal::Kind::Atom &&
-            std::holds_alternative<CallAtom>(std::get<AtomPtr>(local.init->value)->v))
+            atomContainsAtom<CallAtom>(*std::get<AtomPtr>(local.init->value)))
           return true;
       for (const auto &block: function.blocks) {
         for (const auto &instruction: block.instrs) {
