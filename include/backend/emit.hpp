@@ -16,8 +16,11 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
+#include "analysis/tensor.hpp"
 #include "ast/ast.hpp"
+#include "backend/triton_layout.hpp"
 
 namespace refractir {
 
@@ -49,6 +52,11 @@ namespace refractir {
     std::string entry = "kernel";
     // Triton numerical softmax lowering: direct or decomposed.
     std::string tensorSoftmaxLowering = "direct";
+    // Tensor-v1 remains the default. Tensor-v2 selects its larger static
+    // tensor bound and, as those capabilities ship, its loop subset.
+    TensorProfileId tensorProfile = TensorProfileId::V1;
+    // Physical input/output memory mappings selected by one case manifest.
+    std::vector<TritonBufferLayout> tritonBufferLayouts;
   };
 
   // Compile to C. Writes `<outDir>/<primaryStem>.c`, or one file per source
@@ -68,6 +76,9 @@ namespace refractir {
   // Emit one complete-tile Triton JIT kernel. The file is replaced only after
   // checking and rendering both succeed.
   bool emitTriton(Program &prog, const std::filesystem::path &outFile, const EmitOptions &opts);
+
+  /// Read the minimal, validated JSON layout manifest consumed by symirc.
+  std::vector<TritonBufferLayout> readTritonBufferLayouts(const std::filesystem::path &path);
 
   // Parse a `.sir` file and compile it for `target` ("c", "wasm" or
   // "python" or "triton"). The C target writes one file here whatever `opts` says, since

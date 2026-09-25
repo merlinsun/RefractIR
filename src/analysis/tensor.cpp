@@ -3,12 +3,33 @@
 #include <algorithm>
 #include <functional>
 #include <limits>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
+#include "analysis/cfg.hpp"
+#include "analysis/dominators.hpp"
+#include "analysis/loop_info.hpp"
+#include "analysis/reducibility.hpp"
 #include "analysis/type_utils.hpp"
 
 namespace refractir {
+
+  TensorProfile tensorProfile(TensorProfileId id) {
+    if (id == TensorProfileId::V1)
+      return TensorProfile{TensorProfileId::V1, 3, 256, 0};
+    return TensorProfile{TensorProfileId::V2, 3, 512, 8};
+  }
+
+  TensorProfileId parseTensorProfileVersion(std::string_view version) {
+    if (version == "v1")
+      return TensorProfileId::V1;
+    if (version == "v2")
+      return TensorProfileId::V2;
+    throw std::invalid_argument("tensor-profile: unknown tensor profile version '" +
+                                std::string(version) + "'");
+  }
 
   std::uint32_t tensorElementCount(const Shape &shape) {
     std::uint64_t count = 1;
@@ -59,7 +80,8 @@ namespace refractir {
 
     bool containsTensorType(
         const TypePtr &type, const TypeUtils::StructTable &structs,
-        std::unordered_set<std::string> &visitedStructs, std::vector<std::string> *errors
+        std::unordered_set<std::string> &visitedStructs, const TensorProfile &profile,
+        std::vector<std::string> *errors
     ) {
       if (!type)
         return false;
@@ -71,8 +93,11 @@ namespace refractir {
             errors->push_back("tensor-profile: tensor rank exceeds 3");
           try {
             const auto count = tensorElementCount(tensor->shape);
-            if (count > TensorProfile{}.maxElements)
-              errors->push_back("tensor-profile: tensor exceeds 256 elements");
+            if (count > profile.maxElements)
+              errors->push_back(
+                  "tensor-profile: tensor exceeds " + std::to_string(profile.maxElements) +
+                  " elements"
+              );
           } catch (const std::exception &e) {
             errors->push_back(e.what());
           }
@@ -91,16 +116,16 @@ namespace refractir {
         return true;
       }
       if (const auto array = std::get_if<ArrayType>(&type->v))
-        return containsTensorType(array->elem, structs, visitedStructs, errors);
+        return containsTensorType(array->elem, structs, visitedStructs, profile, errors);
       if (const auto ptr = std::get_if<PtrType>(&type->v))
-        return containsTensorType(ptr->pointee, structs, visitedStructs, errors);
+        return containsTensorType(ptr->pointee, structs, visitedStructs, profile, errors);
       if (const auto structure = std::get_if<StructType>(&type->v)) {
         const auto it = structs.find(structure->name.name);
         if (it == structs.end() || !visitedStructs.insert(structure->name.name).second)
           return false;
         bool result = false;
         for (const auto &field: it->second->fields)
-          result = containsTensorType(field.type, structs, visitedStructs, errors) || result;
+          result = containsTensorType(field.type, structs, visitedStructs, profile, errors) || result;
         return result;
       }
       return false;
@@ -108,10 +133,10 @@ namespace refractir {
 
     bool containsTensorType(
         const TypePtr &type, const TypeUtils::StructTable &structs,
-        std::vector<std::string> *errors = nullptr
+        const TensorProfile &profile, std::vector<std::string> *errors = nullptr
     ) {
       std::unordered_set<std::string> visitedStructs;
-      return containsTensorType(type, structs, visitedStructs, errors);
+      return containsTensorType(type, structs, visitedStructs, profile, errors);
     }
 
     template<typename F>
@@ -259,24 +284,277 @@ namespace refractir {
       return false;
     }
 
-    bool functionHasTensorType(const FunDecl &function, const TypeUtils::StructTable &structs) {
-      if (containsTensorType(function.retType, structs))
+    bool functionHasTensorType(
+        const FunDecl &function, const TypeUtils::StructTable &structs,
+        const TensorProfile &profile
+    ) {
+      if (containsTensorType(function.retType, structs, profile))
         return true;
       for (const auto &param: function.params)
-        if (containsTensorType(param.type, structs))
+        if (containsTensorType(param.type, structs, profile))
           return true;
       for (const auto &symbol: function.syms)
-        if (containsTensorType(symbol.type, structs))
+        if (containsTensorType(symbol.type, structs, profile))
           return true;
       for (const auto &local: function.lets)
-        if (containsTensorType(local.type, structs))
+        if (containsTensorType(local.type, structs, profile))
           return true;
       return false;
     }
 
+    std::optional<std::string> simpleLocalAtom(const Atom &atom) {
+      if (const auto *value = std::get_if<CoefAtom>(&atom.v)) {
+        const auto *id = std::get_if<LocalOrSymId>(&value->coef);
+        if (id)
+          if (const auto *local = std::get_if<LocalId>(id))
+            return local->name;
+      }
+      if (const auto *value = std::get_if<RValueAtom>(&atom.v))
+        if (value->rval.accesses.empty())
+          return value->rval.base.name;
+      return std::nullopt;
+    }
+
+    std::optional<std::string> simpleLocal(const Expr &expr) {
+      return expr.rest.empty() ? simpleLocalAtom(expr.first) : std::nullopt;
+    }
+
+    std::optional<std::int64_t> simpleIntegerAtom(const Atom &atom) {
+      const auto *value = std::get_if<CoefAtom>(&atom.v);
+      if (!value)
+        return std::nullopt;
+      if (const auto *integer = std::get_if<IntLit>(&value->coef))
+        return integer->value;
+      return std::nullopt;
+    }
+
+    std::optional<std::int64_t> simpleInteger(const Expr &expr) {
+      if (!expr.rest.empty())
+        return std::nullopt;
+      return simpleIntegerAtom(expr.first);
+    }
+
+    std::optional<std::string> assignedLocal(const Instr &instruction) {
+      const auto *assignment = std::get_if<AssignInstr>(&instruction);
+      if (!assignment || !assignment->lhs.accesses.empty())
+        return std::nullopt;
+      return assignment->lhs.base.name;
+    }
+
+    bool isIncrementByOne(const Expr &expr, const std::string &name) {
+      if (expr.rest.size() != 1 || simpleLocalAtom(expr.first) != name ||
+          expr.rest.front().op != AddOp::Plus)
+        return false;
+      return simpleIntegerAtom(expr.rest.front().atom) == 1;
+    }
+
+    bool assignsLiteral(const Instr &instruction, const std::string &name, std::int64_t *value) {
+      const auto *assignment = std::get_if<AssignInstr>(&instruction);
+      if (!assignment || assignment->lhs.base.name != name || !assignment->lhs.accesses.empty())
+        return false;
+      const auto literal = simpleInteger(assignment->rhs);
+      if (!literal)
+        return false;
+      *value = *literal;
+      return true;
+    }
+
   } // namespace
 
-  bool checkTensorCapabilities(const Program &prog, TensorConsumer consumer, DiagBag &diags) {
+  std::optional<TensorLoopAnalysis> analyzeTensorLoops(
+      const FunDecl &function, const TensorProfile &profile, DiagBag &diags
+  ) {
+    TensorLoopAnalysis result;
+    if (!profile.maxLoopBodyExecutions)
+      return result;
+
+    CFG cfg = CFG::build(function, diags);
+    if (diags.hasErrors())
+      return std::nullopt;
+    if (!ReducibilityResult::isReducible(function)) {
+      diags.error("tensor-profile: counted-loop control flow must be reducible", function.span);
+      return std::nullopt;
+    }
+    const auto reachable = cfg.rpo();
+    if (reachable.size() != cfg.blocks.size()) {
+      diags.error("tensor-profile: unreachable blocks are not supported", function.span);
+      return std::nullopt;
+    }
+
+    const DomTree dominators = DomTree::build(cfg);
+    const LoopInfo loopInfo = LoopInfo::build(cfg, dominators);
+    result.loops.reserve(loopInfo.loops.size());
+    std::vector<std::vector<char>> loopMembers;
+    std::vector<char> loopHeader(cfg.blocks.size(), 0);
+    std::vector<char> loopLatch(cfg.blocks.size(), 0);
+    for (const auto &loop: loopInfo.loops) {
+      loopHeader[loop.header] = 1;
+      for (const auto latch: loop.latches)
+        loopLatch[latch] = 1;
+    }
+
+    auto fail = [&](const std::string &message, std::size_t block) {
+      diags.error(message, function.blocks[block].span);
+      return std::optional<TensorLoopAnalysis>{};
+    };
+
+    for (std::size_t index = 0; index < loopInfo.loops.size(); ++index) {
+      const auto &natural = loopInfo.loops[index];
+      const auto header = natural.header;
+      if (natural.latches.size() != 1 || natural.exitEdges.size() != 1)
+        return fail("tensor-profile: counted loop needs one latch and one false-edge exit", header);
+      const auto *branch = std::get_if<BrTerm>(&function.blocks[header].term);
+      if (!branch || !branch->isConditional || !branch->cond)
+        return fail("tensor-profile: counted-loop header must compare induction variable", header);
+      if (!function.blocks[header].instrs.empty())
+        return fail("tensor-profile: counted-loop header cannot contain instructions", header);
+      const auto thenIt = cfg.indexOf.find(branch->thenLabel.name);
+      const auto elseIt = cfg.indexOf.find(branch->elseLabel.name);
+      if (thenIt == cfg.indexOf.end() || elseIt == cfg.indexOf.end())
+        return fail("tensor-profile: invalid counted-loop branch target", header);
+
+      std::vector<char> members(cfg.blocks.size(), 0);
+      for (const auto block: natural.blocks)
+        members[block] = 1;
+      if (!members[thenIt->second] || members[elseIt->second] ||
+          natural.exitEdges.front() != std::pair{header, elseIt->second})
+        return fail("tensor-profile: counted-loop true edge must enter body and false edge exit", header);
+
+      std::vector<std::size_t> preheaders;
+      for (const auto predecessor: cfg.pred[header])
+        if (!members[predecessor])
+          preheaders.push_back(predecessor);
+      if (preheaders.size() != 1)
+        return fail("tensor-profile: counted loop needs one preheader", header);
+      const auto preheader = preheaders.front();
+      const auto *preheaderBranch = std::get_if<BrTerm>(&function.blocks[preheader].term);
+      if (!preheaderBranch || preheaderBranch->isConditional ||
+          preheaderBranch->dest.name != function.blocks[header].label.name)
+        return fail("tensor-profile: counted-loop preheader must branch directly to its header", header);
+      if (branch->cond->op != RelOp::LT)
+        return fail("tensor-profile: counted-loop condition must use <", header);
+      const auto induction = simpleLocal(branch->cond->lhs);
+      const auto bound = simpleInteger(branch->cond->rhs);
+      if (!induction || !bound)
+        return fail("tensor-profile: counted-loop header must compare induction variable", header);
+
+      const auto declaration = std::find_if(
+          function.lets.begin(), function.lets.end(), [&](const LetDecl &let) {
+            return let.name.name == *induction;
+          }
+      );
+      if (declaration == function.lets.end() || !declaration->isMutable ||
+          TypeUtils::getIntBitWidth(declaration->type) != 32 ||
+          (declaration->init && declaration->init->kind != InitVal::Kind::Undef))
+        return fail("tensor-profile: induction variable must be a mutable uninitialized i32 local", header);
+
+      std::int64_t initial = 0;
+      std::size_t preheaderInitializers = 0;
+      std::size_t writes = 0;
+      for (std::size_t block = 0; block < function.blocks.size(); ++block) {
+        const auto &instructions = function.blocks[block].instrs;
+        for (std::size_t instructionIndex = 0; instructionIndex < instructions.size();
+             ++instructionIndex) {
+          const auto &instruction = instructions[instructionIndex];
+          const auto target = assignedLocal(instruction);
+          if (!target || *target != *induction)
+            continue;
+          ++writes;
+          if (block == preheader && assignsLiteral(instruction, *induction, &initial))
+            ++preheaderInitializers;
+          if (block == natural.latches.front()) {
+            const auto *assignment = std::get_if<AssignInstr>(&instruction);
+            if (!assignment || !isIncrementByOne(assignment->rhs, *induction) ||
+                instructionIndex + 1 != instructions.size())
+              return fail("tensor-profile: latch must increment induction variable by one", header);
+          }
+        }
+      }
+      if (preheaderInitializers != 1)
+        return fail("tensor-profile: preheader must reset induction variable on every entry", header);
+      if (writes != 2)
+        return fail("tensor-profile: induction variable may only be initialized and incremented", header);
+      if (initial < INT32_MIN || initial > INT32_MAX || *bound < INT32_MIN || *bound > INT32_MAX ||
+          *bound <= initial || *bound - initial > 8)
+        return fail("tensor-profile: loop trip count must be in [1, 8] without i32 overflow", header);
+
+      const auto latch = natural.latches.front();
+      const auto *latchBranch = std::get_if<BrTerm>(&function.blocks[latch].term);
+      if (!latchBranch || latchBranch->isConditional ||
+          latchBranch->dest.name != function.blocks[header].label.name)
+        return fail("tensor-profile: counted-loop latch must branch to its header", header);
+
+      TensorCountedLoop loop;
+      loop.header = header;
+      loop.preheader = preheader;
+      loop.latch = latch;
+      loop.exit = elseIt->second;
+      loop.inductionVariable = *induction;
+      loop.initialValue = static_cast<std::int32_t>(initial);
+      loop.bound = static_cast<std::int32_t>(*bound);
+      loop.tripCount = static_cast<std::uint32_t>(*bound - initial);
+      loop.parentIndex = natural.parent;
+      loop.blocks = natural.blocks;
+      result.loops.push_back(std::move(loop));
+      loopMembers.push_back(std::move(members));
+    }
+
+    for (std::size_t index = 0; index < result.loops.size(); ++index) {
+      const auto &loop = result.loops[index];
+      for (const auto block: loop.blocks) {
+        const auto *term = std::get_if<BrTerm>(&function.blocks[block].term);
+        if (!term)
+          return fail("tensor-profile: counted-loop body cannot return or terminate early", block);
+        if (term->isConditional && !loopHeader[block])
+          return fail("tensor-profile: only counted-loop headers may branch conditionally", block);
+        if (!term->isConditional) {
+          const auto destination = cfg.indexOf.find(term->dest.name);
+          if (destination == cfg.indexOf.end())
+            return fail("tensor-profile: invalid counted-loop branch target", block);
+          if (block == loop.latch) {
+            if (destination->second != loop.header)
+              return fail("tensor-profile: counted-loop latch must branch to its header", block);
+          } else if (!loopMembers[index][destination->second]) {
+            return fail("tensor-profile: counted-loop body has an early exit", block);
+          }
+        }
+      }
+    }
+
+    std::uint64_t totalExecutions = 0;
+    for (std::size_t index = 0; index < result.loops.size(); ++index) {
+      std::uint64_t multiplier = 1;
+      for (int parent = result.loops[index].parentIndex; parent >= 0;
+           parent = result.loops[static_cast<std::size_t>(parent)].parentIndex)
+        multiplier *= result.loops[static_cast<std::size_t>(parent)].tripCount;
+      totalExecutions += multiplier * result.loops[index].tripCount;
+    }
+    if (totalExecutions > profile.maxLoopBodyExecutions) {
+      diags.error(
+          "tensor-profile: counted loops exceed eight total body executions", function.span
+      );
+      return std::nullopt;
+    }
+    result.totalBodyExecutions = static_cast<std::uint32_t>(totalExecutions);
+
+    std::vector<char> inAnyLoop(cfg.blocks.size(), 0);
+    for (const auto &loop: result.loops)
+      for (const auto block: loop.blocks)
+        inAnyLoop[block] = 1;
+    for (std::size_t block = 0; block < function.blocks.size(); ++block) {
+      const auto *branch = std::get_if<BrTerm>(&function.blocks[block].term);
+      if (branch && branch->isConditional && !loopHeader[block])
+        return fail("tensor-profile: conditional branches must be canonical counted-loop headers", block);
+      if (loopLatch[block] && !loopHeader[block] && !inAnyLoop[block])
+        return fail("tensor-profile: loop latch is outside its natural loop", block);
+    }
+    return result;
+  }
+
+  bool checkTensorCapabilities(
+      const Program &prog, TensorConsumer consumer, const TensorProfile &profile,
+      DiagBag &diags
+  ) {
     const bool legacy = consumer == TensorConsumer::C || consumer == TensorConsumer::Wasm ||
                         consumer == TensorConsumer::Python;
     const auto structs = TypeUtils::buildStructTable(prog);
@@ -284,7 +562,7 @@ namespace refractir {
     std::vector<std::pair<std::string, SourceSpan>> profileErrors;
     eachProgramType(prog, [&](const TypePtr &type, SourceSpan span) {
       std::vector<std::string> errors;
-      hasTensor = containsTensorType(type, structs, &errors) || hasTensor;
+      hasTensor = containsTensorType(type, structs, profile, &errors) || hasTensor;
       for (auto &error: errors)
         profileErrors.emplace_back(std::move(error), span);
     });
@@ -305,14 +583,18 @@ namespace refractir {
     for (auto &[message, span]: profileErrors)
       diags.error(message, span);
     for (const auto &function: prog.funs) {
-      if (!functionHasTensorType(function, structs) && !functionHasTensorAtom(function))
+      if (!functionHasTensorType(function, structs, profile) && !functionHasTensorAtom(function))
         continue;
-      if (function.blocks.size() != 1 ||
-          !std::holds_alternative<RetTerm>(function.blocks.front().term))
-        diags.error(
-            "tensor-profile: tensor functions must have one basic block ending in ret",
-            function.span
-        );
+      if (profile.id == TensorProfileId::V1) {
+        if (function.blocks.size() != 1 ||
+            !std::holds_alternative<RetTerm>(function.blocks.front().term))
+          diags.error(
+              "tensor-profile: tensor functions must have one basic block ending in ret",
+              function.span
+          );
+      } else if (!analyzeTensorLoops(function, profile, diags)) {
+        continue;
+      }
       if (tensorFunctionHasCall(function))
         diags.error("tensor-profile: tensor functions cannot contain calls", function.span);
     }

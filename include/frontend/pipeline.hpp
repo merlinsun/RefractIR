@@ -21,6 +21,7 @@
 
 #include <string_view>
 
+#include "analysis/tensor.hpp"
 #include "ast/ast.hpp"
 #include "frontend/diagnostics.hpp"
 
@@ -50,6 +51,10 @@ namespace refractir {
 
     // Report a program that produced any warning as not well-formed.
     bool warningsAreErrors = false;
+
+    // Apply the selected tensor profile during type checking. Defaulting to
+    // v1 keeps existing consumers and tools on the shipped contract.
+    TensorProfileId tensorProfile = TensorProfileId::V1;
   };
 
   // Run the checks `opts` selects over `prog`, appending every diagnostic to

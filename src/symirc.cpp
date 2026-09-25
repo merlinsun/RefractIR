@@ -30,6 +30,8 @@ int main(int argc, char **argv) {
     ("input", "Input .sir file", cxxopts::value<std::string>())
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
     ("target", "Backend target (c, wasm, python, triton)", cxxopts::value<std::string>()->default_value("c"))
+    ("tensor-profile-version", "Tensor profile version: v1|v2", cxxopts::value<std::string>()->default_value("v1"))
+    ("tensor-layout-manifest", "Triton target: JSON file with physical tensor buffer layouts", cxxopts::value<std::string>())
     ("entry", "Triton entry function", cxxopts::value<std::string>()->default_value("kernel"))
     ("tensor-softmax-lowering", "Triton softmax lowering: direct|decomposed", cxxopts::value<std::string>()->default_value("direct"))
     ("keep-require", "Triton target: reject emission when source require checks are retained", cxxopts::value<bool>()->default_value("false"))
@@ -97,6 +99,8 @@ int main(int argc, char **argv) {
 
     // 2. Analysis
     CheckOptions checkOpts;
+    checkOpts.tensorProfile =
+        parseTensorProfileVersion(result["tensor-profile-version"].as<std::string>());
     // The structurizer is only total on reducible CFGs, so the
     // control-tree dump flags, --structured-lowering, and the python
     // target (which has no goto to fall back on) imply the check.
@@ -128,7 +132,9 @@ int main(int argc, char **argv) {
                                           : target == "python" ? TensorConsumer::Python
                                           : target == "triton" ? TensorConsumer::Triton
                                                                : TensorConsumer::Reference;
-    if (!checkTensorCapabilities(prog, tensorConsumer, diags)) {
+    if (!checkTensorCapabilities(
+            prog, tensorConsumer, tensorProfile(checkOpts.tensorProfile), diags
+        )) {
       std::cerr << "Errors:\n";
       for (const auto &d: diags.diags)
         if (d.level == DiagLevel::Error)
@@ -182,6 +188,10 @@ int main(int argc, char **argv) {
       tensorOptions.verbose = true;
       tensorOptions.entry = result["entry"].as<std::string>();
       tensorOptions.tensorSoftmaxLowering = result["tensor-softmax-lowering"].as<std::string>();
+      tensorOptions.tensorProfile = checkOpts.tensorProfile;
+      if (result.count("tensor-layout-manifest"))
+        tensorOptions.tritonBufferLayouts =
+            readTritonBufferLayouts(result["tensor-layout-manifest"].as<std::string>());
       tensorOptions.keepRequire = result["keep-require"].as<bool>();
       tensorOptions.structuredLowering = result["structured-lowering"].as<bool>();
       tensorOptions.splitBySource = result["split-by-source"].as<bool>();

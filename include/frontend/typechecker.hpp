@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include "analysis/tensor.hpp"
 #include "analysis/pass_manager.hpp"
 
 namespace refractir {
@@ -90,6 +91,8 @@ namespace refractir {
    */
   class TypeChecker : public refractir::ModulePass {
   public:
+    explicit TypeChecker(TensorProfile profile = {}) : tensorProfile_(profile) {}
+
     std::string name() const override { return "TypeChecker"; }
 
     /**
@@ -98,6 +101,8 @@ namespace refractir {
     refractir::PassResult run(Program &prog, DiagBag &diags) override;
 
   private:
+    TensorProfile tensorProfile_;
+
     struct StructInfo {
       std::unordered_map<std::string, TypePtr> fields;
       std::vector<std::pair<std::string, TypePtr>> fieldList;

@@ -2,10 +2,15 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
+#include <limits>
 #include <numeric>
+#include <optional>
+#include <set>
 #include <stdexcept>
 #include <type_traits>
 
+#include "analysis/cfg.hpp"
 #include "analysis/tensor.hpp"
 #include "analysis/type_utils.hpp"
 
@@ -84,10 +89,82 @@ namespace refractir {
 
     bool typeHasTensor(const TypePtr &type) { return TypeUtils::asTensor(type) != nullptr; }
 
+    std::string bufferKey(std::string name) {
+      if (!name.empty() && (name.front() == '%' || name.front() == '@'))
+        name.erase(name.begin());
+      return name;
+    }
+
+    void validateBufferLayout(
+        const TritonBufferLayout &layout, const Shape &shape, const std::string &where
+    ) {
+      if (shape.empty())
+        throw std::runtime_error("tensor-profile: layout for " + where + " requires a tensor");
+      if (layout.elementStrides.size() != shape.size())
+        throw std::runtime_error("tensor-profile: layout rank does not match " + where);
+      if (layout.axisOrder.size() != shape.size())
+        throw std::runtime_error("tensor-profile: axis order rank does not match " + where);
+      if (layout.storageSpan == 0)
+        throw std::runtime_error("tensor-profile: storage span for " + where + " must be positive");
+      if (std::any_of(layout.elementStrides.begin(), layout.elementStrides.end(),
+                      [](std::uint32_t stride) { return stride == 0; }))
+        throw std::runtime_error("tensor-profile: layout strides must be positive for " + where);
+
+      std::vector<std::uint32_t> expectedOrder(shape.size());
+      std::iota(expectedOrder.begin(), expectedOrder.end(), 0);
+      std::stable_sort(expectedOrder.begin(), expectedOrder.end(), [&](std::uint32_t a,
+                                                                       std::uint32_t b) {
+        if (layout.elementStrides[a] != layout.elementStrides[b])
+          return layout.elementStrides[a] < layout.elementStrides[b];
+        return a < b;
+      });
+      auto suppliedOrder = layout.axisOrder;
+      std::sort(suppliedOrder.begin(), suppliedOrder.end());
+      std::vector<std::uint32_t> axes(shape.size());
+      std::iota(axes.begin(), axes.end(), 0);
+      if (suppliedOrder != axes || layout.axisOrder != expectedOrder)
+        throw std::runtime_error(
+            "tensor-profile: axis order must be a permutation ordered by increasing strides for " +
+            where
+        );
+
+      std::uint64_t lastAddress = layout.elementOffset;
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        const auto extent = static_cast<std::uint64_t>(shape[axis] - 1);
+        const auto stride = static_cast<std::uint64_t>(layout.elementStrides[axis]);
+        if (extent != 0 && stride > (std::numeric_limits<std::uint64_t>::max() - lastAddress) /
+                                        extent)
+          throw std::runtime_error("tensor-profile: storage span address overflows for " + where);
+        lastAddress += extent * stride;
+      }
+      if (layout.elementOffset >= layout.storageSpan || lastAddress >= layout.storageSpan)
+        throw std::runtime_error(
+            "tensor-profile: storage span does not cover the last address for " + where
+        );
+
+      const auto elements = tensorElementCount(shape);
+      std::set<std::uint64_t> addresses;
+      for (std::uint32_t linear = 0; linear < elements; ++linear) {
+        std::uint32_t remainder = linear;
+        std::uint64_t address = layout.elementOffset;
+        for (std::size_t reverse = shape.size(); reverse > 0; --reverse) {
+          const auto axis = reverse - 1;
+          const auto coordinate = remainder % shape[axis];
+          remainder /= shape[axis];
+          address += static_cast<std::uint64_t>(coordinate) * layout.elementStrides[axis];
+        }
+        if (!addresses.insert(address).second)
+          throw std::runtime_error("tensor-profile: layout addresses overlap for " + where);
+      }
+    }
+
   } // namespace
 
-  TritonBackend::TritonBackend(std::ostream &out, std::string entry, std::string softmaxLowering) :
-      out_(out), entry_(std::move(entry)), softmaxLowering_(std::move(softmaxLowering)) {}
+  TritonBackend::TritonBackend(
+      std::ostream &out, std::string entry, std::string softmaxLowering, TensorProfile profile,
+      std::vector<TritonBufferLayout> layouts
+  ) : out_(out), entry_(std::move(entry)), softmaxLowering_(std::move(softmaxLowering)),
+      profile_(profile), layouts_(std::move(layouts)) {}
 
   const FunDecl &TritonBackend::findEntry(const Program &program) const {
     auto it = std::find_if(program.funs.begin(), program.funs.end(), [&](const FunDecl &function) {
@@ -99,9 +176,18 @@ namespace refractir {
   }
 
   void TritonBackend::validateEntry(const FunDecl &function) const {
-    if (function.blocks.size() != 1 ||
-        !std::holds_alternative<RetTerm>(function.blocks.front().term))
-      throw std::runtime_error("tensor-profile: Triton entry must have one block ending in ret");
+    if (profile_.id == TensorProfileId::V1) {
+      if (function.blocks.size() != 1 ||
+          !std::holds_alternative<RetTerm>(function.blocks.front().term))
+        throw std::runtime_error("tensor-profile: Triton entry must have one block ending in ret");
+    } else {
+      DiagBag loopDiagnostics;
+      if (!analyzeTensorLoops(function, profile_, loopDiagnostics))
+        throw std::runtime_error(
+            loopDiagnostics.diags.empty() ? "tensor-profile: invalid v2 control flow"
+                                          : loopDiagnostics.diags.front().message
+        );
+    }
     if (function.syms.size() != 0)
       throw std::runtime_error("tensor-profile: materialize all symbols before Triton emission");
     const bool tensorEntry =
@@ -115,6 +201,10 @@ namespace refractir {
       if (!type)
         throw std::runtime_error("tensor-profile: missing type for " + where);
       if (const auto tensor = TypeUtils::asTensor(type)) {
+        if (tensor->shape.size() > profile_.maxRank)
+          throw std::runtime_error("tensor-profile: tensor rank exceeds profile limit for " + where);
+        if (tensorElementCount(tensor->shape) > profile_.maxElements)
+          throw std::runtime_error("tensor-profile: tensor exceeds profile element limit for " + where);
         if (!tensor->elem || dtypeName(tensor->elem).empty())
           throw std::runtime_error("tensor-profile: unsupported tensor element type for " + where);
       } else if (dtypeName(type).empty()) {
@@ -126,30 +216,72 @@ namespace refractir {
     validateType(function.retType, "return value");
     for (const auto &let: function.lets)
       validateType(let.type, let.name.name);
-    for (const auto &instruction: function.blocks.front().instrs) {
-      if (std::holds_alternative<StoreInstr>(instruction))
-        throw std::runtime_error("tensor-profile: Triton entry cannot use pointer stores");
-      const bool hasCall = std::visit(
-          [](const auto &ins) {
-            using T = std::decay_t<decltype(ins)>;
-            if constexpr (std::is_same_v<T, AssignInstr>)
-              return expressionHasCall(ins.rhs);
-            else if constexpr (std::is_same_v<T, StoreInstr>)
-              return expressionHasCall(ins.ptr) || expressionHasCall(ins.val);
-            else if constexpr (std::is_same_v<T, AssumeInstr> || std::is_same_v<T, RequireInstr>)
-              return expressionHasCall(ins.cond.lhs) || expressionHasCall(ins.cond.rhs);
-            return false;
-          },
-          instruction
-      );
-      if (hasCall)
+    bool hasReturn = false;
+    for (const auto &block: function.blocks) {
+      for (const auto &instruction: block.instrs) {
+        if (std::holds_alternative<StoreInstr>(instruction))
+          throw std::runtime_error("tensor-profile: Triton entry cannot use pointer stores");
+        const bool hasCall = std::visit(
+            [](const auto &ins) {
+              using T = std::decay_t<decltype(ins)>;
+              if constexpr (std::is_same_v<T, AssignInstr>)
+                return expressionHasCall(ins.rhs);
+              else if constexpr (std::is_same_v<T, StoreInstr>)
+                return expressionHasCall(ins.ptr) || expressionHasCall(ins.val);
+              else if constexpr (std::is_same_v<T, AssumeInstr> || std::is_same_v<T, RequireInstr>)
+                return expressionHasCall(ins.cond.lhs) || expressionHasCall(ins.cond.rhs);
+              return false;
+            },
+            instruction
+        );
+        if (hasCall)
+          throw std::runtime_error("tensor-profile: Triton entry cannot contain calls");
+      }
+      if (const auto *branch = std::get_if<BrTerm>(&block.term); branch && branch->cond &&
+          (expressionHasCall(branch->cond->lhs) || expressionHasCall(branch->cond->rhs)))
         throw std::runtime_error("tensor-profile: Triton entry cannot contain calls");
+      if (const auto *ret = std::get_if<RetTerm>(&block.term)) {
+        if (!ret->value)
+          throw std::runtime_error("tensor-profile: Triton entry must return a value");
+        if (expressionHasCall(*ret->value))
+          throw std::runtime_error("tensor-profile: Triton entry cannot return a call");
+        hasReturn = true;
+      }
     }
-    const auto &ret = std::get<RetTerm>(function.blocks.front().term);
-    if (!ret.value)
+    if (!hasReturn)
       throw std::runtime_error("tensor-profile: Triton entry must return a value");
-    if (expressionHasCall(*ret.value))
-      throw std::runtime_error("tensor-profile: Triton entry cannot return a call");
+
+    std::set<std::string> availableNames;
+    for (const auto &param: function.params) {
+      const auto key = bufferKey(param.name.name);
+      availableNames.insert(key);
+    }
+    if (typeHasTensor(function.retType))
+      availableNames.insert("return");
+    std::set<std::string> seenLayouts;
+    for (const auto &layout: layouts_) {
+      const auto key = bufferKey(layout.name);
+      if (!seenLayouts.insert(key).second)
+        throw std::runtime_error("tensor-profile: duplicate layout for buffer " + layout.name);
+      if (!availableNames.contains(key))
+        throw std::runtime_error("tensor-profile: layout names unknown buffer " + layout.name);
+      Shape shape;
+      bool found = false;
+      for (const auto &param: function.params) {
+        if (bufferKey(param.name.name) == key) {
+          shape = valueShape(param.type);
+          found = true;
+          break;
+        }
+      }
+      if (!found && key == "return") {
+        shape = valueShape(function.retType);
+        found = true;
+      }
+      if (!found)
+        throw std::runtime_error("tensor-profile: layout names unknown buffer " + layout.name);
+      validateBufferLayout(layout, shape, layout.name);
+    }
   }
 
   std::string TritonBackend::pythonName(const std::string &sirName) const {
@@ -192,7 +324,10 @@ namespace refractir {
     return nullptr;
   }
 
-  void TritonBackend::addLine(std::string line) { body_.push_back(std::move(line)); }
+  void TritonBackend::addLine(std::string line) {
+    line.insert(0, indent_ * 4, ' ');
+    body_.push_back(std::move(line));
+  }
 
   std::string TritonBackend::freshPythonName(const std::string &base) {
     std::string candidate = base;
@@ -206,7 +341,9 @@ namespace refractir {
     return freshPythonName("_sir_" + stem + "_tmp" + std::to_string(temporaryId_++));
   }
 
-  std::string TritonBackend::emitOffsets(const std::string &name, const Shape &shape) {
+  std::string TritonBackend::emitOffsets(
+      const std::string &name, const Shape &shape, const TritonBufferLayout *layout
+  ) {
     if (shape.empty())
       return {};
     std::vector<std::string> terms;
@@ -224,11 +361,13 @@ namespace refractir {
         range += "]";
       }
       addLine(axisName + " = " + range);
-      const auto stride = productAfter(shape, axis);
+      const auto stride = layout ? layout->elementStrides[axis] : productAfter(shape, axis);
       terms.push_back(axisName + (stride == 1 ? "" : " * " + std::to_string(stride)));
     }
     const auto offsetName = freshPythonName(name + "_offsets");
     std::string offsets = offsetName + " = ";
+    if (layout && layout->elementOffset != 0)
+      offsets += std::to_string(layout->elementOffset) + " + ";
     for (std::size_t i = 0; i < terms.size(); ++i) {
       if (i)
         offsets += " + ";
@@ -244,10 +383,16 @@ namespace refractir {
     parameterPointers_[param.name.name] = pointer;
     const auto shape = valueShape(param.type);
     types_[param.name.name] = param.type;
-    const auto offsets = emitOffsets(variable, shape);
-    const auto address = shape.empty() ? pointer : pointer + " + " + offsets;
-    addLine(variable + " = tl.load(" + address + ")");
-    values_[param.name.name] = Value{param.type, variable};
+    parameterOffsets_[param.name.name] = emitOffsets(variable, shape, findLayout(param.name.name));
+    values_[param.name.name] = Value{param.type, {}};
+  }
+
+  const TritonBufferLayout *TritonBackend::findLayout(const std::string &sirName) const {
+    const auto key = bufferKey(sirName);
+    const auto it = std::find_if(layouts_.begin(), layouts_.end(), [&](const auto &layout) {
+      return bufferKey(layout.name) == key;
+    });
+    return it == layouts_.end() ? nullptr : &*it;
   }
 
   std::string TritonBackend::lowerCoef(const Coef &coef) {
@@ -257,6 +402,16 @@ namespace refractir {
       return printFloat(floating->value);
     if (const auto id = std::get_if<LocalOrSymId>(&coef)) {
       const auto name = localId(*id);
+      if (const auto pointer = parameterPointers_.find(name); pointer != parameterPointers_.end()) {
+        // Keep loads at their SIR use site so loads inside counted loops remain
+        // inside the generated loop and exercise the same reduction structure.
+        const auto shape = valueShape(types_.at(name));
+        const auto offsets = parameterOffsets_.at(name);
+        const auto address = shape.empty() ? pointer->second : pointer->second + " + " + offsets;
+        const auto loaded = nextTemporary("input_load");
+        addLine(loaded + " = tl.load(" + address + ")");
+        return loaded;
+      }
       const auto it = values_.find(name);
       if (it == values_.end())
         throw std::runtime_error("tensor-profile: unresolved or uninitialized operand " + name);
@@ -268,12 +423,7 @@ namespace refractir {
   std::string TritonBackend::lowerLValue(const LValue &lvalue) {
     if (!lvalue.accesses.empty())
       throw std::runtime_error("tensor-profile: indexed lvalues are not supported by Triton");
-    const auto it = values_.find(lvalue.base.name);
-    if (it == values_.end())
-      throw std::runtime_error(
-          "tensor-profile: unresolved or uninitialized local " + lvalue.base.name
-      );
-    return it->second.expression;
+    return lowerCoef(Coef{LocalOrSymId{lvalue.base}});
   }
 
   std::string TritonBackend::lowerExpr(const Expr &expr) {
@@ -566,8 +716,10 @@ namespace refractir {
     types_.clear();
     body_.clear();
     parameterPointers_.clear();
+    parameterOffsets_.clear();
     usedPythonNames_.clear();
     temporaryId_ = 0;
+    indent_ = 0;
     for (const auto &param: function.params)
       usedPythonNames_.insert(pythonName(param.name.name));
     for (const auto &let: function.lets)
@@ -577,18 +729,111 @@ namespace refractir {
       emitInput(param);
     for (const auto &let: function.lets)
       emitInitializer(let);
-    for (const auto &instruction: function.blocks.front().instrs)
-      emitInstruction(instruction);
 
-    const auto &ret = std::get<RetTerm>(function.blocks.front().term);
-    const auto result = lowerExpr(*ret.value);
-    const auto returnShape = valueShape(function.retType);
-    if (returnShape.empty()) {
-      addLine("tl.store(out_ptr, " + result + ")");
-    } else {
-      const auto offsets = emitOffsets("_sir_out", returnShape);
-      addLine("tl.store(out_ptr + " + offsets + ", " + result + ")");
+    DiagBag diagnostics;
+    const CFG cfg = CFG::build(function, diagnostics);
+    const auto analysis = analyzeTensorLoops(function, profile_, diagnostics);
+    if (!analysis)
+      throw std::runtime_error("tensor-profile: failed to analyze Triton entry control flow");
+    std::unordered_map<std::size_t, std::size_t> loopAtPreheader;
+    std::unordered_map<std::size_t, std::size_t> loopAtLatch;
+    for (std::size_t i = 0; i < analysis->loops.size(); ++i) {
+      loopAtPreheader.emplace(analysis->loops[i].preheader, i);
+      loopAtLatch.emplace(analysis->loops[i].latch, i);
     }
+
+    auto emitReturn = [&](const RetTerm &ret) {
+      if (!ret.value)
+        throw std::runtime_error("tensor-profile: Triton entry must return a value");
+      const auto result = lowerExpr(*ret.value);
+      const auto returnShape = valueShape(function.retType);
+      if (returnShape.empty()) {
+        addLine("tl.store(out_ptr, " + result + ")");
+      } else {
+        const auto offsets = emitOffsets("_sir_out", returnShape, findLayout("return"));
+        addLine("tl.store(out_ptr + " + offsets + ", " + result + ")");
+      }
+    };
+
+    std::function<void(std::size_t, std::optional<std::size_t>, int)> emitFlow;
+    std::function<void(std::size_t)> emitLoop;
+    emitLoop = [&](std::size_t loopIndex) {
+      const auto &loop = analysis->loops[loopIndex];
+      const auto &header = function.blocks[loop.header];
+      const auto &branch = std::get<BrTerm>(header.term);
+      const auto body = cfg.indexOf.at(branch.thenLabel.name);
+      const auto variable = pythonName(loop.inductionVariable);
+      const auto type = types_.at(loop.inductionVariable);
+      addLine(variable + " = tl.full((), " + std::to_string(loop.initialValue) + ", " +
+              dtypeName(type) + ")");
+      addLine("for " + variable + " in tl.range(" + std::to_string(loop.initialValue) + ", " +
+              std::to_string(loop.bound) + "):");
+      const auto bodyStartLine = body_.size();
+      ++indent_;
+      emitFlow(body, loop.exit, static_cast<int>(loopIndex));
+      if (body_.size() == bodyStartLine)
+        addLine("pass");
+      --indent_;
+      addLine(variable + " = tl.full((), " + std::to_string(loop.bound) + ", " +
+              dtypeName(type) + ")");
+      values_[loop.inductionVariable] = Value{type, variable};
+    };
+
+    emitFlow = [&](
+                  std::size_t start, std::optional<std::size_t> stop, int activeLoop
+              ) {
+      std::size_t blockIndex = start;
+      std::size_t steps = 0;
+      while (true) {
+        if (stop && blockIndex == *stop)
+          return;
+        if (++steps > cfg.blocks.size() + analysis->loops.size() + 1)
+          throw std::runtime_error("tensor-profile: unstructured cycle in Triton entry");
+
+        const auto latch = loopAtLatch.find(blockIndex);
+        if (activeLoop >= 0 && latch != loopAtLatch.end() &&
+            latch->second == static_cast<std::size_t>(activeLoop)) {
+          const auto &loop = analysis->loops[static_cast<std::size_t>(activeLoop)];
+          for (const auto &instruction: function.blocks[blockIndex].instrs) {
+            const auto *assignment = std::get_if<AssignInstr>(&instruction);
+            if (assignment && assignment->lhs.accesses.empty() &&
+                assignment->lhs.base.name == loop.inductionVariable)
+              continue;
+            emitInstruction(instruction);
+          }
+          return;
+        }
+
+        for (const auto &instruction: function.blocks[blockIndex].instrs)
+          emitInstruction(instruction);
+
+        if (const auto nested = loopAtPreheader.find(blockIndex);
+            nested != loopAtPreheader.end()) {
+          emitLoop(nested->second);
+          blockIndex = analysis->loops[nested->second].exit;
+          continue;
+        }
+
+        const auto &term = function.blocks[blockIndex].term;
+        if (const auto *ret = std::get_if<RetTerm>(&term)) {
+          emitReturn(*ret);
+          return;
+        }
+        if (const auto *branch = std::get_if<BrTerm>(&term)) {
+          if (branch->isConditional)
+            throw std::runtime_error(
+                "tensor-profile: only counted-loop headers may branch conditionally"
+            );
+          const auto destination = cfg.indexOf.at(branch->dest.name);
+          if (stop && destination == *stop)
+            return;
+          blockIndex = destination;
+          continue;
+        }
+        throw std::runtime_error("tensor-profile: unreachable terminator in Triton entry");
+      }
+    };
+    emitFlow(cfg.entry, std::nullopt, -1);
 
     out_ << "import triton\n";
     out_ << "import triton.language as tl\n\n";

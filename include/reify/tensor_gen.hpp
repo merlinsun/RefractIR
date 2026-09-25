@@ -4,9 +4,13 @@
 #include <filesystem>
 #include <string>
 
+#include "analysis/tensor.hpp"
+
 namespace refractir::reify {
 
   struct TensorGenerationOptions {
+    TensorProfileId profileVersion = TensorProfileId::V1;
+    std::string primaryStratum;
     std::string dtype = "i32";
     std::string property;
     std::string synthesis = "construction";

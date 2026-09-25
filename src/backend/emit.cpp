@@ -1,9 +1,14 @@
 #include "backend/emit.hpp"
 
 #include <chrono>
+#include <charconv>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <limits>
+#include <set>
 #include <sstream>
+#include <stdexcept>
 #include <system_error>
 
 #include "analysis/reducibility.hpp"
@@ -23,6 +28,220 @@ namespace refractir {
 
   namespace {
 
+    class LayoutJsonReader {
+    public:
+      explicit LayoutJsonReader(std::string input) : input_(std::move(input)) {}
+
+      std::vector<TritonBufferLayout> read() {
+        expect('{');
+        const auto key = readString();
+        if (key != "buffers")
+          fail("root object must contain 'buffers' first");
+        expect(':');
+        expect('[');
+        std::vector<TritonBufferLayout> layouts;
+        skipSpace();
+        if (!consume(']')) {
+          do {
+            layouts.push_back(readLayout());
+            skipSpace();
+            if (consume(']'))
+              break;
+            expect(',');
+          } while (true);
+        }
+        expect('}');
+        skipSpace();
+        if (position_ != input_.size())
+          fail("trailing data after root object");
+        return layouts;
+      }
+
+    private:
+      std::string input_;
+      std::size_t position_ = 0;
+
+      [[noreturn]] void fail(const std::string &message) const {
+        throw std::runtime_error(
+            "invalid Triton layout manifest at byte " + std::to_string(position_) + ": " +
+            message
+        );
+      }
+
+      void skipSpace() {
+        while (position_ < input_.size() &&
+               (input_[position_] == ' ' || input_[position_] == '\t' ||
+                input_[position_] == '\r' || input_[position_] == '\n'))
+          ++position_;
+      }
+
+      bool consume(char expected) {
+        skipSpace();
+        if (position_ < input_.size() && input_[position_] == expected) {
+          ++position_;
+          return true;
+        }
+        return false;
+      }
+
+      void expect(char expected) {
+        if (!consume(expected))
+          fail(std::string("expected '") + expected + "'");
+      }
+
+      static void appendUtf8(std::string &out, std::uint32_t codepoint) {
+        if (codepoint <= 0x7f) {
+          out += static_cast<char>(codepoint);
+        } else if (codepoint <= 0x7ff) {
+          out += static_cast<char>(0xc0 | (codepoint >> 6));
+          out += static_cast<char>(0x80 | (codepoint & 0x3f));
+        } else if (codepoint <= 0xffff) {
+          out += static_cast<char>(0xe0 | (codepoint >> 12));
+          out += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3f));
+          out += static_cast<char>(0x80 | (codepoint & 0x3f));
+        } else {
+          out += static_cast<char>(0xf0 | (codepoint >> 18));
+          out += static_cast<char>(0x80 | ((codepoint >> 12) & 0x3f));
+          out += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3f));
+          out += static_cast<char>(0x80 | (codepoint & 0x3f));
+        }
+      }
+
+      std::uint32_t readHex4() {
+        if (position_ + 4 > input_.size())
+          fail("truncated unicode escape");
+        std::uint32_t codepoint = 0;
+        for (unsigned i = 0; i < 4; ++i) {
+          const char ch = input_[position_++];
+          codepoint <<= 4;
+          if (ch >= '0' && ch <= '9')
+            codepoint |= static_cast<std::uint32_t>(ch - '0');
+          else if (ch >= 'a' && ch <= 'f')
+            codepoint |= static_cast<std::uint32_t>(ch - 'a' + 10);
+          else if (ch >= 'A' && ch <= 'F')
+            codepoint |= static_cast<std::uint32_t>(ch - 'A' + 10);
+          else
+            fail("invalid unicode escape");
+        }
+        return codepoint;
+      }
+
+      std::string readString() {
+        expect('"');
+        std::string value;
+        while (position_ < input_.size()) {
+          const auto ch = static_cast<unsigned char>(input_[position_++]);
+          if (ch == '"')
+            return value;
+          if (ch < 0x20)
+            fail("control character in string");
+          if (ch != '\\') {
+            value += static_cast<char>(ch);
+            continue;
+          }
+          if (position_ == input_.size())
+            fail("truncated string escape");
+          switch (input_[position_++]) {
+          case '"': value += '"'; break;
+          case '\\': value += '\\'; break;
+          case '/': value += '/'; break;
+          case 'b': value += '\b'; break;
+          case 'f': value += '\f'; break;
+          case 'n': value += '\n'; break;
+          case 'r': value += '\r'; break;
+          case 't': value += '\t'; break;
+          case 'u': {
+            auto codepoint = readHex4();
+            if (codepoint >= 0xd800 && codepoint <= 0xdbff) {
+              if (position_ + 2 > input_.size() || input_[position_] != '\\' ||
+                  input_[position_ + 1] != 'u')
+                fail("high surrogate has no low surrogate");
+              position_ += 2;
+              const auto low = readHex4();
+              if (low < 0xdc00 || low > 0xdfff)
+                fail("invalid low surrogate");
+              codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + (low - 0xdc00);
+            } else if (codepoint >= 0xdc00 && codepoint <= 0xdfff) {
+              fail("unexpected low surrogate");
+            }
+            appendUtf8(value, codepoint);
+            break;
+          }
+          default: fail("invalid string escape");
+          }
+        }
+        fail("unterminated string");
+      }
+
+      std::uint64_t readUnsigned() {
+        skipSpace();
+        const auto begin = position_;
+        while (position_ < input_.size() && input_[position_] >= '0' && input_[position_] <= '9')
+          ++position_;
+        if (begin == position_)
+          fail("expected a nonnegative integer");
+        std::uint64_t value = 0;
+        const auto result = std::from_chars(input_.data() + begin, input_.data() + position_, value);
+        if (result.ec != std::errc{})
+          fail("integer is out of range");
+        return value;
+      }
+
+      std::vector<std::uint32_t> readArray() {
+        expect('[');
+        std::vector<std::uint32_t> values;
+        skipSpace();
+        if (consume(']'))
+          return values;
+        do {
+          const auto value = readUnsigned();
+          if (value > std::numeric_limits<std::uint32_t>::max())
+            fail("axis value is out of range");
+          values.push_back(static_cast<std::uint32_t>(value));
+          skipSpace();
+          if (consume(']'))
+            return values;
+          expect(',');
+        } while (true);
+      }
+
+      TritonBufferLayout readLayout() {
+        TritonBufferLayout layout;
+        std::set<std::string> fields;
+        expect('{');
+        do {
+          const auto key = readString();
+          if (!fields.insert(key).second)
+            fail("duplicate layout field '" + key + "'");
+          expect(':');
+          if (key == "name") {
+            layout.name = readString();
+          } else if (key == "element_strides") {
+            layout.elementStrides = readArray();
+          } else if (key == "element_offset") {
+            layout.elementOffset = readUnsigned();
+          } else if (key == "storage_span") {
+            layout.storageSpan = readUnsigned();
+          } else if (key == "axis_order") {
+            layout.axisOrder = readArray();
+          } else {
+            fail("unknown layout field '" + key + "'");
+          }
+          skipSpace();
+          if (consume('}'))
+            break;
+          expect(',');
+        } while (true);
+        for (const auto *required: {"name", "element_strides", "element_offset", "storage_span",
+                                    "axis_order"})
+          if (!fields.contains(required))
+            fail(std::string("missing layout field '") + required + "'");
+        if (layout.name.empty())
+          fail("layout name must not be empty");
+        return layout;
+      }
+    };
+
     void note(bool verbose, const std::string &msg) {
       if (verbose)
         std::cerr << "emit: " << msg << "\n";
@@ -30,9 +249,15 @@ namespace refractir {
 
     // A program must be well-formed before a backend walks it: the backends
     // read the types the checker assigns and assume every branch resolves.
-    bool checked(Program &prog, bool verbose, TensorConsumer consumer) {
+    bool checked(
+        Program &prog, bool verbose, TensorConsumer consumer, TensorProfileId profileId
+    ) {
       DiagBag diags;
-      if (checkProgram(prog, diags) && checkTensorCapabilities(prog, consumer, diags))
+      const auto profile = tensorProfile(profileId);
+      CheckOptions checkOptions;
+      checkOptions.tensorProfile = profileId;
+      if (checkProgram(prog, diags, checkOptions) &&
+          checkTensorCapabilities(prog, consumer, profile, diags))
         return true;
       if (verbose) {
         std::cerr << "emit: the program did not pass the checks:\n";
@@ -66,10 +291,21 @@ namespace refractir {
 
   } // namespace
 
+  std::vector<TritonBufferLayout> readTritonBufferLayouts(const fs::path &path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+      throw std::runtime_error("cannot open Triton layout manifest " + path.string());
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    if (!input.good() && !input.eof())
+      throw std::runtime_error("cannot read Triton layout manifest " + path.string());
+    return LayoutJsonReader(contents.str()).read();
+  }
+
   bool emitC(
       Program &prog, const fs::path &outDir, const std::string &primaryStem, const EmitOptions &opts
   ) {
-    if (!checked(prog, opts.verbose, TensorConsumer::C))
+    if (!checked(prog, opts.verbose, TensorConsumer::C, opts.tensorProfile))
       return false;
     if (opts.structuredLowering && !everyFunReducible(prog, opts.verbose))
       return false;
@@ -106,7 +342,7 @@ namespace refractir {
   }
 
   bool emitWasm(Program &prog, const fs::path &outFile, const EmitOptions &opts) {
-    if (!checked(prog, opts.verbose, TensorConsumer::Wasm))
+    if (!checked(prog, opts.verbose, TensorConsumer::Wasm, opts.tensorProfile))
       return false;
     if (opts.structuredLowering && !everyFunReducible(prog, opts.verbose))
       return false;
@@ -137,7 +373,7 @@ namespace refractir {
   }
 
   bool emitPy(Program &prog, const fs::path &outFile, const EmitOptions &opts) {
-    if (!checked(prog, opts.verbose, TensorConsumer::Python))
+    if (!checked(prog, opts.verbose, TensorConsumer::Python, opts.tensorProfile))
       return false;
     // Python has no goto, so the backend structures whatever it is given.
     if (!everyFunReducible(prog, opts.verbose))
@@ -179,12 +415,15 @@ namespace refractir {
       );
       return false;
     }
-    if (!checked(prog, opts.verbose, TensorConsumer::Triton))
+    if (!checked(prog, opts.verbose, TensorConsumer::Triton, opts.tensorProfile))
       return false;
 
     std::ostringstream rendered;
     try {
-      TritonBackend backend(rendered, opts.entry, opts.tensorSoftmaxLowering);
+      TritonBackend backend(
+          rendered, opts.entry, opts.tensorSoftmaxLowering, tensorProfile(opts.tensorProfile),
+          opts.tritonBufferLayouts
+      );
       backend.emit(prog);
     } catch (const std::exception &e) {
       note(opts.verbose, e.what());

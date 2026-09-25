@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     ("main", "Entry function to execute", cxxopts::value<std::string>()->default_value("@main"))
     ("entry", "Entry function for typed tensor input/output", cxxopts::value<std::string>())
     ("tensor-describe", "Describe a checked entry's typed buffer signature", cxxopts::value<bool>()->default_value("false"))
+    ("tensor-profile-version", "Tensor profile version: v1|v2", cxxopts::value<std::string>()->default_value("v1"))
     ("tensor-input", "Little-endian typed input buffer", cxxopts::value<std::string>())
     ("tensor-output", "Little-endian typed result buffer", cxxopts::value<std::string>())
     ("tensor-reference-bits", "Numerical tensor reference precision (128 or 256)", cxxopts::value<unsigned>()->default_value("128"))
@@ -129,6 +130,8 @@ int main(int argc, char **argv) {
     // 2. Analysis
     CheckOptions checkOpts;
     checkOpts.warningsAreErrors = result["Werror"].as<bool>();
+    checkOpts.tensorProfile =
+        parseTensorProfileVersion(result["tensor-profile-version"].as<std::string>());
 
     bool werror = checkOpts.warningsAreErrors;
     bool nowarn = result["w"].as<bool>();
@@ -145,7 +148,9 @@ int main(int argc, char **argv) {
       return ExitCode::StaticError;
     }
 
-    if (!checkTensorCapabilities(prog, TensorConsumer::Reference, diags)) {
+    if (!checkTensorCapabilities(
+            prog, TensorConsumer::Reference, tensorProfile(checkOpts.tensorProfile), diags
+        )) {
       std::cerr << "Errors:\n";
       for (const auto &d: diags.diags)
         if (d.level == DiagLevel::Error)

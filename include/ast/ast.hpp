@@ -186,6 +186,7 @@ namespace refractir {
         std::variant<IntType, FloatType, StructType, ArrayType, PtrType, VecType, TensorType>;
     Variant v;
     SourceSpan span;
+
   };
 
   // ---------------------------

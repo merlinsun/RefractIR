@@ -24,7 +24,7 @@ namespace refractir {
   bool checkProgram(Program &prog, DiagBag &diags, const CheckOptions &opts) {
     PassManager pm(diags);
     pm.addModulePass(std::make_unique<SemChecker>());
-    pm.addModulePass(std::make_unique<TypeChecker>());
+    pm.addModulePass(std::make_unique<TypeChecker>(tensorProfile(opts.tensorProfile)));
     if (opts.functionAnalyses) {
       pm.addFunctionPass(std::make_unique<ReachabilityAnalysis>());
       pm.addFunctionPass(std::make_unique<DefiniteInitAnalysis>());

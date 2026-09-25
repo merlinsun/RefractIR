@@ -31,7 +31,7 @@ namespace refractir {
   // of vector.
   static void validateTypeWF(
       const TypePtr &t, DiagBag &diags, bool insideVec = false, bool insideField = false,
-      bool insideArray = false, bool insidePtr = false
+      bool insideArray = false, bool insidePtr = false, std::uint32_t maxTensorElements = 256
   ) {
     if (!t)
       return;
@@ -56,7 +56,7 @@ namespace refractir {
                 !std::holds_alternative<FloatType>(x.elem->v)) {
               diags.error("Vector lane type must be a scalar (iN, f32, f64)", t->span);
             }
-            validateTypeWF(x.elem, diags, true, false, false, false);
+            validateTypeWF(x.elem, diags, true, false, false, false, maxTensorElements);
           } else if constexpr (std::is_same_v<X, TensorType>) {
             if (insideVec || insideField || insideArray || insidePtr)
               diags.error(
@@ -74,8 +74,12 @@ namespace refractir {
                 diags.error("tensor-profile: dimensions must be powers of two", t->span);
             }
             try {
-              if (tensorElementCount(x.shape) > 256)
-                diags.error("tensor-profile: tensor exceeds 256 elements", t->span);
+              if (tensorElementCount(x.shape) > maxTensorElements)
+                diags.error(
+                    "tensor-profile: tensor exceeds " + std::to_string(maxTensorElements) +
+                        " elements",
+                    t->span
+                );
             } catch (const std::exception &e) {
               diags.error(e.what(), t->span);
             }
@@ -83,14 +87,14 @@ namespace refractir {
             const auto floatBits = TypeUtils::getFloatBitWidth(x.elem);
             if ((!intBits || *intBits != 32) && (!floatBits || *floatBits != 32))
               diags.error("tensor-type: tensor element type must be i32 or f32", t->span);
-            validateTypeWF(x.elem, diags, false, false, false, false);
+            validateTypeWF(x.elem, diags, false, false, false, false, maxTensorElements);
           } else if constexpr (std::is_same_v<X, PtrType>) {
             // ptr <N> T is forbidden (§6.8.1).
             if (x.pointee && std::holds_alternative<VecType>(x.pointee->v))
               diags.error("Pointer to vector (ptr <N> T) is not supported", t->span);
-            validateTypeWF(x.pointee, diags, false, false, false, true);
+            validateTypeWF(x.pointee, diags, false, false, false, true, maxTensorElements);
           } else if constexpr (std::is_same_v<X, ArrayType>) {
-            validateTypeWF(x.elem, diags, false, false, true, false);
+            validateTypeWF(x.elem, diags, false, false, true, false, maxTensorElements);
           }
           // StructType: validated separately in collectStructs.
         },
@@ -105,7 +109,7 @@ namespace refractir {
       for (const auto &fd: sd.fields) {
         // Validate per-field type: in particular reject vector
         // fields explicitly with insideField=true.
-        validateTypeWF(fd.type, diags, false, true, false);
+        validateTypeWF(fd.type, diags, false, true, false, false, tensorProfile_.maxElements);
         si.fields[fd.name] = fd.type;
         si.fieldList.push_back({fd.name, fd.type});
       }
@@ -128,9 +132,9 @@ namespace refractir {
     // 2. Ext decls.
     for (const auto &d: prog.extDecls) {
       // Validate signatures.
-      validateTypeWF(d.retType, diags);
+      validateTypeWF(d.retType, diags, false, false, false, false, tensorProfile_.maxElements);
       for (const auto &p: d.params)
-        validateTypeWF(p.type, diags);
+        validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_.maxElements);
       auto it = callees_.find(d.name.name);
       if (it != callees_.end() && !it->second.empty()) {
         diags.error("`decl " + d.name.name + "` conflicts with a `fun` of the same name", d.span);
@@ -147,9 +151,9 @@ namespace refractir {
     }
     // 3. Intrinsics.
     for (const auto &i: prog.intrinsics) {
-      validateTypeWF(i.retType, diags);
+      validateTypeWF(i.retType, diags, false, false, false, false, tensorProfile_.maxElements);
       for (const auto &p: i.params)
-        validateTypeWF(p.type, diags);
+        validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_.maxElements);
       // §12 Intrinsics are defined over scalar `iN` or `fN`
       // — except the v0.2.3 horizontal reductions (§12.4), whose parameter
       // is a vector `<N> T` of scalar lanes. This is the coarse gate;
@@ -656,9 +660,9 @@ namespace refractir {
 
     // Up-front type validation so structural errors fire before
     // any expression check that would also touch the type.
-    validateTypeWF(f.retType, diags);
+    validateTypeWF(f.retType, diags, false, false, false, false, tensorProfile_.maxElements);
     for (const auto &p: f.params) {
-      validateTypeWF(p.type, diags);
+      validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_.maxElements);
       vars[p.name.name] = VarInfo{p.type, false, true, p.span};
     }
     for (const auto &s: f.syms) {
@@ -676,14 +680,14 @@ namespace refractir {
                      std::holds_alternative<StructType>(s.type->v))) {
         diags.error("sym of array/struct type is not allowed: " + s.name.name, s.span);
       }
-      validateTypeWF(s.type, diags);
+      validateTypeWF(s.type, diags, false, false, false, false, tensorProfile_.maxElements);
       syms[s.name.name] = SymInfo{s.type, s.kind, s.span};
     }
     for (const auto &l: f.lets) {
       if (vars.count(l.name.name)) {
         diags.error("Duplicate name: " + l.name.name, l.span);
       }
-      validateTypeWF(l.type, diags);
+      validateTypeWF(l.type, diags, false, false, false, false, tensorProfile_.maxElements);
       vars[l.name.name] = VarInfo{l.type, l.isMutable, false, l.span};
       if (l.init) {
         checkInitVal(*l.init, l.type, vars, syms, diags);
@@ -1102,8 +1106,12 @@ namespace refractir {
         }
       }
       try {
-        if (tensorElementCount(shape) > 256) {
-          diags.error("tensor-profile: tensor exceeds 256 elements", atom.span);
+        if (tensorElementCount(shape) > tensorProfile_.maxElements) {
+          diags.error(
+              "tensor-profile: tensor exceeds " + std::to_string(tensorProfile_.maxElements) +
+                  " elements",
+              atom.span
+          );
           return false;
         }
       } catch (const std::exception &error) {

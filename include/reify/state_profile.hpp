@@ -30,7 +30,7 @@
 #include "interp/value.hpp"
 
 namespace refractir {
-  class Program;
+struct Program;
   class Interpreter;
   class Memory;
   class TypeLayout;
