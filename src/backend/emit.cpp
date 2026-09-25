@@ -216,6 +216,14 @@ namespace refractir {
           expect(':');
           if (key == "name") {
             layout.name = readString();
+          } else if (key == "role") {
+            const auto role = readString();
+            if (role == "input")
+              layout.role = TritonBufferRole::Input;
+            else if (role == "output")
+              layout.role = TritonBufferRole::Output;
+            else
+              fail("layout role must be 'input' or 'output'");
           } else if (key == "element_strides") {
             layout.elementStrides = readArray();
           } else if (key == "element_offset") {

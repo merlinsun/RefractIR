@@ -1,9 +1,9 @@
 #include "reify/tensor_case.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
-#include <cctype>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
@@ -17,6 +17,7 @@
 
 #include "analysis/tensor.hpp"
 #include "backend/emit.hpp"
+#include "frontend/lexer.hpp"
 #include "frontend/pipeline.hpp"
 
 namespace refractir::reify {
@@ -167,128 +168,39 @@ std::string sha256(std::string_view bytes) {
 }
 
 std::string sourceSignature(std::string_view source) {
-  const auto isWordStart = [](unsigned char ch) {
-    return std::isalpha(ch) || ch == '_';
-  };
-  const auto isWordPart = [&](unsigned char ch) {
-    return isWordStart(ch) || std::isdigit(ch) || ch == '.' || ch == '$' ||
-           ch == '-';
-  };
-  std::unordered_map<char, std::unordered_map<std::string, std::string>> names;
-  std::unordered_map<char, std::size_t> nextName;
-  std::vector<std::string> tokens;
-  for (std::size_t i = 0; i < source.size();) {
-    const auto ch = static_cast<unsigned char>(source[i]);
-    if (std::isspace(ch)) {
-      ++i;
+  Lexer lexer(source);
+  const auto tokens = lexer.lexAll();
+  std::unordered_map<int, std::unordered_map<std::string, std::size_t>> names;
+  std::unordered_map<int, std::size_t> nextName;
+  std::string canonical{"sir-source-v3\n"};
+  for (const auto &token : tokens) {
+    if (token.kind == TokenKind::End)
       continue;
+
+    std::string value = token.lexeme;
+    switch (token.kind) {
+    case TokenKind::GlobalId:
+    case TokenKind::LocalId:
+    case TokenKind::SymId:
+    case TokenKind::BlockLabel: {
+      const auto kind = static_cast<int>(token.kind);
+      auto &scope = names[kind];
+      auto [found, inserted] = scope.emplace(token.lexeme, nextName[kind]);
+      if (inserted)
+        ++nextName[kind];
+      value = "id" + std::to_string(found->second);
+      break;
     }
-    if (source[i] == '/' && i + 1 < source.size() && source[i + 1] == '/') {
-      i += 2;
-      while (i < source.size() && source[i] != '\n')
-        ++i;
-      continue;
+    default:
+      break;
     }
-    if (source[i] == '"' || source[i] == '\'') {
-      const char quote = source[i];
-      const std::size_t begin = i++;
-      while (i < source.size()) {
-        if (source[i] == '\\' && i + 1 < source.size()) {
-          i += 2;
-          continue;
-        }
-        if (source[i++] == quote)
-          break;
-      }
-      tokens.emplace_back(source.substr(begin, i - begin));
-      continue;
-    }
-    if ((source[i] == '@' || source[i] == '%' || source[i] == '^') &&
-        i + 1 < source.size()) {
-      const std::size_t begin = i;
-      const char sigil = source[i++];
-      if (source[i] == '?')
-        ++i;
-      if (i < source.size() &&
-          (isWordStart(static_cast<unsigned char>(source[i])) ||
-           std::isdigit(static_cast<unsigned char>(source[i])))) {
-        while (i < source.size() &&
-               isWordPart(static_cast<unsigned char>(source[i])))
-          ++i;
-        const std::string original(source.substr(begin, i - begin));
-        auto &scope = names[sigil];
-        auto [found, inserted] = scope.emplace(original, std::string{});
-        if (inserted)
-          found->second =
-              std::string(1, sigil) + std::to_string(nextName[sigil]++);
-        tokens.push_back(found->second);
-        continue;
-      }
-      tokens.emplace_back(source.substr(begin, 1));
-      continue;
-    }
-    if (std::isdigit(ch) ||
-        (source[i] == '.' && i + 1 < source.size() &&
-         std::isdigit(static_cast<unsigned char>(source[i + 1])))) {
-      const std::size_t begin = i++;
-      if (source[begin] == '0' && i < source.size() &&
-          (source[i] == 'x' || source[i] == 'X' || source[i] == 'o' ||
-           source[i] == 'O' || source[i] == 'b' || source[i] == 'B')) {
-        ++i;
-        while (i < source.size() &&
-               std::isxdigit(static_cast<unsigned char>(source[i])))
-          ++i;
-      } else {
-        while (i < source.size() &&
-               std::isdigit(static_cast<unsigned char>(source[i])))
-          ++i;
-        if (i < source.size() && source[i] == '.') {
-          ++i;
-          while (i < source.size() &&
-                 std::isdigit(static_cast<unsigned char>(source[i])))
-            ++i;
-        }
-        if (i < source.size() && (source[i] == 'e' || source[i] == 'E')) {
-          ++i;
-          if (i < source.size() && (source[i] == '+' || source[i] == '-'))
-            ++i;
-          while (i < source.size() &&
-                 std::isdigit(static_cast<unsigned char>(source[i])))
-            ++i;
-        }
-      }
-      tokens.emplace_back(source.substr(begin, i - begin));
-      continue;
-    }
-    if (isWordStart(ch)) {
-      const std::size_t begin = i++;
-      while (i < source.size() &&
-             isWordPart(static_cast<unsigned char>(source[i])))
-        ++i;
-      tokens.emplace_back(source.substr(begin, i - begin));
-      continue;
-    }
-    constexpr std::array<std::string_view, 11> operators{
-        ">>>", ">>", "<<", "<=", ">=", "==", "!=", "&&", "||", "->", "::"};
-    bool matched = false;
-    for (const auto op : operators) {
-      if (source.substr(i, op.size()) == op) {
-        tokens.emplace_back(op);
-        i += op.size();
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      tokens.emplace_back(1, source[i]);
-      ++i;
-    }
-  }
-  std::string canonical{"sir-source-v2\n"};
-  for (std::size_t i = 0; i < tokens.size(); ++i) {
-    if (i)
-      canonical.push_back(' ');
-    canonical += tokens[i];
+
+    canonical += std::to_string(static_cast<unsigned int>(token.kind));
+    canonical.push_back(':');
+    canonical += std::to_string(value.size());
+    canonical.push_back(':');
+    canonical += value;
+    canonical.push_back('\n');
   }
   return sha256(canonical);
 }
@@ -376,6 +288,39 @@ std::uint64_t storageElements(const Shape &shape) {
   for (const auto dimension : shape)
     count *= dimension;
   return count;
+}
+
+TritonBufferLayout makeTritonLayout(const TensorCaseBuffer &buffer,
+                                    TritonBufferRole role) {
+  TritonBufferLayout layout;
+  layout.name = buffer.name;
+  layout.role = role;
+  layout.elementStrides = buffer.elementStrides.empty()
+                              ? contiguousStrides(buffer.shape)
+                              : buffer.elementStrides;
+  layout.elementOffset = buffer.elementOffset;
+  layout.axisOrder = buffer.axisOrder;
+  if (layout.axisOrder.empty()) {
+    layout.axisOrder.resize(buffer.shape.size());
+    std::iota(layout.axisOrder.begin(), layout.axisOrder.end(), 0u);
+    std::sort(layout.axisOrder.begin(), layout.axisOrder.end(),
+              [&](auto lhs, auto rhs) {
+                return layout.elementStrides[lhs] == layout.elementStrides[rhs]
+                           ? lhs < rhs
+                           : layout.elementStrides[lhs] <
+                                 layout.elementStrides[rhs];
+              });
+  }
+  if (buffer.storageSpan != 0) {
+    layout.storageSpan = buffer.storageSpan;
+  } else {
+    std::uint64_t lastAddress = layout.elementOffset;
+    for (std::size_t axis = 0; axis < buffer.shape.size(); ++axis)
+      lastAddress += static_cast<std::uint64_t>(buffer.shape[axis] - 1) *
+                     layout.elementStrides[axis];
+    layout.storageSpan = lastAddress + 1;
+  }
+  return layout;
 }
 
 void writeV2BufferRecord(std::ostream &out, const TensorCaseBuffer &buffer,
@@ -617,7 +562,19 @@ std::string buildManifestV2(const TensorCase &testCase,
     out << "{\"bound\":" << testCase.loopBounds[i] << '}';
   }
   out << "],\"input_behavior\":{\"property_passed\":true,"
-      << "\"distinguishing_objective\":\"untargeted\"}},"
+      << "\"distinguishing_objective\":\"untargeted\","
+      << "\"counterfactual_inputs\":[";
+  for (std::size_t index = 0;
+       index < testCase.inputCounterfactualWitnesses.size(); ++index) {
+    if (index)
+      out << ',';
+    const auto &[name, replacement] =
+        testCase.inputCounterfactualWitnesses[index];
+    out << "{\"input\":" << jsonString(name)
+        << ",\"replacement\":" << replacement
+        << ",\"outputs_differ\":true}";
+  }
+  out << "]}},"
       << "\"environment\":null,\"operator_coverage\":[";
   for (std::size_t i = 0; i < testCase.operators.size(); ++i) {
     if (i)
@@ -693,6 +650,16 @@ void writeTensorCase(const std::filesystem::path &directory,
       emitOptions.entry = "kernel";
       emitOptions.noUbGuards = true;
       emitOptions.tensorProfile = testCase.profileVersion;
+      for (const auto &input : testCase.inputs)
+        if (!input.shape.empty())
+          emitOptions.tritonBufferLayouts.push_back(
+              makeTritonLayout(input, TritonBufferRole::Input));
+      if (!testCase.outputShape.empty()) {
+        const TensorCaseBuffer output{"return", testCase.outputElement,
+                                      testCase.outputShape, {}};
+        emitOptions.tritonBufferLayouts.push_back(
+            makeTritonLayout(output, TritonBufferRole::Output));
+      }
       if (!emitTriton(program, staging / "kernel.py", emitOptions))
         throw std::runtime_error(
             "Triton kernel emission failed for generated tensor case");

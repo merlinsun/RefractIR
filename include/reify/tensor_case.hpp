@@ -48,6 +48,7 @@ struct TensorCase {
   std::uint64_t exactnessMaxAbsLeafSum = 0;
   std::vector<std::string> operators;
   std::vector<std::pair<Shape, std::int32_t>> shapeAxes;
+  std::vector<std::pair<std::string, std::int32_t>> inputCounterfactualWitnesses;
   std::vector<std::int32_t> loopBounds;
   std::uint32_t totalBodyExecutions = 0;
   std::vector<Shape> fullShapes;

@@ -77,7 +77,9 @@ namespace refractir {
   // checking and rendering both succeed.
   bool emitTriton(Program &prog, const std::filesystem::path &outFile, const EmitOptions &opts);
 
-  /// Read the minimal, validated JSON layout manifest consumed by symirc.
+  /// Read the validated JSON layout manifest consumed by symirc. Optional
+  /// input/output roles preserve compatibility when buffer names are unique;
+  /// explicit roles disambiguate an input named `return` from the result.
   std::vector<TritonBufferLayout> readTritonBufferLayouts(const std::filesystem::path &path);
 
   // Parse a `.sir` file and compile it for `target` ("c", "wasm" or

@@ -251,35 +251,30 @@ namespace refractir {
     if (!hasReturn)
       throw std::runtime_error("tensor-profile: Triton entry must return a value");
 
-    std::set<std::string> availableNames;
-    for (const auto &param: function.params) {
-      const auto key = bufferKey(param.name.name);
-      availableNames.insert(key);
-    }
-    if (typeHasTensor(function.retType))
-      availableNames.insert("return");
-    std::set<std::string> seenLayouts;
+    std::set<std::pair<TritonBufferRole, std::string>> seenLayouts;
     for (const auto &layout: layouts_) {
       const auto key = bufferKey(layout.name);
-      if (!seenLayouts.insert(key).second)
+      const auto parameter = std::find_if(
+          function.params.begin(), function.params.end(), [&](const ParamDecl &param) {
+            return bufferKey(param.name.name) == key;
+          }
+      );
+      const bool hasInput = parameter != function.params.end();
+      const bool hasOutput = key == "return" && typeHasTensor(function.retType);
+      auto role = layout.role;
+      if (role == TritonBufferRole::Unspecified)
+        role = hasInput ? TritonBufferRole::Input
+                        : hasOutput ? TritonBufferRole::Output
+                                    : TritonBufferRole::Unspecified;
+      if (role == TritonBufferRole::Unspecified ||
+          (role == TritonBufferRole::Input && !hasInput) ||
+          (role == TritonBufferRole::Output && !hasOutput))
+        throw std::runtime_error("tensor-profile: layout names unknown buffer " + layout.name);
+      if (!seenLayouts.emplace(role, key).second)
         throw std::runtime_error("tensor-profile: duplicate layout for buffer " + layout.name);
-      if (!availableNames.contains(key))
-        throw std::runtime_error("tensor-profile: layout names unknown buffer " + layout.name);
-      Shape shape;
-      bool found = false;
-      for (const auto &param: function.params) {
-        if (bufferKey(param.name.name) == key) {
-          shape = valueShape(param.type);
-          found = true;
-          break;
-        }
-      }
-      if (!found && key == "return") {
-        shape = valueShape(function.retType);
-        found = true;
-      }
-      if (!found)
-        throw std::runtime_error("tensor-profile: layout names unknown buffer " + layout.name);
+      const Shape shape = role == TritonBufferRole::Output
+                              ? valueShape(function.retType)
+                              : valueShape(parameter->type);
       validateBufferLayout(layout, shape, layout.name);
     }
   }
@@ -383,16 +378,35 @@ namespace refractir {
     parameterPointers_[param.name.name] = pointer;
     const auto shape = valueShape(param.type);
     types_[param.name.name] = param.type;
-    parameterOffsets_[param.name.name] = emitOffsets(variable, shape, findLayout(param.name.name));
+    parameterOffsets_[param.name.name] =
+        emitOffsets(variable, shape, findLayout(param.name.name, TritonBufferRole::Input));
     values_[param.name.name] = Value{param.type, {}};
   }
 
-  const TritonBufferLayout *TritonBackend::findLayout(const std::string &sirName) const {
+  const TritonBufferLayout *TritonBackend::findLayout(
+      const std::string &sirName, TritonBufferRole role
+  ) const {
     const auto key = bufferKey(sirName);
-    const auto it = std::find_if(layouts_.begin(), layouts_.end(), [&](const auto &layout) {
-      return bufferKey(layout.name) == key;
-    });
-    return it == layouts_.end() ? nullptr : &*it;
+    const auto find = [&](TritonBufferRole candidateRole) {
+      return std::find_if(layouts_.begin(), layouts_.end(), [&](const auto &layout) {
+        return bufferKey(layout.name) == key && layout.role == candidateRole;
+      });
+    };
+    auto it = find(role);
+    if (it != layouts_.end())
+      return &*it;
+    if (role != TritonBufferRole::Input && role != TritonBufferRole::Output)
+      return nullptr;
+
+    it = find(TritonBufferRole::Unspecified);
+    if (it == layouts_.end())
+      return nullptr;
+    if (role == TritonBufferRole::Output && function_ &&
+        std::any_of(function_->params.begin(), function_->params.end(), [&](const auto &param) {
+          return bufferKey(param.name.name) == key;
+        }))
+      return nullptr;
+    return &*it;
   }
 
   std::string TritonBackend::lowerCoef(const Coef &coef) {
@@ -750,7 +764,9 @@ namespace refractir {
       if (returnShape.empty()) {
         addLine("tl.store(out_ptr, " + result + ")");
       } else {
-        const auto offsets = emitOffsets("_sir_out", returnShape, findLayout("return"));
+        const auto offsets = emitOffsets(
+            "_sir_out", returnShape, findLayout("return", TritonBufferRole::Output)
+        );
         addLine("tl.store(out_ptr + " + offsets + ", " + result + ")");
       }
     };

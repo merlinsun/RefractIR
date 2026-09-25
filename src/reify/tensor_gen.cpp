@@ -332,6 +332,28 @@ runReference(const Program &program,
   }
 }
 
+std::optional<std::int32_t>
+inputCounterfactualWitness(const Program &program,
+                           const std::vector<TensorCaseBuffer> &inputs,
+                           std::size_t inputIndex,
+                           const std::vector<std::uint8_t> &expected) {
+  for (const std::int32_t replacement : {1, 4}) {
+    auto candidateInputs = inputs;
+    auto &bytes = candidateInputs[inputIndex].bytes;
+    for (std::size_t offset = 0; offset < bytes.size(); offset += 4) {
+      const auto word = candidateInputs[inputIndex].element == TensorElement::I32
+                            ? std::bit_cast<std::uint32_t>(replacement)
+                            : std::bit_cast<std::uint32_t>(
+                                  static_cast<float>(replacement));
+      for (std::size_t byte = 0; byte < 4; ++byte)
+        bytes[offset + byte] = static_cast<std::uint8_t>(word >> (byte * 8));
+    }
+    if (runReference(program, candidateInputs, 128, nullptr) != expected)
+      return replacement;
+  }
+  return std::nullopt;
+}
+
 std::string printWithModel(
     const std::string &source,
     const std::unordered_map<std::string, SymbolicExecutor::Result::ModelVal>
@@ -1434,6 +1456,20 @@ TensorCase validateCandidate(Candidate candidate,
   } else {
     testCase.expected = runReference(program, testCase.inputs, 128, nullptr);
   }
+  if (options.profileVersion == TensorProfileId::V2 &&
+      options.primaryStratum == "multi-input-composition") {
+    for (std::size_t inputIndex = 0; inputIndex < testCase.inputs.size();
+         ++inputIndex) {
+      const auto witness = inputCounterfactualWitness(
+          program, testCase.inputs, inputIndex, testCase.expected);
+      if (!witness)
+        throw std::runtime_error(
+            "counterfactual_dependency: returned computation does not depend "
+            "on input " + testCase.inputs[inputIndex].name);
+      testCase.inputCounterfactualWitnesses.emplace_back(
+          testCase.inputs[inputIndex].name, *witness);
+    }
+  }
   return testCase;
 }
 
@@ -1460,7 +1496,8 @@ std::string propertySource(std::string_view property) {
 bool isCandidateRejection(std::string_view message) {
   return message.starts_with("UB:") ||
          message.find("Requirement failed") != std::string_view::npos ||
-         message.find("unstable_reference:") == 0;
+         message.find("unstable_reference:") == 0 ||
+         message.find("counterfactual_dependency:") == 0;
 }
 
 std::string v2StratumForCase(std::uint32_t caseIndex) {

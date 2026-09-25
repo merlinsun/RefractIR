@@ -450,6 +450,7 @@ namespace refractir {
 
       std::int64_t initial = 0;
       std::size_t preheaderInitializers = 0;
+      std::size_t latchIncrements = 0;
       std::size_t writes = 0;
       for (std::size_t block = 0; block < function.blocks.size(); ++block) {
         const auto &instructions = function.blocks[block].instrs;
@@ -467,11 +468,14 @@ namespace refractir {
             if (!assignment || !isIncrementByOne(assignment->rhs, *induction) ||
                 instructionIndex + 1 != instructions.size())
               return fail("tensor-profile: latch must increment induction variable by one", header);
+            ++latchIncrements;
           }
         }
       }
       if (preheaderInitializers != 1)
         return fail("tensor-profile: preheader must reset induction variable on every entry", header);
+      if (latchIncrements != 1)
+        return fail("tensor-profile: latch must increment induction variable by one", header);
       if (writes != 2)
         return fail("tensor-profile: induction variable may only be initialized and incremented", header);
       if (initial < INT32_MIN || initial > INT32_MAX || *bound < INT32_MIN || *bound > INT32_MAX ||

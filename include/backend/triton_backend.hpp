@@ -59,7 +59,9 @@ namespace refractir {
     std::string freshPythonName(const std::string &base);
     std::string pythonName(const std::string &sirName) const;
     std::string dtypeName(const TypePtr &type) const;
-    const TritonBufferLayout *findLayout(const std::string &sirName) const;
+    const TritonBufferLayout *findLayout(
+        const std::string &sirName, TritonBufferRole role = TritonBufferRole::Unspecified
+    ) const;
     Shape valueShape(const TypePtr &type) const;
     TypePtr valueType(const Coef &coef) const;
     const FunDecl &findEntry(const Program &program) const;
