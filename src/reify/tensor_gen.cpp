@@ -79,6 +79,17 @@ constexpr std::array<std::string_view, 5> v2Strata{
     "bit-preserving-f32-layout", "exact-f32-reduction", "loop-reduction",
     "multi-input-composition", "untargeted-exploration"};
 
+std::uint64_t splitMix64(std::uint64_t value) {
+  value += 0x9e3779b97f4a7c15ULL;
+  value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
+  return value ^ (value >> 31);
+}
+
+std::uint32_t streamSeed(std::uint32_t seed, std::uint64_t stream) {
+  return static_cast<std::uint32_t>(splitMix64(seed ^ stream));
+}
+
 std::string jsonString(std::string_view value) {
   std::string out{"\""};
   constexpr char hex[] = "0123456789abcdef";
@@ -1089,24 +1100,46 @@ Candidate untargetedCandidate(const TensorGenerationOptions &options,
 Candidate loopReductionCandidate(const TensorGenerationOptions &options,
                                  std::uint32_t seed) {
   Candidate candidate;
-  const Shape inputShape{256, 2};
-  const Shape outputShape{256};
+  const std::array<Shape, 4> shapes{Shape{256, 2}, Shape{128, 4}, Shape{64, 2},
+                                    Shape{64, 4}};
+  std::mt19937 structureRandom(streamSeed(seed, 0x6c6f6f702d737472ULL));
+  std::uniform_int_distribution<std::uint32_t> chooseLoopForm(0, 4);
+  const std::uint32_t loopForm = chooseLoopForm(structureRandom);
+  const bool nested = loopForm == 0;
+  const std::uint32_t variant = nested ? 0 : loopForm - 1;
+  std::uniform_int_distribution<std::size_t> chooseShape(0, shapes.size() - 1);
+  const Shape inputShape = !nested && variant == 0
+                               ? Shape{256, 2}
+                               : shapes[chooseShape(structureRandom)];
+  const std::uint32_t rowCount = inputShape[0];
+  const std::uint32_t columnCount = inputShape[1];
+  const Shape outputShape{rowCount};
+  std::uniform_int_distribution<std::int32_t> chooseSingleTripCount(2, 4);
+  std::uniform_int_distribution<std::int32_t> chooseInnerTripCount(2, 3);
+  const std::int32_t singleTripCount =
+      !nested && variant == 0 ? 2 : chooseSingleTripCount(structureRandom);
+  const std::int32_t innerTripCount = chooseInnerTripCount(structureRandom);
   const std::string element = options.dtype;
   const std::string inputType =
       "tensor " + sirShape(inputShape) + " " + element;
   const std::string outputType =
       "tensor " + sirShape(outputShape) + " " + element;
   const std::string zero = options.dtype == "f32" ? "0.0" : "0";
+  const Shape transposedShape{columnCount, rowCount};
+  const Shape expandedShape{rowCount, 1};
+  const std::string transposedType =
+      "tensor " + sirShape(transposedShape) + " " + element;
+  const std::string expandedType =
+      "tensor " + sirShape(expandedShape) + " " + element;
   std::ostringstream initializer;
   initializer << '{';
-  for (std::size_t i = 0; i < outputShape[0]; ++i) {
+  for (std::size_t i = 0; i < rowCount; ++i) {
     if (i)
       initializer << ", ";
     initializer << zero;
   }
   initializer << '}';
 
-  const bool nested = (seed & 1u) == 0;
   std::ostringstream source;
   source << "fun @kernel(%x: " << inputType << ") : " << outputType << " {\n";
   if (nested)
@@ -1116,8 +1149,27 @@ Candidate loopReductionCandidate(const TensorGenerationOptions &options,
     source << "  let mut %i: i32 = undef;\n";
   source << "  let mut %acc: " << outputType << " = " << initializer.str()
          << ";\n"
-         << "  let mut %rows: " << outputType << " = undef;\n"
-         << "^entry:\n";
+         << "  let mut %rows: " << outputType << " = undef;\n";
+  if (variant == 3)
+    source << "  let mut %transposed: " << transposedType << " = undef;\n"
+           << "  let mut %transposed_rows: " << outputType << " = undef;\n"
+           << "  let mut %expanded: " << expandedType << " = undef;\n"
+           << "  let mut %broadcasted: " << inputType << " = undef;\n";
+  source << "^entry:\n";
+  const auto emitRows = [&](std::ostringstream &out) {
+    if (variant == 3) {
+      out << "  %transposed = tensor transpose %x, [1, 0];\n"
+          << "  %transposed_rows = tensor sum %transposed, 0, drop;\n"
+          << "  %expanded = tensor expand %transposed_rows, 1;\n"
+          << "  %broadcasted = tensor broadcast %expanded, "
+          << sirShape(inputShape) << ";\n"
+          << "  %rows = tensor sum %broadcasted, 1, drop;\n";
+    } else {
+      out << "  %rows = tensor sum %x, 1, drop;\n";
+    }
+  };
+  if (variant == 2)
+    emitRows(source);
   if (nested) {
     source << "  %outer = 0;\n"
            << "  br ^outer_header;\n"
@@ -1127,10 +1179,10 @@ Candidate loopReductionCandidate(const TensorGenerationOptions &options,
            << "  %inner = 0;\n"
            << "  br ^inner_header;\n"
            << "^inner_header:\n"
-           << "  br %inner < 2, ^body, ^outer_latch;\n"
-           << "^body:\n"
-           << "  %rows = tensor sum %x, 1, drop;\n"
-           << "  %acc = tensor add %acc, %rows;\n"
+           << "  br %inner < " << innerTripCount << ", ^body, ^outer_latch;\n"
+           << "^body:\n";
+    emitRows(source);
+    source << "  %acc = tensor add %acc, %rows;\n"
            << "  %inner = %inner + 1;\n"
            << "  br ^inner_header;\n"
            << "^outer_latch:\n"
@@ -1140,11 +1192,14 @@ Candidate loopReductionCandidate(const TensorGenerationOptions &options,
     source << "  %i = 0;\n"
            << "  br ^header;\n"
            << "^header:\n"
-           << "  br %i < 2, ^body, ^exit;\n"
-           << "^body:\n"
-           << "  %rows = tensor sum %x, 1, drop;\n"
-           << "  %acc = tensor add %acc, %rows;\n"
-           << "  %i = %i + 1;\n"
+           << "  br %i < " << singleTripCount << ", ^body, ^exit;\n"
+           << "^body:\n";
+    if (variant != 2)
+      emitRows(source);
+    source << "  %acc = tensor add %acc, %rows;\n";
+    if (variant == 1)
+      source << "  %acc = tensor add %acc, %rows;\n";
+    source << "  %i = %i + 1;\n"
            << "  br ^header;\n";
   }
   source << "^exit:\n"
@@ -1155,50 +1210,66 @@ Candidate loopReductionCandidate(const TensorGenerationOptions &options,
   candidate.outputElement =
       options.dtype == "i32" ? TensorElement::I32 : TensorElement::F32;
   candidate.operators = {"sum", "add"};
-  candidate.shapeAxes = {{inputShape, 1}};
+  if (variant == 3) {
+    candidate.operators.insert(candidate.operators.end(),
+                               {"transpose", "expand", "broadcast"});
+    candidate.shapeAxes = {{transposedShape, 0}, {inputShape, 1}};
+    candidate.fullShapes = {inputShape,    transposedShape, outputShape,
+                            expandedShape, inputShape,      outputShape};
+    candidate.rangeExtents = candidate.fullShapes;
+  } else {
+    candidate.shapeAxes = {{inputShape, 1}};
+    candidate.fullShapes = {inputShape, outputShape};
+    candidate.rangeExtents = candidate.fullShapes;
+  }
+  if (variant == 1)
+    candidate.operators.push_back("add");
   candidate.propertySource =
-      "Each row has two equal finite integer-valued inputs in [-4,259]; the "
+      "Each row has equal finite integer-valued inputs in [-4,259]; the "
       "reduction and accumulator remain defined.";
   candidate.caseSeed = seed;
-  candidate.loopBounds =
-      nested ? std::vector<std::int32_t>{2, 2} : std::vector<std::int32_t>{2};
-  candidate.totalBodyExecutions = nested ? 6 : 2;
-  candidate.fullShapes = {inputShape, outputShape};
-  candidate.rangeExtents = {inputShape, outputShape};
-
-  std::mt19937 random(seed);
+  candidate.loopBounds = nested ? std::vector<std::int32_t>{2, innerTripCount}
+                                : std::vector<std::int32_t>{singleTripCount};
+  candidate.totalBodyExecutions =
+      nested ? 2 + 2 * static_cast<std::uint32_t>(innerTripCount)
+             : static_cast<std::uint32_t>(singleTripCount);
+  std::mt19937 inputRandom(streamSeed(seed, 0x6c6f6f702d696e70ULL));
   std::uniform_int_distribution<std::int32_t> perturb(-4, 4);
+  const auto inputCount = tensorElementCount(inputShape);
   if (candidate.outputElement == TensorElement::I32) {
     std::vector<std::int32_t> values;
-    values.reserve(512);
-    for (std::int32_t row = 0; row < 256; ++row) {
-      const auto value = std::max(0, row + perturb(random));
-      values.push_back(value);
-      values.push_back(value);
+    values.reserve(inputCount);
+    for (std::int32_t row = 0; row < static_cast<std::int32_t>(rowCount);
+         ++row) {
+      const auto value = std::max(0, row + perturb(inputRandom));
+      for (std::uint32_t column = 0; column < columnCount; ++column)
+        values.push_back(value);
     }
     candidate.inputs.push_back({"x",
                                 TensorElement::I32,
                                 inputShape,
                                 encodeI32Tensor(values),
-                                {1, 256},
+                                {1, rowCount},
                                 0,
-                                512,
+                                static_cast<std::uint32_t>(inputCount),
                                 {0, 1}});
   } else {
     std::vector<float> values;
-    values.reserve(512);
-    for (std::int32_t row = 0; row < 256; ++row) {
-      const auto value = static_cast<float>(std::max(0, row + perturb(random)));
-      values.push_back(value);
-      values.push_back(value);
+    values.reserve(inputCount);
+    for (std::int32_t row = 0; row < static_cast<std::int32_t>(rowCount);
+         ++row) {
+      const auto value =
+          static_cast<float>(std::max(0, row + perturb(inputRandom)));
+      for (std::uint32_t column = 0; column < columnCount; ++column)
+        values.push_back(value);
     }
     candidate.inputs.push_back({"x",
                                 TensorElement::F32,
                                 inputShape,
                                 encodeF32Tensor(values),
-                                {1, 256},
+                                {1, rowCount},
                                 0,
-                                512,
+                                static_cast<std::uint32_t>(inputCount),
                                 {0, 1}});
   }
   return candidate;
@@ -1405,9 +1476,11 @@ TensorCase validateCandidate(Candidate candidate,
   testCase.target = options.target;
   testCase.seed = candidate.caseSeed.value_or(options.seed);
   constexpr std::array<std::uint32_t, 4> warpCounts = {1, 2, 4, 8};
-  testCase.numWarps = options.profileVersion == TensorProfileId::V2
-                          ? warpCounts[testCase.seed % warpCounts.size()]
-                          : 4;
+  testCase.numWarps =
+      options.profileVersion == TensorProfileId::V2
+          ? warpCounts[splitMix64(testCase.seed ^ 0x776172702d636667ULL) %
+                       warpCounts.size()]
+          : 4;
   testCase.synthesis = options.synthesis;
   testCase.propertyId = propertyId;
   testCase.propertySource = candidate.propertySource.empty()
