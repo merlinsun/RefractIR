@@ -19,7 +19,9 @@ namespace refractir {
   TensorProfile tensorProfile(TensorProfileId id) {
     if (id == TensorProfileId::V1)
       return TensorProfile{TensorProfileId::V1, 3, 256, 0};
-    return TensorProfile{TensorProfileId::V2, 3, 512, 8};
+    if (id == TensorProfileId::V2)
+      return TensorProfile{TensorProfileId::V2, 3, 512, 8};
+    return TensorProfile{TensorProfileId::V3, 2, 512, 8};
   }
 
   TensorProfileId parseTensorProfileVersion(std::string_view version) {
@@ -27,6 +29,8 @@ namespace refractir {
       return TensorProfileId::V1;
     if (version == "v2")
       return TensorProfileId::V2;
+    if (version == "v3")
+      return TensorProfileId::V3;
     throw std::invalid_argument("tensor-profile: unknown tensor profile version '" +
                                 std::string(version) + "'");
   }
@@ -41,6 +45,49 @@ namespace refractir {
         throw std::overflow_error("tensor-shape: element count overflows uint32");
     }
     return static_cast<std::uint32_t>(count);
+  }
+
+  Shape tensorExecutionTileShape(const Shape &shape, const TensorProfile &profile) {
+    if (shape.empty())
+      throw std::invalid_argument("tensor-profile: rank-zero tensors are not supported");
+    if (shape.size() > profile.maxRank)
+      throw std::invalid_argument(
+          "tensor-profile: tensor rank exceeds " + std::to_string(profile.maxRank)
+      );
+
+    Shape tileShape;
+    tileShape.reserve(shape.size());
+    std::uint64_t tileElements = 1;
+    for (const auto dimension: shape) {
+      if (dimension == 0)
+        throw std::invalid_argument("tensor-shape: dimensions must be positive");
+      if (profile.id != TensorProfileId::V3) {
+        if ((dimension & (dimension - 1)) != 0)
+          throw std::invalid_argument("tensor-profile: dimensions must be powers of two");
+        tileShape.push_back(dimension);
+        continue;
+      }
+
+      std::uint64_t extent = 1;
+      while (extent < dimension)
+        extent <<= 1;
+      tileElements *= extent;
+      if (tileElements > profile.maxElements)
+        throw std::invalid_argument(
+            "tensor-profile: padded tile volume exceeds " +
+            std::to_string(profile.maxElements)
+        );
+      tileShape.push_back(static_cast<std::uint32_t>(extent));
+    }
+    if (profile.id != TensorProfileId::V3) {
+      const auto elements = tensorElementCount(shape);
+      if (elements > profile.maxElements)
+        throw std::invalid_argument(
+            "tensor-profile: tensor exceeds " + std::to_string(profile.maxElements) +
+            " elements"
+        );
+    }
+    return tileShape;
   }
 
   std::uint32_t normalizeTensorAxis(std::int64_t axis, std::uint32_t rank) {
@@ -87,23 +134,10 @@ namespace refractir {
         return false;
       if (const auto tensor = std::get_if<TensorType>(&type->v)) {
         if (errors) {
-          if (tensor->shape.empty())
-            errors->push_back("tensor-profile: rank zero is not supported");
-          if (tensor->shape.size() > 3)
-            errors->push_back("tensor-profile: tensor rank exceeds 3");
           try {
-            const auto count = tensorElementCount(tensor->shape);
-            if (count > profile.maxElements)
-              errors->push_back(
-                  "tensor-profile: tensor exceeds " + std::to_string(profile.maxElements) +
-                  " elements"
-              );
+            (void) tensorExecutionTileShape(tensor->shape, profile);
           } catch (const std::exception &e) {
             errors->push_back(e.what());
-          }
-          for (const auto dim: tensor->shape) {
-            if ((dim & (dim - 1)) != 0)
-              errors->push_back("tensor-profile: dimensions must be powers of two");
           }
           if (!tensor->elem || (!std::holds_alternative<IntType>(tensor->elem->v) &&
                                 !std::holds_alternative<FloatType>(tensor->elem->v)))
@@ -247,6 +281,93 @@ namespace refractir {
     }
 
     bool expressionHasCallAtom(const Expr &expr) { return expressionContainsAtom<CallAtom>(expr); }
+
+    bool v3SupportsTensorOperation(TensorOp op) {
+      switch (op) {
+        case TensorOp::Add:
+        case TensorOp::Sub:
+        case TensorOp::Mul:
+        case TensorOp::Expand:
+        case TensorOp::Broadcast:
+        case TensorOp::Transpose:
+        case TensorOp::Sum:
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    bool atomHasUnsupportedV3TensorOperation(const Atom &atom);
+
+    bool expressionHasUnsupportedV3TensorOperation(const Expr &expr) {
+      if (atomHasUnsupportedV3TensorOperation(expr.first))
+        return true;
+      return std::any_of(expr.rest.begin(), expr.rest.end(), [](const Expr::Tail &tail) {
+        return atomHasUnsupportedV3TensorOperation(tail.atom);
+      });
+    }
+
+    bool conditionHasUnsupportedV3TensorOperation(const Cond &condition) {
+      return expressionHasUnsupportedV3TensorOperation(condition.lhs) ||
+             expressionHasUnsupportedV3TensorOperation(condition.rhs);
+    }
+
+    bool atomHasUnsupportedV3TensorOperation(const Atom &atom) {
+      if (const auto *tensor = std::get_if<TensorAtom>(&atom.v))
+        return !v3SupportsTensorOperation(tensor->op);
+      return std::visit(
+          [](const auto &value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SelectAtom>) {
+              return (value.cond && conditionHasUnsupportedV3TensorOperation(*value.cond)) ||
+                     (value.maskExpr &&
+                      expressionHasUnsupportedV3TensorOperation(*value.maskExpr));
+            } else if constexpr (std::is_same_v<T, CallAtom>) {
+              return std::any_of(value.args.begin(), value.args.end(), [](const auto &arg) {
+                return arg && expressionHasUnsupportedV3TensorOperation(*arg);
+              });
+            }
+            return false;
+          },
+          atom.v
+      );
+    }
+
+    bool functionHasUnsupportedV3TensorOperation(const FunDecl &function) {
+      for (const auto &local: function.lets)
+        if (local.init && local.init->kind == InitVal::Kind::Atom &&
+            atomHasUnsupportedV3TensorOperation(*std::get<AtomPtr>(local.init->value)))
+          return true;
+      for (const auto &block: function.blocks) {
+        for (const auto &instruction: block.instrs) {
+          const bool unsupported = std::visit(
+              [](const auto &ins) {
+                using T = std::decay_t<decltype(ins)>;
+                if constexpr (std::is_same_v<T, AssignInstr>)
+                  return expressionHasUnsupportedV3TensorOperation(ins.rhs);
+                else if constexpr (std::is_same_v<T, StoreInstr>)
+                  return expressionHasUnsupportedV3TensorOperation(ins.ptr) ||
+                         expressionHasUnsupportedV3TensorOperation(ins.val);
+                else if constexpr (std::is_same_v<T, AssumeInstr> ||
+                                   std::is_same_v<T, RequireInstr>)
+                  return conditionHasUnsupportedV3TensorOperation(ins.cond);
+                return false;
+              },
+              instruction
+          );
+          if (unsupported)
+            return true;
+        }
+        if (const auto branch = std::get_if<BrTerm>(&block.term);
+            branch && branch->cond &&
+            conditionHasUnsupportedV3TensorOperation(*branch->cond))
+          return true;
+        if (const auto ret = std::get_if<RetTerm>(&block.term);
+            ret && ret->value && expressionHasUnsupportedV3TensorOperation(*ret->value))
+          return true;
+      }
+      return false;
+    }
 
     bool tensorFunctionHasCall(const FunDecl &function) {
       for (const auto &local: function.lets)
@@ -589,6 +710,12 @@ namespace refractir {
     for (const auto &function: prog.funs) {
       if (!functionHasTensorType(function, structs, profile) && !functionHasTensorAtom(function))
         continue;
+      if (profile.id == TensorProfileId::V3 &&
+          functionHasUnsupportedV3TensorOperation(function))
+        diags.error(
+            "tensor-profile: unsupported tensor operation in tensor-v3 profile",
+            function.span
+        );
       if (profile.id == TensorProfileId::V1) {
         if (function.blocks.size() != 1 ||
             !std::holds_alternative<RetTerm>(function.blocks.front().term))

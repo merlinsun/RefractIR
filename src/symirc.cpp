@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
     ("input", "Input .sir file", cxxopts::value<std::string>())
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
     ("target", "Backend target (c, wasm, python, triton)", cxxopts::value<std::string>()->default_value("c"))
-    ("tensor-profile-version", "Tensor profile version: v1|v2", cxxopts::value<std::string>()->default_value("v1"))
+    ("tensor-profile-version", "Tensor profile version: v1|v2|v3", cxxopts::value<std::string>()->default_value("v1"))
     ("tensor-layout-manifest", "Triton target: JSON file with physical tensor buffer layouts", cxxopts::value<std::string>())
     ("entry", "Triton entry function", cxxopts::value<std::string>()->default_value("kernel"))
     ("tensor-softmax-lowering", "Triton softmax lowering: direct|decomposed", cxxopts::value<std::string>()->default_value("direct"))

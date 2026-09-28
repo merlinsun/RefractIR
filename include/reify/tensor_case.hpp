@@ -46,6 +46,7 @@ struct TensorCase {
   std::string evidenceStatus;
   std::string exactnessKind;
   std::uint64_t exactnessMaxAbsLeafSum = 0;
+  std::string inputPattern;
   std::vector<std::string> operators;
   std::vector<std::pair<Shape, std::int32_t>> shapeAxes;
   std::vector<std::pair<std::string, std::int32_t>> inputCounterfactualWitnesses;
@@ -56,6 +57,10 @@ struct TensorCase {
   std::vector<TensorCaseBuffer> inputs;
   Shape outputShape;
   TensorElement outputElement = TensorElement::I32;
+  Shape outputElementStrides;
+  std::uint32_t outputElementOffset = 0;
+  std::uint32_t outputStorageSpan = 0;
+  Shape outputAxisOrder;
   std::vector<std::uint8_t> expected;
   bool referenceStable = true;
   bool numericComparison = false;

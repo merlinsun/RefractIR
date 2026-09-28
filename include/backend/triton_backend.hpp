@@ -26,6 +26,7 @@ namespace refractir {
     struct Value {
       TypePtr type;
       std::string expression;
+      std::string validity;
     };
 
     std::ostream &out_;
@@ -46,8 +47,10 @@ namespace refractir {
     void emitFunction(const FunDecl &function);
     void emitInput(const ParamDecl &param);
     std::string emitOffsets(
-        const std::string &name, const Shape &shape, const TritonBufferLayout *layout = nullptr
+        const std::string &name, const Shape &shape, const TritonBufferLayout *layout = nullptr,
+        std::string *validity = nullptr, bool includeOffsets = true
     );
+    std::string emitValidity(const std::string &name, const Shape &shape);
     void emitInstruction(const Instr &instruction);
     void emitInitializer(const LetDecl &let);
     std::string lowerExpr(const Expr &expr);
@@ -64,6 +67,7 @@ namespace refractir {
     ) const;
     Shape valueShape(const TypePtr &type) const;
     TypePtr valueType(const Coef &coef) const;
+    std::string valueValidity(const Coef &coef) const;
     const FunDecl &findEntry(const Program &program) const;
     void validateEntry(const FunDecl &function) const;
     void addLine(std::string line);

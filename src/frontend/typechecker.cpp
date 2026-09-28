@@ -31,7 +31,7 @@ namespace refractir {
   // of vector.
   static void validateTypeWF(
       const TypePtr &t, DiagBag &diags, bool insideVec = false, bool insideField = false,
-      bool insideArray = false, bool insidePtr = false, std::uint32_t maxTensorElements = 256
+      bool insideArray = false, bool insidePtr = false, TensorProfile profile = {}
   ) {
     if (!t)
       return;
@@ -56,30 +56,15 @@ namespace refractir {
                 !std::holds_alternative<FloatType>(x.elem->v)) {
               diags.error("Vector lane type must be a scalar (iN, f32, f64)", t->span);
             }
-            validateTypeWF(x.elem, diags, true, false, false, false, maxTensorElements);
+            validateTypeWF(x.elem, diags, true, false, false, false, profile);
           } else if constexpr (std::is_same_v<X, TensorType>) {
             if (insideVec || insideField || insideArray || insidePtr)
               diags.error(
                   "tensor-type: tensors cannot be nested in vectors, aggregates, or pointers",
                   t->span
               );
-            if (x.shape.empty())
-              diags.error("tensor-profile: rank-zero tensors are not supported", t->span);
-            if (x.shape.size() > 3)
-              diags.error("tensor-profile: tensor rank exceeds 3", t->span);
-            for (const auto dim: x.shape) {
-              if (dim == 0)
-                diags.error("tensor-shape: dimensions must be positive", t->span);
-              else if ((dim & (dim - 1)) != 0)
-                diags.error("tensor-profile: dimensions must be powers of two", t->span);
-            }
             try {
-              if (tensorElementCount(x.shape) > maxTensorElements)
-                diags.error(
-                    "tensor-profile: tensor exceeds " + std::to_string(maxTensorElements) +
-                        " elements",
-                    t->span
-                );
+              (void) tensorExecutionTileShape(x.shape, profile);
             } catch (const std::exception &e) {
               diags.error(e.what(), t->span);
             }
@@ -87,14 +72,14 @@ namespace refractir {
             const auto floatBits = TypeUtils::getFloatBitWidth(x.elem);
             if ((!intBits || *intBits != 32) && (!floatBits || *floatBits != 32))
               diags.error("tensor-type: tensor element type must be i32 or f32", t->span);
-            validateTypeWF(x.elem, diags, false, false, false, false, maxTensorElements);
+            validateTypeWF(x.elem, diags, false, false, false, false, profile);
           } else if constexpr (std::is_same_v<X, PtrType>) {
             // ptr <N> T is forbidden (§6.8.1).
             if (x.pointee && std::holds_alternative<VecType>(x.pointee->v))
               diags.error("Pointer to vector (ptr <N> T) is not supported", t->span);
-            validateTypeWF(x.pointee, diags, false, false, false, true, maxTensorElements);
+            validateTypeWF(x.pointee, diags, false, false, false, true, profile);
           } else if constexpr (std::is_same_v<X, ArrayType>) {
-            validateTypeWF(x.elem, diags, false, false, true, false, maxTensorElements);
+            validateTypeWF(x.elem, diags, false, false, true, false, profile);
           }
           // StructType: validated separately in collectStructs.
         },
@@ -109,7 +94,7 @@ namespace refractir {
       for (const auto &fd: sd.fields) {
         // Validate per-field type: in particular reject vector
         // fields explicitly with insideField=true.
-        validateTypeWF(fd.type, diags, false, true, false, false, tensorProfile_.maxElements);
+        validateTypeWF(fd.type, diags, false, true, false, false, tensorProfile_);
         si.fields[fd.name] = fd.type;
         si.fieldList.push_back({fd.name, fd.type});
       }
@@ -132,9 +117,9 @@ namespace refractir {
     // 2. Ext decls.
     for (const auto &d: prog.extDecls) {
       // Validate signatures.
-      validateTypeWF(d.retType, diags, false, false, false, false, tensorProfile_.maxElements);
+      validateTypeWF(d.retType, diags, false, false, false, false, tensorProfile_);
       for (const auto &p: d.params)
-        validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_.maxElements);
+        validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_);
       auto it = callees_.find(d.name.name);
       if (it != callees_.end() && !it->second.empty()) {
         diags.error("`decl " + d.name.name + "` conflicts with a `fun` of the same name", d.span);
@@ -151,9 +136,9 @@ namespace refractir {
     }
     // 3. Intrinsics.
     for (const auto &i: prog.intrinsics) {
-      validateTypeWF(i.retType, diags, false, false, false, false, tensorProfile_.maxElements);
+      validateTypeWF(i.retType, diags, false, false, false, false, tensorProfile_);
       for (const auto &p: i.params)
-        validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_.maxElements);
+        validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_);
       // §12 Intrinsics are defined over scalar `iN` or `fN`
       // — except the v0.2.3 horizontal reductions (§12.4), whose parameter
       // is a vector `<N> T` of scalar lanes. This is the coarse gate;
@@ -660,9 +645,9 @@ namespace refractir {
 
     // Up-front type validation so structural errors fire before
     // any expression check that would also touch the type.
-    validateTypeWF(f.retType, diags, false, false, false, false, tensorProfile_.maxElements);
+    validateTypeWF(f.retType, diags, false, false, false, false, tensorProfile_);
     for (const auto &p: f.params) {
-      validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_.maxElements);
+      validateTypeWF(p.type, diags, false, false, false, false, tensorProfile_);
       vars[p.name.name] = VarInfo{p.type, false, true, p.span};
     }
     for (const auto &s: f.syms) {
@@ -680,14 +665,14 @@ namespace refractir {
                      std::holds_alternative<StructType>(s.type->v))) {
         diags.error("sym of array/struct type is not allowed: " + s.name.name, s.span);
       }
-      validateTypeWF(s.type, diags, false, false, false, false, tensorProfile_.maxElements);
+      validateTypeWF(s.type, diags, false, false, false, false, tensorProfile_);
       syms[s.name.name] = SymInfo{s.type, s.kind, s.span};
     }
     for (const auto &l: f.lets) {
       if (vars.count(l.name.name)) {
         diags.error("Duplicate name: " + l.name.name, l.span);
       }
-      validateTypeWF(l.type, diags, false, false, false, false, tensorProfile_.maxElements);
+      validateTypeWF(l.type, diags, false, false, false, false, tensorProfile_);
       vars[l.name.name] = VarInfo{l.type, l.isMutable, false, l.span};
       if (l.init) {
         checkInitVal(*l.init, l.type, vars, syms, diags);
@@ -1087,33 +1072,8 @@ namespace refractir {
       return Ty{Ty::TensorTy{std::move(result)}};
     };
     auto validateShape = [&](const Shape &shape) {
-      if (shape.empty()) {
-        diags.error("tensor-profile: tensor result must have rank one through three", atom.span);
-        return false;
-      }
-      if (shape.size() > 3) {
-        diags.error("tensor-profile: tensor result rank exceeds 3", atom.span);
-        return false;
-      }
-      for (const auto dim: shape) {
-        if (dim == 0) {
-          diags.error("tensor-shape: dimensions must be positive", atom.span);
-          return false;
-        }
-        if ((dim & (dim - 1)) != 0) {
-          diags.error("tensor-profile: dimensions must be powers of two", atom.span);
-          return false;
-        }
-      }
       try {
-        if (tensorElementCount(shape) > tensorProfile_.maxElements) {
-          diags.error(
-              "tensor-profile: tensor exceeds " + std::to_string(tensorProfile_.maxElements) +
-                  " elements",
-              atom.span
-          );
-          return false;
-        }
+        (void) tensorExecutionTileShape(shape, tensorProfile_);
       } catch (const std::exception &error) {
         diags.error(error.what(), atom.span);
         return false;

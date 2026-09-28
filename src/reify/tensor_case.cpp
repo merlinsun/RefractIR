@@ -325,7 +325,8 @@ TritonBufferLayout makeTritonLayout(const TensorCaseBuffer &buffer,
 
 void writeV2BufferRecord(std::ostream &out, const TensorCaseBuffer &buffer,
                          std::uint64_t offset, std::uint64_t length,
-                         std::string_view file, bool comma) {
+                         std::string_view file, bool comma,
+                         TensorProfileId profile = TensorProfileId::V2) {
   if (comma)
     out << ',';
   out << "{\"name\":" << jsonString(buffer.name)
@@ -359,7 +360,10 @@ void writeV2BufferRecord(std::ostream &out, const TensorCaseBuffer &buffer,
     out << axisOrder[i];
   }
   out << "],\"tile_shape\":";
-  writeShape(out, buffer.shape);
+  if (profile == TensorProfileId::V3 && !buffer.shape.empty())
+    writeShape(out, tensorExecutionTileShape(buffer.shape, tensorProfile(profile)));
+  else
+    writeShape(out, buffer.shape);
   out << ",\"tile_origin\":[";
   for (std::size_t i = 0; i < buffer.shape.size(); ++i) {
     if (i)
@@ -369,7 +373,32 @@ void writeV2BufferRecord(std::ostream &out, const TensorCaseBuffer &buffer,
   out << "]}";
 }
 
-void writeV2Execution(std::ostream &out, const TensorCase &testCase) {
+std::string wordHex(std::uint32_t word) {
+  constexpr char digits[] = "0123456789abcdef";
+  std::string result(8, '0');
+  for (std::size_t index = 0; index < result.size(); ++index) {
+    const auto shift = static_cast<unsigned int>((result.size() - index - 1) * 4);
+    result[index] = digits[(word >> shift) & 0xf];
+  }
+  return result;
+}
+
+void writeV2Execution(std::ostream &out, const TensorCase &testCase,
+                      bool v3 = false) {
+  std::uint32_t i32OutputCanary = 0xaaaaaaaa;
+  if (v3) {
+    std::vector<std::uint32_t> expectedWords;
+    for (std::size_t offset = 0; offset + 4 <= testCase.expected.size(); offset += 4) {
+      expectedWords.push_back(
+          static_cast<std::uint32_t>(testCase.expected[offset]) |
+          (static_cast<std::uint32_t>(testCase.expected[offset + 1]) << 8) |
+          (static_cast<std::uint32_t>(testCase.expected[offset + 2]) << 16) |
+          (static_cast<std::uint32_t>(testCase.expected[offset + 3]) << 24));
+    }
+    while (std::find(expectedWords.begin(), expectedWords.end(), i32OutputCanary) !=
+           expectedWords.end())
+      ++i32OutputCanary;
+  }
   out << "\"execution\":{\"full_shapes\":[";
   for (std::size_t i = 0; i < testCase.fullShapes.size(); ++i) {
     if (i)
@@ -393,8 +422,9 @@ void writeV2Execution(std::ostream &out, const TensorCase &testCase) {
   out << "],\"total_body_executions\":" << testCase.totalBodyExecutions
       << ",\"gap_sentinel_by_dtype\":{\"i32\":\"55555555\",\"f32\":"
          "\"3f000001\"},"
-      << "\"output_canary_by_dtype\":{\"i32\":\"aaaaaaaa\",\"f32\":"
-         "\"3f000002\"}}";
+      << "\"output_canary_by_dtype\":{\"i32\":"
+      << jsonString(wordHex(i32OutputCanary)) << ",\"f32\":"
+      << jsonString(v3 ? "7fc00002" : "3f000002") << "}}";
 }
 
 std::string buildManifest(const TensorCase &testCase,
@@ -484,12 +514,20 @@ std::string buildManifestV2(const TensorCase &testCase,
                             const std::string &program,
                             const std::string &inputs,
                             const std::string &expected,
-                            const std::string &kernel) {
+                            const std::string &kernel,
+                            TensorProfileId profile = TensorProfileId::V2) {
+  const bool v3 = profile == TensorProfileId::V3;
+  const std::string profileName = v3 ? "tensor-v3" : "tensor-v2";
+  const std::string schemaName = v3 ? "refractir.tensor-case.v3"
+                                    : "refractir.tensor-case.v2";
+  const std::string generatorName = v3 ? "tensor-v3-construction"
+                                       : "tensor-v2-construction";
   std::ostringstream out;
-  out << "{\"schema\":\"refractir.tensor-case.v2\","
-      << "\"profile\":\"tensor-v2\",\"entry\":\"kernel\",\"source\":{"
+  out << "{\"schema\":" << jsonString(schemaName) << ","
+      << "\"profile\":" << jsonString(profileName)
+      << ",\"entry\":\"kernel\",\"source\":{"
       << "\"file\":\"program.sir\",\"sha256\":" << jsonString(sha256(program))
-      << ",\"generator\":\"tensor-v2-construction\",\"seed\":" << testCase.seed
+      << ",\"generator\":" << jsonString(generatorName) << ",\"seed\":" << testCase.seed
       << "},"
       << "\"inputs\":[";
   std::vector<InputLocation> locations;
@@ -500,12 +538,14 @@ std::string buildManifestV2(const TensorCase &testCase,
   }
   for (std::size_t i = 0; i < testCase.inputs.size(); ++i)
     writeV2BufferRecord(out, testCase.inputs[i], locations[i].offset,
-                        locations[i].length, "inputs.bin", i != 0);
+                        locations[i].length, "inputs.bin", i != 0, profile);
 
   TensorCaseBuffer output{
-      "return", testCase.outputElement, testCase.outputShape, {}};
+      "return", testCase.outputElement, testCase.outputShape, {},
+      testCase.outputElementStrides, testCase.outputElementOffset,
+      testCase.outputStorageSpan, testCase.outputAxisOrder};
   out << "],\"output\":";
-  writeV2BufferRecord(out, output, 0, expected.size(), "expected.bin", false);
+  writeV2BufferRecord(out, output, 0, expected.size(), "expected.bin", false, profile);
   out << ",\"grid\":[1,1,1],\"softmax_lowering\":\"direct\","
       << "\"launch\":{\"num_warps\":" << testCase.numWarps
       << ",\"num_stages\":1,"
@@ -551,7 +591,7 @@ std::string buildManifestV2(const TensorCase &testCase,
     out << '}';
   }
   out << "},";
-  writeV2Execution(out, testCase);
+  writeV2Execution(out, testCase, v3);
   out << ",\"coverage\":{\"primary_stratum\":"
       << jsonString(testCase.primaryStratum)
       << ",\"source_signature\":" << jsonString(sourceSignature(program)) << ','
@@ -561,8 +601,10 @@ std::string buildManifestV2(const TensorCase &testCase,
       out << ',';
     out << "{\"bound\":" << testCase.loopBounds[i] << '}';
   }
-  out << "],\"input_behavior\":{\"property_passed\":true,"
-      << "\"distinguishing_objective\":\"untargeted\","
+  out << "],\"input_behavior\":{\"property_passed\":true,";
+  if (v3)
+    out << "\"pattern\":" << jsonString(testCase.inputPattern) << ',';
+  out << "\"distinguishing_objective\":\"untargeted\","
       << "\"counterfactual_inputs\":[";
   for (std::size_t index = 0;
        index < testCase.inputCounterfactualWitnesses.size(); ++index) {
@@ -589,10 +631,14 @@ std::string buildManifestV2(const TensorCase &testCase,
     writeShape(out, testCase.shapeAxes[i].first);
     out << ",\"axis\":" << testCase.shapeAxes[i].second << '}';
   }
-  out << "],\"generator\":{\"version\":\"tensor-v2-construction\",\"seed\":"
+  out << "],\"generator\":{\"version\":" << jsonString(generatorName)
+      << ",\"seed\":"
       << testCase.seed << ",\"synthesis\":" << jsonString(testCase.synthesis)
       << ",\"primary_stratum\":" << jsonString(testCase.primaryStratum)
-      << ",\"node_limit\":12},\"files\":{";
+      << ",\"node_limit\":12";
+  if (v3)
+    out << ",\"input_pattern\":" << jsonString(testCase.inputPattern);
+  out << "},\"files\":{";
   auto writeDigest = [&](std::string_view name, std::string_view data,
                          bool comma) {
     if (comma)
@@ -656,7 +702,11 @@ void writeTensorCase(const std::filesystem::path &directory,
               makeTritonLayout(input, TritonBufferRole::Input));
       if (!testCase.outputShape.empty()) {
         const TensorCaseBuffer output{"return", testCase.outputElement,
-                                      testCase.outputShape, {}};
+                                      testCase.outputShape, {},
+                                      testCase.outputElementStrides,
+                                      testCase.outputElementOffset,
+                                      testCase.outputStorageSpan,
+                                      testCase.outputAxisOrder};
         emitOptions.tritonBufferLayouts.push_back(
             makeTritonLayout(output, TritonBufferRole::Output));
       }
@@ -667,11 +717,11 @@ void writeTensorCase(const std::filesystem::path &directory,
     }
 
     const std::string manifest =
-        testCase.profileVersion == TensorProfileId::V2
-            ? buildManifestV2(testCase, testCase.source, inputBytes,
-                              expectedBytes, kernel)
-            : buildManifest(testCase, testCase.source, inputBytes,
-                            expectedBytes, kernel);
+        testCase.profileVersion == TensorProfileId::V1
+            ? buildManifest(testCase, testCase.source, inputBytes,
+                            expectedBytes, kernel)
+            : buildManifestV2(testCase, testCase.source, inputBytes,
+                              expectedBytes, kernel, testCase.profileVersion);
     writeFile(staging / "case.json", manifest);
     std::filesystem::rename(staging, directory);
   } catch (...) {

@@ -13,7 +13,7 @@ namespace refractir {
 
   enum class TensorConsumer { Reference, ExactSolver, Triton, C, Wasm, Python };
 
-  enum class TensorProfileId { V1, V2 };
+  enum class TensorProfileId { V1, V2, V3 };
 
   struct TensorProfile {
     TensorProfileId id = TensorProfileId::V1;
@@ -52,6 +52,10 @@ namespace refractir {
 
   /// Product of dimensions; an empty shape is the scalar boundary shape 1.
   std::uint32_t tensorElementCount(const Shape &shape);
+
+  /// Padded Triton tile extents for a logical tensor shape under a profile.
+  /// For v1/v2 this also validates the existing power-of-two shape contract.
+  Shape tensorExecutionTileShape(const Shape &shape, const TensorProfile &profile);
 
   /// Normalize an axis in [-rank, rank) to [0, rank).
   std::uint32_t normalizeTensorAxis(std::int64_t axis, std::uint32_t rank);

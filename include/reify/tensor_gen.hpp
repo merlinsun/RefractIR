@@ -11,6 +11,7 @@ namespace refractir::reify {
   struct TensorGenerationOptions {
     TensorProfileId profileVersion = TensorProfileId::V1;
     std::string primaryStratum;
+    std::string inputPattern;
     std::string dtype = "i32";
     std::string property;
     std::string synthesis = "construction";

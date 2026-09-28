@@ -979,9 +979,11 @@ static void refreshDescriptor(const LeafGenConfig &opts,
                             cxxopts::value<std::string>()->default_value("scalar"))
       ("tensor-dtype",      "Tensor profile element type (i32 or f32)",
                             cxxopts::value<std::string>()->default_value("auto"))
-      ("tensor-profile-version", "Tensor capability profile (v1 or v2)",
+      ("tensor-profile-version", "Tensor capability profile (v1, v2, or v3)",
                             cxxopts::value<std::string>()->default_value("v1"))
       ("tensor-stratum",    "Tensor-v2 primary stratum override",
+                            cxxopts::value<std::string>())
+      ("tensor-input-pattern", "Tensor-v3 input pattern override",
                             cxxopts::value<std::string>())
       ("tensor-property",   "Tensor postcondition family (coordinates, sum-target, softmax-dominance)",
                             cxxopts::value<std::string>())
@@ -1389,6 +1391,8 @@ int main(int argc, char **argv) {
     }
     if (result.count("tensor-stratum"))
       tensorOptions.primaryStratum = result["tensor-stratum"].as<std::string>();
+    if (result.count("tensor-input-pattern"))
+      tensorOptions.inputPattern = result["tensor-input-pattern"].as<std::string>();
     tensorOptions.dtype = result["tensor-dtype"].as<std::string>();
     if (tensorOptions.dtype == "auto")
       tensorOptions.dtype =
