@@ -169,6 +169,10 @@ LIB_DIR = $(BUILD_DIR)/lib
 INC_DIR = $(BUILD_DIR)/include
 
 LIB_NAME = libsymir.a
+# The interpreter translation units, tensor transport included: a consumer that
+# interprets a tensor program resolves readTensorArguments, writeTensorResult,
+# and the numerical tensor helpers from the archive, so leaving them out is a
+# link error for the first external user rather than an archive-size choice.
 LIBRARY_OBJS = $(COMMON_OBJS) \
                src/interp/interpreter.o \
                src/interp/intrinsics.o \
@@ -178,6 +182,9 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/interp/values.o \
                src/interp/expr.o \
                src/interp/lvalue.o \
+               src/interp/tensor.o \
+               src/interp/tensor_io.o \
+               src/interp/tensor_numeric.o \
                src/backend/c_backend.o \
                src/backend/c_expr.o \
                src/backend/c_vec.o \
@@ -215,7 +222,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor test-triton test-triton-v2 cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor test-triton test-triton-v2 test-library cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -230,6 +237,18 @@ TENSOR_EMIT_API = $(BIN_DIR)/tensor_emit_api
 $(TENSOR_EMIT_API): test/unit/tensor_emit_api.cpp $(COMMON_OBJS) $(BACKEND_SRCS:.cpp=.o) src/reify/tensor_case.o
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+# A link-and-run consumer of the installed archive. Building libsymir.a only
+# proves that its objects were archived, not that they resolve each other.
+LIBRARY_CONSUMER = $(BIN_DIR)/symir_library_consumer
+
+$(LIBRARY_CONSUMER): test/unit/symir_library_consumer.cpp $(LIB_DIR)/$(LIB_NAME)
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ test/unit/symir_library_consumer.cpp \
+	  -L$(LIB_DIR) -lsymir $(LDFLAGS)
+
+test-library: $(LIBRARY_CONSUMER)
+	./$(LIBRARY_CONSUMER)
 
 $(TARGET_SOLVER): $(COMMON_OBJS) $(SOLVER_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
