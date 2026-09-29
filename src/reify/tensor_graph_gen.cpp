@@ -163,6 +163,7 @@ namespace refractir::reify {
       int appendValue(Graph &graph, const Shape &shape);
       int appendNode(Graph &graph, GraphNode node, const Shape &shape);
       int emitPair(Graph &graph, int current, int other, double literal, TensorOp op);
+      int emitForkJoin(Graph &graph, int left, int right);
       int emitMerge(Graph &graph, int current, int input);
       int emitBinary(Graph &graph, int current);
       int emitShape(Graph &graph, int current);
@@ -303,6 +304,31 @@ namespace refractir::reify {
       node.operands = {current, other};
       node.literals = {0.0, literal};
       return appendNode(graph, std::move(node), result);
+    }
+
+    int Builder::emitForkJoin(Graph &graph, int left, int right) {
+      // Two bounded operations on separate entry parameters, combined by a join
+      // node. Neither branch is an ancestor of the other, so the join carries a
+      // dependency on two different runtime inputs instead of on one running
+      // value. The join broadcasts to the same shape a plain merge would have
+      // produced, so every later merge still sees a broadcast superset of the
+      // remaining inputs.
+      const auto merged = applyBinary(
+          graph.values[static_cast<std::size_t>(left)].shape,
+          graph.values[static_cast<std::size_t>(right)].shape
+      );
+      if (!merged || !admissible(*merged))
+        return emitMerge(graph, left, right);
+      const bool multiply = multiplications_ < mulLimit && random_() % 4 == 0;
+      if (multiply)
+        ++multiplications_;
+      // A subtraction on the join operand could cancel the running value that
+      // already carries this input, so the join itself stays additive.
+      const auto leftOperator =
+          multiply ? TensorOp::Mul : (random_() % 2 == 0 ? TensorOp::Add : TensorOp::Sub);
+      const auto first = emitPair(graph, left, -1, chooseLiteral(multiply), leftOperator);
+      const auto second = emitPair(graph, right, -1, chooseLiteral(false), TensorOp::Add);
+      return emitPair(graph, first, second, 0.0, TensorOp::Add);
     }
 
     int Builder::emitMerge(Graph &graph, int current, int input) {
@@ -574,17 +600,32 @@ namespace refractir::reify {
       const bool scalarInput = maxInputs_ >= 3 && tensorInputs == 2 && random_() % 3 == 0;
       const auto inputCount = tensorInputs + (scalarInput ? 1u : 0u);
       const auto mergeCount = inputCount - 1;
-      if (budget_ < mergeCount + 4)
+      // The merge phase opens with a fork-join: one bounded operation on each of
+      // two separate runtime inputs, combined by a join node. It replaces the
+      // first merge and costs two nodes more, so the budget left for the
+      // remaining features shrinks while the operator budget does not change.
+      const auto mergeSteps = mergeCount - 1;
+      const auto mergeCost = mergeCount + 2;
+      const auto required = mergeCost + stepCost(StepKind::DoubleReduction);
+      if (budget_ < required)
         throw std::runtime_error(
-            "graph_exhaustion: operator budget cannot host a shared intermediate"
+            "graph_exhaustion: operator budget cannot host the required graph features"
         );
-
-      const auto required = mergeCount + 4;
-      const auto withReductions = required + 5;
-      const bool wantReductions = budget_ >= withReductions;
-      const auto target = wantReductions
-                              ? withReductions + random_() % (budget_ - withReductions + 1)
-                              : required + random_() % (budget_ - required + 1);
+      // The twelve-node limit cannot hold the explicit diamond beside the
+      // independent-branch join and the two-reduction feature. A shared
+      // intermediate with two live consumers that rejoin still exists without
+      // it: the first reduction and the mixer of `emitDoubleReduction` both read
+      // the running value and meet again at the mixer.
+      const bool wantDiamond = budget_ >= required + stepCost(StepKind::Diamond);
+      // The target draw keeps the position it has always had in this stream, so
+      // a fixed seed still selects the same working shape and input shapes. The
+      // graph around them changes; the tensors the solver has to reason about do
+      // not, which is what keeps an exact-selection query inside its budget.
+      const auto featureCost =
+          stepCost(StepKind::DoubleReduction) +
+          (wantDiamond ? stepCost(StepKind::Diamond) : std::uint32_t{0});
+      const auto minimum = mergeCost + featureCost;
+      const auto target = minimum + random_() % (budget_ - minimum + 1);
 
       const Shape working = makeWorkingShape();
       static constexpr std::array<std::string_view, 3> tensorNames{"%a", "%b", "%c"};
@@ -609,23 +650,29 @@ namespace refractir::reify {
       for (std::uint32_t index = 1; index < inputCount; ++index)
         pending.push_back(static_cast<int>(index));
       std::shuffle(pending.begin(), pending.end(), random_);
+      // Each fork branch applies a tensor operator, so the first pending input
+      // has to be a tensor; a scalar input still merges like any other.
+      const auto tensorPartner =
+          std::find_if(pending.begin(), pending.end(), [&](int index) {
+            return !graph.values[static_cast<std::size_t>(index)].shape.empty();
+          });
+      if (tensorPartner != pending.end())
+        std::iter_swap(pending.begin(), tensorPartner);
 
       // The required features are placed at random positions after the input
       // merges; the remaining budget is filled with independently chosen
       // operators, so neither placement nor operand choice repeats per seed.
-      std::vector<StepKind> schedule(mergeCount, StepKind::Merge);
-      std::vector<StepKind> features{StepKind::Diamond};
-      if (wantReductions)
-        features.push_back(StepKind::DoubleReduction);
+      std::vector<StepKind> schedule(mergeSteps, StepKind::Merge);
+      std::vector<StepKind> features{StepKind::DoubleReduction};
+      if (wantDiamond)
+        features.push_back(StepKind::Diamond);
       std::shuffle(features.begin(), features.end(), random_);
       for (const auto feature: features) {
-        const auto span = schedule.size() - mergeCount + 1;
-        const auto position = mergeCount + random_() % span;
+        const auto span = schedule.size() - mergeSteps + 1;
+        const auto position = mergeSteps + random_() % span;
         schedule.insert(schedule.begin() + static_cast<std::ptrdiff_t>(position), feature);
       }
-      std::uint32_t used = 0;
-      for (const auto step: schedule)
-        used += stepCost(step);
+      std::uint32_t used = minimum;
       // Fillers land anywhere after the input merges rather than only at the
       // end, so a shape change can sit upstream of a reduction. Appending them
       // would leave every transpose, expand, and broadcast downstream of every
@@ -633,8 +680,8 @@ namespace refractir::reify {
       // structure to compile.
       while (used < target) {
         const auto step = pickFiller(target - used);
-        const auto span = schedule.size() - mergeCount + 1;
-        const auto position = mergeCount + random_() % span;
+        const auto span = schedule.size() - mergeSteps + 1;
+        const auto position = mergeSteps + random_() % span;
         schedule.insert(
             schedule.begin() + static_cast<std::ptrdiff_t>(position), step
         );
@@ -643,6 +690,7 @@ namespace refractir::reify {
 
       int current = 0;
       std::size_t merges = 0;
+      current = emitForkJoin(graph, current, pending[merges++]);
       for (const auto step: schedule) {
         switch (step) {
           case StepKind::Merge:
