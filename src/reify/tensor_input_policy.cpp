@@ -400,11 +400,15 @@ namespace refractir::reify {
     }
 
     /// Parse one complete integer literal: decimal, or `0x`/`0o`/`0b` prefixed,
-    /// with an optional sign. `parseIntegerLiteral` defers to `std::stoll`,
-    /// which stops at the first character it cannot use, so `1.5` and `1junk`
-    /// would both read as 1. A prefix of a longer token is not a value.
+    /// with an optional sign. The value is converted from the digits this
+    /// function already separated and checked, rather than handed to
+    /// `parseIntegerLiteral`: `std::stoll` stops at the first character it
+    /// cannot use, so `1.5` and `1junk` would both read as 1, and its prefix
+    /// handling looks only past a leading minus, so `+0x10` would read as 0.
     std::int64_t parseCompleteInteger(std::string_view text, std::string_view whole) {
-      std::size_t begin = (!text.empty() && (text.front() == '-' || text.front() == '+')) ? 1 : 0;
+      const bool negative = !text.empty() && text.front() == '-';
+      std::size_t begin =
+          (!text.empty() && (text.front() == '-' || text.front() == '+')) ? 1 : 0;
       unsigned base = 10;
       if (text.size() > begin + 1 && text[begin] == '0') {
         switch (text[begin + 1]) {
@@ -433,17 +437,31 @@ namespace refractir::reify {
         return base == 16 && ((character >= 'a' && character <= 'f') ||
                               (character >= 'A' && character <= 'F'));
       };
+      const auto invalid = [&]() {
+        return std::invalid_argument(
+            "tensor output element value must be an i32: " + std::string(whole)
+        );
+      };
       if (digits.empty() || !std::all_of(digits.begin(), digits.end(), allowed))
-        throw std::invalid_argument(
-            "tensor output element value must be an i32: " + std::string(whole)
-        );
-      try {
-        return parseIntegerLiteral(std::string(text));
-      } catch (const std::exception &) {
-        throw std::invalid_argument(
-            "tensor output element value must be an i32: " + std::string(whole)
-        );
+        throw invalid();
+
+      std::uint64_t magnitude = 0;
+      const auto converted =
+          std::from_chars(digits.data(), digits.data() + digits.size(), magnitude, base);
+      if (converted.ec != std::errc{} || converted.ptr != digits.data() + digits.size())
+        throw invalid();
+      // `-(2^63)` is representable and `+2^63` is not, so the two signs have
+      // different bounds before the i32 check the caller applies.
+      constexpr std::uint64_t negativeLimit = std::uint64_t{1} << 63;
+      if (negative) {
+        if (magnitude > negativeLimit)
+          throw invalid();
+        return magnitude == negativeLimit ? std::numeric_limits<std::int64_t>::min()
+                                          : -static_cast<std::int64_t>(magnitude);
       }
+      if (magnitude > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+        throw invalid();
+      return static_cast<std::int64_t>(magnitude);
     }
 
   } // namespace

@@ -2901,6 +2901,86 @@ class TensorElementPropertyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tensor output element", result.stderr)
 
+  def test_element_value_accepts_every_base_with_either_sign(self):
+    """A sign before a base prefix is part of the literal, not zero.
+
+    `+0x10` has to read as 16: a parser that looks past a leading minus only
+    would stop at the `0` and certify a different property. The recorded
+    request is checked directly, so the assertion is about parsing rather than
+    about whether the solver then decides the query.
+    """
+    cases = {
+      "+0x10": 16,
+      "0x10": 16,
+      "+0b11": 3,
+      "0b11": 3,
+      "+0o17": 15,
+      "0o17": 15,
+      "+10": 10,
+      "-10": -10,
+    }
+    seed, ordinary = self.sample_case(minimum_rank=1, seeds=range(1, 40))
+    coordinate = ",".join("0" for _ in ordinary.manifest["output"]["shape"])
+    for literal, value in cases.items():
+      with self.subTest(literal=literal), tempfile.TemporaryDirectory() as directory:
+        result = generate(
+          directory,
+          "-n",
+          "1",
+          "--tensor-dtype",
+          "i32",
+          "--tensor-profile-version",
+          "v2",
+          "--tensor-generator",
+          "compositional",
+          "--tensor-input-policy",
+          "exact",
+          "--tensor-output-element",
+          f"{coordinate}={literal}",
+          seed=seed,
+        )
+        summary = read_summary(directory)
+
+        self.assertNotIn("tensor output element", result.stderr)
+        self.assertEqual(summary["output_elements"][0]["value"], value)
+
+  def test_positive_sign_overflow_is_rejected(self):
+    """`+0x80000000` is outside i32, not zero."""
+    with tempfile.TemporaryDirectory() as directory:
+      result = generate(
+        directory,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-profile-version",
+        "v2",
+        "--tensor-generator",
+        "compositional",
+        "--tensor-input-policy",
+        "exact",
+        "--tensor-output-element",
+        "0=+0x80000000",
+        seed=4,
+      )
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("outside i32", result.stderr)
+
+  def test_element_arguments_outside_option_parsing_are_not_constraints(self):
+    """`--` ends option parsing, and another option's value is not an occurrence."""
+    invocations = {
+      "after the separator": ["--", "--tensor-output-element=0=1"],
+      "as another option's value": ["--target", "--tensor-output-element=0=1"],
+    }
+    for label, extra in invocations.items():
+      with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+        result = generate(directory, "-n", "1", *extra, seed=4)
+
+        # Neither invocation names an element target, so none may be parsed as
+        # one; whatever else they are rejected for is a different matter.
+        self.assertNotIn("tensor output element", result.stderr)
+
   def test_separate_element_arguments_keep_their_boundaries(self):
     """A malformed occurrence fails even when a later one is well formed.
 

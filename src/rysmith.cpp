@@ -968,29 +968,19 @@ static void refreshDescriptor(const LeafGenConfig &opts,
   return GenerateResult{};
 }
 
-// Every value written for `name` on the command line, one per occurrence.
+// Every value written for `name`, one per occurrence, in command-line order.
 //
-// cxxopts flattens a repeated vector option into a single comma-separated
-// list, so its parse result cannot tell a coordinate comma from the boundary
-// between two occurrences: `--opt 0 --opt 1=2` and `--opt 0,1=2` arrive
-// identically, and rejoining the pieces would accept a malformed occurrence.
-// Reading each occurrence verbatim keeps every argument whole. Both
-// `--name value` and `--name=value` are accepted; the cxxopts declaration
-// stays for `--help` and for its missing-argument diagnostic.
+// cxxopts keeps each option occurrence's original text in its sequential
+// argument list, before any vector value is split on commas, so this sees
+// `0,1=-1` whole and sees two occurrences as two entries. Reading the command
+// line directly instead would misread a value that belongs to another option
+// (`--output-dir --tensor-output-element=0=1`) and anything after `--`.
 [[nodiscard]] static std::vector<std::string>
-optionOccurrences(int argc, char **argv, std::string_view name) {
-  const std::string flag = "--" + std::string(name);
+optionOccurrences(const cxxopts::ParseResult &result, std::string_view name) {
   std::vector<std::string> values;
-  for (int index = 1; index < argc; ++index) {
-    const std::string_view argument = argv[index];
-    if (argument == flag) {
-      if (index + 1 < argc)
-        values.emplace_back(argv[++index]);
-      continue;
-    }
-    if (argument.size() > flag.size() && argument.compare(0, flag.size(), flag) == 0 &&
-        argument[flag.size()] == '=')
-      values.emplace_back(argument.substr(flag.size() + 1));
+  for (const auto &entry: result.arguments()) {
+    if (entry.key() == name)
+      values.push_back(entry.value());
   }
   return values;
 }
@@ -1444,7 +1434,7 @@ int main(int argc, char **argv) {
     tensorOptions.inputPolicy = result["tensor-input-policy"].as<std::string>();
     if (result.count("tensor-property-target"))
       tensorOptions.propertyTarget = result["tensor-property-target"].as<std::int64_t>();
-    for (const auto &text: optionOccurrences(argc, argv, "tensor-output-element")) {
+    for (const auto &text: optionOccurrences(result, "tensor-output-element")) {
       try {
         tensorOptions.outputElements.push_back(
             refractir::reify::parseTensorOutputElement(text)
