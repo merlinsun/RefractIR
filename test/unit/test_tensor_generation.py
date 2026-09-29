@@ -2976,9 +2976,14 @@ class TensorElementPropertyTests(unittest.TestCase):
     for label, extra in invocations.items():
       with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
         result = generate(directory, "-n", "1", *extra, seed=4)
+        summary = read_summary(directory)
 
-        # Neither invocation names an element target, so none may be parsed as
-        # one; whatever else they are rejected for is a different matter.
+        # The summary records the request whenever one was parsed, so its
+        # absence is the fact under test: a scanner that reads the command line
+        # instead of cxxopts' own argument list would record a constraint here
+        # and then fail for an unrelated reason, which a stderr check alone
+        # cannot tell apart.
+        self.assertNotIn("output_elements", summary)
         self.assertNotIn("tensor output element", result.stderr)
 
   def test_separate_element_arguments_keep_their_boundaries(self):
