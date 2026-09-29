@@ -132,9 +132,10 @@ REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/antiopt/rules_control.cpp \
              src/reify/antiopt/selftest.cpp src/reify/antiopt_transform.cpp
 # The tensor profile is dispatched only by rysmith and constructs the selected
-# SMT backend, so keep its adapter outside the source set shared with rylink.
-RYSMITH_SRCS = src/rysmith.cpp src/reify/tensor_gen.cpp $(SOLVER_CORE_SRCS) \
-               $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
+# SMT backend, so keep its adapters outside the source set shared with rylink.
+RYSMITH_SRCS = src/rysmith.cpp src/reify/tensor_gen.cpp \
+               src/reify/tensor_graph_gen.cpp src/reify/tensor_input_policy.cpp \
+               $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
 # as a subprocess instead would parse the bundled .sir back from text

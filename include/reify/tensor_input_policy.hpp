@@ -1,0 +1,102 @@
+#pragma once
+
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "analysis/tensor.hpp"
+#include "ast/ast.hpp"
+#include "reify/tensor_case.hpp"
+#include "solver/solver.hpp"
+
+namespace refractir::reify {
+
+  /// How one frozen program's runtime inputs are proposed.
+  ///
+  /// `Ordinary` and `Boundary` sample values directly. `Exact` hands a stated
+  /// property to the shared symbolic executor and keeps the solver's witness.
+  /// The driver's existing construction route (`--tensor-synthesis
+  /// construction`) stays available beside them; it differs from `Ordinary`
+  /// only in how the values are drawn, not in who accepts them.
+  enum class TensorInputPolicy { Ordinary, Boundary, Exact };
+
+  TensorInputPolicy parseTensorInputPolicy(std::string_view name);
+  std::string_view tensorInputPolicyName(TensorInputPolicy policy);
+
+  /// A property chosen before any input is accepted. `None` is the admissibility
+  /// property every policy already carries: the inputs must be defined, finite
+  /// when floating, and produce a defined reference result.
+  struct TensorInputProperty {
+    enum class Kind {
+      None,
+      /// The scalar return value equals `target`.
+      OutputEquals,
+      /// The element sum of a rank-one tensor return value equals `target`.
+      OutputSumEquals,
+    };
+    Kind kind = Kind::None;
+    std::int64_t target = 0;
+  };
+
+  struct TensorInputPolicyOptions {
+    TensorInputPolicy policy = TensorInputPolicy::Ordinary;
+    TensorInputProperty property;
+    /// Profile the property query is checked under before it is solved.
+    TensorProfileId profileVersion = TensorProfileId::V1;
+    std::uint32_t seed = 0;
+    /// Explicit solver path over the frozen program's block labels, repeats
+    /// included. An empty path is accepted only for a single-block program,
+    /// whose path is then that block; a loop or a diamond needs the caller to
+    /// state the visits.
+    std::vector<std::string> path;
+    /// Optional bound asserted on every entry-parameter integer leaf.
+    std::optional<std::pair<std::int64_t, std::int64_t>> domain;
+    /// The exact i32 route refuses more symbolic input elements than this, so
+    /// an oversized graph is reported as out of budget rather than solved
+    /// slowly.
+    std::uint32_t maxSymbolicElements = 64;
+    std::uint32_t timeoutMs = 5000;
+  };
+
+  struct TensorInputProposal {
+    TensorInputPolicy policy = TensorInputPolicy::Ordinary;
+    TensorInputProperty property;
+    /// `accepted`, or the first reason the policy could not propose:
+    /// `unsupported`, `invalid`, `budget_exceeded`, `unsat`, `unknown`,
+    /// `timeout`. These are never conflated: an infeasible property is not a
+    /// timeout, and a refused graph is not an unsatisfiable one.
+    std::string outcome;
+    std::string reason;
+    /// Identity of the frozen computation with every query constraint
+    /// removed. `queryDigest` covers the property-constrained clone; the two
+    /// are equal exactly when the clone added constraints and nothing else.
+    std::string computationDigest;
+    std::string queryDigest;
+    std::uint32_t symbolicElements = 0;
+    std::vector<TensorCaseBuffer> inputs;
+  };
+
+  /// Propose runtime inputs for `program` under `options.policy`.
+  TensorInputProposal proposeTensorInputs(
+      const Program &program, const SymbolicExecutor::SolverFactory &solverFactory,
+      const TensorInputPolicyOptions &options
+  );
+
+  /// Identity of a program's computation: its printed form with every
+  /// `assume`/`require` instruction and every `__query_`-prefixed local
+  /// removed. Two programs with the same digest differ only in query
+  /// constraints, so a witness solved on one applies to the other.
+  std::string computationDigest(const Program &program);
+
+  /// Whether `output` satisfies `property` for the declared element type and
+  /// logical shape. A caller replays a proposal through the interpreter and
+  /// then runs this check, so no proposal is accepted on the solver's word.
+  bool tensorPropertyHolds(
+      const std::vector<std::uint8_t> &output, TensorElement element, const Shape &shape,
+      const TensorInputProperty &property
+  );
+
+} // namespace refractir::reify

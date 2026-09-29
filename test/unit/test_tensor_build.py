@@ -128,27 +128,34 @@ class TensorBuildTests(unittest.TestCase):
   def test_rylink_target_avoids_solver_bound_tensor_generator(self):
     link = dry_run_link_lines("rylink")["rylink"]
     self.assertNotIn("src/reify/tensor_gen.o", link)
+    self.assertNotIn("src/reify/tensor_graph_gen.o", link)
 
   def test_rytwin_target_avoids_solver_bound_tensor_generator(self):
     link = dry_run_link_lines("rytwin")["rytwin"]
     self.assertNotIn("src/reify/tensor_gen.o", link)
+    self.assertNotIn("src/reify/tensor_graph_gen.o", link)
 
   def test_test_unit_graph_keeps_generator_out_of_rylink(self):
     link = dry_run_link_lines("test-unit")["rylink"]
     self.assertNotIn("src/reify/tensor_gen.o", link)
+    self.assertNotIn("src/reify/tensor_graph_gen.o", link)
 
   def test_reify_graph_keeps_generator_out_of_rylink(self):
     link = dry_run_link_lines("test-reify")["rylink"]
     self.assertNotIn("src/reify/tensor_gen.o", link)
+    self.assertNotIn("src/reify/tensor_graph_gen.o", link)
 
   def test_all_graph_keeps_generator_out_of_solver_free_tools(self):
     links = dry_run_link_lines("all")
     self.assertNotIn("src/reify/tensor_gen.o", links["rylink"])
     self.assertNotIn("src/reify/tensor_gen.o", links["rytwin"])
+    self.assertNotIn("src/reify/tensor_graph_gen.o", links["rylink"])
+    self.assertNotIn("src/reify/tensor_graph_gen.o", links["rytwin"])
 
   def test_rysmith_owns_tensor_generator_and_solver_adapter(self):
     link = dry_run_link_lines("rysmith")["rysmith"]
     self.assertEqual(link.count("src/reify/tensor_gen.o"), 1)
+    self.assertEqual(link.count("src/reify/tensor_graph_gen.o"), 1)
     self.assertIn("src/solver/bitwuzla_impl.o", link)
 
   def test_property_pilot_has_a_dedicated_make_target(self):

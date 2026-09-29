@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 
 #include "analysis/tensor.hpp"
@@ -10,6 +11,13 @@ namespace refractir::reify {
 
   struct TensorGenerationOptions {
     TensorProfileId profileVersion = TensorProfileId::V1;
+    std::string generator = "constructor";
+    // How a compositional case's runtime inputs are proposed: ordinary,
+    // boundary, or exact. The constructor route keeps its own strata.
+    std::string inputPolicy = "ordinary";
+    // Target the exact policy solves for. Stated before any input is
+    // accepted, so the case cannot read its property back off a result.
+    std::optional<std::int64_t> propertyTarget;
     std::string primaryStratum;
     std::string inputPattern;
     std::string dtype = "i32";

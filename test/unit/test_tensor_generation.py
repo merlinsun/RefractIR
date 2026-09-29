@@ -12,7 +12,7 @@ from pathlib import Path
 
 from test.lib.tensor_case import CaseValidationError, load_case
 from test.lib.tensor_coverage import source_signature
-from test.unit.tensor_support import ROOT, run_typed
+from test.unit.tensor_support import ROOT, check_source, run_typed
 
 RYSMITH = Path(os.environ.get("REFRACTIR_RYSMITH", ROOT / "rysmith")).resolve()
 
@@ -122,11 +122,98 @@ def generate_v4(
   )
 
 
+def generate_compositional(
+  output_dir,
+  *,
+  profile="v2",
+  dtype="i32",
+  seed=3,
+  count=1,
+  target="sir",
+  stratum=None,
+  policy="ordinary",
+  property_target=None,
+):
+  arguments = [
+    "-n",
+    str(count),
+    "--tensor-dtype",
+    dtype,
+    "--tensor-profile-version",
+    profile,
+    "--tensor-generator",
+    "compositional",
+    "--tensor-input-policy",
+    policy,
+  ]
+  if property_target is not None:
+    arguments.extend(["--tensor-property-target", str(property_target)])
+  if stratum is not None:
+    arguments.extend(["--tensor-stratum", stratum])
+  return generate(output_dir, *arguments, seed=seed, target=target)
+
+
 def read_summary(directory):
   summary = Path(directory) / "generation.json"
   if not summary.is_file():
     raise AssertionError("tensor profile did not write its generation summary")
   return json.loads(summary.read_text(encoding="utf-8"))
+
+
+def entry_statements(source):
+  """Return the assignment lines of the single entry block, in source order."""
+  match = re.search(r"(?ms)^\^entry:\n(.*)$", source)
+  if match is None:
+    raise AssertionError("generated source has no entry block")
+  return [line.strip() for line in match.group(1).splitlines() if line.strip()]
+
+
+def referenced_locals(statement):
+  return set(re.findall(r"%[A-Za-z_][\w.$-]*", statement))
+
+
+def tensor_local_shapes(source):
+  """Map every parameter and local to its declared shape, scalar shapes empty."""
+  shapes = {}
+  header = source.split(") :", 1)[0]
+  for match in re.finditer(r"(%[A-Za-z_][\w.$-]*): tensor \[([^\]]*)\]", header):
+    shapes[match.group(1)] = [int(value) for value in match.group(2).split(",")]
+  for match in re.finditer(r"(%[A-Za-z_][\w.$-]*): (?:i32|f32)", header):
+    shapes.setdefault(match.group(1), [])
+  for match in re.finditer(
+    r"let mut (%[A-Za-z_][\w.$-]*): tensor \[([^\]]*)\]", source
+  ):
+    shapes[match.group(1)] = [int(value) for value in match.group(2).split(",")]
+  for match in re.finditer(r"let mut (%[A-Za-z_][\w.$-]*): (?:i32|f32)", source):
+    shapes.setdefault(match.group(1), [])
+  return shapes
+
+
+def sum_records(source):
+  """Return (operand, operand shape, normalized axis, keep) per tensor sum."""
+  shapes = tensor_local_shapes(source)
+  records = []
+  for match in re.finditer(
+    r"tensor sum (%[A-Za-z_][\w.$-]*), (-?\d+), (keep|drop)", source
+  ):
+    name, axis, keep = match.group(1), int(match.group(2)), match.group(3)
+    shape = shapes[name]
+    normalized = axis if axis >= 0 else axis + len(shape)
+    records.append((name, shape, normalized, keep))
+  return records
+
+
+def local_consumers(statements):
+  """Map each referenced local to the indices of the statements that read it."""
+  consumers = {}
+  for index, statement in enumerate(statements):
+    assignment = re.match(r"(%[A-Za-z_][\w.$-]*)\s*=", statement)
+    target = assignment.group(1) if assignment else None
+    for name in referenced_locals(statement):
+      if name == target:
+        continue
+      consumers.setdefault(name, []).append(index)
+  return consumers
 
 
 def independently_sum_loop_case(case):
@@ -1958,6 +2045,299 @@ class TensorGenerationTests(unittest.TestCase):
       self.assertGreater(input_record["element_strides"][0], 1)
       self.assertIn(f"* {input_record['element_strides'][0]}", kernel)
       self.assertIn(f"* {output_record['element_strides'][0]}", kernel)
+
+
+class TensorGraphGenerationTests(unittest.TestCase):
+  """Structural contracts for the opt-in compositional tensor generator."""
+
+  def setUp(self):
+    self.assertTrue(RYSMITH.is_file(), f"rysmith executable not found: {RYSMITH}")
+
+  def generate_cases(self, directory, *, count, seed, profile="v2", dtype="i32"):
+    output_dir = Path(directory) / "cases"
+    result = generate_compositional(
+      output_dir,
+      profile=profile,
+      dtype=dtype,
+      seed=seed,
+      count=count,
+      stratum="multi-input-composition" if profile == "v2" else None,
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    return output_dir
+
+  def test_compositional_seed_reproduces_source_and_manifest(self):
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first"
+      second = Path(directory) / "second"
+      different = Path(directory) / "different"
+      for output in (first, second, different):
+        seed = 17 if output is not different else 18
+        result = generate_compositional(
+          output, count=2, seed=seed, stratum="multi-input-composition"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+      self.assertEqual(read_summary(first), read_summary(second))
+      for index in range(2):
+        case_name = f"case_{index:06d}"
+        for artifact in ("program.sir", "inputs.bin", "expected.bin", "case.json"):
+          self.assertEqual(
+            (first / case_name / artifact).read_bytes(),
+            (second / case_name / artifact).read_bytes(),
+            f"{case_name}/{artifact}",
+          )
+        self.assertNotEqual(
+          (first / case_name / "program.sir").read_bytes(),
+          (different / case_name / "program.sir").read_bytes(),
+          case_name,
+        )
+
+  def test_compositional_source_checks_and_manifest_agrees_with_it(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for profile in ("v2", "v3"):
+        with self.subTest(profile=profile):
+          output_dir = self.generate_cases(
+            Path(directory) / profile, count=4, seed=23, profile=profile
+          )
+
+          for case_dir in sorted(output_dir.glob("case_*")):
+            case = load_case(case_dir)
+            source = case.program.decode("utf-8")
+            check = check_source(source, tensor_profile=profile)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+            manifest = case.manifest
+            self.assertEqual(manifest["profile"], f"tensor-{profile}")
+            tensor_inputs = [item for item in manifest["inputs"] if item["shape"]]
+            self.assertGreaterEqual(len(tensor_inputs), 2)
+            self.assertLessEqual(len(manifest["inputs"]), 3)
+            atoms = set(re.findall(r"tensor ([a-z]+) ", source))
+            copied = (
+              {"copy"}
+              if re.search(r"(?m)^\s*%[A-Za-z_][\w.$-]* = %[A-Za-z_][\w.$-]*;$", source)
+              else set()
+            )
+            self.assertEqual(set(manifest["operator_coverage"]), atoms | copied)
+            self.assertEqual(
+              manifest["shape_axes"],
+              [
+                {"shape": shape, "axis": axis}
+                for _, shape, axis, _ in sum_records(source)
+              ],
+            )
+            replay, actual = run_typed(source, case.inputs, tensor_profile=profile)
+            self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+            self.assertEqual(actual, case.expected)
+
+  def test_compositional_generates_a_shared_intermediate_diamond(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = self.generate_cases(directory, count=6, seed=91)
+
+      diamonds = []
+      for case_dir in sorted(output_dir.glob("case_*")):
+        source = (case_dir / "program.sir").read_text(encoding="utf-8")
+        statements = entry_statements(source)
+        parameters = set(re.findall(r"%[A-Za-z_][\w.$-]*", source.split(") :", 1)[0]))
+        consumers = local_consumers(statements)
+        for name, sites in consumers.items():
+          if name not in parameters and len(set(sites)) >= 2:
+            diamonds.append((case_dir.name, name))
+
+      self.assertTrue(diamonds, "no generated intermediate had two live consumers")
+
+  def test_compositional_generates_two_reductions_with_different_consumers(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = self.generate_cases(directory, count=6, seed=91)
+
+      observed = []
+      for case_dir in sorted(output_dir.glob("case_*")):
+        source = (case_dir / "program.sir").read_text(encoding="utf-8")
+        statements = entry_statements(source)
+        consumers = local_consumers(statements)
+        reductions = [
+          (match.group(1), sorted(set(consumers.get(match.group(1), []))))
+          for match in (
+            re.match(r"(%[A-Za-z_][\w.$-]*)\s*=\s*tensor sum\b", statement)
+            for statement in statements
+          )
+          if match is not None
+        ]
+        if len(reductions) >= 2 and all(sites for _, sites in reductions):
+          if len({sites[0] for _, sites in reductions}) >= 2:
+            observed.append(case_dir.name)
+
+      self.assertTrue(
+        observed, "no case had two reductions with distinct live consumers"
+      )
+
+  def test_compositional_keeps_every_computation_in_the_backward_slice(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = self.generate_cases(directory, count=4, seed=29)
+
+      for case_dir in sorted(output_dir.glob("case_*")):
+        source = (case_dir / "program.sir").read_text(encoding="utf-8")
+        statements = entry_statements(source)
+        parameters = set(re.findall(r"%[A-Za-z_][\w.$-]*", source.split(") :", 1)[0]))
+        returned = re.search(r"ret (%[A-Za-z_][\w.$-]*);", source)
+        self.assertIsNotNone(returned, source)
+        producers = {}
+        for statement in statements:
+          match = re.match(r"(%[A-Za-z_][\w.$-]*)\s*=", statement)
+          if match is not None:
+            producers.setdefault(match.group(1), statement)
+        live = set()
+        pending = [returned.group(1)]
+        while pending:
+          name = pending.pop()
+          if name in live:
+            continue
+          live.add(name)
+          producer = producers.get(name)
+          if producer is not None:
+            pending.extend(referenced_locals(producer) - {name})
+        self.assertEqual(set(producers) - live, set(), case_dir.name)
+        self.assertEqual(
+          set(re.findall(r"let mut (%[A-Za-z_][\w.$-]*)", source)),
+          set(producers),
+          case_dir.name,
+        )
+        self.assertTrue(parameters, case_dir.name)
+        self.assertEqual(parameters - live, set(), case_dir.name)
+
+  def test_compositional_expands_a_scalar_reduction_back_to_a_tensor(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = self.generate_cases(directory, count=8, seed=5)
+
+      observed = []
+      for case_dir in sorted(output_dir.glob("case_*")):
+        source = (case_dir / "program.sir").read_text(encoding="utf-8")
+        shapes = tensor_local_shapes(source)
+        for match in re.finditer(
+          r"(%[A-Za-z_][\w.$-]*) = tensor sum (%[A-Za-z_][\w.$-]*), (-?\d+), drop;",
+          source,
+        ):
+          result_name, operand = match.group(1), match.group(2)
+          if len(shapes[operand]) != 1:
+            continue
+          if re.search(rf"tensor expand {re.escape(result_name)}, ", source):
+            observed.append(case_dir.name)
+
+      self.assertTrue(
+        observed, "no rank-one drop reduction was expanded back to a tensor"
+      )
+
+
+def case_output_target(case):
+  """The value the exact policy's stated property names for this case."""
+  record = case.manifest["output"]
+  if record["dtype"] != "i32":
+    raise AssertionError("the policy tests drive integer outputs only")
+  values = struct.unpack(f"<{len(case.expected) // 4}i", case.expected)
+  return values[0] if not record["shape"] else sum(values)
+
+
+class TensorInputPolicyTests(unittest.TestCase):
+  """Input selection is a separate step over one frozen program."""
+
+  def compositional_case(
+    self, output_dir, *, profile="v2", policy="ordinary", property_target=None, seed=3
+  ):
+    result = generate_compositional(
+      output_dir,
+      profile=profile,
+      policy=policy,
+      property_target=property_target,
+      seed=seed,
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    directories = sorted(Path(output_dir).glob("case_*"))
+    self.assertEqual(len(directories), 1, result.stdout + result.stderr)
+    return load_case(directories[0])
+
+  def replay(self, case, *, profile="v2"):
+    result, output = run_typed(
+      case.program.decode("utf-8"), case.inputs, tensor_profile=profile
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    return output
+
+  def test_ordinary_and_boundary_policies_share_one_frozen_program(self):
+    with tempfile.TemporaryDirectory() as ordinary_dir:
+      with tempfile.TemporaryDirectory() as boundary_dir:
+        ordinary = self.compositional_case(ordinary_dir, seed=11, policy="ordinary")
+        boundary = self.compositional_case(boundary_dir, seed=11, policy="boundary")
+
+    self.assertEqual(ordinary.program, boundary.program)
+    self.assertNotEqual(ordinary.inputs, boundary.inputs)
+    self.assertEqual(self.replay(ordinary), ordinary.expected)
+    self.assertEqual(self.replay(boundary), boundary.expected)
+
+  def test_exact_policy_selects_a_witness_for_the_ordinary_target(self):
+    with tempfile.TemporaryDirectory() as ordinary_dir:
+      ordinary = self.compositional_case(ordinary_dir, seed=17, policy="ordinary")
+      target = case_output_target(ordinary)
+      with tempfile.TemporaryDirectory() as exact_dir:
+        exact = self.compositional_case(
+          exact_dir, seed=17, policy="exact", property_target=target
+        )
+
+    # The property query added constraints and nothing else.
+    self.assertEqual(exact.program, ordinary.program)
+    replay = self.replay(exact)
+    self.assertEqual(replay, exact.expected)
+    self.assertEqual(case_output_target(exact), target)
+
+  def test_infeasible_target_is_recorded_and_no_case_is_emitted(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = generate_compositional(
+        directory, seed=17, policy="exact", property_target=2_000_000_000
+      )
+      summary = read_summary(directory)
+      cases = list(Path(directory).glob("case_*"))
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertEqual(cases, [])
+    self.assertEqual(summary["status"], "input_policy_unsat")
+    self.assertIn("input_policy_unsat", summary["reason"])
+
+  def test_boundary_inputs_stay_inside_the_integer_definedness_contract(self):
+    allowed = {0, 1, -1, 2}
+    for seed in (3, 4, 5):
+      with self.subTest(seed=seed), tempfile.TemporaryDirectory() as directory:
+        case = self.compositional_case(directory, seed=seed, policy="boundary")
+
+        values = struct.unpack(f"<{len(case.inputs) // 4}i", case.inputs)
+        self.assertLessEqual(set(values), allowed)
+        self.assertEqual(self.replay(case), case.expected)
+
+  def test_v3_exact_witness_carries_logical_elements_only(self):
+    with tempfile.TemporaryDirectory() as ordinary_dir:
+      ordinary = self.compositional_case(
+        ordinary_dir, seed=31, profile="v3", policy="ordinary"
+      )
+      target = case_output_target(ordinary)
+      with tempfile.TemporaryDirectory() as exact_dir:
+        exact = self.compositional_case(
+          exact_dir, seed=31, profile="v3", policy="exact", property_target=target
+        )
+
+    self.assertEqual(exact.program, ordinary.program)
+    self.assertTrue(exact.manifest["inputs"])
+    for record in exact.manifest["inputs"]:
+      logical = 1
+      for dimension in record["shape"]:
+        logical *= dimension
+      self.assertEqual(record["byte_length"], 4 * logical)
+    self.assertEqual(self.replay(exact, profile="v3"), exact.expected)
+
+  def test_exact_policy_requires_a_target_before_selection(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = generate_compositional(directory, seed=5, policy="exact")
+      summary = read_summary(directory)
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertEqual(summary["status"], "unsupported_route")
+    self.assertIn("tensor-property-target", summary["reason"])
 
 
 if __name__ == "__main__":

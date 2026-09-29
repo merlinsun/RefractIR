@@ -27,6 +27,8 @@
 #include "interp/tensor_io.hpp"
 #include "interp/tensor_numeric.hpp"
 #include "reify/tensor_case.hpp"
+#include "reify/tensor_graph_gen.hpp"
+#include "reify/tensor_input_policy.hpp"
 #include "solver/solver.hpp"
 #if defined(USE_BITWUZLA)
 #include "solver/bitwuzla_impl.hpp"
@@ -155,14 +157,18 @@ namespace refractir::reify {
           << ",\"property\":" << jsonString(options.property)
           << ",\"primary_stratum\":" << jsonString(options.primaryStratum)
           << ",\"synthesis\":" << jsonString(options.synthesis)
+          << ",\"generator\":" << jsonString(options.generator)
+          << ",\"input_policy\":" << jsonString(options.inputPolicy)
           << ",\"target\":" << jsonString(options.target)
           << ",\"attempt_budget\":" << options.attemptBudget;
+      if (options.propertyTarget)
+        out << ",\"property_target\":" << *options.propertyTarget;
       if (options.profileVersion == TensorProfileId::V4)
         out << ",\"input_mode\":"
             << jsonString(options.inputPattern.empty() ? "ordinary" : options.inputPattern);
       if (!result.reason.empty())
         out << ",\"reason\":" << jsonString(result.reason);
-      if (options.profileVersion == TensorProfileId::V2) {
+      if (options.profileVersion == TensorProfileId::V2 && options.generator != "compositional") {
         std::array<std::uint32_t, v2Strata.size()> scheduled{};
         std::array<std::uint32_t, v2Strata.size()> emitted{};
         for (std::uint32_t index = 0; index < result.requested; ++index) {
@@ -696,13 +702,22 @@ namespace refractir::reify {
       };
     }
 
+    /// Solve one straight-line candidate. The path is the checked program's
+    /// own block label rather than a spelled name: every caller here builds a
+    /// single block ending in `ret`, and a candidate that grows a second block
+    /// has to state its path instead of silently solving the wrong one.
     SymbolicExecutor::Result solveCandidate(const std::string &source, std::uint32_t seed) {
       Program program = checkedProgram(source);
+      const auto &entry = entryFunction(program);
+      if (entry.blocks.size() != 1)
+        throw std::runtime_error(
+            "tensor solver adapter expects a straight-line candidate with one block"
+        );
       SymbolicExecutor::Config config;
       config.timeout_ms = 5000;
       config.seed = seed;
       SymbolicExecutor executor(program, config, makeSolverFactory());
-      return executor.solve("@kernel", {"^entry"});
+      return executor.solve("@kernel", {entry.blocks.front().label.name});
     }
 
     std::int32_t modelInt(
@@ -1107,6 +1122,164 @@ namespace refractir::reify {
           value = static_cast<float>(chooseValue(random));
         candidate.inputs.push_back({"x", TensorElement::F32, inputShape, encodeF32Tensor(values)});
       }
+      return candidate;
+    }
+
+    struct CompositionalMetadata {
+      std::vector<std::string> operators;
+      std::vector<std::pair<Shape, std::int32_t>> shapeAxes;
+      std::vector<Shape> fullShapes;
+    };
+
+    void appendUniqueShape(std::vector<Shape> &shapes, const Shape &shape) {
+      if (std::find(shapes.begin(), shapes.end(), shape) == shapes.end())
+        shapes.push_back(shape);
+    }
+
+    /// Derive operator and axis metadata by walking the checked program rather
+    /// than carrying a second description of the graph out of the builder.
+    CompositionalMetadata describeCompositionalGraph(const FunDecl &entry) {
+      CompositionalMetadata metadata;
+      std::unordered_map<std::string, TypePtr> types;
+      for (const auto &param: entry.params) {
+        types.emplace(param.name.name, param.type);
+        if (const auto tensor = TypeUtils::asTensor(param.type))
+          appendUniqueShape(metadata.fullShapes, tensor->shape);
+      }
+      for (const auto &local: entry.lets) {
+        types.emplace(local.name.name, local.type);
+        if (const auto tensor = TypeUtils::asTensor(local.type))
+          appendUniqueShape(metadata.fullShapes, tensor->shape);
+      }
+      if (const auto tensor = TypeUtils::asTensor(entry.retType))
+        appendUniqueShape(metadata.fullShapes, tensor->shape);
+
+      const auto recordAtom = [&](const Atom &atom) {
+        const auto *tensorAtom = std::get_if<TensorAtom>(&atom.v);
+        if (!tensorAtom)
+          return;
+        metadata.operators.emplace_back(tensorOpName(tensorAtom->op));
+        if (tensorAtom->op != TensorOp::Sum || tensorAtom->operands.empty())
+          return;
+        const auto *identifier = std::get_if<LocalOrSymId>(&tensorAtom->operands.front());
+        if (!identifier)
+          return;
+        const auto *operand = std::get_if<LocalId>(identifier);
+        if (!operand)
+          return;
+        const auto found = types.find(operand->name);
+        if (found == types.end())
+          return;
+        const auto tensor = TypeUtils::asTensor(found->second);
+        if (!tensor)
+          return;
+        metadata.shapeAxes.emplace_back(
+            tensor->shape,
+            static_cast<std::int32_t>(normalizeTensorAxis(
+                tensorAtom->axis, static_cast<std::uint32_t>(tensor->shape.size())
+            ))
+        );
+      };
+
+      for (const auto &block: entry.blocks) {
+        for (const auto &instruction: block.instrs) {
+          const auto *assignment = std::get_if<AssignInstr>(&instruction);
+          if (!assignment)
+            continue;
+          bool tensorAtom = false;
+          const auto visit = [&](const Atom &atom) {
+            if (std::get_if<TensorAtom>(&atom.v))
+              tensorAtom = true;
+            recordAtom(atom);
+          };
+          visit(assignment->rhs.first);
+          for (const auto &tail: assignment->rhs.rest)
+            visit(tail.atom);
+          if (tensorAtom)
+            continue;
+          const auto found = types.find(assignment->lhs.base.name);
+          if (found != types.end() && TypeUtils::asTensor(found->second))
+            metadata.operators.emplace_back("copy");
+        }
+      }
+      return metadata;
+    }
+
+    Candidate compositionalCandidate(
+        const TensorGenerationOptions &options, const TensorGraphLimits &limits,
+        std::uint32_t seed
+    ) {
+      TensorGenerationOptions graphOptions = options;
+      graphOptions.seed = seed;
+      const Program program = generateTensorProgram(graphOptions, limits);
+
+      std::ostringstream rendered;
+      SIRPrinter printer(rendered, {}, {}, {});
+      printer.print(program);
+      const std::string text = rendered.str();
+
+      const Program checked = checkedProgram(text, options.profileVersion);
+      const auto &entry = entryFunction(checked);
+      const auto metadata = describeCompositionalGraph(entry);
+
+      Candidate candidate;
+      candidate.solverSource = text;
+      candidate.finalSource = text;
+      candidate.caseSeed = seed;
+      candidate.outputElement = options.dtype == "i32" ? TensorElement::I32 : TensorElement::F32;
+      candidate.outputShape = SIRPrinter::typeToString(entry.retType);
+      candidate.operators = metadata.operators;
+      candidate.shapeAxes = metadata.shapeAxes;
+      candidate.fullShapes = metadata.fullShapes;
+      candidate.rangeExtents = metadata.fullShapes;
+
+      // Input selection is a separate step over a frozen program: the source
+      // above does not depend on which policy proposes the runtime values.
+      TensorInputPolicyOptions policyOptions;
+      policyOptions.policy = parseTensorInputPolicy(options.inputPolicy);
+      policyOptions.profileVersion = options.profileVersion;
+      policyOptions.seed = streamSeed(seed, 0x696e707574ULL);
+      // The compositional builder emits one straight-line entry block, so the
+      // path is stated rather than assumed by the executor.
+      policyOptions.path = {entry.blocks.front().label.name};
+      if (options.propertyTarget) {
+        policyOptions.property.kind = TypeUtils::asTensor(entry.retType)
+                                          ? TensorInputProperty::Kind::OutputSumEquals
+                                          : TensorInputProperty::Kind::OutputEquals;
+        policyOptions.property.target = *options.propertyTarget;
+      }
+      // The exact route solves inside the same small-value domain the sampling
+      // policies draw from, so a witness cannot leave the integer definedness
+      // contract the reference enforces.
+      if (policyOptions.policy == TensorInputPolicy::Exact)
+        policyOptions.domain = std::make_pair<std::int64_t, std::int64_t>(1, 2);
+      const auto proposal = proposeTensorInputs(checked, makeSolverFactory(), policyOptions);
+      if (proposal.outcome != "accepted")
+        throw std::runtime_error("input_policy_" + proposal.outcome + ": " + proposal.reason);
+      candidate.inputs = proposal.inputs;
+      // A v3 case's input pattern is a closed vocabulary of value shapes, so
+      // the policy is recorded beside it rather than replacing it.
+      candidate.inputPattern =
+          options.profileVersion == TensorProfileId::V3
+              ? options.inputPattern
+              : std::string(tensorInputPolicyName(policyOptions.policy));
+      candidate.inputMode = std::string(tensorInputPolicyName(policyOptions.policy));
+      candidate.propertySource =
+          options.propertyTarget
+              ? std::string(tensorInputPolicyName(policyOptions.policy)) +
+                    " inputs were selected to satisfy the stated output target " +
+                    std::to_string(*options.propertyTarget) +
+                    " on a frozen typed tensor graph whose every operation lies in the "
+                    "returned value's backward slice."
+              : std::string(tensorInputPolicyName(policyOptions.policy)) +
+                    " runtime inputs feed a typed tensor graph whose every operation "
+                    "lies in the returned value's backward slice.";
+
+      for (std::size_t index = 0; index < candidate.inputs.size(); ++index)
+        if (options.profileVersion == TensorProfileId::V3)
+          assignV3PhysicalLayout(
+              candidate.inputs[index], streamSeed(seed, 0x696e707574ULL + index)
+          );
       return candidate;
     }
 
@@ -2018,6 +2191,39 @@ namespace refractir::reify {
 
     if (options.target != "sir" && options.target != "triton")
       return failRoute("unsupported_target", "tensor target must be sir or triton");
+    if (options.generator != "constructor" && options.generator != "compositional")
+      return failRoute(
+          "unsupported_route", "tensor generator must be constructor or compositional"
+      );
+    if (options.generator == "compositional" &&
+        options.profileVersion != TensorProfileId::V2 &&
+        options.profileVersion != TensorProfileId::V3)
+      return failRoute(
+          "invalid_profile", "compositional generation supports tensor-v2 and tensor-v3"
+      );
+    if (options.generator == "compositional" && options.synthesis != "construction")
+      return failRoute(
+          "unsupported_route", "compositional generation requires construction synthesis"
+      );
+    try {
+      parseTensorInputPolicy(options.inputPolicy);
+    } catch (const std::invalid_argument &) {
+      return failRoute(
+          "unsupported_route", "tensor input policy must be ordinary, boundary, or exact"
+      );
+    }
+    if (options.inputPolicy != "ordinary" && options.generator != "compositional")
+      return failRoute(
+          "unsupported_route", "tensor input policies apply to compositional generation"
+      );
+    if (options.inputPolicy == "exact" && !options.propertyTarget)
+      return failRoute(
+          "unsupported_route", "the exact input policy needs --tensor-property-target"
+      );
+    if (options.propertyTarget && options.inputPolicy != "exact")
+      return failRoute(
+          "unsupported_route", "a stated property target needs the exact input policy"
+      );
     if (options.profileVersion == TensorProfileId::V2 && !options.primaryStratum.empty() &&
         !validV2Stratum(options.primaryStratum))
       return failRoute(
@@ -2091,11 +2297,20 @@ namespace refractir::reify {
       return failRoute("invalid_profile", "tensor case count must be at least one");
 
     std::mt19937 random(options.seed);
+    const TensorGraphLimits limits{};
     for (std::uint32_t caseIndex = 0; caseIndex < options.count; ++caseIndex) {
       bool accepted = false;
+      bool exhausted = false;
+      std::string exhaustionReason;
       const std::string caseProperty = property;
+      // The compositional builder chooses its own structure, so the profile's
+      // stratum schedule does not apply to it: no stratum is scheduled, and a
+      // caller may still name one to label the run.
+      const bool compositional = options.generator == "compositional";
       const std::string caseStratum =
-          options.profileVersion == TensorProfileId::V2
+          compositional
+              ? options.primaryStratum
+          : options.profileVersion == TensorProfileId::V2
               ? (options.primaryStratum.empty() ? v2StratumForCase(caseIndex)
                                                 : options.primaryStratum)
               : options.profileVersion == TensorProfileId::V3
@@ -2114,7 +2329,7 @@ namespace refractir::reify {
       if (options.profileVersion == TensorProfileId::V4)
         caseOptions.inputPattern = options.inputPattern.empty() ? "ordinary"
                                                                 : options.inputPattern;
-      if (options.profileVersion == TensorProfileId::V2 &&
+      if (!compositional && options.profileVersion == TensorProfileId::V2 &&
           (caseStratum == "bit-preserving-f32-layout" || caseStratum == "exact-f32-reduction") &&
           caseOptions.dtype != "f32") {
         result.status = "shortfall";
@@ -2140,6 +2355,8 @@ namespace refractir::reify {
               candidate = sumTargetCandidate(options, attemptSeed);
             else
               candidate = softmaxCandidate(options.seed + caseIndex, attempt);
+          } else if (options.generator == "compositional") {
+            candidate = compositionalCandidate(caseOptions, limits, attemptSeed);
           } else if (caseStratum == "multi-input-composition") {
             candidate = compositionCandidate(caseOptions, attemptSeed);
           } else if (caseStratum == "loop-reduction") {
@@ -2188,6 +2405,22 @@ namespace refractir::reify {
             );
             return result;
           }
+          if (message.starts_with("input_policy_")) {
+            result.status = message.substr(0, message.find(':'));
+            result.reason = message;
+            writeSummary(
+                options.outputDirectory / "generation.json", recordedOptions, result, attempts
+            );
+            return result;
+          }
+          if (message.starts_with("graph_exhaustion:")) {
+            exhausted = true;
+            exhaustionReason = message;
+            attempts.push_back(
+                {caseIndex, attempt, caseProperty, caseStratum, "exhausted", message}
+            );
+            continue;
+          }
           if (!isCandidateRejection(message)) {
             result.status = "generation_error";
             result.reason = message;
@@ -2201,10 +2434,13 @@ namespace refractir::reify {
         }
       }
       if (!accepted) {
-        result.status = "shortfall";
-        result.reason = "requested " + std::to_string(options.count) + " cases but emitted " +
-                        std::to_string(result.emitted) + " within attempt budget " +
-                        std::to_string(options.attemptBudget);
+        result.status = exhausted ? "graph_exhaustion" : "shortfall";
+        result.reason = exhausted
+                            ? exhaustionReason
+                            : "requested " + std::to_string(options.count) +
+                                  " cases but emitted " + std::to_string(result.emitted) +
+                                  " within attempt budget " +
+                                  std::to_string(options.attemptBudget);
         writeSummary(
             options.outputDirectory / "generation.json", recordedOptions, result, attempts
         );

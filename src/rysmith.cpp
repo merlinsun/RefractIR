@@ -989,6 +989,12 @@ static void refreshDescriptor(const LeafGenConfig &opts,
                             cxxopts::value<std::string>())
       ("tensor-synthesis",  "Tensor candidate route (construction, exact, cvc5)",
                             cxxopts::value<std::string>()->default_value("construction"))
+      ("tensor-generator",  "Tensor candidate route (constructor or compositional)",
+                            cxxopts::value<std::string>()->default_value("constructor"))
+      ("tensor-input-policy", "Compositional runtime input proposal (ordinary, boundary, or exact)",
+                            cxxopts::value<std::string>()->default_value("ordinary"))
+      ("tensor-property-target", "Output target the exact input policy solves for",
+                            cxxopts::value<std::int64_t>())
       ("tensor-cvc5",       "cvc5 executable for the optional tensor real-synthesis route",
                             cxxopts::value<std::string>())
       ("tensor-cvc5-feasibility", "Matching cvc5 feasibility record for real-synthesis campaigns",
@@ -1404,6 +1410,10 @@ int main(int argc, char **argv) {
                                  ? result["tensor-property"].as<std::string>()
                                  : "";
     tensorOptions.synthesis = result["tensor-synthesis"].as<std::string>();
+    tensorOptions.generator = result["tensor-generator"].as<std::string>();
+    tensorOptions.inputPolicy = result["tensor-input-policy"].as<std::string>();
+    if (result.count("tensor-property-target"))
+      tensorOptions.propertyTarget = result["tensor-property-target"].as<std::int64_t>();
     tensorOptions.target = result["target"].as<std::string>();
     tensorOptions.count =
         static_cast<std::uint32_t>(std::max(0, result["n-funcs"].as<int>()));
