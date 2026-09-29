@@ -710,6 +710,27 @@ namespace refractir {
     const auto tileShape = shape.empty() ? Shape{} : tensorExecutionTileShape(shape, profile_);
     const auto dtype =
         dtypeName(TypeUtils::asTensor(let.type) ? TypeUtils::asTensor(let.type)->elem : let.type);
+    // A scalar initializer reaches the declared tensor shape before any
+    // shape-sensitive operator; a tensor initializer is a copy. `tl.full`
+    // takes a scalar fill value (Triton's `splat` asserts on a block tensor),
+    // so a tensor source must never become the fill value.
+    const auto bindMaterialized = [&](const std::string &value, bool sourceIsTensor) {
+      if (TypeUtils::asTensor(let.type) && !sourceIsTensor)
+        addLine(
+            variable + " = tl.full(" + pythonShape(tileShape) + ", " + value + ", " + dtype + ")"
+        );
+      else
+        addLine(variable + " = " + value);
+    };
+    const auto initializerSourceIsTensor = [&](const std::string &name) {
+      if (const auto it = types_.find(name); it != types_.end())
+        return TypeUtils::asTensor(it->second) != nullptr;
+      if (function_)
+        for (const auto &sym: function_->syms)
+          if (sym.name.name == name)
+            return TypeUtils::asTensor(sym.type) != nullptr;
+      return false;
+    };
     if (let.init->kind == InitVal::Kind::Aggregate) {
       if (!TypeUtils::asTensor(let.type))
         throw std::runtime_error("tensor-profile: only flat tensor initializers are supported");
@@ -775,18 +796,15 @@ namespace refractir {
       std::string value = let.init->kind == InitVal::Kind::Int
                               ? std::to_string(std::get<IntLit>(let.init->value).value)
                               : printFloat(std::get<FloatLit>(let.init->value).value);
-      if (TypeUtils::asTensor(let.type))
-        addLine(variable + " = tl.full(" + pythonShape(tileShape) + ", " + value + ", " + dtype + ")");
-      else
-        addLine(variable + " = " + value);
+      bindMaterialized(value, false);
     } else if (let.init->kind == InitVal::Kind::Local) {
-      const auto value = lowerLValue(LValue{std::get<LocalId>(let.init->value), {}, let.init->span});
-      if (TypeUtils::asTensor(let.type) && profile_.id == TensorProfileId::V3)
-        addLine(variable + " = tl.full(" + pythonShape(tileShape) + ", " + value + ", " + dtype + ")");
-      else
-        addLine(variable + " = " + value);
+      const auto name = std::get<LocalId>(let.init->value).name;
+      bindMaterialized(lowerLValue(LValue{std::get<LocalId>(let.init->value), {}, let.init->span}),
+                       initializerSourceIsTensor(name));
     } else if (let.init->kind == InitVal::Kind::Sym) {
-      addLine(variable + " = " + lowerCoef(Coef{LocalOrSymId{std::get<SymId>(let.init->value)}}));
+      const auto name = std::get<SymId>(let.init->value).name;
+      bindMaterialized(lowerCoef(Coef{LocalOrSymId{std::get<SymId>(let.init->value)}}),
+                       initializerSourceIsTensor(name));
     } else if (let.init->kind == InitVal::Kind::Atom) {
       addLine(variable + " = " + lowerAtom(*std::get<AtomPtr>(let.init->value)));
     } else {

@@ -630,6 +630,162 @@ fun @kernel(%x: tensor [17, 16] i32) : tensor [16, 17] i32 {
     self.assertRegex(output, r"_sir_acc_result_valid = .*< 16.*< 17")
     self.assertIn("mask=_sir_out_valid", output)
 
+  def test_v1_scalar_parameter_splats_before_reduction(self):
+    """A scalar initializer carries the declared tensor rank into the sum."""
+    source = """\
+fun @kernel(%s: i32) : i32 {
+  let %x: tensor [4] i32 = %s;
+  let mut %out: i32 = undef;
+^entry:
+  %out = tensor sum %x, 0, drop;
+  ret %out;
+}
+"""
+
+    result, output = emit_cli(source)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("_sir_x = tl.full((4,), _sir_input_load_tmp0, tl.int32)", output)
+    reduced = self.reduction_operands(output)
+    self.assertEqual(len(reduced), 1)
+    self.assertIn("_sir_x", reduced[0])
+
+  def test_v2_scalar_local_splats_before_transpose(self):
+    """A scalar local splat preserves rank through a shape-sensitive op."""
+    source = """\
+fun @kernel(%s: i32) : tensor [4, 2] i32 {
+  let %t: i32 = %s;
+  let %x: tensor [2, 4] i32 = %t;
+  let mut %out: tensor [4, 2] i32 = undef;
+^entry:
+  %out = tensor transpose %x, [1, 0];
+  ret %out;
+}
+"""
+
+    result, output = emit_cli(source, ("--tensor-profile-version", "v2"))
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("_sir_t = _sir_input_load_tmp0", output)
+    self.assertIn("_sir_x = tl.full((2, 4), _sir_t, tl.int32)", output)
+    self.assertIn("tl.permute(_sir_x", output)
+
+  def test_v3_tensor_parameter_copy_is_not_a_scalar_fill(self):
+    source = """\
+fun @kernel(%x: tensor [4] i32) : tensor [4] i32 {
+  let %y: tensor [4] i32 = %x;
+^entry:
+  ret %y;
+}
+"""
+
+    result, output = emit_cli(source, ("--tensor-profile-version", "v3"))
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertRegex(output, r"_sir_y = _sir_input_load_tmp\d+")
+    self.assertEqual(self.full_fill_values(output), [])
+
+  def test_v3_tensor_local_copy_is_not_a_scalar_fill(self):
+    source = """\
+fun @kernel(%x: tensor [2, 2] i32) : tensor [2, 2] i32 {
+  let %t: tensor [2, 2] i32 = %x;
+  let %y: tensor [2, 2] i32 = %t;
+^entry:
+  ret %y;
+}
+"""
+
+    result, output = emit_cli(source, ("--tensor-profile-version", "v3"))
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertRegex(output, r"_sir_t = _sir_input_load_tmp\d+")
+    self.assertIn("_sir_y = _sir_t", output)
+    self.assertEqual(self.full_fill_values(output), [])
+
+  def test_v3_non_power_of_two_tensor_copy_feeds_sum(self):
+    source = """\
+fun @kernel(%x: tensor [3] i32) : i32 {
+  let %y: tensor [3] i32 = %x;
+  let mut %out: i32 = undef;
+^entry:
+  %out = tensor sum %y, 0, drop;
+  ret %out;
+}
+"""
+
+    result, output = emit_cli(source, ("--tensor-profile-version", "v3"))
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertRegex(output, r"_sir_y = _sir_input_load_tmp\d+")
+    self.assertNotIn("tl.full((4,), _sir_x", output)
+    self.assertEqual(self.full_fill_values(output), [])
+    reduced = self.reduction_operands(output)
+    self.assertEqual(len(reduced), 1)
+    self.assertIn("_sir_y", reduced[0])
+
+  def test_singleton_dimension_splat_keeps_declared_shape(self):
+    """The smallest edge case: a singleton axis is still a tensor axis."""
+    cases = (
+      (
+        """\
+fun @kernel(%s: i32) : tensor [1, 4] i32 {
+  let %x: tensor [1, 4] i32 = %s;
+^entry:
+  ret %x;
+}
+""",
+        "v1",
+        "tl.full((1, 4), _sir_input_load_tmp0, tl.int32)",
+      ),
+      (
+        """\
+fun @kernel(%s: f32) : tensor [2, 4] f32 {
+  let %x: tensor [2, 4] f32 = %s;
+^entry:
+  ret %x;
+}
+""",
+        "v2",
+        "tl.full((2, 4), _sir_input_load_tmp0, tl.float32)",
+      ),
+    )
+    for source, profile, expected in cases:
+      with self.subTest(profile=profile, expected=expected):
+        result, output = emit_cli(source, ("--tensor-profile-version", profile))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ast.parse(output)
+        self.assertIn(expected, output)
+
+  @staticmethod
+  def full_fill_values(output):
+    """Return each ``tl.full`` fill-value expression as source text."""
+    return [
+      ast.unparse(node.args[1])
+      for node in ast.walk(ast.parse(output))
+      if isinstance(node, ast.Call)
+      and isinstance(node.func, ast.Attribute)
+      and node.func.attr == "full"
+      and len(node.args) >= 2
+    ]
+
+  @staticmethod
+  def reduction_operands(output):
+    """Return the reduced value expression of each ``tl.sum``/``min``/``max``."""
+    return [
+      ast.unparse(node.args[0])
+      for node in ast.walk(ast.parse(output))
+      if isinstance(node, ast.Call)
+      and isinstance(node.func, ast.Attribute)
+      and node.func.attr in ("sum", "min", "max")
+      and node.args
+    ]
+
 
 if __name__ == "__main__":
   unittest.main()

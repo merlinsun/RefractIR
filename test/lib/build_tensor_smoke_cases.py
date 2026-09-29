@@ -102,6 +102,12 @@ def build_smoke_cases(output_dir, *, symiri=SYMIRI):
       "numeric": False,
     },
     {
+      "name": "scalar_splat_sum",
+      "fixture": "scalar_splat_sum.sir.in",
+      "parameters": [("i32", [3])],
+      "numeric": False,
+    },
+    {
       "name": "softmax",
       "fixture": "softmax.sir.in",
       "parameters": [("f32", [0.0, 1.0, 2.0, 3.0, 1.0, 0.0, -1.0, -2.0])],

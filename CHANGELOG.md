@@ -10,6 +10,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Bounded tensor execution, numerical references, Triton emission, property-directed generation, and regression tooling.
 
+- `make test-triton` smoke case `scalar_splat_sum`, which pins a scalar argument being materialized at the declared tensor rank before a reduction.
+
 - Python compilation target (`symirc --target python`): genuine `while`/`if` control flow, a boxed pointer and aggregate memory model with runtime UB traps, lane-list vectors, and symbol providers through module globals. Accepts reducible CFGs only.
 - CFG structuring analyses: dominator trees, reducibility check, loop forest, control-tree builder, and structured lowering with `while`/`do-while` peepholes and header-test loop rotation ([docs/reducibility.md](./docs/reducibility.md)).
 - `symirc --structured-lowering`: reconstructed `while`/`do-while`/`if` on the C target, and `block`/`loop`/`if` on the WASM target, where the native multi-level `br` consumes the unlowered control tree and needs no guard flags. The `$__pc`/`br_table` dispatch loop stays the WASM default and still accepts irreducible CFGs.
@@ -35,6 +37,7 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Fixed
 
+- Tensor initializer lowering: a scalar initializer materializes at the declared tensor shape for every profile before a shape-sensitive operator, and a tensor initializer copies its value. The previous Triton emission either lost the rank or passed a block tensor as `tl.full`'s scalar fill value, which Triton rejects. `docs/SPEC_TENSOR_v0.1.md` §3 states the rule.
 - Linking a library with `-I` merged its declarations by name. An intrinsic overload the primary also declared under a different signature was dropped, so the library body stopped typechecking; a struct the primary declared differently displaced the library's, and when the two agreed on field types but not their order the result still typechecked and read fields at the wrong offsets. Both are keyed by the declaration's identity now, and a struct conflict is rejected.
 - WASM vector call boundary: arguments were passed as a garbage byte-load rather than an address, and vector returns emitted invalid WASM. Both use a defined memory ABI (caller-owned spill slots plus a hidden sret parameter) preserving by-value semantics.
 - Object extents in the solver were measured in scalar leaves rather than packed bytes, a scale that agrees with the interpreter only when every scalar in an object has the same width. Mixed-width structs both hid real out-of-bounds pointer arithmetic and rejected valid programs, and the `--emit-main` checksum oracle decoded exit-time pointer offsets on a third differently-scaled copy of the model, with the Python backend's leaf-slot memory a fourth. All four measure with `TypeUtils::packedSizeof`, and Python's buffer is byte-indexed with a `_PAD` sentinel that traps on read of a wider leaf's interior bytes.
