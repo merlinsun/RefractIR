@@ -7,6 +7,7 @@
 
 #include "analysis/tensor.hpp"
 #include "reify/tensor_case.hpp"
+#include "solver/solver.hpp"
 
 namespace refractir::reify {
 
@@ -34,6 +35,10 @@ namespace refractir::reify {
     std::filesystem::path outputDirectory;
     std::filesystem::path cvc5Executable;
     std::filesystem::path cvc5FeasibilityRecord;
+    /// Replaces the configured solver. A caller that has to reach a particular
+    /// solver outcome injects a backend instead of waiting for a real query to
+    /// produce it; empty means the configured solver.
+    SymbolicExecutor::SolverFactory solverFactory;
   };
 
   struct TensorGenerationResult {

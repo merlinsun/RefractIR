@@ -1177,11 +1177,12 @@ namespace refractir {
     Result satResult;
     Result lastRes;
     lastRes.unknown = true;
+    bool hasLastRes = false;
 
     auto workerFunc = [&](uint32_t threadId) {
       std::mt19937 rng(config_.seed + threadId);
       Result threadLastRes;
-      threadLastRes.unknown = true;
+      bool produced = false;
 
       while (samplesProcessed.fetch_add(1) < n && !found.load()) {
         if (found.load())
@@ -1200,13 +1201,20 @@ namespace refractir {
           return;
         }
         threadLastRes = std::move(*res);
+        produced = true;
       }
 
-      // Update last result
+      // A worker that never reached a query has nothing to publish: its
+      // default result would replace another worker's reported reason.
+      if (!produced)
+        return;
       std::lock_guard<std::mutex> lock(resultMutex);
-      if (!threadLastRes.message.empty() ||
-          (!threadLastRes.sat && !threadLastRes.unsat && threadLastRes.unknown)) {
+      // A reported reason survives a later worker that has none to give, so
+      // the aggregate does not depend on which thread finished last.
+      if (!hasLastRes || lastRes.unknownReason == smt::UnknownReason::Unspecified ||
+          threadLastRes.unknownReason != smt::UnknownReason::Unspecified) {
         lastRes = std::move(threadLastRes);
+        hasLastRes = true;
       }
     };
 
@@ -1233,19 +1241,17 @@ namespace refractir {
 namespace refractir::smt {
 
   UnknownReason classifyUnknownReason(std::string_view diagnostic) {
-    // Match the backend's own wording, not a summary of it. Z3 reports
-    // "timeout", "canceled", "interrupted", "resource limits", and
-    // "max. memory out" for the cases this maps; anything else, including the
-    // empty string a backend returns when it has nothing to say, stays
-    // unspecified.
-    const auto contains = [&](std::string_view needle) {
-      return diagnostic.find(needle) != std::string_view::npos;
-    };
-    if (contains("timeout") || contains("Time limit") || contains("time limit"))
+    // The complete diagnostics Z3 hands back through the wrapper. This is a
+    // closed set on purpose: a report has to say which cause it is, and a text
+    // that merely mentions a word does not, so "unknown timeout configuration"
+    // and "not interrupted" stay unspecified rather than becoming a cause the
+    // backend never reported.
+    if (diagnostic == "timeout")
       return UnknownReason::Timeout;
-    if (contains("canceled") || contains("cancelled") || contains("interrupted"))
+    if (diagnostic == "canceled" || diagnostic == "cancelled" || diagnostic == "interrupted")
       return UnknownReason::Interrupted;
-    if (contains("resource limits") || contains("max. memory") || contains("memory out"))
+    if (diagnostic == "resource limits" || diagnostic == "max. memory" ||
+        diagnostic == "max. memory out" || diagnostic == "memout")
       return UnknownReason::ResourceLimit;
     return UnknownReason::Unspecified;
   }

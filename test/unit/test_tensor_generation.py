@@ -3030,39 +3030,6 @@ class TensorElementPropertyTests(unittest.TestCase):
     self.assertEqual(summary["status"], "invalid_profile")
     self.assertIn("tensor-v2", summary["reason"])
 
-  def test_an_undecided_attempt_keeps_its_account(self):
-    """A refused query is accounted for, not reduced to a status string.
-
-    Seed 1's partial element target is undecided inside the default budget on
-    this builder, so the attempt reaches the record with the property, policy,
-    domain, and symbolic size it was made under.
-    """
-    directory = tempfile.mkdtemp()
-    self.addCleanup(shutil.rmtree, directory, True)
-    seed, ordinary = self.sample_case(minimum_rank=2, seeds=range(1, 2))
-    shape = ordinary.manifest["output"]["shape"]
-    values = case_output_values(ordinary)
-    elements = [(row_major_coordinates(shape, 0), values[0])]
-    result = generate_compositional(
-      directory, seed=seed, policy="exact", elements=elements
-    )
-    summary = read_summary(directory)
-
-    self.assertNotEqual(result.returncode, 0)
-    self.assertEqual(summary["status"], "input_policy_unknown")
-    self.assertEqual(len(summary["attempts"]), 1)
-    attempt = summary["attempts"][0]
-    self.assertEqual(attempt["policy"], "exact")
-    self.assertEqual(attempt["outcome"], "input_policy_unknown")
-    self.assertEqual(attempt["seed"], seed)
-    self.assertEqual(attempt["property_id"], "defined-inputs")
-    # The exact route solves in the union of the sampled domains.
-    self.assertEqual(attempt["domain"], "-1,2")
-    self.assertGreater(attempt["symbolic_elements"], 0)
-    # An undecided result the backend cannot explain is not a timeout.
-    self.assertEqual(attempt["unknown_reason"], "unspecified")
-    self.assertNotIn("timeout_source", attempt)
-
   def test_pinned_element_seeds_keep_their_regression(self):
     """Deterministic fixtures beside the sweeps: seed 3 decides both routes."""
     _, ordinary, complete_case, _ = self.complete_element_case(seeds=range(3, 4))

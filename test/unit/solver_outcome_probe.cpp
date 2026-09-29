@@ -16,11 +16,15 @@
 //     reason-name:      unspecified | timeout | resource_limit | interrupted
 //   solver_outcome_probe --classify <diagnostic>...
 //   solver_outcome_probe --propose <check-sat-result> <reason-name>
+//   solver_outcome_probe --sample <threads> <samples> <reason-name>
+//   solver_outcome_probe --attempt-record <check-sat-result> <reason-name> <directory>
 //
 // It prints one line per observation: `status=<sat|unsat|unknown>
 // reason=<name>` for a solve, `classify <text> -> <name>` for each diagnostic,
-// and `outcome=<name> timeout_source=<name> unknown_reason=<name>` for a
-// proposal. Exit status is 0 unless the invocation itself is malformed.
+// `outcome=<name> timeout_source=<name> unknown_reason=<name>` for a proposal,
+// and `reason=<name>` for a sampling run. The attempt-record mode writes the
+// generation summary into the given directory and prints its path. Exit status
+// is 0 unless the invocation itself is malformed.
 
 #include <iostream>
 #include <stdexcept>
@@ -28,6 +32,7 @@
 #include <vector>
 
 #include "frontend/pipeline.hpp"
+#include "reify/tensor_gen.hpp"
 #include "reify/tensor_input_policy.hpp"
 #include "solver/solver.hpp"
 
@@ -174,6 +179,56 @@ int main(int argc, char **argv) {
                 << (proposal.timeoutSource.empty() ? "none" : proposal.timeoutSource)
                 << " unknown_reason="
                 << (proposal.unknownReason.empty() ? "none" : proposal.unknownReason) << "\n";
+      return 0;
+    }
+    if (argc == 5 && std::string(argv[1]) == "--sample") {
+      const auto threads = static_cast<std::uint32_t>(std::stoul(argv[2]));
+      const auto samples = static_cast<std::uint32_t>(std::stoul(argv[3]));
+      const auto reason = parseReason(argv[4]);
+      auto program = checked(
+          "fun @main(%a: i32) : i32 {\n"
+          "  let mut %out: i32 = undef;\n"
+          "^entry:\n"
+          "  %out = %a;\n"
+          "  require %out == 1;\n"
+          "  ret %out;\n"
+          "}\n"
+      );
+      // A sample that never runs a query must not publish a default result
+      // over one that reported a reason, however the threads interleave.
+      const auto factory = [reason](const refractir::SymbolicExecutor::Config &) {
+        return std::make_unique<ScriptedSolver>(Result::UNKNOWN, reason);
+      };
+      refractir::SymbolicExecutor::Config config;
+      config.num_threads = threads;
+      refractir::SymbolicExecutor executor(program, config, factory);
+      const auto result = executor.sample("@main", samples, 0, false, {"^entry"}, {});
+      std::cout << "reason=" << refractir::smt::unknownReasonName(result.unknownReason) << "\n";
+      return 0;
+    }
+    if ((argc == 5 || argc == 6) && std::string(argv[1]) == "--attempt-record") {
+      const auto scripted = parseResult(argv[2]);
+      const auto reason = parseReason(argv[3]);
+      const std::filesystem::path directory = argv[4];
+      std::filesystem::create_directories(directory);
+      // The compositional generator builds the graph from the seed, so the
+      // attempt record is the one a normal run would write; only the backend
+      // is the scripted one.
+      refractir::reify::TensorGenerationOptions options;
+      options.profileVersion = refractir::TensorProfileId::V2;
+      options.dtype = "i32";
+      options.generator = "compositional";
+      options.inputPolicy = "exact";
+      options.propertyTarget = 3;
+      options.count = 1;
+      options.seed = argc == 6 ? static_cast<std::uint32_t>(std::stoul(argv[5])) : 2;
+      options.target = "sir";
+      options.outputDirectory = directory;
+      options.solverFactory = [scripted, reason](const refractir::SymbolicExecutor::Config &) {
+        return std::make_unique<ScriptedSolver>(scripted, reason);
+      };
+      const auto generated = refractir::reify::generateTensorCases(options);
+      std::cout << "status=" << generated.status << "\n";
       return 0;
     }
     if (argc != 3) {

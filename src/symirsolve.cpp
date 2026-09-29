@@ -63,6 +63,22 @@ namespace {
 
 } // namespace
 
+/// The terminal result with the reason the backend gave for it, so a consumer
+/// can tell a reported timeout from an undecided query without parsing stderr
+/// or inferring from the exit code. The status names match the console output;
+/// `reason` is present only for UNKNOWN.
+void writeOutcomeRecord(
+    const std::string &path, const std::string &status, smt::UnknownReason reason
+) {
+  std::ofstream out(path);
+  out << "{\"status\":\"" << status << "\"";
+  if (status == "unknown")
+    out << ",\"reason\":\"" << smt::unknownReasonName(reason) << "\"";
+  out << "}\n";
+  if (!out)
+    throw std::runtime_error("failed to write outcome record: " + path);
+}
+
 int main(int argc, char **argv) {
   cxxopts::Options options("symirsolve", "RefractIR SMT-based Concretizer");
 
@@ -81,6 +97,7 @@ int main(int argc, char **argv) {
     ("j,num-threads", "Number of threads for parallel solving (0 = hardware concurrency)", cxxopts::value<uint32_t>()->default_value("1"))
     ("num-smt-threads", "Number of threads for the SMT solver backend (Bitwuzla/Z3 internal parallelism)", cxxopts::value<uint32_t>()->default_value("1"))
     ("emit-model", "Emit symbol assignments to a JSON-like file", cxxopts::value<std::string>())
+    ("emit-outcome", "Emit the terminal result with its typed reason to a JSON file", cxxopts::value<std::string>())
     ("emit-tensor-params", "Emit entry tensor-parameter witnesses to a JSON file", cxxopts::value<std::string>())
     ("tensor-profile-version", "Tensor profile to check against (v1|v2|v3|v4)", cxxopts::value<std::string>()->default_value("v1"))
     ("tensor-param-domain", "Bound every entry-parameter integer leaf to [lo,hi] (lo,hi)", cxxopts::value<std::string>())
@@ -249,6 +266,10 @@ int main(int argc, char **argv) {
 
     if (res.sat) {
       std::cout << "SAT" << std::endl;
+      if (result.count("emit-outcome"))
+        writeOutcomeRecord(
+            result["emit-outcome"].as<std::string>(), "sat", smt::UnknownReason::Unspecified
+        );
 
       // Sorted by parameter name: the witness map is unordered, and a file
       // whose field order varies run to run cannot be compared or hashed.
@@ -367,9 +388,15 @@ int main(int argc, char **argv) {
 
     } else if (res.unsat) {
       std::cout << "UNSAT" << std::endl;
+      if (result.count("emit-outcome"))
+        writeOutcomeRecord(
+            result["emit-outcome"].as<std::string>(), "unsat", smt::UnknownReason::Unspecified
+        );
       return 1;
     } else {
       std::cout << "UNKNOWN" << std::endl;
+      if (result.count("emit-outcome"))
+        writeOutcomeRecord(result["emit-outcome"].as<std::string>(), "unknown", res.unknownReason);
       return 1;
     }
 

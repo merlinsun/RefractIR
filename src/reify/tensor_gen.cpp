@@ -54,6 +54,9 @@ namespace refractir::reify {
       std::string policy;
       std::string domain;
       std::uint32_t symbolicElements = 0;
+      std::string candidateDigest;
+      std::string queryDigest;
+      std::string path;
       std::string outcome;
       std::string timeoutSource;
       std::string unknownReason;
@@ -77,6 +80,18 @@ namespace refractir::reify {
       return record;
     }
 
+    /// The selected path as it is recorded: one label per step, in order, so a
+    /// repeated visit stays visible instead of collapsing into a set.
+    std::string joinPath(const std::vector<std::string> &path) {
+      std::string joined;
+      for (const auto &label: path) {
+        if (!joined.empty())
+          joined += ' ';
+        joined += label;
+      }
+      return joined;
+    }
+
     /// A refused input-policy attempt, carrying the proposal that refused it.
     ///
     /// The driver records an unsuccessful attempt with the request it was made
@@ -84,16 +99,25 @@ namespace refractir::reify {
     /// the solver searched, the symbolic size it refused, or the reason the
     /// backend reported for an undecided result.
     struct InputPolicyFailure : std::runtime_error {
-      InputPolicyFailure(std::string message, const TensorInputProposal &proposal) :
+      InputPolicyFailure(
+          std::string message, const TensorInputProposal &proposal, std::string selectedPath
+      ) :
           std::runtime_error(std::move(message)), outcome(proposal.outcome),
           timeoutSource(proposal.timeoutSource), unknownReason(proposal.unknownReason),
-          domain(proposal.domain), symbolicElements(proposal.symbolicElements) {}
+          domain(proposal.domain), symbolicElements(proposal.symbolicElements),
+          candidateDigest(proposal.computationDigest), queryDigest(proposal.queryDigest),
+          path(std::move(selectedPath)) {}
 
       std::string outcome;
       std::string timeoutSource;
       std::string unknownReason;
       std::pair<std::int64_t, std::int64_t> domain;
       std::uint32_t symbolicElements = 0;
+      // A seed names the graph only for one builder revision; the digests name
+      // it across revisions, so a refused attempt stays attributable.
+      std::string candidateDigest;
+      std::string queryDigest;
+      std::string path;
     };
 
     struct Candidate {
@@ -287,6 +311,12 @@ namespace refractir::reify {
           out << ",\"domain\":" << jsonString(attempt.domain);
         if (attempt.symbolicElements != 0)
           out << ",\"symbolic_elements\":" << attempt.symbolicElements;
+        if (!attempt.candidateDigest.empty())
+          out << ",\"candidate_digest\":" << jsonString(attempt.candidateDigest);
+        if (!attempt.queryDigest.empty())
+          out << ",\"query_digest\":" << jsonString(attempt.queryDigest);
+        if (!attempt.path.empty())
+          out << ",\"path\":" << jsonString(attempt.path);
         if (!attempt.timeoutSource.empty())
           out << ",\"timeout_source\":" << jsonString(attempt.timeoutSource);
         if (!attempt.unknownReason.empty())
@@ -1368,10 +1398,14 @@ namespace refractir::reify {
             ))
           throw std::runtime_error("property_invalid: " + reason);
       }
-      const auto proposal = proposeTensorInputs(checked, makeSolverFactory(), policyOptions);
+      const auto proposal = proposeTensorInputs(
+          checked, options.solverFactory ? options.solverFactory : makeSolverFactory(),
+          policyOptions
+      );
       if (proposal.outcome != "accepted")
         throw InputPolicyFailure(
-            "input_policy_" + proposal.outcome + ": " + proposal.reason, proposal
+            "input_policy_" + proposal.outcome + ": " + proposal.reason, proposal,
+            joinPath(policyOptions.path)
         );
       candidate.inputs = proposal.inputs;
       candidate.inputPolicy = std::string(tensorInputPolicyName(policyOptions.policy));
@@ -2617,6 +2651,9 @@ namespace refractir::reify {
               record.symbolicElements = failure->symbolicElements;
               record.timeoutSource = failure->timeoutSource;
               record.unknownReason = failure->unknownReason;
+              record.candidateDigest = failure->candidateDigest;
+              record.queryDigest = failure->queryDigest;
+              record.path = failure->path;
             }
             attempts.push_back(std::move(record));
             writeSummary(

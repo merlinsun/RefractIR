@@ -254,15 +254,17 @@ test-library: $(LIBRARY_CONSUMER)
 # real solver is not a reliable way to produce a timeout.
 SOLVER_OUTCOME_PROBE = $(BIN_DIR)/solver_outcome_probe
 
-$(SOLVER_OUTCOME_PROBE): test/unit/solver_outcome_probe.cpp $(COMMON_OBJS) \
-                         $(SOLVER_CORE_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ) \
-                         src/reify/tensor_input_policy.o
-	mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ test/unit/solver_outcome_probe.cpp $(COMMON_OBJS) \
-	  $(SOLVER_CORE_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ) src/reify/tensor_input_policy.o $(LDFLAGS)
+# The probe reaches the tensor generation path as well, so it links the same
+# objects the generator does, minus the tool's own entry point.
+PROBE_OBJS = $(filter-out src/rysmith.o,$(RYSMITH_OBJS))
 
-test-solver-outcomes: $(SOLVER_OUTCOME_PROBE)
+$(SOLVER_OUTCOME_PROBE): test/unit/solver_outcome_probe.cpp $(COMMON_OBJS) $(PROBE_OBJS)
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ test/unit/solver_outcome_probe.cpp $(COMMON_OBJS) $(PROBE_OBJS) $(LDFLAGS)
+
+test-solver-outcomes: $(SOLVER_OUTCOME_PROBE) $(TARGET_SOLVER)
 	REFRACTIR_SOLVER_OUTCOME_PROBE=./$(SOLVER_OUTCOME_PROBE) \
+	  REFRACTIR_SYMIRSOLVE=./$(TARGET_SOLVER) \
 	  $(PY) -m unittest test.unit.test_tensor_selection_outcomes
 
 $(TARGET_SOLVER): $(COMMON_OBJS) $(SOLVER_OBJS)
