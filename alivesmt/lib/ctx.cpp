@@ -10,7 +10,9 @@
 #include "util/config.h"
 
 using namespace std;
-using util::config::dbg;
+// The vendored header declares this namespace inside `alivesmt`, so the
+// name has to be qualified here.
+using alivesmt::util::config::dbg;
 
 static void z3_error_handler(Z3_context ctx, Z3_error_code err) {
   string_view str = Z3_get_error_msg(ctx, err);

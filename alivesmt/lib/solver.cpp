@@ -20,7 +20,9 @@
 using namespace alivesmt;
 using namespace alivesmt::util;
 using namespace std;
-using util::config::dbg;
+// The vendored header declares this namespace inside `alivesmt`, so the
+// name has to be qualified here.
+using alivesmt::util::config::dbg;
 
 static bool tactic_verbose = false;
 
