@@ -8,6 +8,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Added
 
+- Bounded tensor execution, numerical references, Triton emission, property-directed generation, and regression tooling.
+
 - Python compilation target (`symirc --target python`): genuine `while`/`if` control flow, a boxed pointer and aggregate memory model with runtime UB traps, lane-list vectors, and symbol providers through module globals. Accepts reducible CFGs only.
 - CFG structuring analyses: dominator trees, reducibility check, loop forest, control-tree builder, and structured lowering with `while`/`do-while` peepholes and header-test loop rotation ([docs/reducibility.md](./docs/reducibility.md)).
 - `symirc --structured-lowering`: reconstructed `while`/`do-while`/`if` on the C target, and `block`/`loop`/`if` on the WASM target, where the native multi-level `br` consumes the unlowered control tree and needs no guard flags. The `$__pc`/`br_table` dispatch loop stays the WASM default and still accepts irreducible CFGs.

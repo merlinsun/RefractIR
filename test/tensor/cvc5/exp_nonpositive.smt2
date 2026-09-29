@@ -1,0 +1,5 @@
+(set-logic QF_NRAT)
+(declare-const x Real)
+(assert (and (<= (- 2) x) (<= x 3)))
+(assert (<= (exp x) 0))
+(check-sat)

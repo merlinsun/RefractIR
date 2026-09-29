@@ -1,0 +1,6 @@
+fun @kernel(%x: tensor [2, 2] f32) : f32 {
+  let mut %out: f32 = undef;
+^entry:
+  %out = tensor extract %x, [0, 0];
+  ret %out;
+}

@@ -14,11 +14,21 @@ endif
 
 SOLVER ?= bitwuzla
 INSTALL_PREFIX ?= /usr/local
+TENSOR_REF ?= 1
+BOOST_CPPFLAGS ?=
 
 CXXFLAGS = -std=c++20 -Iinclude -Wall -Wextra -O2
 DEPFLAGS = -MMD -MP
 LDFLAGS =
 ARFLAGS = rcs
+
+ifeq ($(TENSOR_REF),1)
+  CXXFLAGS += -DREFRACTIR_TENSOR_REF $(BOOST_CPPFLAGS)
+else ifeq ($(TENSOR_REF),0)
+  CXXFLAGS += -DREFRACTIR_TENSOR_REF_DISABLED
+else
+  $(error "TENSOR_REF must be 0 or 1")
+endif
 
 # Coverage support
 ifeq ($(COVERAGE), 1)
@@ -57,7 +67,7 @@ COMMON_SRCS = src/frontend/lexer.cpp src/frontend/parser.cpp src/frontend/ast_du
               src/frontend/typechecker.cpp src/frontend/semchecker.cpp \
               src/analysis/pass_manager.cpp src/analysis/reachability.cpp \
               src/analysis/unused_name.cpp src/analysis/type_utils.cpp \
-              src/analysis/state_set.cpp \
+              src/analysis/state_set.cpp src/analysis/tensor.cpp \
               src/frontend/diagnostics.cpp \
               src/solver/solved_header.cpp
 
@@ -75,6 +85,7 @@ BACKEND_SRCS = src/backend/emit.cpp \
                src/backend/wasm_vec_lowering_vecext.cpp \
                src/backend/py_backend.cpp src/backend/py_expr.cpp \
                src/backend/py_types.cpp src/backend/py_lvalue.cpp \
+               src/backend/triton_backend.cpp \
                src/backend/py_vec_lowering_array.cpp \
                src/backend/py_vec_lowering_scalars.cpp \
                src/backend/py_vec_lowering_struct.cpp \
@@ -88,7 +99,9 @@ BACKEND_SRCS = src/backend/emit.cpp \
 INTERP_IMPL_SRCS = src/interp/interpreter.cpp src/interp/intrinsics.cpp \
                    src/interp/type_layout.cpp src/interp/types.cpp \
                    src/interp/memory.cpp src/interp/values.cpp \
-                   src/interp/expr.cpp src/interp/lvalue.cpp
+                   src/interp/expr.cpp src/interp/lvalue.cpp \
+                   src/interp/tensor.cpp src/interp/tensor_io.cpp \
+                   src/interp/tensor_numeric.cpp
 INTERP_SRCS = src/symiri.cpp $(INTERP_IMPL_SRCS)
 COMPILER_SRCS = src/symirc.cpp $(BACKEND_SRCS)
 # Core symbolic-executor sources (distinct from the SMT backend in
@@ -96,7 +109,7 @@ COMPILER_SRCS = src/symirc.cpp $(BACKEND_SRCS)
 # libsymir, so every consumer picks up new TUs from one place.
 SOLVER_CORE_SRCS = src/solver/solver.cpp src/solver/intrinsics.cpp \
                    src/solver/values.cpp src/solver/expr.cpp \
-                   src/solver/vec.cpp src/solver/lvalue.cpp \
+                   src/solver/vec.cpp src/solver/tensor.cpp src/solver/lvalue.cpp \
                    src/solver/calls.cpp src/solver/types.cpp
 SOLVER_MAIN_SRCS = src/symirsolve.cpp $(SOLVER_CORE_SRCS)
 SOLVER_ALL_SRCS = $(SOLVER_MAIN_SRCS) $(SOLVER_SRCS)
@@ -112,12 +125,16 @@ REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/twin_mini.cpp \
              src/reify/twin_probe.cpp src/reify/twin_trace.cpp \
              src/reify/twin_box.cpp src/reify/antiopt.cpp \
+             src/reify/tensor_case.cpp \
              src/reify/antiopt/common.cpp src/reify/antiopt/rules_peephole.cpp \
              src/reify/antiopt/rules_mba.cpp src/reify/antiopt/rules_structure.cpp \
              src/reify/antiopt/rules_licensed.cpp \
              src/reify/antiopt/rules_control.cpp \
              src/reify/antiopt/selftest.cpp src/reify/antiopt_transform.cpp
-RYSMITH_SRCS = src/rysmith.cpp $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
+# The tensor profile is dispatched only by rysmith and constructs the selected
+# SMT backend, so keep its adapter outside the source set shared with rylink.
+RYSMITH_SRCS = src/rysmith.cpp src/reify/tensor_gen.cpp $(SOLVER_CORE_SRCS) \
+               $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
 # as a subprocess instead would parse the bundled .sir back from text
@@ -197,7 +214,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor test-triton test-triton-v2 cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -205,6 +222,12 @@ $(TARGET_INTERP): $(COMMON_OBJS) $(INTERP_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TARGET_COMPILER): $(COMMON_OBJS) $(COMPILER_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+TENSOR_EMIT_API = $(BIN_DIR)/tensor_emit_api
+
+$(TENSOR_EMIT_API): test/unit/tensor_emit_api.cpp $(COMMON_OBJS) $(BACKEND_SRCS:.cpp=.o) src/reify/tensor_case.o
+	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TARGET_SOLVER): $(COMMON_OBJS) $(SOLVER_OBJS)
@@ -263,6 +286,155 @@ test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH
 	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
 	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rytwin_tests ./$(TARGET_RYTWIN) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
+
+# Tensor environment/solver supervisor tests are host-only and use fake cvc5
+# executables; real GPU and cvc5 feasibility probes are invoked separately.
+test-tensor-coverage:
+	$(PY) -m unittest test.unit.test_tensor_selection.TensorCoverageTests
+
+test-tensor-directed:
+	$(PY) -m unittest test.unit.test_tensor_selection.TensorDirectedTests
+
+test-tensor-layout:
+	$(PY) -m unittest test.unit.test_tensor_layout
+
+test-tensor-probe:
+	$(PY) -m unittest test.unit.test_tensor_probe
+
+test-tensor-profile: $(TARGET_INTERP) $(TARGET_COMPILER)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  $(PY) -m unittest test.unit.test_tensor_profile
+
+test-tensor-v2-profile: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_RYSMITH)
+	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) \
+	  $(PY) -m unittest test.unit.test_tensor_profile test.unit.test_tensor_generation \
+	    test.unit.test_tensor_case.TensorV3CaseTests test.unit.test_tensor_runner \
+	    test.unit.test_tensor_selection
+
+test-tensor-v4-generation: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_RYSMITH)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) \
+	  $(PY) -m unittest test.unit.test_tensor_generation \
+	    test.unit.test_tensor_case.TensorCaseV4Tests
+
+test-tensor-v4: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) \
+	  $(PY) -m unittest test.unit.test_tensor_frontend test.unit.test_tensor_profile \
+	    test.unit.test_tensor_semantics test.unit.test_tensor_emit \
+	    test.unit.test_tensor_case.TensorCaseV4Tests \
+	    test.unit.test_tensor_case.TensorV4CalibrationTests test.unit.test_tensor_generation \
+	    test.unit.test_tensor_runner
+
+test-tensor-frontend: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_EMIT_API)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) $(PY) -m unittest test.unit.test_tensor_frontend
+
+test-tensor-exact: $(TARGET_INTERP)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest test.unit.test_tensor_semantics.TensorExactTests
+
+test-tensor-numeric: $(TARGET_INTERP)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest test.unit.test_tensor_semantics.TensorNumericTests
+
+test-tensor-solver: $(TARGET_SOLVER)
+	REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) $(PY) -m unittest test.unit.test_tensor_solver
+
+test-tensor-emit: $(TARGET_COMPILER) $(TENSOR_EMIT_API)
+	REFRACTIR_SYMIRC=./$(TARGET_COMPILER) REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) \
+	  $(PY) -m unittest test.unit.test_tensor_emit
+
+test-tensor-runner: $(TARGET_INTERP) $(TARGET_COMPILER)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  $(PY) -m unittest test.unit.test_tensor_runner
+
+test-tensor-build:
+	REFRACTIR_TEST_SOLVER='$(SOLVER)' $(PY) -m unittest test.unit.test_tensor_build
+
+# Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
+test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
+	$(MAKE) test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	  test-tensor-solver test-tensor-emit test-tensor-regressions \
+	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
+	  test-tensor-reducer test-tensor-property-pilot
+	$(MAKE) test-tensor-v2-profile
+	$(MAKE) test-tensor-v4
+	$(MAKE) test-tensor-build
+
+test-tensor-historical:
+	$(PY) -m unittest test.unit.test_tensor_regressions.HistoricalReplayTests
+
+test-tensor-evaluation:
+	$(PY) -m unittest test.unit.test_tensor_evaluation
+
+test-tensor-reducer:
+	$(PY) -m unittest test.unit.test_tensor_reducer
+
+# Host-only tests for frozen graph generation, input selection, and case export.
+test-tensor-property-pilot: $(TARGET_INTERP) $(TARGET_SOLVER)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) \
+	  $(PY) -m unittest test.unit.test_tensor_property_pilot
+
+# The loop is serial: this pilot uses one V100 and never launches cases concurrently.
+# These can be supplied by a remote/container caller whose source checkout does
+# not carry .git metadata. Defaults still describe a local repository build.
+TENSOR_SOURCE_REVISION ?= $(shell git rev-parse HEAD 2>/dev/null || echo unavailable)
+TENSOR_WORKTREE_DIRTY ?= $(shell if test -n "$$(git status --porcelain 2>/dev/null)"; then echo true; else echo false; fi)
+TENSOR_COMPILER_FLAGS ?= $(CXX) $(CXXFLAGS)
+TENSOR_REGRESSION_DIR ?= build/tensor_cases/regressions
+
+test-tensor-regressions:
+	$(PY) -m unittest test.unit.test_tensor_regressions.TensorRegressionMatrixTests
+
+test-tensor-mutants:
+	$(PY) -m unittest test.unit.test_triton_mutants
+
+TENSOR_V2_CASE_DIR ?= build/tensor_cases/v2-campaign
+TENSOR_V2_CASE_COUNT ?= 10
+TENSOR_V2_SEED ?= 0
+
+test-triton-v2: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_RYSMITH)
+	./$(TARGET_RYSMITH) --profile tensor --target sir --tensor-profile-version v2 \
+	  --tensor-dtype auto --seed $(TENSOR_V2_SEED) -n $(TENSOR_V2_CASE_COUNT) \
+	  --output-dir $(TENSOR_V2_CASE_DIR)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_REVISION='$(TENSOR_SOURCE_REVISION)' \
+	  REFRACTIR_WORKTREE_DIRTY='$(TENSOR_WORKTREE_DIRTY)' \
+	  REFRACTIR_COMPILER_FLAGS='$(TENSOR_COMPILER_FLAGS)' \
+	  $(PY) -m test.lib.run_triton_tests --suite $(TENSOR_V2_CASE_DIR) --mode interpret
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_REVISION='$(TENSOR_SOURCE_REVISION)' \
+	  REFRACTIR_WORKTREE_DIRTY='$(TENSOR_WORKTREE_DIRTY)' \
+	  REFRACTIR_COMPILER_FLAGS='$(TENSOR_COMPILER_FLAGS)' \
+	  $(PY) -m test.lib.run_triton_tests --suite $(TENSOR_V2_CASE_DIR) \
+	    --mode compiled --probe-warps
+
+test-triton: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_RYSMITH)
+	$(PY) -m test.lib.build_tensor_smoke_cases --output-dir build/tensor_cases/hand
+	$(PY) -m test.lib.build_tensor_regression_cases --output-dir $(TENSOR_REGRESSION_DIR)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_REVISION='$(TENSOR_SOURCE_REVISION)' \
+	  REFRACTIR_WORKTREE_DIRTY='$(TENSOR_WORKTREE_DIRTY)' \
+	  REFRACTIR_COMPILER_FLAGS='$(TENSOR_COMPILER_FLAGS)' \
+	  $(PY) -m test.lib.run_triton_tests --suite build/tensor_cases/hand --mode interpret
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_REVISION='$(TENSOR_SOURCE_REVISION)' \
+	  REFRACTIR_WORKTREE_DIRTY='$(TENSOR_WORKTREE_DIRTY)' \
+	  REFRACTIR_COMPILER_FLAGS='$(TENSOR_COMPILER_FLAGS)' \
+	  $(PY) -m test.lib.run_triton_tests --suite $(TENSOR_REGRESSION_DIR) --mode interpret
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_REVISION='$(TENSOR_SOURCE_REVISION)' \
+	  REFRACTIR_WORKTREE_DIRTY='$(TENSOR_WORKTREE_DIRTY)' \
+	  REFRACTIR_COMPILER_FLAGS='$(TENSOR_COMPILER_FLAGS)' \
+	  $(PY) -m test.lib.run_triton_tests --suite build/tensor_cases/hand --mode compiled
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_REVISION='$(TENSOR_SOURCE_REVISION)' \
+	  REFRACTIR_WORKTREE_DIRTY='$(TENSOR_WORKTREE_DIRTY)' \
+	  REFRACTIR_COMPILER_FLAGS='$(TENSOR_COMPILER_FLAGS)' \
+	  $(PY) -m test.lib.run_triton_tests --suite $(TENSOR_REGRESSION_DIR) --mode compiled
+	$(PY) -m test.lib.triton_mutants --suite $(TENSOR_REGRESSION_DIR) \
+	  --output-dir build/tensor_cases/mutants --mode compiled
+	$(MAKE) test-triton-v2
 
 # Integration tests, grouped by the component under test. Each component
 # target is callable on its own (e.g. `make test-frontend`) so a developer

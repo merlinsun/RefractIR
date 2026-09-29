@@ -1,0 +1,1964 @@
+"""CLI tests for deterministic, property-directed tensor generation."""
+
+import hashlib
+import json
+import os
+import re
+import struct
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from test.lib.tensor_case import CaseValidationError, load_case
+from test.lib.tensor_coverage import source_signature
+from test.unit.tensor_support import ROOT, run_typed
+
+RYSMITH = Path(os.environ.get("REFRACTIR_RYSMITH", ROOT / "rysmith")).resolve()
+
+
+def generate(output_dir, *arguments, seed=3, target="sir"):
+  command = [
+    str(RYSMITH),
+    "--profile",
+    "tensor",
+    "--target",
+    target,
+    "--seed",
+    str(seed),
+    "--output-dir",
+    str(output_dir),
+    *arguments,
+  ]
+  return subprocess.run(
+    command,
+    capture_output=True,
+    text=True,
+    check=False,
+    timeout=30,
+  )
+
+
+def generate_v2(output_dir, *, seed=3):
+  return generate(
+    output_dir,
+    "-n",
+    "1",
+    "--tensor-dtype",
+    "i32",
+    "--tensor-profile-version",
+    "v2",
+    "--tensor-stratum",
+    "multi-input-composition",
+    seed=seed,
+  )
+
+
+def generate_v2_loop(output_dir, *, seed=3, dtype="i32", count=1):
+  return generate(
+    output_dir,
+    "-n",
+    str(count),
+    "--tensor-dtype",
+    dtype,
+    "--tensor-profile-version",
+    "v2",
+    "--tensor-stratum",
+    "loop-reduction",
+    seed=seed,
+  )
+
+
+def generate_v2_stratum(output_dir, stratum, *, seed=3, dtype="f32", count=1):
+  return generate(
+    output_dir,
+    "-n",
+    str(count),
+    "--tensor-dtype",
+    dtype,
+    "--tensor-profile-version",
+    "v2",
+    "--tensor-stratum",
+    stratum,
+    seed=seed,
+  )
+
+
+def generate_v3(
+  output_dir, *, stratum=None, pattern=None, seed=3, dtype="i32", count=1, target="sir"
+):
+  arguments = [
+    "-n",
+    str(count),
+    "--tensor-dtype",
+    dtype,
+    "--tensor-profile-version",
+    "v3",
+  ]
+  if stratum is not None:
+    arguments.extend(["--tensor-stratum", stratum])
+  if pattern is not None:
+    arguments.extend(["--tensor-input-pattern", pattern])
+  return generate(output_dir, *arguments, seed=seed, target=target)
+
+
+def generate_v4(
+  output_dir, *, mode, seed=3, count=1, target="sir", synthesis="construction"
+):
+  return generate(
+    output_dir,
+    "-n",
+    str(count),
+    "--tensor-dtype",
+    "f32",
+    "--tensor-profile-version",
+    "v4",
+    "--tensor-input-pattern",
+    mode,
+    "--tensor-synthesis",
+    synthesis,
+    seed=seed,
+    target=target,
+  )
+
+
+def read_summary(directory):
+  summary = Path(directory) / "generation.json"
+  if not summary.is_file():
+    raise AssertionError("tensor profile did not write its generation summary")
+  return json.loads(summary.read_text(encoding="utf-8"))
+
+
+def independently_sum_loop_case(case):
+  """Compute generated row-loop results from logical input values and source."""
+  manifest = case.manifest
+  buffer = manifest["inputs"][0]
+  rows, columns = buffer["shape"]
+  dtype_code = "i" if buffer["dtype"] == "i32" else "f"
+  input_values = struct.unpack(f"<{rows * columns}{dtype_code}", case.inputs)
+  bounds = manifest["execution"]["loop_bounds"]
+  iterations = 1
+  for bound in bounds:
+    iterations *= bound
+  source = case.program.decode("utf-8")
+  updates = source.count("%acc = tensor add %acc, %rows;")
+  repeat_scale = 1
+  if "tensor transpose %x" in source:
+    repeat_scale = columns
+  result = []
+  for row in range(rows):
+    row_sum = sum(input_values[row * columns : (row + 1) * columns])
+    result.append(row_sum * repeat_scale * iterations * updates)
+  return result
+
+
+def find_multi_input_loop_case(output_dir):
+  """Return a loop that reduces the two unchanged runtime inputs."""
+  for case_dir in sorted(Path(output_dir).glob("case_*")):
+    case = load_case(case_dir)
+    source = case.program.decode("utf-8")
+    if (
+      len(case.manifest["inputs"]) == 2
+      and case.manifest["execution"]["loop_bounds"]
+      and "tensor sum %x," in source
+      and "tensor sum %y," in source
+    ):
+      return case
+  return None
+
+
+def find_loop_carried_reduction_case(output_dir):
+  """Return a loop case that reduces its changing tensor accumulator state."""
+  for case_dir in sorted(Path(output_dir).glob("case_*")):
+    case = load_case(case_dir)
+    source = case.program.decode("utf-8")
+    if (
+      "tensor sum %acc_x, 1, drop" in source and "tensor sum %acc_y, 0, drop" in source
+    ):
+      return case
+  return None
+
+
+def loop_carried_tensor_updates(source):
+  """Map self-updated tensor loop variables to their body right-hand sides."""
+  tensor_variables = set(
+    re.findall(r"let mut (%[A-Za-z_][\w.$-]*):\s*tensor\b", source)
+  )
+  body = re.search(r"(?ms)^\^body:\n(.*?)(?=\^[A-Za-z_][A-Za-z0-9_]*:)", source)
+  if body is None:
+    return {}
+  updates = {}
+  for line in body.group(1).splitlines():
+    assignment = re.match(
+      r"\s*(%[A-Za-z_][\w.$-]*)\s*=\s*tensor\s+\w+\s+(.*?);\s*$", line
+    )
+    if assignment is None:
+      continue
+    name, rhs = assignment.groups()
+    if name in tensor_variables and name in re.findall(r"%[A-Za-z_][\w.$-]*", rhs):
+      updates.setdefault(name, []).append(rhs)
+  return updates
+
+
+class TensorGenerationTests(unittest.TestCase):
+  def setUp(self):
+    self.assertTrue(RYSMITH.is_file(), f"rysmith executable not found: {RYSMITH}")
+
+  def test_property_precedes_candidate_acceptance(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "f32",
+        "--tensor-property",
+        "softmax-dominance",
+        "--tensor-synthesis",
+        "construction",
+        "--max-retries",
+        "8",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      summary = read_summary(output_dir)
+      attempts = summary["attempts"]
+      self.assertTrue(any(item["outcome"] == "rejected" for item in attempts), attempts)
+      self.assertTrue(any(item["outcome"] == "accepted" for item in attempts), attempts)
+      property_ids = {item["property_id"] for item in attempts}
+      self.assertEqual(property_ids, {"softmax-dominance"})
+      source = (output_dir / "case_000000" / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("require", source)
+      self.assertIn("require %last > 0.8;", source)
+      manifest = json.loads(
+        (output_dir / "case_000000" / "case.json").read_text(encoding="utf-8")
+      )
+      self.assertEqual(manifest["property"]["threshold_f32_bits"], "3f4ccccd")
+
+  def test_seed_reproduces_case_bytes(self):
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first"
+      second = Path(directory) / "second"
+      args = ("-n", "2", "--tensor-dtype", "i32", "--tensor-property", "coordinates")
+      first_result = generate(first, *args)
+      second_result = generate(second, *args)
+
+      self.assertEqual(first_result.returncode, 0, first_result.stderr)
+      self.assertEqual(second_result.returncode, 0, second_result.stderr)
+      self.assertEqual(read_summary(first), read_summary(second))
+      for case_name in ("case_000000", "case_000001"):
+        for artifact in ("program.sir", "inputs.bin", "expected.bin", "case.json"):
+          with self.subTest(case=case_name, artifact=artifact):
+            self.assertEqual(
+              (first / case_name / artifact).read_bytes(),
+              (second / case_name / artifact).read_bytes(),
+            )
+
+  def test_tensor_profile_bypasses_scalar_checksum(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(output_dir, "-n", "1", "--tensor-dtype", "i32")
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case_dir = output_dir / "case_000000"
+      self.assertTrue((case_dir / "case.json").is_file())
+      self.assertTrue((case_dir / "program.sir").is_file())
+      self.assertTrue((case_dir / "inputs.bin").is_file())
+      self.assertTrue((case_dir / "expected.bin").is_file())
+      self.assertFalse(any(case_dir.glob("func_*.json")))
+      source = (case_dir / "program.sir").read_text(encoding="utf-8")
+      self.assertNotIn("SOLVED:", source)
+      self.assertNotIn("crc32", source.lower())
+
+  def test_requested_route_has_no_silent_fallback(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "f32",
+        "--tensor-property",
+        "softmax-dominance",
+        "--tensor-synthesis",
+        "exact",
+      )
+
+      self.assertNotEqual(result.returncode, 0)
+      summary = read_summary(output_dir)
+      self.assertEqual(summary["status"], "unsupported_theory")
+      self.assertEqual(summary["emitted"], 0)
+      self.assertFalse((output_dir / "case_000000").exists())
+      self.assertIn("exact", summary["reason"])
+
+  def test_attempt_budget_reports_shortfall(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "i32",
+        "--max-retries",
+        "0",
+      )
+
+      self.assertNotEqual(result.returncode, 0)
+      summary = read_summary(output_dir)
+      self.assertEqual(summary["status"], "shortfall")
+      self.assertEqual(summary["requested"], 1)
+      self.assertEqual(summary["emitted"], 0)
+      self.assertEqual(summary["rejected"], 0)
+
+  def test_target_sir_is_reemittable(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(output_dir, "-n", "1", "--tensor-dtype", "i32")
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = output_dir / "case_000000"
+      manifest = json.loads((case / "case.json").read_text(encoding="utf-8"))
+      self.assertEqual(manifest["profile"], "tensor-v1")
+      self.assertFalse((case / "kernel.py").exists())
+      emitted = subprocess.run(
+        [
+          str(ROOT / "symirc"),
+          "--target",
+          "triton",
+          "--entry",
+          "kernel",
+          "-o",
+          str(case / "kernel.py"),
+          str(case / "program.sir"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+      )
+
+      self.assertEqual(emitted.returncode, 0, emitted.stderr)
+      self.assertTrue((case / "kernel.py").is_file())
+      (case / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+  def test_exact_i32_route_materializes_a_replayable_case(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-property",
+        "coordinates",
+        "--tensor-synthesis",
+        "exact",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case_dir = output_dir / "case_000000"
+      case = load_case(case_dir)
+      manifest = case.manifest
+      self.assertEqual(manifest["evidence"]["kind"], "exact_smt")
+      self.assertEqual(manifest["generator"]["synthesis"], "exact")
+      replay, actual = run_typed(case.program.decode("utf-8"), case.inputs)
+      self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+      self.assertEqual(actual, case.expected)
+
+  def test_softmax_samples_shapes_axes_and_operator_compositions(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "24",
+        "--tensor-dtype",
+        "f32",
+        "--tensor-property",
+        "softmax-dominance",
+        "--tensor-synthesis",
+        "construction",
+        seed=0,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      sources = set()
+      shapes = set()
+      axes = set()
+      operators = set()
+      for index in range(24):
+        case = Path(directory) / "cases" / f"case_{index:06d}"
+        source = (case / "program.sir").read_text(encoding="utf-8")
+        manifest = json.loads((case / "case.json").read_text(encoding="utf-8"))
+        sources.add(source)
+        shapes.add(tuple(manifest["inputs"][0]["shape"]))
+        axes.update(item["axis"] for item in manifest["shape_axes"])
+        operators.update(manifest["operator_coverage"])
+
+      self.assertGreaterEqual(len(sources), 8)
+      self.assertGreaterEqual(len(shapes), 6)
+      self.assertGreaterEqual(len(axes), 3)
+      self.assertTrue(any(1 in shape for shape in shapes), shapes)
+      self.assertTrue(any(", -" in source for source in sources), sources)
+      self.assertTrue(
+        {
+          "softmax",
+          "transpose",
+          "rmax",
+          "expand",
+          "broadcast",
+          "min",
+          "max",
+          "exp",
+          "sum",
+          "div",
+        }
+        <= operators,
+        operators,
+      )
+
+  def test_exact_sum_target_keeps_solved_input_in_runtime_buffer(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-property",
+        "sum-target",
+        "--tensor-synthesis",
+        "exact",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case_dir = output_dir / "case_000000"
+      case = load_case(case_dir)
+      source = case.program.decode("utf-8")
+      self.assertIn("fun @kernel(%x: tensor [2, 4] i32)", source)
+      self.assertNotIn("sym %?x", source)
+      self.assertEqual(len(case.inputs), 32)
+      replay, actual = run_typed(source, case.inputs)
+      self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+      self.assertEqual(actual, case.expected)
+
+  def test_v2_two_runtime_inputs_affect_the_return(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2(output_dir, seed=17)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(len(case.manifest["inputs"]), 2)
+      self.assertEqual([item["name"] for item in case.manifest["inputs"]], ["a", "b"])
+      baseline, baseline_bytes = run_typed(
+        case.program.decode("utf-8"), case.inputs, tensor_profile="v2"
+      )
+      self.assertEqual(baseline.returncode, 0, baseline.stderr)
+      self.assertEqual(baseline_bytes, case.expected)
+      for buffer in case.manifest["inputs"]:
+        changed = bytearray(case.inputs)
+        offset = buffer["byte_offset"]
+        length = buffer["byte_length"]
+        changed[offset : offset + length] = bytes(length)
+        replay, changed_output = run_typed(
+          case.program.decode("utf-8"), bytes(changed), tensor_profile="v2"
+        )
+        self.assertEqual(replay.returncode, 0, replay.stderr)
+        self.assertNotEqual(changed_output, case.expected)
+
+  def test_v2_shared_intermediate_has_multiple_live_consumers(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2(output_dir)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      source = (output_dir / "case_000000" / "program.sir").read_text(encoding="utf-8")
+      self.assertGreaterEqual(source.count("%transposed"), 4, source)
+      self.assertIn("tensor sum", source)
+      self.assertRegex(
+        source,
+        r"%out = tensor (add|sub|min|max) %transposed, %broadcasted;",
+      )
+
+  def test_v2_transpose_reduce_broadcast_arithmetic_shapes_match_reference(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2(output_dir)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      source = case.program.decode("utf-8")
+      operators = case.manifest["operator_coverage"]
+      self.assertTrue({"transpose", "sum", "expand", "broadcast"} <= set(operators))
+      self.assertTrue(set(operators) & {"add", "sub", "min", "max"})
+      self.assertLess(source.index("tensor transpose"), source.index("tensor sum"))
+      self.assertLess(source.index("tensor sum"), source.index("tensor expand"))
+      self.assertLess(source.index("tensor expand"), source.index("tensor broadcast"))
+      self.assertLess(source.index("tensor broadcast"), source.index("%out = tensor "))
+      input_shape = case.manifest["inputs"][0]["shape"]
+      transposed_shape = case.manifest["execution"]["full_shapes"][1]
+      permutation = [
+        int(value)
+        for value in re.search(r"tensor transpose %[^,]+, \[([^]]+)\]", source)
+        .group(1)
+        .split(",")
+      ]
+      self.assertNotEqual(permutation, list(range(len(input_shape))))
+      self.assertEqual(transposed_shape, [input_shape[axis] for axis in permutation])
+      self.assertEqual(case.signature["output"]["shape"], transposed_shape)
+      self.assertEqual(case.manifest["execution"]["full_shapes"][0], input_shape)
+      self.assertEqual(case.manifest["execution"]["full_shapes"][1], transposed_shape)
+      replay, actual = run_typed(source, case.inputs, tensor_profile="v2")
+      self.assertEqual(replay.returncode, 0, replay.stderr)
+      self.assertEqual(actual, case.expected)
+
+  def test_v2_seed_reproduces_graph_inputs_output_and_layout(self):
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first"
+      second = Path(directory) / "second"
+      first_result = generate_v2(first, seed=71)
+      second_result = generate_v2(second, seed=71)
+
+      self.assertEqual(first_result.returncode, 0, first_result.stderr)
+      self.assertEqual(second_result.returncode, 0, second_result.stderr)
+      for name in ("program.sir", "inputs.bin", "expected.bin", "case.json"):
+        self.assertEqual(
+          (first / "case_000000" / name).read_bytes(),
+          (second / "case_000000" / name).read_bytes(),
+          name,
+        )
+      first_case = json.loads((first / "case_000000" / "case.json").read_text())
+      first_source = (first / "case_000000" / "program.sir").read_text()
+      self.assertEqual(
+        first_case["coverage"]["source_signature"], source_signature(first_source)
+      )
+
+  def test_v2_manifest_uses_profile_schema_and_sha256_artifact_hashes(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2(output_dir)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case_dir = output_dir / "case_000000"
+      manifest = json.loads((case_dir / "case.json").read_text(encoding="utf-8"))
+      self.assertEqual(manifest["schema"], "refractir.tensor-case.v2")
+      self.assertEqual(manifest["profile"], "tensor-v2")
+      self.assertEqual(
+        manifest["coverage"]["primary_stratum"], "multi-input-composition"
+      )
+      self.assertEqual(load_case(case_dir).manifest, manifest)
+
+  def test_v2_loop_stratum_emits_counted_accumulator_reduction(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=83)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      source = case.program.decode("utf-8")
+      self.assertRegex(source, r"br %i < [234], \^body, \^exit;")
+      self.assertRegex(source, r"tensor sum %(?:x|transposed|acc_x|acc_y), [01], drop")
+      self.assertRegex(
+        source,
+        r"%acc(?:_[xy])? = tensor add %acc(?:_[xy])?, "
+        r"%(?:rows(?:_[xy])?|broadcast_[xy]);",
+      )
+      self.assertEqual(case.manifest["coverage"]["primary_stratum"], "loop-reduction")
+
+  def test_v2_loop_input_is_runtime_and_physically_strided(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      shape = case.manifest["inputs"][0]["shape"]
+      self.assertEqual([item["name"] for item in case.manifest["inputs"]], ["x"])
+      self.assertEqual(len(shape), 2)
+      self.assertEqual(case.manifest["inputs"][0]["element_strides"], [1, shape[0]])
+      self.assertEqual(case.manifest["inputs"][0]["axis_order"], [0, 1])
+      self.assertEqual(len(case.inputs), shape[0] * shape[1] * 4)
+      self.assertIn("%x", case.program.decode("utf-8"))
+
+  def test_v2_loop_manifest_records_bound_and_execution_count(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      execution = case.manifest["execution"]
+      bounds = execution["loop_bounds"]
+      self.assertIn(len(bounds), {1, 2})
+      self.assertTrue(all(2 <= bound <= 4 for bound in bounds), bounds)
+      expected_body_executions = (
+        bounds[0] if len(bounds) == 1 else bounds[0] + bounds[0] * bounds[1]
+      )
+      self.assertEqual(execution["total_body_executions"], expected_body_executions)
+      self.assertLessEqual(execution["total_body_executions"], 8)
+      self.assertEqual(execution["full_shapes"][0], case.manifest["inputs"][0]["shape"])
+      self.assertEqual(execution["full_shapes"][-1], case.manifest["output"]["shape"])
+
+  def test_v2_loop_seed_reproduces_program_inputs_and_expected_output(self):
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first"
+      second = Path(directory) / "second"
+      first_result = generate_v2_loop(first, seed=109)
+      second_result = generate_v2_loop(second, seed=109)
+
+      self.assertEqual(first_result.returncode, 0, first_result.stderr)
+      self.assertEqual(second_result.returncode, 0, second_result.stderr)
+      for name in ("program.sir", "inputs.bin", "expected.bin", "case.json"):
+        self.assertEqual(
+          (first / "case_000000" / name).read_bytes(),
+          (second / "case_000000" / name).read_bytes(),
+          name,
+        )
+
+  def test_v2_loop_expected_values_match_independent_row_sum(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=211)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      scalar_code = "i" if case.manifest["output"]["dtype"] == "i32" else "f"
+      actual = struct.unpack(f"<{len(case.expected) // 4}{scalar_code}", case.expected)
+      self.assertEqual(list(actual), independently_sum_loop_case(case))
+
+  def test_v2_loop_schedule_emits_nested_counted_loop(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=2, count=20)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      nested_sources = [
+        (output_dir / f"case_{index:06d}" / "program.sir").read_text(encoding="utf-8")
+        for index in range(20)
+        if "^outer_header:"
+        in (output_dir / f"case_{index:06d}" / "program.sir").read_text(
+          encoding="utf-8"
+        )
+      ]
+      self.assertTrue(nested_sources, "no nested counted loop was generated")
+      self.assertTrue(
+        all(
+          "^inner_header:" in source and "%inner = 0;" in source
+          for source in nested_sources
+        )
+      )
+
+  def test_v2_nested_loop_records_total_body_execution_bound(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=4, count=20)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      nested_cases = [
+        load_case(output_dir / f"case_{index:06d}")
+        for index in range(20)
+        if len(
+          json.loads(
+            (output_dir / f"case_{index:06d}" / "case.json").read_text(encoding="utf-8")
+          )["execution"]["loop_bounds"]
+        )
+        == 2
+      ]
+      self.assertTrue(nested_cases, "no nested counted loop was generated")
+      execution = nested_cases[0].manifest["execution"]
+      outer, inner = execution["loop_bounds"]
+      self.assertEqual(outer, 2)
+      self.assertIn(inner, {2, 3})
+      self.assertEqual(execution["total_body_executions"], outer + outer * inner)
+
+  def test_v2_nested_loop_resets_inner_counter_on_each_outer_entry(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=6, count=20)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      nested_sources = [
+        (output_dir / f"case_{index:06d}" / "program.sir").read_text(encoding="utf-8")
+        for index in range(20)
+        if "^outer_header:"
+        in (output_dir / f"case_{index:06d}" / "program.sir").read_text(
+          encoding="utf-8"
+        )
+      ]
+      self.assertTrue(nested_sources, "no nested counted loop was generated")
+      source = nested_sources[0]
+      outer_body = source.split("^outer_body:", maxsplit=1)[1].split(
+        "^inner_header:", maxsplit=1
+      )[0]
+      self.assertIn("%inner = 0;", outer_body)
+
+  def test_v2_loop_accumulator_matches_all_loop_iterations(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=8)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      expected = struct.unpack(f"<{len(case.expected) // 4}i", case.expected)
+      self.assertEqual(list(expected), independently_sum_loop_case(case))
+
+  def test_v2_loop_seed_reproduces_all_case_artifacts(self):
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first"
+      second = Path(directory) / "second"
+      first_result = generate_v2_loop(first, seed=10, count=20)
+      second_result = generate_v2_loop(second, seed=10, count=20)
+
+      self.assertEqual(first_result.returncode, 0, first_result.stderr)
+      self.assertEqual(second_result.returncode, 0, second_result.stderr)
+      first_bounds = []
+      for index in range(20):
+        first_case = first / f"case_{index:06d}"
+        second_case = second / f"case_{index:06d}"
+        manifest = json.loads((first_case / "case.json").read_text(encoding="utf-8"))
+        first_bounds.append(manifest["execution"]["loop_bounds"])
+        for name in ("program.sir", "inputs.bin", "expected.bin", "case.json"):
+          self.assertEqual(
+            (first_case / name).read_bytes(),
+            (second_case / name).read_bytes(),
+            f"{index}: {name}",
+          )
+      self.assertTrue(any(len(bounds) == 2 for bounds in first_bounds))
+
+  def test_v2_loop_f32_reference_is_stable_and_runtime_backed(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=307, dtype="f32")
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(case.manifest["comparison"]["mode"], "numeric")
+      self.assertEqual(case.manifest["reference"]["stable"], True)
+      replay, actual = run_typed(
+        case.program.decode("utf-8"),
+        case.inputs,
+        tensor_profile="v2",
+        reference_stability=True,
+      )
+      self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+      self.assertEqual(actual, case.expected)
+
+  def test_v2_compositions_sample_shapes_axes_and_source_structures(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "12",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-profile-version",
+        "v2",
+        "--tensor-stratum",
+        "multi-input-composition",
+        seed=0,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      signatures = set()
+      input_shapes = set()
+      reductions = set()
+      for index in range(12):
+        case_dir = output_dir / f"case_{index:06d}"
+        case = load_case(case_dir)
+        signatures.add(case.manifest["coverage"]["source_signature"])
+        input_shapes.add(tuple(case.manifest["inputs"][0]["shape"]))
+        reductions.update(item["axis"] for item in case.manifest["shape_axes"])
+      self.assertGreaterEqual(len(signatures), 4)
+      self.assertGreaterEqual(len(input_shapes), 3)
+      self.assertGreaterEqual(len(reductions), 2)
+
+  def test_v2_layout_stratum_generates_unary_bit_preserving_case(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(output_dir, "bit-preserving-f32-layout", seed=401)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      manifest = case.manifest
+      self.assertEqual(
+        manifest["coverage"]["primary_stratum"], "bit-preserving-f32-layout"
+      )
+      self.assertEqual(len(manifest["inputs"]), 1)
+      self.assertEqual(manifest["comparison"]["mode"], "exact")
+      self.assertEqual(manifest["output"]["dtype"], "f32")
+      self.assertIn("tensor transpose", case.program.decode("utf-8"))
+
+  def test_v2_layout_case_preserves_signed_zero_and_subnormal_bits(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(output_dir, "bit-preserving-f32-layout", seed=409)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertIn(struct.pack("<I", 0x80000000), case.inputs)
+      self.assertIn(struct.pack("<I", 0x00000001), case.inputs)
+      replay, actual = run_typed(
+        case.program.decode("utf-8"), case.inputs, tensor_profile="v2"
+      )
+      self.assertEqual(replay.returncode, 0, replay.stderr)
+      self.assertEqual(actual, case.expected)
+
+  def test_v2_exact_reduction_records_complete_output_proof(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(output_dir, "exact-f32-reduction", seed=419)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(case.manifest["comparison"]["mode"], "exact")
+      proof = case.manifest["reference"]["exactness"]
+      self.assertEqual(proof["kind"], "integer-valued-f32-reduction")
+      self.assertTrue(proof["complete_output"])
+      self.assertLessEqual(proof["max_abs_leaf_sum"], 2**24)
+      self.assertEqual(proof["signed_zero"], "positive-zero-only")
+
+  def test_v2_exact_reduction_uses_runtime_input_and_bitwise_reference(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(output_dir, "exact-f32-reduction", seed=421)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertIn("%x", case.program.decode("utf-8"))
+      self.assertEqual(case.manifest["inputs"][0]["name"], "x")
+      replay, actual = run_typed(
+        case.program.decode("utf-8"),
+        case.inputs,
+        tensor_profile="v2",
+        reference_stability=True,
+      )
+      self.assertEqual(replay.returncode, 0, replay.stderr)
+      self.assertEqual(actual, case.expected)
+
+  def test_v2_exact_reduction_proof_does_not_extend_through_exp(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(output_dir, "exact-f32-reduction", seed=427)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case_dir = output_dir / "case_000000"
+      case = load_case(case_dir)
+      output_shape = case.manifest["output"]["shape"]
+      output_type = (
+        "f32"
+        if not output_shape
+        else f"tensor [{', '.join(map(str, output_shape))}] f32"
+      )
+      source = case.program.decode("utf-8")
+      source = source.replace(
+        f"  let mut %out: {output_type} = undef;",
+        f"  let mut %tmp: {output_type} = undef;\n  let mut %out: {output_type} = undef;",
+      )
+      source = source.replace("%out = tensor sum", "%tmp = tensor sum")
+      source = source.replace("  ret %out;", "  %out = tensor exp %tmp;\n  ret %out;")
+      (case_dir / "program.sir").write_text(source, encoding="utf-8")
+      manifest = case.manifest
+      digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+      manifest["source"]["sha256"] = digest
+      manifest["files"]["program.sir"]["bytes"] = len(source.encode("utf-8"))
+      manifest["files"]["program.sir"]["sha256"] = digest
+      manifest["coverage"]["source_signature"] = source_signature(source)
+      manifest["operator_coverage"] = ["sum", "exp"]
+      (case_dir / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+      with self.assertRaisesRegex(CaseValidationError, "exact f32 proof"):
+        load_case(case_dir)
+
+  def test_v2_f32_composition_with_arithmetic_remains_numerical(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "multi-input-composition", seed=431, dtype="f32"
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(case.manifest["comparison"]["mode"], "numeric")
+      self.assertNotIn("exactness", case.manifest["reference"])
+
+  def test_v2_primary_quota_constructs_layout_and_exact_reductions(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(output_dir, "", seed=443, dtype="f32", count=10)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      strata = [
+        load_case(output_dir / f"case_{index:06d}").manifest["coverage"][
+          "primary_stratum"
+        ]
+        for index in range(10)
+      ]
+      self.assertEqual(strata.count("bit-preserving-f32-layout"), 2)
+      self.assertEqual(strata.count("exact-f32-reduction"), 2)
+      quotas = read_summary(output_dir)["stratum_quotas"]
+      self.assertEqual([item["shortfall"] for item in quotas], [0] * 5)
+
+  def test_v2_untargeted_stratum_uses_its_own_unary_graph(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "untargeted-exploration", seed=449, dtype="i32"
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(len(case.manifest["inputs"]), 1)
+      self.assertEqual(
+        case.manifest["coverage"]["primary_stratum"], "untargeted-exploration"
+      )
+      self.assertIn("tensor sum", case.program.decode("utf-8"))
+
+  def test_v2_launch_warp_count_is_selected_from_case_seed(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      seed = 55
+      result = generate_v2_stratum(
+        output_dir, "multi-input-composition", seed=seed, dtype="i32"
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      manifest = json.loads(
+        (output_dir / "case_000000" / "case.json").read_text(encoding="utf-8")
+      )
+      case_seed = manifest["source"]["seed"]
+      self.assertGreaterEqual(case_seed, seed)
+      self.assertIn(manifest["launch"]["num_warps"], {1, 2, 4, 8})
+
+  def test_v2_warp_probe_initial_record_matches_launch(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      seed = 62
+      result = generate_v2_stratum(
+        output_dir, "multi-input-composition", seed=seed, dtype="i32"
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      manifest = json.loads(
+        (output_dir / "case_000000" / "case.json").read_text(encoding="utf-8")
+      )
+      self.assertEqual(
+        manifest["execution"]["warp_probe"]["num_warps"],
+        manifest["launch"]["num_warps"],
+      )
+
+  def test_v2_warp_schedule_covers_all_profile_counts(self):
+    selected = []
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(16):
+        output_dir = Path(directory) / str(seed)
+        result = generate_v2_stratum(
+          output_dir, "multi-input-composition", seed=seed, dtype="i32"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = json.loads(
+          (output_dir / "case_000000" / "case.json").read_text(encoding="utf-8")
+        )
+        selected.append(manifest["launch"]["num_warps"])
+
+    self.assertEqual(set(selected), {1, 2, 4, 8})
+
+  def test_v2_adjacent_case_seeds_change_warp_setting(self):
+    selected = []
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in (100, 101):
+        output_dir = Path(directory) / str(seed)
+        result = generate_v2_stratum(
+          output_dir, "multi-input-composition", seed=seed, dtype="i32"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = json.loads(
+          (output_dir / "case_000000" / "case.json").read_text(encoding="utf-8")
+        )
+        selected.append(manifest["launch"]["num_warps"])
+
+      self.assertNotEqual(selected[0], selected[1])
+
+  def test_v4_paired_input_modes_keep_graph_and_launch_fixed(self):
+    with tempfile.TemporaryDirectory() as directory:
+      ordinary_dir = Path(directory) / "ordinary"
+      boundary_dir = Path(directory) / "boundary"
+      ordinary_result = generate_v4(ordinary_dir, mode="ordinary", seed=907)
+      boundary_result = generate_v4(boundary_dir, mode="boundary-value", seed=907)
+
+      self.assertEqual(
+        ordinary_result.returncode, 0, ordinary_result.stdout + ordinary_result.stderr
+      )
+      self.assertEqual(
+        boundary_result.returncode, 0, boundary_result.stdout + boundary_result.stderr
+      )
+      ordinary = load_case(ordinary_dir / "case_000000")
+      boundary = load_case(boundary_dir / "case_000000")
+      self.assertEqual(ordinary.program, boundary.program)
+      self.assertEqual(
+        ordinary.manifest["coverage"]["source_signature"],
+        boundary.manifest["coverage"]["source_signature"],
+      )
+      self.assertEqual(ordinary.manifest["launch"], boundary.manifest["launch"])
+      self.assertEqual(ordinary.manifest["launch"]["num_warps"], 1)
+      self.assertEqual(ordinary.manifest["generator"]["input_mode"], "ordinary")
+      self.assertEqual(boundary.manifest["generator"]["input_mode"], "boundary-value")
+      self.assertNotEqual(ordinary.inputs, boundary.inputs)
+      for case in (ordinary, boundary):
+        self.assertEqual(case.manifest["schema"], "refractir.tensor-case.v4")
+        self.assertEqual(case.manifest["comparison"]["zero_sign_exact"], True)
+        replay, actual = run_typed(
+          case.program.decode("utf-8"), case.inputs, tensor_profile="v4"
+        )
+        self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+        self.assertEqual(actual, case.expected)
+
+  def test_v4_boundary_schedule_covers_each_declared_family(self):
+    required = {
+      "signed-zero",
+      "small-integer",
+      "power-of-two",
+      "repeated-value",
+      "exact-multiple",
+      "mixed-sign",
+    }
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v4(output_dir, mode="boundary-value", seed=911, count=12)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      cases = [load_case(output_dir / f"case_{index:06d}") for index in range(12)]
+      patterns = {
+        case.manifest["coverage"]["input_behavior"]["pattern"] for case in cases
+      }
+      self.assertTrue(required <= patterns, patterns)
+      for case in cases:
+        self.assertEqual(
+          case.manifest["coverage"]["input_behavior"]["input_mode"], "boundary-value"
+        )
+        self.assertEqual(case.manifest["launch"]["num_warps"], 1)
+
+  def test_v4_rejects_solver_synthesis_route(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v4(output_dir, mode="ordinary", synthesis="exact")
+
+      self.assertNotEqual(result.returncode, 0)
+      summary = read_summary(output_dir)
+      self.assertEqual(summary["status"], "unsupported_route")
+      self.assertEqual(summary["emitted"], 0)
+
+  def test_v2_warp_setting_is_repeatable_for_same_seed(self):
+    selected = []
+    with tempfile.TemporaryDirectory() as directory:
+      for repeat in range(2):
+        output_dir = Path(directory) / str(repeat)
+        result = generate_v2_stratum(
+          output_dir, "multi-input-composition", seed=111, dtype="i32"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = json.loads(
+          (output_dir / "case_000000" / "case.json").read_text(encoding="utf-8")
+        )
+        selected.append((manifest["source"]["seed"], manifest["launch"]["num_warps"]))
+
+    self.assertEqual(selected[0], selected[1])
+    self.assertIn(selected[0][1], {1, 2, 4, 8})
+
+  def test_v2_composition_graph_depth_varies_with_seed(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir,
+        "multi-input-composition",
+        seed=17,
+        dtype="i32",
+        count=8,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      depths = {
+        len(
+          json.loads(
+            (output_dir / f"case_{index:06d}" / "case.json").read_text(encoding="utf-8")
+          )["operator_coverage"]
+        )
+        for index in range(8)
+      }
+      self.assertGreater(len(depths), 1)
+      self.assertTrue(all(3 <= depth <= 12 for depth in depths), depths)
+
+  def test_v2_composition_samples_min_and_max_operations(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir,
+        "multi-input-composition",
+        seed=23,
+        dtype="i32",
+        count=24,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      operators = set()
+      for index in range(24):
+        manifest = json.loads(
+          (output_dir / f"case_{index:06d}" / "case.json").read_text(encoding="utf-8")
+        )
+        operators.update(manifest["operator_coverage"])
+      self.assertTrue({"min", "max"}.issubset(operators), operators)
+
+  def test_v2_f32_composition_can_include_exp(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir,
+        "multi-input-composition",
+        seed=29,
+        dtype="f32",
+        count=24,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      operators = set()
+      for index in range(24):
+        manifest = json.loads(
+          (output_dir / f"case_{index:06d}" / "case.json").read_text(encoding="utf-8")
+        )
+        operators.update(manifest["operator_coverage"])
+      self.assertIn("exp", operators)
+
+  def test_v2_composition_includes_symmetric_reduction_shapes(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir,
+        "multi-input-composition",
+        seed=31,
+        dtype="i32",
+        count=64,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      input_shapes = {
+        tuple(
+          json.loads(
+            (output_dir / f"case_{index:06d}" / "case.json").read_text(encoding="utf-8")
+          )["inputs"][0]["shape"]
+        )
+        for index in range(64)
+      }
+      self.assertTrue({(4, 4), (4, 4, 4)}.issubset(input_shapes), input_shapes)
+
+  def test_v2_composition_has_shared_runtime_fanout(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "multi-input-composition", seed=37, dtype="i32"
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      source = (output_dir / "case_000000" / "program.sir").read_text(encoding="utf-8")
+      self.assertGreaterEqual(source.count("%mixed"), 4, source)
+
+  def test_v2_composition_counterfactually_depends_on_each_input(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2(output_dir, seed=2802362399)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case_dir = output_dir / "case_000000"
+      source = (case_dir / "program.sir").read_text(encoding="utf-8")
+      manifest = json.loads((case_dir / "case.json").read_text(encoding="utf-8"))
+      witnesses = manifest["coverage"]["input_behavior"]["counterfactual_inputs"]
+      self.assertEqual({item["input"] for item in witnesses}, {"a", "b"})
+      self.assertTrue(all(item["outputs_differ"] for item in witnesses))
+      original = bytearray((case_dir / "inputs.bin").read_bytes())
+      baseline_result, baseline = run_typed(
+        source, bytes(original), tensor_profile="v2"
+      )
+      self.assertEqual(
+        baseline_result.returncode, 0, baseline_result.stdout + baseline_result.stderr
+      )
+      influenced_inputs = set()
+      for input_index, buffer in enumerate(manifest["inputs"]):
+        begin = buffer["byte_offset"]
+        end = begin + buffer["byte_length"]
+        for replacement in (1, 4):
+          changed = bytearray(original)
+          for offset in range(begin, end, 4):
+            changed[offset : offset + 4] = struct.pack("<i", replacement)
+          probe_result, output = run_typed(source, bytes(changed), tensor_profile="v2")
+          self.assertEqual(
+            probe_result.returncode, 0, probe_result.stdout + probe_result.stderr
+          )
+          if output != baseline:
+            influenced_inputs.add(input_index)
+            break
+
+      self.assertEqual(influenced_inputs, set(range(len(manifest["inputs"]))), source)
+
+  def test_v2_triton_generation_uses_each_case_input_layout(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-profile-version",
+        "v2",
+        "--tensor-stratum",
+        "loop-reduction",
+        seed=1,
+        target="triton",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case_dir = output_dir / "case_000000"
+      manifest = json.loads((case_dir / "case.json").read_text(encoding="utf-8"))
+      kernel = (case_dir / "kernel.py").read_text(encoding="utf-8")
+
+      row_count = manifest["inputs"][0]["shape"][0]
+      self.assertEqual(manifest["inputs"][0]["element_strides"], [1, row_count])
+      self.assertIn(f"_sir_x_offsets = _sir_x_d0 + _sir_x_d1 * {row_count}", kernel)
+
+  def test_v2_loop_reduction_has_at_least_three_structural_signatures(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "loop-reduction", seed=7300, dtype="f32", count=40
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      signatures = set()
+      for index in range(40):
+        case_dir = output_dir / f"case_{index:06d}"
+        source = (case_dir / "program.sir").read_text(encoding="utf-8")
+        signatures.add(source_signature(source))
+
+      self.assertGreaterEqual(len(signatures), 3)
+
+  def test_v2_loop_reduction_places_reductions_inside_and_before_loops(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "loop-reduction", seed=8100, dtype="f32", count=40
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      placements = set()
+      for index in range(40):
+        source = (output_dir / f"case_{index:06d}" / "program.sir").read_text(
+          encoding="utf-8"
+        )
+        header = re.search(r"\^(?:header|inner_header):", source)
+        self.assertIsNotNone(header, source)
+        reduction = source.index("tensor sum")
+        placements.add("before" if reduction < header.start() else "inside")
+
+      self.assertEqual(placements, {"before", "inside"})
+
+  def test_v2_loop_reduction_composes_live_transpose_and_broadcast(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "loop-reduction", seed=9100, dtype="f32", count=40
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      candidate = None
+      for index in range(40):
+        case = load_case(output_dir / f"case_{index:06d}")
+        source = case.program.decode("utf-8")
+        if all(
+          operation in source
+          for operation in (
+            "tensor transpose %x",
+            "tensor sum",
+            "tensor expand",
+            "tensor broadcast",
+            "tensor add %acc",
+          )
+        ):
+          candidate = case
+          break
+
+      self.assertIsNotNone(candidate, "no loop candidate contains the composition")
+      source = candidate.program.decode("utf-8")
+      self.assertIn("ret %acc;", source)
+      replay, baseline = run_typed(source, candidate.inputs, tensor_profile="v2")
+      self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+      self.assertEqual(baseline, candidate.expected)
+      replay, zeroed = run_typed(
+        source, bytes(len(candidate.inputs)), tensor_profile="v2"
+      )
+      self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+      self.assertNotEqual(zeroed, baseline)
+
+  def test_v2_loop_structure_and_warp_count_are_independently_sampled(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "loop-reduction", seed=10100, dtype="f32", count=80
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      warp_counts = {"single": set(), "nested": set()}
+      for index in range(80):
+        case_dir = output_dir / f"case_{index:06d}"
+        source = (case_dir / "program.sir").read_text(encoding="utf-8")
+        manifest = json.loads((case_dir / "case.json").read_text(encoding="utf-8"))
+        form = "nested" if "^outer_header:" in source else "single"
+        warp_counts[form].add(manifest["launch"]["num_warps"])
+
+      self.assertEqual(warp_counts["single"], {1, 2, 4, 8})
+      self.assertEqual(warp_counts["nested"], {1, 2, 4, 8})
+
+  def test_v2_default_schedule_reaches_single_loop_f32_at_every_warp_count(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "100",
+        "--tensor-dtype",
+        "auto",
+        "--tensor-profile-version",
+        "v2",
+        seed=20260926,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      single_loop_warps = set()
+      nested_loop_count = 0
+      for index in range(100):
+        case_dir = output_dir / f"case_{index:06d}"
+        source = (case_dir / "program.sir").read_text(encoding="utf-8")
+        manifest = json.loads((case_dir / "case.json").read_text(encoding="utf-8"))
+        if manifest["coverage"]["primary_stratum"] != "loop-reduction":
+          continue
+        self.assertEqual(manifest["inputs"][0]["dtype"], "f32")
+        if "^outer_header:" in source:
+          nested_loop_count += 1
+        else:
+          single_loop_warps.add(manifest["launch"]["num_warps"])
+
+      self.assertGreater(nested_loop_count, 0)
+      self.assertEqual(single_loop_warps, {1, 2, 4, 8})
+
+  def test_v2_loop_reduction_varies_shapes_and_bounded_trip_counts(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_stratum(
+        output_dir, "loop-reduction", seed=12100, dtype="f32", count=40
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      shapes = set()
+      loop_bounds = set()
+      for index in range(40):
+        case = load_case(output_dir / f"case_{index:06d}")
+        execution = case.manifest["execution"]
+        shapes.add(tuple(case.manifest["inputs"][0]["shape"]))
+        loop_bounds.add(tuple(execution["loop_bounds"]))
+        self.assertGreaterEqual(execution["total_body_executions"], 1)
+        self.assertLessEqual(execution["total_body_executions"], 8)
+        self.assertLessEqual(max(execution["loop_bounds"]), 4)
+
+      self.assertGreaterEqual(len(shapes), 2)
+      self.assertGreaterEqual(len(loop_bounds), 2)
+      self.assertIn((256, 2), shapes)
+
+  def test_v2_loop_reduction_generates_two_runtime_inputs(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=17001, dtype="i32", count=48)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_multi_input_loop_case(output_dir)
+      self.assertIsNotNone(case, "no loop-reduction case has two runtime inputs")
+      if case is None:
+        return
+      self.assertEqual({item["name"] for item in case.manifest["inputs"]}, {"x", "y"})
+
+  def test_v2_multi_input_loop_has_two_tensor_carried_accumulators(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=17002, dtype="i32", count=48)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_multi_input_loop_case(output_dir)
+      self.assertIsNotNone(case, "no loop-reduction case has two runtime inputs")
+      if case is None:
+        return
+      updates = loop_carried_tensor_updates(case.program.decode("utf-8"))
+      self.assertGreaterEqual(len(updates), 2, updates)
+
+  def test_v2_multi_input_loop_accumulators_have_a_cross_dependency(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=17003, dtype="i32", count=48)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_multi_input_loop_case(output_dir)
+      self.assertIsNotNone(case, "no loop-reduction case has two runtime inputs")
+      if case is None:
+        return
+      updates = loop_carried_tensor_updates(case.program.decode("utf-8"))
+      self.assertGreaterEqual(len(updates), 2, updates)
+      cross_dependency = any(
+        other != target
+        and any(other in re.findall(r"%[A-Za-z_][\w.$-]*", rhs) for rhs in rhs_values)
+        for target, rhs_values in updates.items()
+        for other in updates
+      )
+      self.assertTrue(cross_dependency, updates)
+
+  def test_v2_multi_input_loop_uses_distinct_physical_layouts(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=17004, dtype="i32", count=48)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_multi_input_loop_case(output_dir)
+      self.assertIsNotNone(case, "no loop-reduction case has two runtime inputs")
+      if case is None:
+        return
+      layouts = {
+        (tuple(item["element_strides"]), tuple(item["axis_order"]))
+        for item in case.manifest["inputs"]
+      }
+      self.assertEqual(len(layouts), 2, layouts)
+      self.assertEqual({axis_order for _, axis_order in layouts}, {(0, 1), (1, 0)})
+
+  def test_v2_multi_input_loop_proves_each_input_changes_the_returned_output(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=17005, dtype="i32", count=48)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_multi_input_loop_case(output_dir)
+      self.assertIsNotNone(case, "no loop-reduction case has two runtime inputs")
+      if case is None:
+        return
+      source = case.program.decode("utf-8")
+      witnesses = case.manifest["coverage"]["input_behavior"]["counterfactual_inputs"]
+      self.assertEqual(
+        {item["input"] for item in witnesses},
+        {item["name"] for item in case.manifest["inputs"]},
+      )
+      self.assertTrue(all(item["outputs_differ"] for item in witnesses), witnesses)
+
+      rows, columns = case.manifest["inputs"][0]["shape"]
+      logical_values = {}
+      for item in case.manifest["inputs"]:
+        begin = item["byte_offset"]
+        end = begin + item["byte_length"]
+        logical_values[item["name"]] = struct.unpack(
+          f"<{rows * columns}i", case.inputs[begin:end]
+        )
+      row_sums_x = [
+        sum(logical_values["x"][row * columns + column] for row in range(rows))
+        for column in range(columns)
+      ]
+      row_sums_y = [
+        sum(logical_values["y"][row * columns : (row + 1) * columns])
+        for row in range(rows)
+      ]
+      acc_x = [0] * columns
+      acc_y = [0] * rows
+      loop_bounds = case.manifest["execution"]["loop_bounds"]
+      self.assertEqual(len(loop_bounds), 1, loop_bounds)
+      trip_count = loop_bounds[0]
+      for _ in range(trip_count):
+        acc_x = [left + right for left, right in zip(acc_x, row_sums_x)]
+        acc_y = [left + right for left, right in zip(acc_y, row_sums_y)]
+        acc_y = [left + right for left, right in zip(acc_y, acc_x)]
+      independent = [left + right for left, right in zip(acc_x, acc_y)]
+      self.assertEqual(
+        list(struct.unpack(f"<{len(case.expected) // 4}i", case.expected)),
+        independent,
+      )
+
+      baseline_run, baseline = run_typed(source, case.inputs, tensor_profile="v2")
+      self.assertEqual(
+        baseline_run.returncode, 0, baseline_run.stdout + baseline_run.stderr
+      )
+      self.assertEqual(baseline, case.expected)
+      for item in case.manifest["inputs"]:
+        changed = bytearray(case.inputs)
+        start = item["byte_offset"]
+        end = start + item["byte_length"]
+        changed[start:end] = bytes(end - start)
+        probe_run, output = run_typed(source, bytes(changed), tensor_profile="v2")
+        self.assertEqual(probe_run.returncode, 0, probe_run.stdout + probe_run.stderr)
+        self.assertNotEqual(output, baseline, item["name"])
+
+  def test_v2_multi_input_loop_emits_each_physical_input_layout(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate(
+        output_dir,
+        "-n",
+        "48",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-profile-version",
+        "v2",
+        "--tensor-stratum",
+        "loop-reduction",
+        seed=17006,
+        target="triton",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_multi_input_loop_case(output_dir)
+      self.assertIsNotNone(case, "no Triton loop case has two runtime inputs")
+      if case is None:
+        return
+      kernel = (case.path / "kernel.py").read_text(encoding="utf-8")
+      x_shape = case.manifest["inputs"][0]["shape"]
+      y_shape = case.manifest["inputs"][1]["shape"]
+      self.assertEqual(x_shape, y_shape)
+      rows, columns = x_shape
+      self.assertEqual(case.manifest["inputs"][0]["element_strides"], [1, rows])
+      self.assertEqual(case.manifest["inputs"][1]["element_strides"], [columns, 1])
+      self.assertIn(f"_sir_x_offsets = _sir_x_d0 + _sir_x_d1 * {rows}", kernel)
+      self.assertIn(f"_sir_y_offsets = _sir_y_d0 * {columns} + _sir_y_d1", kernel)
+
+  def test_v2_dynamic_loop_reduces_both_carried_accumulators(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=27001, dtype="i32", count=96)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_loop_carried_reduction_case(output_dir)
+      self.assertIsNotNone(case, "no loop reduces its changing tensor state")
+      if case is None:
+        return
+      source = case.program.decode("utf-8")
+      self.assertIn("tensor sum %acc_x, 1, drop", source)
+      self.assertIn("tensor sum %acc_y, 0, drop", source)
+      self.assertEqual(len(case.manifest["inputs"]), 2)
+
+  def test_v2_dynamic_loop_reductions_execute_inside_the_counted_body(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=27002, dtype="i32", count=96)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_loop_carried_reduction_case(output_dir)
+      self.assertIsNotNone(case, "no loop reduces its changing tensor state")
+      if case is None:
+        return
+      source = case.program.decode("utf-8")
+      body = re.search(r"(?ms)^\^body:\n(.*?)(?=^\^[A-Za-z_][A-Za-z0-9_]*:)", source)
+      self.assertIsNotNone(body, source)
+      if body is None:
+        return
+      body_source = body.group(1)
+      for accumulator in ("%acc_x", "%acc_y"):
+        self.assertRegex(body_source, rf"tensor sum {re.escape(accumulator)},")
+      self.assertLess(
+        body_source.index("tensor sum %acc_x"),
+        body_source.index("%acc_x = tensor add"),
+      )
+      self.assertLess(
+        body_source.index("tensor sum %acc_y"),
+        body_source.index("%acc_y = tensor add"),
+      )
+      self.assertEqual(len(case.manifest["execution"]["loop_bounds"]), 1)
+
+  def test_v2_dynamic_loop_accumulators_are_cross_dependent(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=27003, dtype="i32", count=96)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_loop_carried_reduction_case(output_dir)
+      self.assertIsNotNone(case, "no loop reduces its changing tensor state")
+      if case is None:
+        return
+      source = case.program.decode("utf-8")
+      header = source.index("^header:")
+      self.assertIn("%acc_x = %x;", source[:header])
+      self.assertIn("%acc_y = %y;", source[:header])
+      self.assertIn("%acc_x = tensor add %acc_x, %broadcast_y;", source)
+      self.assertIn("%acc_y = tensor add %acc_y, %broadcast_x;", source)
+
+  def test_v2_dynamic_loop_has_exact_inputs_with_distinct_layouts_and_witnesses(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=27004, dtype="i32", count=96)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_loop_carried_reduction_case(output_dir)
+      self.assertIsNotNone(case, "no loop reduces its changing tensor state")
+      if case is None:
+        return
+      self.assertEqual(case.manifest["comparison"]["mode"], "exact")
+      layouts = {
+        (tuple(item["element_strides"]), tuple(item["axis_order"]))
+        for item in case.manifest["inputs"]
+      }
+      self.assertEqual(len(layouts), 2, layouts)
+      self.assertEqual({axis_order for _, axis_order in layouts}, {(0, 1), (1, 0)})
+      witnesses = case.manifest["coverage"]["input_behavior"]["counterfactual_inputs"]
+      self.assertEqual(
+        {item["input"] for item in witnesses},
+        {item["name"] for item in case.manifest["inputs"]},
+      )
+      self.assertTrue(all(item["outputs_differ"] for item in witnesses), witnesses)
+
+  def test_v2_dynamic_loop_reference_matches_independent_recurrence(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=27005, dtype="i32", count=96)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = find_loop_carried_reduction_case(output_dir)
+      self.assertIsNotNone(case, "no loop reduces its changing tensor state")
+      if case is None:
+        return
+      rows, columns = case.manifest["inputs"][0]["shape"]
+      input_values = {}
+      for item in case.manifest["inputs"]:
+        start = item["byte_offset"]
+        end = start + item["byte_length"]
+        input_values[item["name"]] = list(
+          struct.unpack(f"<{rows * columns}i", case.inputs[start:end])
+        )
+      acc_x = input_values["x"]
+      acc_y = input_values["y"]
+      trip_count = case.manifest["execution"]["loop_bounds"][0]
+      for _ in range(trip_count):
+        row_sums_x = [
+          sum(acc_x[row * columns : (row + 1) * columns]) for row in range(rows)
+        ]
+        column_sums_y = [
+          sum(acc_y[row * columns + column] for row in range(rows))
+          for column in range(columns)
+        ]
+        next_x = [
+          acc_x[row * columns + column] + column_sums_y[column]
+          for row in range(rows)
+          for column in range(columns)
+        ]
+        next_y = [
+          acc_y[row * columns + column] + row_sums_x[row]
+          for row in range(rows)
+          for column in range(columns)
+        ]
+        acc_x, acc_y = next_x, next_y
+      expected = [left + right for left, right in zip(acc_x, acc_y)]
+      actual = list(struct.unpack(f"<{rows * columns}i", case.expected))
+      self.assertEqual(actual, expected)
+
+      source = case.program.decode("utf-8")
+      run, interpreted = run_typed(source, case.inputs, tensor_profile="v2")
+      self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+      self.assertEqual(interpreted, case.expected)
+
+  def test_v2_dynamic_loop_f32_is_numeric_and_reaches_every_warp_count(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=27006, dtype="f32", count=192)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      dynamic_warps = set()
+      for case_dir in sorted(Path(output_dir).glob("case_*")):
+        case = load_case(case_dir)
+        source = case.program.decode("utf-8")
+        if "tensor sum %acc_x, 1, drop" not in source:
+          continue
+        dynamic_warps.add(case.manifest["launch"]["num_warps"])
+        self.assertEqual(case.manifest["comparison"]["mode"], "numeric")
+        self.assertTrue(case.manifest["reference"]["stable"])
+
+      self.assertEqual(dynamic_warps, {1, 2, 4, 8})
+
+  def test_v3_generator_records_logical_and_execution_shapes(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(output_dir, stratum="tail-arithmetic")
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(case.manifest["profile"], "tensor-v3")
+      self.assertEqual(case.manifest["inputs"][0]["shape"], [17])
+      self.assertEqual(case.manifest["inputs"][0]["tile_shape"], [32])
+      self.assertEqual(case.manifest["output"]["shape"], [17])
+      self.assertEqual(case.manifest["output"]["tile_shape"], [32])
+
+  def test_v3_loop_reduction_reduces_the_loop_carried_tail_tensor(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(
+        output_dir,
+        stratum="tail-loop",
+        pattern="coordinate-distinct",
+        seed=20260928,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      source = case.program.decode("utf-8")
+      loop_body = source.split("^body:", maxsplit=1)[1].split("^exit:", maxsplit=1)[0]
+      self.assertIn("tensor sum %acc, 0, drop", loop_body)
+
+  def test_v3_loop_reduction_has_a_live_loop_carried_dependency(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(output_dir, stratum="tail-loop", pattern="mixed-sign")
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      source = case.program.decode("utf-8")
+      self.assertIn("%acc = tensor add %acc, %x", source)
+      self.assertIn("tensor sum %acc, 0, drop", source)
+      self.assertIn("sum", case.manifest["operator_coverage"])
+
+  def test_v3_one_dimensional_loop_reduction_records_scalar_output_and_axis(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(output_dir, stratum="tail-loop", pattern="repeated-value")
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(case.manifest["inputs"][0]["shape"], [17])
+      self.assertEqual(case.manifest["output"]["shape"], [])
+      self.assertEqual(case.manifest["shape_axes"], [{"shape": [17], "axis": 0}])
+
+  def test_v3_one_dimensional_loop_reduction_reference_matches_trip_count(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(
+        output_dir,
+        stratum="tail-loop",
+        pattern="coordinate-distinct",
+        seed=20260928,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      input_values = struct.unpack(f"<{len(case.inputs) // 4}i", case.inputs)
+      expected = struct.unpack("<i", case.expected)[0]
+      self.assertEqual(expected, 6 * sum(input_values))
+
+  def test_v3_f32_loop_reduction_uses_stable_numerical_comparison(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(
+        output_dir,
+        stratum="tail-loop",
+        pattern="coordinate-distinct",
+        dtype="f32",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(case.manifest["output"]["shape"], [])
+      self.assertEqual(case.manifest["comparison"]["mode"], "numeric")
+      self.assertTrue(case.manifest["reference"]["stable"])
+
+  def test_v3_loop_reduction_covers_both_axes_of_each_2d_boundary_placement(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(
+        output_dir,
+        stratum="tail-loop",
+        pattern="distinct-groups",
+        seed=2026092802,
+        count=25,
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      axes_by_shape = {}
+      for case_dir in sorted(output_dir.glob("case_*")):
+        case = load_case(case_dir)
+        input_shape = case.manifest["inputs"][0]["shape"]
+        if len(input_shape) != 2:
+          continue
+        axis_record = case.manifest["shape_axes"][0]
+        axis = axis_record["axis"]
+        expected_shape = input_shape[:axis] + input_shape[axis + 1 :]
+        self.assertEqual(case.manifest["output"]["shape"], expected_shape)
+        self.assertIn("tensor sum %acc", case.program.decode("utf-8"))
+        axes_by_shape.setdefault(tuple(input_shape), set()).add(axis)
+
+      expected_shapes = {
+        (17, 16),
+        (16, 17),
+        (31, 16),
+        (16, 31),
+        (33, 8),
+        (8, 33),
+        (63, 8),
+        (8, 63),
+        (65, 4),
+        (4, 65),
+      }
+      self.assertEqual(set(axes_by_shape), expected_shapes)
+      self.assertTrue(all(axes == {0, 1} for axes in axes_by_shape.values()))
+
+  def test_v3_generator_covers_required_boundary_shapes_within_tile_limit(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(output_dir, stratum="tail-sum", count=25)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      shapes = set()
+      shape_axes = {}
+      for case_dir in sorted(output_dir.glob("case_*")):
+        case = load_case(case_dir)
+        record = case.manifest["inputs"][0]
+        shape = tuple(record["shape"])
+        tile = record["tile_shape"]
+        volume = 1
+        for extent in tile:
+          volume *= extent
+        self.assertLessEqual(volume, 512)
+        shapes.add(shape)
+        if len(shape) == 2:
+          shape_axes.setdefault(shape, set()).add(
+            case.manifest["shape_axes"][0]["axis"]
+          )
+
+      expected = {
+        (17,),
+        (31,),
+        (33,),
+        (63,),
+        (65,),
+        (17, 16),
+        (16, 17),
+        (31, 16),
+        (16, 31),
+        (33, 8),
+        (8, 33),
+        (63, 8),
+        (8, 63),
+        (65, 4),
+        (4, 65),
+      }
+      self.assertEqual(shapes, expected)
+      self.assertEqual(
+        set(shape_axes), {shape for shape in expected if len(shape) == 2}
+      )
+      self.assertTrue(all(axes == {0, 1} for axes in shape_axes.values()), shape_axes)
+
+  def test_v3_generator_records_each_input_pattern_in_both_ledgers(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(output_dir, count=6)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      patterns = set()
+      for case_dir in sorted(output_dir.glob("case_*")):
+        case = load_case(case_dir)
+        pattern = case.manifest["generator"]["input_pattern"]
+        self.assertEqual(
+          case.manifest["coverage"]["input_behavior"]["pattern"], pattern
+        )
+        patterns.add(pattern)
+
+      self.assertEqual(
+        patterns,
+        {
+          "coordinate-distinct",
+          "mixed-sign",
+          "cancellation",
+          "repeated-value",
+          "distinct-groups",
+          "seeded-random",
+        },
+      )
+
+  def _assert_v3_f32_arithmetic_generates(self, pattern):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(
+        output_dir,
+        stratum="tail-arithmetic",
+        pattern=pattern,
+        dtype="f32",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      source = (case.path / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("tensor mul %x, 2.0", source)
+
+  def test_v3_f32_arithmetic_types_coordinate_distinct_literal(self):
+    self._assert_v3_f32_arithmetic_generates("coordinate-distinct")
+
+  def test_v3_f32_arithmetic_types_mixed_sign_literal(self):
+    self._assert_v3_f32_arithmetic_generates("mixed-sign")
+
+  def test_v3_f32_arithmetic_types_cancellation_literal(self):
+    self._assert_v3_f32_arithmetic_generates("cancellation")
+
+  def test_v3_f32_arithmetic_types_repeated_value_literal(self):
+    self._assert_v3_f32_arithmetic_generates("repeated-value")
+
+  def test_v3_f32_arithmetic_types_distinct_group_literal(self):
+    self._assert_v3_f32_arithmetic_generates("distinct-groups")
+
+  def test_v3_f32_untargeted_composition_types_arithmetic_literal(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(
+        output_dir,
+        stratum="tail-untargeted",
+        pattern="seeded-random",
+        dtype="f32",
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      source = (case.path / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("tensor mul %x, 2.0", source)
+      self.assertIn("tensor add %tmp, %x", source)
+
+  def test_v3_exact_f32_sum_has_complete_output_proof(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(
+        output_dir, stratum="tail-sum", pattern="cancellation", dtype="f32"
+      )
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      self.assertEqual(case.manifest["comparison"]["mode"], "exact")
+      proof = case.manifest["reference"]["exactness"]
+      self.assertTrue(proof["complete_output"])
+      self.assertEqual(proof["signed_zero"], "positive-zero-only")
+      self.assertLessEqual(proof["max_abs_leaf_sum"], 1 << 24)
+
+  def test_v3_triton_generation_uses_masked_tail_and_recorded_layouts(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v3(output_dir, stratum="tail-arithmetic", target="triton")
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      case = load_case(output_dir / "case_000000")
+      kernel = (case.path / "kernel.py").read_text(encoding="utf-8")
+      self.assertIn("mask=", kernel)
+      self.assertIn("tl.store(out_ptr +", kernel)
+      input_record = case.manifest["inputs"][0]
+      output_record = case.manifest["output"]
+      self.assertGreater(input_record["element_strides"][0], 1)
+      self.assertIn(f"* {input_record['element_strides'][0]}", kernel)
+      self.assertIn(f"* {output_record['element_strides'][0]}", kernel)
+
+
+if __name__ == "__main__":
+  unittest.main()

@@ -1,0 +1,41 @@
+{
+  "schema": "refractir.tensor-cvc5-queries.v1",
+  "finite_menu": [-2, -1, 0, 1, 2, 3],
+  "queries": [
+    {
+      "id": "equal_logits",
+      "file": "equal_logits.smt2",
+      "expected_status": "sat",
+      "input_shape": [2],
+      "variable_to_flat_index": {"x": [0, 1]}
+    },
+    {
+      "id": "exp_nonpositive",
+      "file": "exp_nonpositive.smt2",
+      "expected_status": "unsat",
+      "input_shape": [],
+      "variable_to_flat_index": {}
+    },
+    {
+      "id": "negative_probability",
+      "file": "negative_probability.smt2",
+      "expected_status": "unsat",
+      "input_shape": [2],
+      "variable_to_flat_index": {"a": [0], "b": [1]}
+    },
+    {
+      "id": "dominance_2x2",
+      "file": "dominance_2x2.smt2",
+      "expected_status": "sat",
+      "input_shape": [2, 2],
+      "variable_to_flat_index": {"a": [0], "b": [1], "c": [2], "d": [3]}
+    },
+    {
+      "id": "dominance_2x4",
+      "file": "dominance_2x4.smt2",
+      "expected_status": "sat",
+      "input_shape": [2, 4],
+      "variable_to_flat_index": {"a": [3], "b": [4]}
+    }
+  ]
+}

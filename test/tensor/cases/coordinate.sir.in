@@ -1,0 +1,16 @@
+fun @kernel(%a: i32, %b: i32, %k: i32) : tensor [2, 4] i32 {
+  let mut %row: tensor [2, 4] i32 = undef;
+  let mut %col: tensor [2, 4] i32 = undef;
+  let mut %scaled_row: tensor [2, 4] i32 = undef;
+  let mut %scaled_col: tensor [2, 4] i32 = undef;
+  let mut %sum: tensor [2, 4] i32 = undef;
+  let mut %out: tensor [2, 4] i32 = undef;
+^entry:
+  %row = tensor iota [2, 4], 0;
+  %col = tensor iota [2, 4], 1;
+  %scaled_row = tensor mul %row, %a;
+  %scaled_col = tensor mul %col, %b;
+  %sum = tensor add %scaled_row, %scaled_col;
+  %out = tensor add %sum, %k;
+  ret %out;
+}

@@ -1,0 +1,101 @@
+{
+  "external_deadline_s": 6.0,
+  "gate_status": "environment_unavailable",
+  "probe_environment": "great_rhodes",
+  "queries": [
+    {
+      "concrete_validation": "pending",
+      "expected_status": "sat",
+      "id": "equal_logits",
+      "matches_expected": false,
+      "result": {
+        "accepted_witness": false,
+        "elapsed_ns": 0,
+        "external_timeout": false,
+        "materialization_error": null,
+        "materialization_status": "not_attempted",
+        "materialized_inputs": {},
+        "solver_version": null,
+        "status": "environment_unavailable",
+        "stderr": "cvc5 executable is unavailable",
+        "stdout": ""
+      }
+    },
+    {
+      "concrete_validation": "pending",
+      "expected_status": "unsat",
+      "id": "exp_nonpositive",
+      "matches_expected": false,
+      "result": {
+        "accepted_witness": false,
+        "elapsed_ns": 0,
+        "external_timeout": false,
+        "materialization_error": null,
+        "materialization_status": "not_attempted",
+        "materialized_inputs": {},
+        "solver_version": null,
+        "status": "environment_unavailable",
+        "stderr": "cvc5 executable is unavailable",
+        "stdout": ""
+      }
+    },
+    {
+      "concrete_validation": "pending",
+      "expected_status": "unsat",
+      "id": "negative_probability",
+      "matches_expected": false,
+      "result": {
+        "accepted_witness": false,
+        "elapsed_ns": 0,
+        "external_timeout": false,
+        "materialization_error": null,
+        "materialization_status": "not_attempted",
+        "materialized_inputs": {},
+        "solver_version": null,
+        "status": "environment_unavailable",
+        "stderr": "cvc5 executable is unavailable",
+        "stdout": ""
+      }
+    },
+    {
+      "concrete_validation": "pending",
+      "expected_status": "sat",
+      "id": "dominance_2x2",
+      "matches_expected": false,
+      "result": {
+        "accepted_witness": false,
+        "elapsed_ns": 0,
+        "external_timeout": false,
+        "materialization_error": null,
+        "materialization_status": "not_attempted",
+        "materialized_inputs": {},
+        "solver_version": null,
+        "status": "environment_unavailable",
+        "stderr": "cvc5 executable is unavailable",
+        "stdout": ""
+      }
+    },
+    {
+      "concrete_validation": "pending",
+      "expected_status": "sat",
+      "id": "dominance_2x4",
+      "matches_expected": false,
+      "result": {
+        "accepted_witness": false,
+        "elapsed_ns": 0,
+        "external_timeout": false,
+        "materialization_error": null,
+        "materialization_status": "not_attempted",
+        "materialized_inputs": {},
+        "solver_version": null,
+        "status": "environment_unavailable",
+        "stderr": "cvc5 executable is unavailable",
+        "stdout": ""
+      }
+    }
+  ],
+  "route_available": false,
+  "schema": "refractir.tensor-cvc5-probe.v1",
+  "solver_time_limit_ms": 5000,
+  "solver_version_expected": "1.3.4"
+}

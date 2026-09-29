@@ -1,0 +1,7 @@
+(set-logic QF_NRAT)
+(declare-const a Real)
+(declare-const b Real)
+(assert (or (= a 0) (= a 1)))
+(assert (or (= b 0) (= b 1)))
+(assert (< (/ (exp a) (+ (exp a) (exp b))) 0))
+(check-sat)

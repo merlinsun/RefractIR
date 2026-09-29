@@ -1,0 +1,7 @@
+(set-logic QF_NRAT)
+(set-option :produce-models true)
+(declare-const x Real)
+(assert (or (= x 0) (= x 1)))
+(assert (= (/ (exp x) (+ (exp x) (exp x))) (/ 1 2)))
+(check-sat)
+(get-value (x))

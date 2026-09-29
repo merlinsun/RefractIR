@@ -63,6 +63,20 @@ These tests validate target code generation (C, WASM, Python) by compiling `.sir
 
 The core structured backend tests reside in `test/sbackend/` and verify loops, vector lanes, struct arrays, pointer arithmetic, and UB boundaries.
 
+Tensor-only source fixtures use the `.sir.in` suffix under `test/tensor/`. The
+recursive scalar compiler and interpreter runners discover `.sir` files, so a
+tensor fixture must be copied to a temporary `.sir` path by the tensor test
+harness before validation. The smoke-case builder copies these fixtures into
+`build/tensor_cases/hand/` and adds binary inputs and references there. This
+keeps generated `.sir` files out of recursive scalar discovery; only the
+opt-in `test-triton` runner consumes the compiled case bundles.
+
+`make test-tensor` runs the host-only tensor checks. `make test-triton` runs the
+case bundles serially in interpreter and compiled modes and requires the
+locked NVIDIA/Triton environment. When the source is copied to a remote
+directory without `.git` metadata, pass `TENSOR_SOURCE_REVISION` and
+`TENSOR_WORKTREE_DIRTY` to Make so each run record identifies the source build.
+
 ### 5. Solver Tests
 These tests validate the symbolic execution and constraint generation of the `symirsolve` tool, checking that path assumptions and required properties compile down to correct SMT assertions.
 

@@ -7,6 +7,8 @@ RefractIR (internally SymIR) is a CFG-based symbolic intermediate representation
 
 A RefractIR program is a template rather than a finished program: it may contain symbols, unknowns whose values a solver picks later under constraints drawn from a chosen execution path and from explicit properties on that path.
 
+Bounded tensor execution, exact tensor solving, CPU reference evaluation, and Triton kernel emission are available through `symiri`, `symirsolve`, `rysmith --profile tensor`, and `symirc --target triton`.
+
 Core concepts:
 
 * Path-oriented: designed for symbolic execution and path-based analysis.
@@ -46,8 +48,15 @@ To run RefractIR locally instead, the following tools are required:
   - Install: https://github.com/bitwuzla/bitwuzla
 - Z3 (Optional)
   - Install: https://github.com/Z3Prover/z3
+- Boost.Multiprecision headers 1.89.0 (for the default tensor numerical reference)
+  - Header-only dependency; install the Boost 1.89.0 development headers.
+  - `make TENSOR_REF=0` builds the existing scalar tools without the numerical tensor reference; numerical tensor evaluation then reports that it is disabled.
 - Python 3 (Optional, for the test suite and for running Python-target output)
 - WASM runtime (Optional, for running WASM backend tests such as Wasmtime, Wasmer, or Node.js)
+
+Run `make test-tensor` for the host-side tensor checks. `make test-triton` is an opt-in GPU gate that uses the recorded NVIDIA/Triton environment and executes cases serially. Capturing another NVIDIA/Triton environment requires PyTorch, Triton, and a working CUDA device. The optional real-arithmetic feasibility probe requires the cvc5 1.3.4 executable; a missing or mismatched version is never treated as a pass and does not affect the host-only tests.
+
+Capture the current device and package lock with `python3 -m test.lib.probe_triton_env --output-dir test/tensor/environments/current`. Run the cvc5 feasibility probes with `python3 -m test.lib.probe_cvc5_tensor --binary /path/to/cvc5 --output test/tensor/cvc5/feasibility.json`. The probe requires cvc5 1.3.4 and records solver outcomes separately from concrete floating-point validation.
 
 ### Building
 

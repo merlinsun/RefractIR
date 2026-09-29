@@ -1,0 +1,144 @@
+{
+  "comparison": {
+    "atol": [
+      2,
+      100000
+    ],
+    "mode": "numeric",
+    "policy": "numeric-v1",
+    "rtol": [
+      2,
+      1000
+    ]
+  },
+  "coverage": {
+    "input_behavior": {
+      "groups_distinct": true,
+      "input_pattern": "x[row,col]=row"
+    },
+    "primary_stratum": "authored-calibration"
+  },
+  "entry": "kernel",
+  "environment": null,
+  "evidence": {
+    "artifacts": [
+      "upstream_reproducer.py",
+      "layout.json"
+    ],
+    "kind": "historical_regression",
+    "status": "validated"
+  },
+  "execution": {
+    "gap_sentinel_by_dtype": {
+      "f32": "7fc00000",
+      "i32": "5a5a5a5a"
+    },
+    "output_canary_by_dtype": {
+      "f32": "7fc00001",
+      "i32": "a5a5a5a5"
+    }
+  },
+  "files": {
+    "expected.bin": {
+      "bytes": 1024,
+      "sha256": "aaa567e5dfbba2cce9ba6ed03534fb09f2f33b964c5e3fb3be1395398412e184"
+    },
+    "inputs.bin": {
+      "bytes": 2048,
+      "sha256": "5cad1e45d49a13037d248a03119806d8dd1e00801523979481b59d88d54591f8"
+    },
+    "layout.json": {
+      "bytes": 395,
+      "sha256": "7a48c4cd9fe4ceb76b0fdfde9194d5433f1c5c2e230e8561e3b2adfdd12306ed"
+    },
+    "program.sir": {
+      "bytes": 1637,
+      "sha256": "ca59b968ed41c2c23d13ea1d2f6d08922babe0211ef4de37ee1720250b7cbfcc"
+    },
+    "upstream_reproducer.py": {
+      "bytes": 917,
+      "sha256": "32699f9e5d46f4147fcc4ec0abad7134672d2d1d546ba006ee7df082553a72c5"
+    }
+  },
+  "generator_revision": "authored-triton-11186-calibration",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "inputs": [
+    {
+      "axis_order": [
+        0,
+        1
+      ],
+      "byte_length": 2048,
+      "byte_offset": 0,
+      "dtype": "f32",
+      "element_offset": 0,
+      "element_strides": [
+        1,
+        256
+      ],
+      "file": "inputs.bin",
+      "name": "x",
+      "shape": [
+        256,
+        2
+      ],
+      "storage_span": 512,
+      "tile_origin": [
+        0,
+        0
+      ],
+      "tile_shape": [
+        256,
+        2
+      ]
+    }
+  ],
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 1
+  },
+  "output": {
+    "axis_order": [
+      0
+    ],
+    "byte_length": 1024,
+    "byte_offset": 0,
+    "dtype": "f32",
+    "element_offset": 0,
+    "element_strides": [
+      1
+    ],
+    "file": "expected.bin",
+    "name": "return",
+    "shape": [
+      256
+    ],
+    "storage_span": 256,
+    "tile_origin": [
+      0
+    ],
+    "tile_shape": [
+      256
+    ]
+  },
+  "profile": "tensor-v2",
+  "property": {
+    "id": "historical.triton-11186",
+    "source": "The strided [256,2] reduction executes twice inside a counted loop and updates a tensor accumulator."
+  },
+  "reference": {
+    "precisions": [
+      128,
+      256
+    ],
+    "stable": true
+  },
+  "schema": "refractir.tensor-case.v2",
+  "seed": 11186,
+  "softmax_lowering": "direct"
+}
