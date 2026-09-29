@@ -75,6 +75,10 @@ void writeOutcomeRecord(
   if (status == "unknown")
     out << ",\"reason\":\"" << smt::unknownReasonName(reason) << "\"";
   out << "}\n";
+  // The stream buffers, so its state is only final once it is closed. Checking
+  // before that reports success for a record whose flush failed, which is how
+  // a full device leaves an empty file behind.
+  out.close();
   if (!out)
     throw std::runtime_error("failed to write outcome record: " + path);
 }
@@ -265,11 +269,11 @@ int main(int argc, char **argv) {
     }
 
     if (res.sat) {
-      std::cout << "SAT" << std::endl;
       if (result.count("emit-outcome"))
         writeOutcomeRecord(
             result["emit-outcome"].as<std::string>(), "sat", smt::UnknownReason::Unspecified
         );
+      std::cout << "SAT" << std::endl;
 
       // Sorted by parameter name: the witness map is unordered, and a file
       // whose field order varies run to run cannot be compared or hashed.
@@ -387,16 +391,16 @@ int main(int argc, char **argv) {
       }
 
     } else if (res.unsat) {
-      std::cout << "UNSAT" << std::endl;
       if (result.count("emit-outcome"))
         writeOutcomeRecord(
             result["emit-outcome"].as<std::string>(), "unsat", smt::UnknownReason::Unspecified
         );
+      std::cout << "UNSAT" << std::endl;
       return 1;
     } else {
-      std::cout << "UNKNOWN" << std::endl;
       if (result.count("emit-outcome"))
         writeOutcomeRecord(result["emit-outcome"].as<std::string>(), "unknown", res.unknownReason);
+      std::cout << "UNKNOWN" << std::endl;
       return 1;
     }
 

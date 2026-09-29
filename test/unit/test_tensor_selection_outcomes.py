@@ -115,6 +115,13 @@ class SolverOutcomeTests(unittest.TestCase):
       result.stdout,
     )
 
+  MIXED = "timeout" + ",unspecified" * 7
+
+  def sampled(self, threads, samples, script):
+    result = probe("--sample", str(threads), str(samples), script)
+    self.assertEqual(result.returncode, 0, result.stderr)
+    return result.stdout.strip()
+
   def test_sampling_keeps_a_reported_reason(self):
     """A worker that runs no query must not publish its default result.
 
@@ -123,10 +130,30 @@ class SolverOutcomeTests(unittest.TestCase):
     fourth reported, depending on the interleaving.
     """
     for _ in range(5):
-      result = probe("--sample", "4", "1", "timeout")
+      self.assertEqual(self.sampled(4, 1, "timeout"), "reason=timeout")
 
-      self.assertEqual(result.returncode, 0, result.stderr)
-      self.assertEqual(result.stdout.strip(), "reason=timeout")
+  def test_a_reported_reason_survives_later_undecided_attempts(self):
+    """The aggregate carries the reported cause, not the latest attempt's.
+
+    One attempt reports a timeout and the seven after it report nothing. The
+    search was not completed, so the timeout is what the caller has to see,
+    whether the attempts run on one thread or several.
+    """
+    for threads in (1, 4):
+      with self.subTest(threads=threads):
+        for _ in range(3):
+          self.assertEqual(self.sampled(threads, 8, self.MIXED), "reason=timeout")
+
+  def test_a_reported_reason_survives_earlier_decided_attempts(self):
+    """Three unsatisfiable samples do not hide a timeout on the fourth."""
+    self.assertEqual(self.sampled(1, 4, "unsat,unsat,unsat,timeout"), "reason=timeout")
+
+  def test_undecided_attempts_without_a_cause_stay_unspecified(self):
+    """Nothing is invented when no attempt reported anything."""
+    self.assertEqual(
+      self.sampled(1, 3, "unspecified,unspecified,unspecified"),
+      "reason=unspecified",
+    )
 
 
 class SymirsolveOutcomeRecordTests(unittest.TestCase):
@@ -220,6 +247,63 @@ class SymirsolveOutcomeRecordTests(unittest.TestCase):
     else:
       self.assertEqual(payload["status"], result.stdout.strip().lower())
       self.assertNotIn("reason", payload)
+
+  def test_a_record_that_cannot_be_written_fails_loudly(self):
+    """A buffered write that fails at flush must not report success.
+
+    `/dev/full` accepts the open and the buffered writes, and fails when the
+    stream is flushed, which is the case a check before flushing misses.
+    """
+    full = Path("/dev/full")
+    if not full.exists():
+      self.skipTest("/dev/full is not available on this host")
+    with tempfile.TemporaryDirectory() as directory:
+      program = Path(directory) / "probe.sir"
+      program.write_text("""fun @main() : i32 {
+  sym %?x : value i32 in [10, 20];
+^entry:
+  require %?x == 15;
+  ret 0;
+}
+""")
+      result = subprocess.run(
+        [
+          str(self.SYMIRSOLVE),
+          str(program),
+          "--main",
+          "@main",
+          "--path",
+          "^entry",
+          "--emit-outcome",
+          str(full),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+      )
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("outcome record", result.stderr)
+    # The result is not claimed before the record exists.
+    self.assertNotIn("SAT", result.stdout)
+
+  def test_an_outcome_path_that_cannot_be_opened_fails_loudly(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result, _ = self.solve(
+        """fun @main() : i32 {
+  sym %?x : value i32 in [10, 20];
+^entry:
+  require %?x == 15;
+  ret 0;
+}
+""",
+        "--emit-outcome",
+        str(Path(directory) / "missing" / "outcome.json"),
+      )
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("outcome record", result.stderr)
 
   def test_console_and_record_agree(self):
     result, record = self.solve("""fun @main() : i32 {

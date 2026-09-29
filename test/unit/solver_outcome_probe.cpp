@@ -16,7 +16,9 @@
 //     reason-name:      unspecified | timeout | resource_limit | interrupted
 //   solver_outcome_probe --classify <diagnostic>...
 //   solver_outcome_probe --propose <check-sat-result> <reason-name>
-//   solver_outcome_probe --sample <threads> <samples> <reason-name>
+//   solver_outcome_probe --sample <threads> <samples> <script>
+//     script: comma-separated answers, e.g. `timeout,unspecified` or
+//     `unsat,timeout`; the last entry repeats
 //   solver_outcome_probe --attempt-record <check-sat-result> <reason-name> <directory>
 //
 // It prints one line per observation: `status=<sat|unsat|unknown>
@@ -26,6 +28,8 @@
 // generation summary into the given directory and prints its path. Exit status
 // is 0 unless the invocation itself is malformed.
 
+#include <algorithm>
+#include <atomic>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -55,6 +59,29 @@ namespace {
     throw std::invalid_argument("unknown reason name: " + name);
   }
 
+  /// A comma-separated script of reason names, where `sat` and `unsat` are
+  /// decided answers and every other name is an undecided one with that cause.
+  std::vector<std::pair<Result, UnknownReason>> parseScript(const std::string &text) {
+    std::vector<std::pair<Result, UnknownReason>> script;
+    std::size_t begin = 0;
+    while (begin <= text.size()) {
+      const auto comma = text.find(',', begin);
+      const auto piece = text.substr(
+          begin, comma == std::string::npos ? std::string::npos : comma - begin
+      );
+      if (piece == "sat")
+        script.emplace_back(Result::SAT, UnknownReason::Unspecified);
+      else if (piece == "unsat")
+        script.emplace_back(Result::UNSAT, UnknownReason::Unspecified);
+      else
+        script.emplace_back(Result::UNKNOWN, parseReason(piece));
+      if (comma == std::string::npos)
+        break;
+      begin = comma + 1;
+    }
+    return script;
+  }
+
   Result parseResult(const std::string &name) {
     if (name == "sat")
       return Result::SAT;
@@ -68,11 +95,32 @@ namespace {
   /// A backend that answers exactly as told and reports exactly the reason it
   /// was given. Every other operation is a placeholder: the executor only
   /// needs the terms and sorts it builds to stay distinguishable.
+  /// One answer per `check_sat` call across a whole run, with the last entry
+  /// repeating. The counter lives outside the solver because sampling builds a
+  /// fresh solver for every sample, and a sequence only means something if it
+  /// spans the run.
+  struct ScriptState {
+    std::vector<std::pair<Result, UnknownReason>> script;
+    std::atomic<std::size_t> calls{0};
+  };
+
   class ScriptedSolver : public refractir::smt::ISolver {
   public:
-    ScriptedSolver(Result result, UnknownReason reason) : result_(result), reason_(reason) {}
+    ScriptedSolver(Result result, UnknownReason reason) :
+        state_(std::make_shared<ScriptState>()) {
+      state_->script.emplace_back(result, reason);
+    }
 
-    UnknownReason unknownReason() const override { return reason_; }
+    explicit ScriptedSolver(std::shared_ptr<ScriptState> state) : state_(std::move(state)) {
+      if (state_->script.empty())
+        throw std::invalid_argument("scripted solver needs at least one answer");
+    }
+
+    UnknownReason unknownReason() const override {
+      const auto index =
+          std::min(last_.load(), state_->script.size() - 1);
+      return state_->script[index].second;
+    }
 
     Sort make_bv_sort(uint32_t) override { return Sort{std::make_shared<int>(1)}; }
     Sort make_fp_sort(uint32_t, uint32_t) override { return Sort{std::make_shared<int>(2)}; }
@@ -115,7 +163,11 @@ namespace {
     bool is_false(Term) override { return false; }
 
     void assert_formula(Term) override {}
-    Result check_sat() override { return result_; }
+    Result check_sat() override {
+      const auto index = std::min(state_->calls.fetch_add(1), state_->script.size() - 1);
+      last_.store(index);
+      return state_->script[index].first;
+    }
 
     Term get_value(Term t) override { return t; }
     std::string get_bv_value_string(Term, uint8_t) override { return "0"; }
@@ -124,8 +176,10 @@ namespace {
   private:
     static Term term(int tag) { return Term{std::make_shared<int>(tag)}; }
 
-    Result result_;
-    UnknownReason reason_;
+    std::shared_ptr<ScriptState> state_;
+    /// The entry this solver's own last call used, so its reason matches its
+    /// answer even while other instances advance the shared counter.
+    mutable std::atomic<std::size_t> last_{0};
   };
 
   /// One small program is enough: the executor's job here is to carry a
@@ -184,7 +238,7 @@ int main(int argc, char **argv) {
     if (argc == 5 && std::string(argv[1]) == "--sample") {
       const auto threads = static_cast<std::uint32_t>(std::stoul(argv[2]));
       const auto samples = static_cast<std::uint32_t>(std::stoul(argv[3]));
-      const auto reason = parseReason(argv[4]);
+      const auto script = parseScript(argv[4]);
       auto program = checked(
           "fun @main(%a: i32) : i32 {\n"
           "  let mut %out: i32 = undef;\n"
@@ -195,9 +249,12 @@ int main(int argc, char **argv) {
           "}\n"
       );
       // A sample that never runs a query must not publish a default result
-      // over one that reported a reason, however the threads interleave.
-      const auto factory = [reason](const refractir::SymbolicExecutor::Config &) {
-        return std::make_unique<ScriptedSolver>(Result::UNKNOWN, reason);
+      // over one that reported a reason, and a reported reason must survive
+      // the later attempts that have none, however the threads interleave.
+      auto state = std::make_shared<ScriptState>();
+      state->script = script;
+      const auto factory = [state](const refractir::SymbolicExecutor::Config &) {
+        return std::make_unique<ScriptedSolver>(state);
       };
       refractir::SymbolicExecutor::Config config;
       config.num_threads = threads;

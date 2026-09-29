@@ -1151,11 +1151,29 @@ namespace refractir {
       }
     };
 
+    // Fold one attempt's result into a sampling aggregate.
+    //
+    // The last attempt normally wins, because it describes the most recent
+    // state of the search. A reported cause is the exception: when an attempt
+    // stops for a timeout, a resource limit, or an interruption, the search
+    // was not completed, and a later attempt that reports nothing would
+    // otherwise hide that. The first reported cause is kept, so the aggregate
+    // does not depend on the order the attempts happen to finish in.
+    const auto mergeSampleResult = [](Result &aggregate, bool &hasAggregate, Result &&attempt) {
+      const bool attemptReported = attempt.unknownReason != smt::UnknownReason::Unspecified;
+      const bool aggregateReported = aggregate.unknownReason != smt::UnknownReason::Unspecified;
+      if (!hasAggregate || !aggregateReported || attemptReported) {
+        aggregate = std::move(attempt);
+        hasAggregate = true;
+      }
+    };
+
     // Single-threaded execution
     if (num_threads == 1) {
       std::mt19937 rng(config_.seed);
       Result lastRes;
       lastRes.unknown = true;
+      bool hasLastRes = false;
 
       for (uint32_t i = 0; i < n; ++i) {
         auto res = tryOneSample(rng);
@@ -1164,7 +1182,7 @@ namespace refractir {
 
         if (res->sat)
           return *res;
-        lastRes = std::move(*res);
+        mergeSampleResult(lastRes, hasLastRes, std::move(*res));
       }
 
       return lastRes;
@@ -1200,8 +1218,7 @@ namespace refractir {
           }
           return;
         }
-        threadLastRes = std::move(*res);
-        produced = true;
+        mergeSampleResult(threadLastRes, produced, std::move(*res));
       }
 
       // A worker that never reached a query has nothing to publish: its
@@ -1209,13 +1226,7 @@ namespace refractir {
       if (!produced)
         return;
       std::lock_guard<std::mutex> lock(resultMutex);
-      // A reported reason survives a later worker that has none to give, so
-      // the aggregate does not depend on which thread finished last.
-      if (!hasLastRes || lastRes.unknownReason == smt::UnknownReason::Unspecified ||
-          threadLastRes.unknownReason != smt::UnknownReason::Unspecified) {
-        lastRes = std::move(threadLastRes);
-        hasLastRes = true;
-      }
+      mergeSampleResult(lastRes, hasLastRes, std::move(threadLastRes));
     };
 
     // Launch worker threads
