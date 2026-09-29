@@ -111,6 +111,13 @@ namespace refractir::reify {
     /// reports the envelope it draws from; the exact policy reports the bound
     /// it asserted, which defaults to `tensorPolicyDomain(Exact)`.
     std::pair<std::int64_t, std::int64_t> domain;
+    /// Set only for a `timeout` outcome, naming what enforced the limit:
+    /// `solver` when the backend reported its own timeout. The selection
+    /// deadline of a supervising caller is a different source.
+    std::string timeoutSource;
+    /// The backend's typed reason for an undecided result, empty when the
+    /// result was decided. `unspecified` means the backend did not say.
+    std::string unknownReason;
     std::vector<TensorCaseBuffer> inputs;
   };
 

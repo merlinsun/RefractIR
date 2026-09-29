@@ -222,7 +222,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor test-triton test-triton-v2 test-library cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -249,6 +249,21 @@ $(LIBRARY_CONSUMER): test/unit/symir_library_consumer.cpp $(LIB_DIR)/$(LIB_NAME)
 
 test-library: $(LIBRARY_CONSUMER)
 	./$(LIBRARY_CONSUMER)
+
+# A controlled backend for the solver-outcome classification tests: timing a
+# real solver is not a reliable way to produce a timeout.
+SOLVER_OUTCOME_PROBE = $(BIN_DIR)/solver_outcome_probe
+
+$(SOLVER_OUTCOME_PROBE): test/unit/solver_outcome_probe.cpp $(COMMON_OBJS) \
+                         $(SOLVER_CORE_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ) \
+                         src/reify/tensor_input_policy.o
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ test/unit/solver_outcome_probe.cpp $(COMMON_OBJS) \
+	  $(SOLVER_CORE_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ) src/reify/tensor_input_policy.o $(LDFLAGS)
+
+test-solver-outcomes: $(SOLVER_OUTCOME_PROBE)
+	REFRACTIR_SOLVER_OUTCOME_PROBE=./$(SOLVER_OUTCOME_PROBE) \
+	  $(PY) -m unittest test.unit.test_tensor_selection_outcomes
 
 $(TARGET_SOLVER): $(COMMON_OBJS) $(SOLVER_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)

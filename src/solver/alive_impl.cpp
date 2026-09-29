@@ -385,12 +385,18 @@ namespace refractir::solver {
   smt::Result AliveSolver::check_sat() {
     std::lock_guard<std::mutex> lock(z3_global_mutex);
     auto res = solver->check("check_sat");
+    // A decided result carries no unknown reason, so no stale one survives.
+    last_unknown_reason = smt::UnknownReason::Unspecified;
     if (res.isSat()) {
       last_result = std::make_unique<::alivesmt::Result>(std::move(res));
       return smt::Result::SAT;
     }
     if (res.isUnsat())
       return smt::Result::UNSAT;
+    // The wrapper separates the timeout Z3 reported from every other
+    // undecided cause, which it passes on as Z3's own diagnostic text.
+    last_unknown_reason = res.isTimeout() ? smt::UnknownReason::Timeout
+                                          : smt::classifyUnknownReason(res.getReason());
     return smt::Result::UNKNOWN;
   }
 

@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace refractir::smt {
@@ -117,9 +118,37 @@ namespace refractir::smt {
 
   enum class Result { SAT, UNSAT, UNKNOWN };
 
+  /**
+   * Why a backend's last check returned UNKNOWN.
+   *
+   * `Unspecified` means the backend did not say. It is the default, and a
+   * caller must not fill it in from elapsed time or by matching text: an
+   * unexplained UNKNOWN is a different outcome from a reported timeout, and
+   * only the backend can tell them apart.
+   */
+  enum class UnknownReason { Unspecified, Timeout, ResourceLimit, Interrupted };
+
+  /**
+   * Map a backend's own diagnostic string to the typed reason above. Only a
+   * diagnostic the backend actually reported is mapped; anything unrecognised,
+   * including an empty string, stays `Unspecified`.
+   */
+  UnknownReason classifyUnknownReason(std::string_view diagnostic);
+
+  /// The name every consumer prints for a reason.
+  std::string_view unknownReasonName(UnknownReason reason);
+
   class ISolver {
   public:
     virtual ~ISolver() = default;
+
+    /**
+     * The reason for the last UNKNOWN result, or `Unspecified` when the
+     * backend cannot report one. Callers read it only after `check_sat`
+     * returned UNKNOWN; a backend that cannot distinguish its early UNKNOWN
+     * causes leaves the default in place rather than guessing.
+     */
+    virtual UnknownReason unknownReason() const { return UnknownReason::Unspecified; }
 
     // Sort creation
     virtual Sort make_bv_sort(uint32_t size) = 0;

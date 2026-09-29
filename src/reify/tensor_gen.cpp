@@ -39,13 +39,61 @@
 namespace refractir::reify {
   namespace {
 
+    /// What one candidate attempt asked for and how it ended. An unsuccessful
+    /// attempt keeps the whole account: the graph it was built from, the
+    /// property and policy it was selected under, the domain that applied, the
+    /// solver result it reached, and why. A refused or interrupted query never
+    /// becomes an accepted case, so this record is where a consumer accounts
+    /// for it.
     struct AttemptRecord {
       std::uint32_t caseIndex = 0;
       std::uint32_t attempt = 0;
+      std::uint32_t seed = 0;
       std::string property;
       std::string stratum;
+      std::string policy;
+      std::string domain;
+      std::uint32_t symbolicElements = 0;
       std::string outcome;
+      std::string timeoutSource;
+      std::string unknownReason;
       std::string reason;
+    };
+
+    AttemptRecord attemptRecord(
+        std::uint32_t caseIndex, std::uint32_t attempt, std::uint32_t seed,
+        const TensorGenerationOptions &options, const std::string &property,
+        const std::string &stratum, std::string outcome, std::string reason
+    ) {
+      AttemptRecord record;
+      record.caseIndex = caseIndex;
+      record.attempt = attempt;
+      record.seed = seed;
+      record.property = property;
+      record.stratum = stratum;
+      record.policy = options.inputPolicy;
+      record.outcome = std::move(outcome);
+      record.reason = std::move(reason);
+      return record;
+    }
+
+    /// A refused input-policy attempt, carrying the proposal that refused it.
+    ///
+    /// The driver records an unsuccessful attempt with the request it was made
+    /// under; a plain runtime_error would leave the record without the domain
+    /// the solver searched, the symbolic size it refused, or the reason the
+    /// backend reported for an undecided result.
+    struct InputPolicyFailure : std::runtime_error {
+      InputPolicyFailure(std::string message, const TensorInputProposal &proposal) :
+          std::runtime_error(std::move(message)), outcome(proposal.outcome),
+          timeoutSource(proposal.timeoutSource), unknownReason(proposal.unknownReason),
+          domain(proposal.domain), symbolicElements(proposal.symbolicElements) {}
+
+      std::string outcome;
+      std::string timeoutSource;
+      std::string unknownReason;
+      std::pair<std::int64_t, std::int64_t> domain;
+      std::uint32_t symbolicElements = 0;
     };
 
     struct Candidate {
@@ -230,9 +278,19 @@ namespace refractir::reify {
         if (i)
           out << ',';
         out << "{\"case\":" << attempt.caseIndex << ",\"attempt\":" << attempt.attempt
+            << ",\"seed\":" << attempt.seed
             << ",\"property_id\":" << jsonString(attempt.property)
             << ",\"primary_stratum\":" << jsonString(attempt.stratum)
+            << ",\"policy\":" << jsonString(attempt.policy)
             << ",\"outcome\":" << jsonString(attempt.outcome);
+        if (!attempt.domain.empty())
+          out << ",\"domain\":" << jsonString(attempt.domain);
+        if (attempt.symbolicElements != 0)
+          out << ",\"symbolic_elements\":" << attempt.symbolicElements;
+        if (!attempt.timeoutSource.empty())
+          out << ",\"timeout_source\":" << jsonString(attempt.timeoutSource);
+        if (!attempt.unknownReason.empty())
+          out << ",\"unknown_reason\":" << jsonString(attempt.unknownReason);
         if (!attempt.reason.empty())
           out << ",\"reason\":" << jsonString(attempt.reason);
         out << '}';
@@ -1312,7 +1370,9 @@ namespace refractir::reify {
       }
       const auto proposal = proposeTensorInputs(checked, makeSolverFactory(), policyOptions);
       if (proposal.outcome != "accepted")
-        throw std::runtime_error("input_policy_" + proposal.outcome + ": " + proposal.reason);
+        throw InputPolicyFailure(
+            "input_policy_" + proposal.outcome + ": " + proposal.reason, proposal
+        );
       candidate.inputs = proposal.inputs;
       candidate.inputPolicy = std::string(tensorInputPolicyName(policyOptions.policy));
       candidate.inputPattern = inputPatternForPolicy(policyOptions.policy);
@@ -2463,7 +2523,10 @@ namespace refractir::reify {
         result.status = "shortfall";
         result.reason =
             "stratum " + caseStratum + " requires f32; requested dtype is " + caseOptions.dtype;
-        attempts.push_back({caseIndex, 0, caseProperty, caseStratum, "unavailable", result.reason});
+        attempts.push_back(attemptRecord(
+            caseIndex, 0, options.seed, options, caseProperty, caseStratum,
+            "unavailable", result.reason
+        ));
         writeSummary(
             options.outputDirectory / "generation.json", recordedOptions, result, attempts
         );
@@ -2500,9 +2563,10 @@ namespace refractir::reify {
           } else {
             result.status = "stratum_unavailable";
             result.reason = "no constructor is registered for primary stratum " + caseStratum;
-            attempts.push_back(
-                {caseIndex, attempt, caseProperty, caseStratum, "unavailable", result.reason}
-            );
+            attempts.push_back(attemptRecord(
+                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
+                "unavailable", result.reason
+            ));
             writeSummary(
                 options.outputDirectory / "generation.json", recordedOptions, result, attempts
             );
@@ -2519,7 +2583,10 @@ namespace refractir::reify {
                                  }());
           writeTensorCase(directory, caseData);
           ++result.emitted;
-          attempts.push_back({caseIndex, attempt, caseProperty, caseStratum, "accepted", {}});
+          attempts.push_back(attemptRecord(
+              caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
+              "accepted", {}
+          ));
           accepted = true;
           break;
         } catch (const std::exception &error) {
@@ -2537,6 +2604,21 @@ namespace refractir::reify {
             result.status = message.starts_with("property_invalid:") ? "property_invalid"
                                                                      : message.substr(0, message.find(':'));
             result.reason = message;
+            // The record keeps the request the attempt was made under, not
+            // only its refusal: an interrupted or undecided query is accounted
+            // for here rather than disappearing into a status string.
+            auto record = attemptRecord(
+                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
+                result.status, message
+            );
+            if (const auto *failure = dynamic_cast<const InputPolicyFailure *>(&error)) {
+              record.domain =
+                  std::to_string(failure->domain.first) + "," + std::to_string(failure->domain.second);
+              record.symbolicElements = failure->symbolicElements;
+              record.timeoutSource = failure->timeoutSource;
+              record.unknownReason = failure->unknownReason;
+            }
+            attempts.push_back(std::move(record));
             writeSummary(
                 options.outputDirectory / "generation.json", recordedOptions, result, attempts
             );
@@ -2545,9 +2627,10 @@ namespace refractir::reify {
           if (message.starts_with("graph_exhaustion:")) {
             exhausted = true;
             exhaustionReason = message;
-            attempts.push_back(
-                {caseIndex, attempt, caseProperty, caseStratum, "exhausted", message}
-            );
+            attempts.push_back(attemptRecord(
+                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
+                "exhausted", message
+            ));
             continue;
           }
           if (!isCandidateRejection(message)) {
@@ -2559,7 +2642,10 @@ namespace refractir::reify {
             return result;
           }
           ++result.rejected;
-          attempts.push_back({caseIndex, attempt, caseProperty, caseStratum, "rejected", message});
+          attempts.push_back(attemptRecord(
+              caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
+              "rejected", message
+          ));
         }
       }
       if (!accepted) {

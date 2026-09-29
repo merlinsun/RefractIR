@@ -50,6 +50,11 @@ namespace refractir::solver {
     void assert_formula(smt::Term t) override;
     smt::Result check_sat() override;
 
+    /// The reason Z3 gave for its last UNKNOWN. The wrapper reports a timeout
+    /// through its own result kind and every other cause as a diagnostic
+    /// string, so both are preserved here and neither is inferred.
+    smt::UnknownReason unknownReason() const override { return last_unknown_reason; }
+
     smt::Term get_value(smt::Term t) override;
     std::string get_bv_value_string(smt::Term t, uint8_t base) override;
     std::string get_fp_value_string(smt::Term t) override;
@@ -58,6 +63,7 @@ namespace refractir::solver {
     ::alivesmt::smt_initializer initializer;
     std::unique_ptr<::alivesmt::Solver> solver;
     std::unique_ptr<::alivesmt::Result> last_result;
+    smt::UnknownReason last_unknown_reason = smt::UnknownReason::Unspecified;
 
     ::alivesmt::expr unwrap(smt::Term t) const;
     ::alivesmt::expr unwrap(smt::Sort s) const;

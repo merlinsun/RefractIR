@@ -723,6 +723,16 @@ namespace refractir::reify {
       if (result.unsat) {
         proposal.outcome = "unsat";
         proposal.reason = "no input satisfies the stated property on this path";
+        return proposal;
+      }
+      // A reason the backend actually reported is preserved as typed detail.
+      // An undecided result with no reported cause stays `unknown`: elapsed
+      // time is not evidence of a timeout.
+      proposal.unknownReason = std::string(smt::unknownReasonName(result.unknownReason));
+      if (result.unknownReason == smt::UnknownReason::Timeout) {
+        proposal.outcome = "timeout";
+        proposal.timeoutSource = "solver";
+        proposal.reason = "the solver reported a timeout";
       } else {
         proposal.outcome = "unknown";
         proposal.reason = result.message.empty() ? "the solver did not decide" : result.message;

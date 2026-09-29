@@ -10,6 +10,11 @@ namespace refractir::solver {
     BitwuzlaSolver(uint32_t timeout_ms = 0, uint32_t seed = 0, uint32_t num_smt_threads = 1);
     ~BitwuzlaSolver() override = default;
 
+    // The pinned Bitwuzla API reports a per-query time limit through the
+    // unknown result but exposes only a terminator, not a termination reason,
+    // so this backend cannot say why it stopped. It keeps the interface
+    // default rather than guessing from the configured limit.
+
     smt::Sort make_bv_sort(uint32_t size) override;
     smt::Sort make_fp_sort(uint32_t exp, uint32_t sig) override;
     smt::Sort make_bool_sort() override;

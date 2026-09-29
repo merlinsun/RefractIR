@@ -107,6 +107,10 @@ namespace refractir {
       bool sat = false;
       bool unsat = false;
       bool unknown = false;
+      // Set only alongside `unknown`, and only from the backend's report. An
+      // undecided result whose cause the backend cannot name stays
+      // Unspecified; consumers keep it distinct from a reported timeout.
+      smt::UnknownReason unknownReason = smt::UnknownReason::Unspecified;
       std::string message;
       using ModelVal = SymbolicExecutor::ModelVal;
 

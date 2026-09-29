@@ -1058,6 +1058,9 @@ namespace refractir {
       finalRes.unsat = true;
     } else {
       finalRes.unknown = true;
+      // The backend's own report, kept as it stands: an undecided result with
+      // no reported cause stays Unspecified rather than becoming a timeout.
+      finalRes.unknownReason = solver.unknownReason();
     }
     return finalRes;
   }
@@ -1226,3 +1229,39 @@ namespace refractir {
   }
 
 } // namespace refractir
+
+namespace refractir::smt {
+
+  UnknownReason classifyUnknownReason(std::string_view diagnostic) {
+    // Match the backend's own wording, not a summary of it. Z3 reports
+    // "timeout", "canceled", "interrupted", "resource limits", and
+    // "max. memory out" for the cases this maps; anything else, including the
+    // empty string a backend returns when it has nothing to say, stays
+    // unspecified.
+    const auto contains = [&](std::string_view needle) {
+      return diagnostic.find(needle) != std::string_view::npos;
+    };
+    if (contains("timeout") || contains("Time limit") || contains("time limit"))
+      return UnknownReason::Timeout;
+    if (contains("canceled") || contains("cancelled") || contains("interrupted"))
+      return UnknownReason::Interrupted;
+    if (contains("resource limits") || contains("max. memory") || contains("memory out"))
+      return UnknownReason::ResourceLimit;
+    return UnknownReason::Unspecified;
+  }
+
+  std::string_view unknownReasonName(UnknownReason reason) {
+    switch (reason) {
+      case UnknownReason::Unspecified:
+        return "unspecified";
+      case UnknownReason::Timeout:
+        return "timeout";
+      case UnknownReason::ResourceLimit:
+        return "resource_limit";
+      case UnknownReason::Interrupted:
+        return "interrupted";
+    }
+    return "unspecified";
+  }
+
+} // namespace refractir::smt
