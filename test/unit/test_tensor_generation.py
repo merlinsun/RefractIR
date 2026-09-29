@@ -2460,18 +2460,72 @@ class TensorSelectionProvenanceTests(unittest.TestCase):
     self.assertNotIn("target", case.manifest["property"])
     self.assertEqual(case.manifest["evidence"]["kind"], "construction")
 
+  def tampered_case(self, mutate):
+    """An exact case with `mutate` applied to its manifest, digests untouched.
+
+    A case states its target in three places, so every copy has to agree with
+    the bytes. Mutating the manifest alone leaves every artifact digest valid
+    and isolates the consistency check under test.
+    """
+    case, _ = self.exact_case()
+    manifest_path = case.path / "case.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    mutate(manifest)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return case
+
   def test_tampered_exact_case_is_rejected_by_the_validator(self):
     """A deliberately incorrect witness must not load as an accepted case."""
-    case, target = self.exact_case()
-    directory = case.path
-    manifest_path = directory / "case.json"
+
+    def raise_recorded_target(manifest):
+      behavior = manifest["coverage"]["input_behavior"]
+      behavior["property_target"] = behavior["property_target"] + 1
+
+    case = self.tampered_case(raise_recorded_target)
+
+    with self.assertRaises(CaseValidationError):
+      load_case(case.path)
+
+  def test_conflicting_generator_target_is_rejected(self):
+    """generator.property_target must agree with the record the loader checks."""
+    case = self.tampered_case(
+      lambda manifest: manifest["generator"].__setitem__(
+        "property_target", manifest["generator"]["property_target"] + 1
+      )
+    )
+
+    with self.assertRaises(CaseValidationError):
+      load_case(case.path)
+
+  def test_conflicting_property_objective_is_rejected(self):
+    """property.target must agree with the record the loader checks."""
+    case = self.tampered_case(
+      lambda manifest: manifest["property"].__setitem__(
+        "target", manifest["property"]["target"] + 1
+      )
+    )
+
+    with self.assertRaises(CaseValidationError):
+      load_case(case.path)
+
+  def test_f32_inputs_are_checked_against_the_recorded_domain(self):
+    """The recorded domain bounds floating inputs as well as integer ones."""
+    directory = tempfile.mkdtemp()
+    self.addCleanup(shutil.rmtree, directory, True)
+    case = load_compositional_case(
+      self, directory, seed=13, dtype="f32", policy="boundary"
+    )
+    values = struct.unpack(f"<{len(case.inputs) // 4}f", case.inputs)
+    self.assertTrue(any(value != 0.0 for value in values), values)
+    manifest_path = case.path / "case.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["coverage"]["input_behavior"]["property_target"] = target + 1
+    # Both copies move together, so only the value check can reject this.
+    manifest["coverage"]["input_behavior"]["input_domain"] = {"lo": 0, "hi": 0}
+    manifest["generator"]["input_domain"] = {"lo": 0, "hi": 0}
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    # Every artifact digest still matches; only the claimed target moved.
     with self.assertRaises(CaseValidationError):
-      load_case(directory)
+      load_case(case.path)
 
   def test_boundary_feasible_target_is_exact_feasible(self):
     """The exact domain contains every value the sampling policies draw."""

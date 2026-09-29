@@ -31,8 +31,9 @@ namespace refractir::reify {
   /// `Ordinary` draws from `[1, 2]`; `Boundary` and `Exact` both span
   /// `[-1, 2]`, the boundary sampler by cycling through every value and the
   /// exact route by bounding each leaf to the same interval. A target either
-  /// sampler can witness is therefore never outside the exact route's domain,
-  /// so the three policies stay comparable on one graph.
+  /// sampler can witness is therefore never outside the exact route's domain.
+  /// The intervals are not identical across policies, and every case records
+  /// the one it used, so a comparison can state which values it compared.
   std::pair<std::int64_t, std::int64_t> tensorPolicyDomain(TensorInputPolicy policy);
 
   /// A property chosen before any input is accepted. `None` is the admissibility

@@ -313,6 +313,28 @@ def _check_finite(data, dtype, where):
   )
 
 
+def _recorded_targets(manifest):
+  """Every place a case states its output target, with the field that says so.
+
+  A generated case writes the same target into the input record, the generator
+  block, and the property, so a reader has to see them agree before any one of
+  them can be checked against the reference output.
+  """
+  behavior = manifest.get("coverage", {}).get("input_behavior", {})
+  recorded = []
+  if "property_target" in behavior:
+    recorded.append(
+      ("coverage.input_behavior.property_target", behavior["property_target"])
+    )
+  if "property_target" in manifest.get("generator", {}):
+    recorded.append(
+      ("generator.property_target", manifest["generator"]["property_target"])
+    )
+  if "target" in manifest.get("property", {}):
+    recorded.append(("property.target", manifest["property"]["target"]))
+  return recorded
+
+
 def _check_selection_provenance(
   manifest, described_inputs, input_bytes, output, expected
 ):
@@ -320,9 +342,10 @@ def _check_selection_provenance(
 
   A case that names the policy which proposed its runtime inputs, the leaf
   domain it respected, or the output target it was asked to satisfy has to be
-  consistent with what it carries: the domain must contain every input leaf and
-  the reference output must satisfy the stated target. Otherwise the case is a
-  witness for a claim its own bytes do not support.
+  consistent with what it carries: every copy of the domain and target must
+  agree, the domain must contain every input leaf, and the reference output must
+  satisfy the stated target. Otherwise the case is a witness for a claim its own
+  bytes do not support.
   """
   behavior = manifest.get("coverage", {}).get("input_behavior", {})
   generator = manifest.get("generator", {})
@@ -347,28 +370,35 @@ def _check_selection_provenance(
     )
     _require(domain["lo"] <= domain["hi"], "input domain is empty")
     for item in described_inputs:
-      if item["dtype"] != "i32":
+      # The recorded interval bounds every element the policy may propose, so
+      # a floating leaf is bound by it as well; only the element width in the
+      # buffer differs.
+      format_code = {"i32": "i", "f32": "f"}.get(item["dtype"])
+      if format_code is None:
         continue
       begin = item["byte_offset"]
       end = begin + item["byte_length"]
       for value in struct.unpack(
-        f"<{max(0, end - begin) // 4}i", input_bytes[begin:end]
+        f"<{max(0, end - begin) // 4}{format_code}", input_bytes[begin:end]
       ):
         _require(
           domain["lo"] <= value <= domain["hi"],
           f"input {item['name']} carries {value}, outside the recorded domain",
         )
-  target = behavior.get("property_target")
-  if target is None:
-    _require(
-      "target" not in manifest.get("property", {}),
-      "the property carries a target the input record does not",
-    )
+  recorded = _recorded_targets(manifest)
+  if not recorded:
     return
-  _require(
-    isinstance(target, int) and not isinstance(target, bool),
-    "property target must be an integer",
-  )
+  for field, value in recorded:
+    _require(
+      isinstance(value, int) and not isinstance(value, bool),
+      f"{field} must be an integer",
+    )
+  target = recorded[0][1]
+  for field, value in recorded[1:]:
+    _require(
+      value == target,
+      f"{field} states {value} where {recorded[0][0]} states {target}",
+    )
   _require(
     output["dtype"] == "i32", "a stated output target requires an integer output"
   )
