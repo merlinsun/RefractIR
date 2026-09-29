@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <random>
@@ -373,6 +374,80 @@ namespace refractir::reify {
     return {-1, 2};
   }
 
+  namespace {
+
+    /// Parse one coordinate: digits only, consumed completely, and inside the
+    /// type before narrowing. `std::stoul` on `4294967296` returns a value that
+    /// silently truncates to 0, which would certify a different coordinate than
+    /// the one requested.
+    std::uint32_t parseCoordinate(std::string_view text, std::string_view whole) {
+      if (text.empty() ||
+          !std::all_of(text.begin(), text.end(), [](const char character) {
+            return character >= '0' && character <= '9';
+          }))
+        throw std::invalid_argument(
+            "tensor output element coordinate must be a non-negative integer: " +
+            std::string(whole)
+        );
+      std::uint64_t coordinate = 0;
+      const auto result = std::from_chars(text.data(), text.data() + text.size(), coordinate);
+      if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+          coordinate > std::numeric_limits<std::uint32_t>::max())
+        throw std::invalid_argument(
+            "tensor output element coordinate is out of range: " + std::string(whole)
+        );
+      return static_cast<std::uint32_t>(coordinate);
+    }
+
+    /// Parse one complete integer literal: decimal, or `0x`/`0o`/`0b` prefixed,
+    /// with an optional sign. `parseIntegerLiteral` defers to `std::stoll`,
+    /// which stops at the first character it cannot use, so `1.5` and `1junk`
+    /// would both read as 1. A prefix of a longer token is not a value.
+    std::int64_t parseCompleteInteger(std::string_view text, std::string_view whole) {
+      std::size_t begin = (!text.empty() && (text.front() == '-' || text.front() == '+')) ? 1 : 0;
+      unsigned base = 10;
+      if (text.size() > begin + 1 && text[begin] == '0') {
+        switch (text[begin + 1]) {
+          case 'x':
+          case 'X':
+            base = 16;
+            break;
+          case 'o':
+          case 'O':
+            base = 8;
+            break;
+          case 'b':
+          case 'B':
+            base = 2;
+            break;
+          default:
+            break;
+        }
+        if (base != 10)
+          begin += 2;
+      }
+      const auto digits = text.substr(begin);
+      const auto allowed = [base](const char character) {
+        if (character >= '0' && character <= '9')
+          return character - '0' < static_cast<int>(base);
+        return base == 16 && ((character >= 'a' && character <= 'f') ||
+                              (character >= 'A' && character <= 'F'));
+      };
+      if (digits.empty() || !std::all_of(digits.begin(), digits.end(), allowed))
+        throw std::invalid_argument(
+            "tensor output element value must be an i32: " + std::string(whole)
+        );
+      try {
+        return parseIntegerLiteral(std::string(text));
+      } catch (const std::exception &) {
+        throw std::invalid_argument(
+            "tensor output element value must be an i32: " + std::string(whole)
+        );
+      }
+    }
+
+  } // namespace
+
   TensorOutputElementConstraint parseTensorOutputElement(std::string_view text) {
     const auto equals = text.find('=');
     if (equals == std::string_view::npos)
@@ -393,27 +468,13 @@ namespace refractir::reify {
       const auto part = coordinateText.substr(
           begin, comma == std::string_view::npos ? std::string_view::npos : comma - begin
       );
-      if (part.empty() || !std::all_of(part.begin(), part.end(), [](const char character) {
-            return character >= '0' && character <= '9';
-          }))
-        throw std::invalid_argument(
-            "tensor output element coordinate must be a non-negative integer: " +
-            std::string(text)
-        );
-      constraint.index.push_back(static_cast<std::uint32_t>(std::stoul(std::string(part))));
+      constraint.index.push_back(parseCoordinate(part, text));
       if (comma == std::string_view::npos)
         break;
       begin = comma + 1;
     }
 
-    int64_t value = 0;
-    try {
-      value = parseIntegerLiteral(std::string(valueText));
-    } catch (const std::exception &) {
-      throw std::invalid_argument(
-          "tensor output element value must be an i32: " + std::string(text)
-      );
-    }
+    const int64_t value = parseCompleteInteger(valueText, text);
     if (value < std::numeric_limits<std::int32_t>::min() ||
         value > std::numeric_limits<std::int32_t>::max())
       throw std::invalid_argument(

@@ -410,10 +410,11 @@ def _canonical(graph, *, labelled):
         "literal" if isinstance(slot, Literal) else visit(slot)
         for slot in value.operands
       ]
-      if value.operator == "copy":
-        record = ["copy", slots]
-      else:
-        record = [f"operator:{value.operator}" if labelled else "operator", slots]
+      # Every operation carries the same unlabelled marker, a whole-value copy
+      # included: the topology identity separates dependency structure from the
+      # operators that fill it, so two graphs that differ only in which
+      # operation occupies a node must hash alike.
+      record = [f"operator:{value.operator}" if labelled else "operator", slots]
     records[index] = record
     return index
 

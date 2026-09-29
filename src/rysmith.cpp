@@ -968,6 +968,33 @@ static void refreshDescriptor(const LeafGenConfig &opts,
   return GenerateResult{};
 }
 
+// Every value written for `name` on the command line, one per occurrence.
+//
+// cxxopts flattens a repeated vector option into a single comma-separated
+// list, so its parse result cannot tell a coordinate comma from the boundary
+// between two occurrences: `--opt 0 --opt 1=2` and `--opt 0,1=2` arrive
+// identically, and rejoining the pieces would accept a malformed occurrence.
+// Reading each occurrence verbatim keeps every argument whole. Both
+// `--name value` and `--name=value` are accepted; the cxxopts declaration
+// stays for `--help` and for its missing-argument diagnostic.
+[[nodiscard]] static std::vector<std::string>
+optionOccurrences(int argc, char **argv, std::string_view name) {
+  const std::string flag = "--" + std::string(name);
+  std::vector<std::string> values;
+  for (int index = 1; index < argc; ++index) {
+    const std::string_view argument = argv[index];
+    if (argument == flag) {
+      if (index + 1 < argc)
+        values.emplace_back(argv[++index]);
+      continue;
+    }
+    if (argument.size() > flag.size() && argument.compare(0, flag.size(), flag) == 0 &&
+        argument[flag.size()] == '=')
+      values.emplace_back(argument.substr(flag.size() + 1));
+  }
+  return values;
+}
+
 // The command-line surface. Defined apart from main so the option table
 // reads as one list rather than as the first ninety lines of the driver.
 [[nodiscard]] static cxxopts::Options makeOptions() {
@@ -1417,30 +1444,13 @@ int main(int argc, char **argv) {
     tensorOptions.inputPolicy = result["tensor-input-policy"].as<std::string>();
     if (result.count("tensor-property-target"))
       tensorOptions.propertyTarget = result["tensor-property-target"].as<std::int64_t>();
-    if (result.count("tensor-output-element")) {
-      // cxxopts splits a vector option on commas, so `0,1=-1` arrives as
-      // {"0", "1=-1"}. Rejoin the pieces of one argument, which ends at the
-      // piece carrying the value.
-      std::string pending;
-      for (const auto &piece: result["tensor-output-element"].as<std::vector<std::string>>()) {
-        if (!pending.empty())
-          pending += ',';
-        pending += piece;
-        if (piece.find('=') == std::string::npos)
-          continue;
-        try {
-          tensorOptions.outputElements.push_back(
-              refractir::reify::parseTensorOutputElement(pending)
-          );
-        } catch (const std::invalid_argument &error) {
-          std::cerr << "Error: " << error.what() << std::endl;
-          return 1;
-        }
-        pending.clear();
-      }
-      if (!pending.empty()) {
-        std::cerr << "Error: tensor output element must be <coordinate>,...=<i32>: "
-                  << pending << std::endl;
+    for (const auto &text: optionOccurrences(argc, argv, "tensor-output-element")) {
+      try {
+        tensorOptions.outputElements.push_back(
+            refractir::reify::parseTensorOutputElement(text)
+        );
+      } catch (const std::invalid_argument &error) {
+        std::cerr << "Error: " << error.what() << std::endl;
         return 1;
       }
     }

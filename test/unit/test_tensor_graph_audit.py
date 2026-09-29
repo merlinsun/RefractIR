@@ -23,6 +23,7 @@ from test.lib.tensor_graph_audit import (
   return_slice,
   shape_signature,
   topology_digest,
+  values_by_name,
 )
 
 # Enough seeds to witness a scheduled feature while keeping one audit cheap.
@@ -138,6 +139,51 @@ class TensorGraphAuditTests(unittest.TestCase):
         self.assertEqual(parse_graph(renamed).values[0].name, "%renamed0")
         self.assertEqual(topology_digest(graph), topology_digest(parse_graph(renamed)))
         self.assertEqual(operator_digest(graph), operator_digest(parse_graph(renamed)))
+
+  def test_operator_choice_does_not_move_the_topology_identity(self):
+    """Topology separates structure from operators: a copy and a transpose in
+    the same slot must hash alike, and the operator graph must tell them apart.
+    """
+    copies = """fun @kernel(%x: tensor [2,2] i32, %y: tensor [2,2] i32) : tensor [2,2] i32 {
+  let mut %copied: tensor [2,2] i32 = undef;
+  let mut %out: tensor [2,2] i32 = undef;
+^entry:
+  %copied = %x;
+  %out = tensor add %copied, %y;
+  ret %out;
+}
+"""
+    transpose = """fun @kernel(%x: tensor [2,2] i32, %y: tensor [2,2] i32) : tensor [2,2] i32 {
+  let mut %copied: tensor [2,2] i32 = undef;
+  let mut %out: tensor [2,2] i32 = undef;
+^entry:
+  %copied = tensor transpose %x, [1,0];
+  %out = tensor add %copied, %y;
+  ret %out;
+}
+"""
+    subtract = """fun @kernel(%x: tensor [2,2] i32, %y: tensor [2,2] i32) : tensor [2,2] i32 {
+  let mut %copied: tensor [2,2] i32 = undef;
+  let mut %out: tensor [2,2] i32 = undef;
+^entry:
+  %copied = %x;
+  %out = tensor sub %copied, %y;
+  ret %out;
+}
+"""
+    copy_graph = parse_graph(copies)
+    transpose_graph = parse_graph(transpose)
+    subtract_graph = parse_graph(subtract)
+
+    self.assertEqual(values_by_name(copy_graph)["%copied"].operator, "copy")
+    self.assertNotEqual(
+      values_by_name(copy_graph)["%copied"].operator,
+      values_by_name(transpose_graph)["%copied"].operator,
+    )
+    self.assertEqual(topology_digest(copy_graph), topology_digest(transpose_graph))
+    self.assertEqual(topology_digest(copy_graph), topology_digest(subtract_graph))
+    self.assertNotEqual(operator_digest(copy_graph), operator_digest(transpose_graph))
+    self.assertNotEqual(operator_digest(copy_graph), operator_digest(subtract_graph))
 
   def test_changing_constants_and_shapes_preserves_topology_identity(self):
     for profile in PROFILES:

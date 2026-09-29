@@ -18,6 +18,22 @@ from test.unit.tensor_support import ROOT, check_source, run_typed
 RYSMITH = Path(os.environ.get("REFRACTIR_RYSMITH", ROOT / "rysmith")).resolve()
 
 
+# The only outcome a sweep may step over: the solver reached its budget without
+# deciding. Every other status is a regression, so a sweep that skipped it
+# silently would hide one.
+SWEEPABLE_OUTCOMES = frozenset({"input_policy_unknown"})
+
+
+def admit_outcome(test, status, seed, outcomes):
+  """Record an unsuccessful seed, refusing an unexpected failure."""
+  test.assertIn(
+    status,
+    SWEEPABLE_OUTCOMES,
+    f"seed {seed} failed with {status}, which is not an undecided solver result",
+  )
+  outcomes.append(status)
+
+
 def generate(output_dir, *arguments, seed=3, target="sir"):
   command = [
     str(RYSMITH),
@@ -2577,8 +2593,22 @@ class TensorSelectionProvenanceTests(unittest.TestCase):
           load_case(sorted(Path(exact_dir).glob("case_*"))[0]),
           target,
         )
-      outcomes.append(read_summary(exact_dir)["status"])
+      admit_outcome(self, read_summary(exact_dir)["status"], seed, outcomes)
     self.fail(f"no exact sum target decided within the sweep: {sorted(set(outcomes))}")
+
+  def test_pinned_exact_sum_seed_keeps_its_regression(self):
+    """A deterministic fixture beside the sweep: seed 2 decides the sum route.
+
+    The sweep steps over an undecided solver result, so on its own it could
+    absorb a regression by finding a later seed. This pin fails if the route
+    stops working, and the builder's seed-to-graph mapping changes only
+    deliberately.
+    """
+    boundary, exact, target = self.exact_sum_case(seeds=range(2, 3))
+
+    self.assertEqual(
+      exact.manifest["coverage"]["input_behavior"]["property_target"], target
+    )
 
   def test_boundary_feasible_target_is_exact_feasible(self):
     """The exact domain contains every value the sampling policies draw."""
@@ -2684,7 +2714,7 @@ class TensorElementPropertyTests(unittest.TestCase):
           load_case(sorted(Path(exact_dir).glob("case_*"))[0]),
           elements,
         )
-      outcomes.append(read_summary(exact_dir)["status"])
+      admit_outcome(self, read_summary(exact_dir)["status"], seed, outcomes)
     self.fail(
       f"no complete element target decided within the sweep: {sorted(set(outcomes))}"
     )
@@ -2748,7 +2778,7 @@ class TensorElementPropertyTests(unittest.TestCase):
       )
       if result.returncode == 0:
         return seed, load_case(sorted(Path(directory).glob("case_*"))[0]), elements
-      outcomes.append(read_summary(directory)["status"])
+      admit_outcome(self, read_summary(directory)["status"], seed, outcomes)
     self.fail(
       f"no partial element target decided within the sweep: {sorted(set(outcomes))}"
     )
@@ -2842,6 +2872,64 @@ class TensorElementPropertyTests(unittest.TestCase):
     self.assertNotEqual(result.returncode, 0)
     self.assertIn("tensor output element", result.stderr)
 
+  def test_element_argument_rejects_an_incomplete_number(self):
+    """A prefix of a longer token is not a value: it would certify a different
+    property than the one requested."""
+    arguments = ("0=1.5", "0=1junk", "4294967296=1", "0x10=3", "-1=3", "0=", "=1")
+    for argument in arguments:
+      with (
+        self.subTest(argument=argument),
+        tempfile.TemporaryDirectory() as directory,
+      ):
+        result = generate(
+          directory,
+          "-n",
+          "1",
+          "--tensor-dtype",
+          "i32",
+          "--tensor-profile-version",
+          "v2",
+          "--tensor-generator",
+          "compositional",
+          "--tensor-input-policy",
+          "exact",
+          "--tensor-output-element",
+          argument,
+          seed=4,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tensor output element", result.stderr)
+
+  def test_separate_element_arguments_keep_their_boundaries(self):
+    """A malformed occurrence fails even when a later one is well formed.
+
+    `--tensor-output-element 0 --tensor-output-element 1=2` is two arguments,
+    not the single constraint [0,1]=2.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+      result = generate(
+        directory,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-profile-version",
+        "v2",
+        "--tensor-generator",
+        "compositional",
+        "--tensor-input-policy",
+        "exact",
+        "--tensor-output-element",
+        "0",
+        "--tensor-output-element",
+        "1=2",
+        seed=4,
+      )
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("tensor output element", result.stderr)
+
   def test_element_target_is_rejected_under_v3(self):
     with tempfile.TemporaryDirectory() as directory:
       result = generate_compositional(
@@ -2856,6 +2944,17 @@ class TensorElementPropertyTests(unittest.TestCase):
     self.assertNotEqual(result.returncode, 0)
     self.assertEqual(summary["status"], "invalid_profile")
     self.assertIn("tensor-v2", summary["reason"])
+
+  def test_pinned_element_seeds_keep_their_regression(self):
+    """Deterministic fixtures beside the sweeps: seed 3 decides both routes."""
+    _, ordinary, complete_case, _ = self.complete_element_case(seeds=range(3, 4))
+    self.assertEqual(complete_case.program, ordinary.program)
+    self.assertTrue(complete_case.manifest["property"]["constraint"]["complete"])
+    self.assertEqual(self.replay(complete_case), complete_case.expected)
+
+    _, partial_case, _ = self.partial_element_case(seeds=range(3, 4))
+    self.assertFalse(partial_case.manifest["property"]["constraint"]["complete"])
+    self.assertEqual(self.replay(partial_case), partial_case.expected)
 
   def test_single_coordinate_partial_target_on_a_rank_one_output(self):
     """The smallest partial request: one coordinate, the rest from the reference."""
