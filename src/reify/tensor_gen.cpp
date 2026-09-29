@@ -55,6 +55,8 @@ namespace refractir::reify {
       std::string propertySource;
       std::string outputShape;
       std::string exactnessKind;
+      std::string inputMode;
+      std::uint32_t inputSeed = 0;
       std::string inputPattern;
       std::uint64_t exactnessMaxAbsLeafSum = 0;
       TensorElement outputElement = TensorElement::I32;
@@ -79,6 +81,9 @@ namespace refractir::reify {
     constexpr std::array<std::string_view, 6> v3InputPatterns{
         "coordinate-distinct", "mixed-sign", "cancellation", "repeated-value",
         "distinct-groups", "seeded-random"};
+    constexpr std::array<std::string_view, 6> v4BoundaryPatterns{
+        "signed-zero", "small-integer", "power-of-two", "repeated-value",
+        "exact-multiple", "mixed-sign"};
 
     std::uint64_t splitMix64(std::uint64_t value) {
       value += 0x9e3779b97f4a7c15ULL;
@@ -140,7 +145,8 @@ namespace refractir::reify {
         throw std::runtime_error("cannot create tensor generation summary: " + path.string());
       out << "{\"schema\":\"refractir.tensor-generation.v1\","
           << "\"profile\":"
-          << jsonString(options.profileVersion == TensorProfileId::V3 ? "tensor-v3"
+          << jsonString(options.profileVersion == TensorProfileId::V4 ? "tensor-v4"
+                       : options.profileVersion == TensorProfileId::V3 ? "tensor-v3"
                        : options.profileVersion == TensorProfileId::V2 ? "tensor-v2"
                                                                        : "tensor-v1")
           << ",\"status\":" << jsonString(result.status) << ",\"requested\":" << result.requested
@@ -151,6 +157,9 @@ namespace refractir::reify {
           << ",\"synthesis\":" << jsonString(options.synthesis)
           << ",\"target\":" << jsonString(options.target)
           << ",\"attempt_budget\":" << options.attemptBudget;
+      if (options.profileVersion == TensorProfileId::V4)
+        out << ",\"input_mode\":"
+            << jsonString(options.inputPattern.empty() ? "ordinary" : options.inputPattern);
       if (!result.reason.empty())
         out << ",\"reason\":" << jsonString(result.reason);
       if (options.profileVersion == TensorProfileId::V2) {
@@ -1726,6 +1735,112 @@ namespace refractir::reify {
       return candidate;
     }
 
+    float v4OrdinaryValue(std::mt19937 &random, bool divisor) {
+      constexpr std::int32_t scale = 4096;
+      constexpr std::uint32_t span = 2 * 16 * scale + 1;
+      auto numerator = static_cast<std::int32_t>(random() % span) - 16 * scale;
+      if (divisor && std::abs(numerator) < scale / 16)
+        numerator = numerator < 0 ? -(scale / 16) : scale / 16;
+      return static_cast<float>(numerator) / static_cast<float>(scale);
+    }
+
+    Candidate v4RemainderCandidate(const TensorGenerationOptions &options,
+                                   std::uint32_t graphSeed,
+                                   std::uint32_t caseIndex) {
+      Candidate candidate;
+      const std::uint32_t valueSeed = streamSeed(graphSeed, 0x76342d76616c7565ULL);
+      std::mt19937 graphRandom(streamSeed(graphSeed, 0x76342d6772617068ULL));
+      const std::uint32_t exponent = graphRandom() % 10;
+      const Shape shape{1u << exponent};
+      const auto count = shape.front();
+
+      candidate.caseSeed = graphSeed;
+      candidate.inputSeed = valueSeed;
+      candidate.inputMode = options.inputPattern.empty() ? "ordinary" : options.inputPattern;
+      candidate.outputShape = tensorF32Type(shape);
+      candidate.outputElement = TensorElement::F32;
+      candidate.operators = {"rem"};
+      candidate.fullShapes = {shape, shape, shape};
+      candidate.rangeExtents = candidate.fullShapes;
+      candidate.propertySource =
+          "Every f32 remainder lane has finite operands, a nonzero divisor, a finite quotient, "
+          "and a defined fmod result.";
+
+      std::vector<float> lhs(count);
+      std::vector<float> rhs(count);
+      if (candidate.inputMode == "ordinary") {
+        std::mt19937 valueRandom(valueSeed);
+        for (std::uint32_t lane = 0; lane < count; ++lane) {
+          lhs[lane] = v4OrdinaryValue(valueRandom, false);
+          rhs[lane] = v4OrdinaryValue(valueRandom, true);
+        }
+        candidate.inputPattern = "seeded-random";
+      } else {
+        candidate.inputPattern = std::string(
+            v4BoundaryPatterns[caseIndex % v4BoundaryPatterns.size()]
+        );
+        constexpr std::array<std::int32_t, 8> smallValues{-8, -4, -2, -1, 1, 2, 4, 8};
+        constexpr std::array<int, 7> powerExponents{-12, -8, -4, 0, 4, 8, 12};
+        for (std::uint32_t lane = 0; lane < count; ++lane) {
+          switch (caseIndex % v4BoundaryPatterns.size()) {
+            case 0:
+              lhs[lane] = lane % 2 == 0 ? -0.0f : 0.0f;
+              rhs[lane] = 3.0f;
+              break;
+            case 1:
+              lhs[lane] = static_cast<float>(smallValues[(lane + caseIndex) % smallValues.size()]);
+              rhs[lane] = static_cast<float>(
+                  smallValues[(lane + caseIndex + 3) % smallValues.size()]
+              );
+              break;
+            case 2: {
+              const int lhsExponent = powerExponents[(lane + caseIndex) % powerExponents.size()];
+              const int rhsExponent = lhsExponent + (static_cast<int>(lane % 3) - 1) * 2;
+              const float lhsSign = lane % 2 == 0 ? -1.0f : 1.0f;
+              const float rhsSign = lane % 2 == 0 ? 1.0f : -1.0f;
+              lhs[lane] = lhsSign * std::ldexp(1.0f, lhsExponent);
+              rhs[lane] = rhsSign * std::ldexp(1.0f, rhsExponent);
+              break;
+            }
+            case 3:
+              lhs[lane] = -5.5f;
+              rhs[lane] = 2.0f;
+              break;
+            case 4: {
+              const float divisor = lane % 2 == 0 ? 3.0f : -3.0f;
+              const float multiple = lane % 3 == 0 ? -2.0f : 2.0f;
+              lhs[lane] = divisor * multiple;
+              rhs[lane] = divisor;
+              break;
+            }
+            case 5: {
+              const float magnitude = static_cast<float>(5 + lane % 3);
+              lhs[lane] = lane % 2 == 0 ? -magnitude : magnitude;
+              rhs[lane] = lane % 2 == 0 ? 3.0f : -3.0f;
+              break;
+            }
+            default:
+              throw std::runtime_error("unknown tensor-v4 boundary-value family");
+          }
+        }
+      }
+
+      std::ostringstream source;
+      source << "fun @kernel(%x: " << tensorF32Type(shape) << ", %y: "
+             << tensorF32Type(shape) << ") : " << tensorF32Type(shape) << " {\n"
+             << "  let mut %out: " << tensorF32Type(shape) << " = undef;\n"
+             << "^entry:\n"
+             << "  %out = tensor rem %x, %y;\n"
+             << "  ret %out;\n}\n";
+      candidate.solverSource = source.str();
+      candidate.finalSource = candidate.solverSource;
+      candidate.inputs.push_back(
+          {"x", TensorElement::F32, shape, encodeF32Tensor(lhs)});
+      candidate.inputs.push_back(
+          {"y", TensorElement::F32, shape, encodeF32Tensor(rhs)});
+      return candidate;
+    }
+
     TensorCase validateCandidate(
         Candidate candidate, const TensorGenerationOptions &options, const std::string &propertyId,
         const std::string &propertySource
@@ -1739,10 +1854,12 @@ namespace refractir::reify {
       testCase.target = options.target;
       testCase.seed = candidate.caseSeed.value_or(options.seed);
       constexpr std::array<std::uint32_t, 4> warpCounts = {1, 2, 4, 8};
-      testCase.numWarps =
-          options.profileVersion != TensorProfileId::V1
-              ? warpCounts[splitMix64(testCase.seed ^ 0x776172702d636667ULL) % warpCounts.size()]
-              : 4;
+      testCase.numWarps = options.profileVersion == TensorProfileId::V4
+                              ? 1
+                          : options.profileVersion != TensorProfileId::V1
+                              ? warpCounts[splitMix64(testCase.seed ^ 0x776172702d636667ULL) %
+                                            warpCounts.size()]
+                              : 4;
       testCase.synthesis = options.synthesis;
       testCase.propertyId = propertyId;
       testCase.propertySource =
@@ -1750,6 +1867,8 @@ namespace refractir::reify {
       testCase.inputs = std::move(candidate.inputs);
       testCase.exactnessKind = std::move(candidate.exactnessKind);
       testCase.exactnessMaxAbsLeafSum = candidate.exactnessMaxAbsLeafSum;
+      testCase.inputMode = std::move(candidate.inputMode);
+      testCase.inputSeed = candidate.inputSeed;
       testCase.inputPattern = std::move(candidate.inputPattern);
       testCase.outputShape =
           TypeUtils::asTensor(entry.retType) ? TypeUtils::asTensor(entry.retType)->shape : Shape{};
@@ -1816,7 +1935,8 @@ namespace refractir::reify {
       if (!options.property.empty())
         return options.property;
       if (options.profileVersion == TensorProfileId::V2 ||
-          options.profileVersion == TensorProfileId::V3)
+          options.profileVersion == TensorProfileId::V3 ||
+          options.profileVersion == TensorProfileId::V4)
         return "defined-inputs";
       return options.dtype == "i32" ? "coordinates" : "softmax-dominance";
     }
@@ -1868,6 +1988,10 @@ namespace refractir::reify {
              v3InputPatterns.end();
     }
 
+    bool validV4InputMode(std::string_view mode) {
+      return mode == "ordinary" || mode == "boundary-value";
+    }
+
   } // namespace
 
   TensorGenerationResult generateTensorCases(const TensorGenerationOptions &options) {
@@ -1878,6 +2002,12 @@ namespace refractir::reify {
     const std::string property = inferredProperty(options);
     TensorGenerationOptions recordedOptions = options;
     recordedOptions.property = property;
+    if (options.profileVersion == TensorProfileId::V4) {
+      if (recordedOptions.primaryStratum.empty())
+        recordedOptions.primaryStratum = "f32-remainder";
+      if (recordedOptions.inputPattern.empty())
+        recordedOptions.inputPattern = "ordinary";
+    }
 
     auto failRoute = [&](std::string status, std::string reason) {
       result.status = std::move(status);
@@ -1903,8 +2033,16 @@ namespace refractir::reify {
       return failRoute(
           "invalid_profile", "unknown tensor-v3 input pattern: " + options.inputPattern
       );
-    if (options.profileVersion != TensorProfileId::V3 && !options.inputPattern.empty())
-      return failRoute("invalid_profile", "tensor input patterns are available only in tensor-v3");
+    if (options.profileVersion == TensorProfileId::V4 && !options.inputPattern.empty() &&
+        !validV4InputMode(options.inputPattern))
+      return failRoute(
+          "invalid_profile", "tensor-v4 input mode must be ordinary or boundary-value"
+      );
+    if (options.profileVersion != TensorProfileId::V3 &&
+        options.profileVersion != TensorProfileId::V4 && !options.inputPattern.empty())
+      return failRoute(
+          "invalid_profile", "tensor input patterns are available only in tensor-v3/v4"
+      );
     if (options.dtype != "i32" && options.dtype != "f32")
       return failRoute("invalid_profile", "tensor dtype must be i32 or f32");
     if (options.profileVersion == TensorProfileId::V1 && property != "coordinates" &&
@@ -1914,6 +2052,15 @@ namespace refractir::reify {
       return failRoute("invalid_profile", "tensor-v2 composition requires defined-inputs property");
     if (options.profileVersion == TensorProfileId::V3 && property != "defined-inputs")
       return failRoute("invalid_profile", "tensor-v3 generation requires defined-inputs property");
+    if (options.profileVersion == TensorProfileId::V4 && options.dtype != "f32")
+      return failRoute("invalid_profile", "tensor-v4 generation requires dtype f32");
+    if (options.profileVersion == TensorProfileId::V4 && property != "defined-inputs")
+      return failRoute("invalid_profile", "tensor-v4 generation requires defined-inputs property");
+    if (options.profileVersion == TensorProfileId::V4 && !options.primaryStratum.empty() &&
+        options.primaryStratum != "f32-remainder")
+      return failRoute(
+          "invalid_profile", "tensor-v4 primary stratum must be f32-remainder"
+      );
     if (options.profileVersion == TensorProfileId::V1 &&
         (property == "coordinates" || property == "sum-target") && options.dtype != "i32")
       return failRoute("invalid_profile", property + " requires tensor dtype i32");
@@ -1927,7 +2074,8 @@ namespace refractir::reify {
       );
     if (options.profileVersion != TensorProfileId::V1 && options.synthesis != "construction")
       return failRoute(
-          "unsupported_route", "tensor-v2/v3 graph generation currently requires construction"
+          "unsupported_route",
+          "tensor-v2/v3/v4 graph generation requires construction"
       );
     if (options.profileVersion == TensorProfileId::V1 && options.synthesis == "exact" &&
         options.dtype == "f32")
@@ -1953,6 +2101,9 @@ namespace refractir::reify {
               : options.profileVersion == TensorProfileId::V3
                   ? (options.primaryStratum.empty() ? v3StratumForCase(caseIndex)
                                                     : options.primaryStratum)
+              : options.profileVersion == TensorProfileId::V4
+                  ? (options.primaryStratum.empty() ? "f32-remainder"
+                                                    : options.primaryStratum)
               : std::string{};
       TensorGenerationOptions caseOptions = options;
       caseOptions.primaryStratum = caseStratum;
@@ -1960,6 +2111,9 @@ namespace refractir::reify {
         caseOptions.inputPattern = options.inputPattern.empty()
                                        ? v3InputPatternForCase(caseIndex)
                                        : options.inputPattern;
+      if (options.profileVersion == TensorProfileId::V4)
+        caseOptions.inputPattern = options.inputPattern.empty() ? "ordinary"
+                                                                : options.inputPattern;
       if (options.profileVersion == TensorProfileId::V2 &&
           (caseStratum == "bit-preserving-f32-layout" || caseStratum == "exact-f32-reduction") &&
           caseOptions.dtype != "f32") {
@@ -1976,7 +2130,10 @@ namespace refractir::reify {
         const auto attemptSeed = options.seed + caseIndex * 0x9e3779b9U + attempt;
         Candidate candidate;
         try {
-          if (options.profileVersion == TensorProfileId::V1) {
+          if (options.profileVersion == TensorProfileId::V4) {
+            const auto graphSeed = options.seed + caseIndex * 0x9e3779b9U;
+            candidate = v4RemainderCandidate(caseOptions, graphSeed, caseIndex);
+          } else if (options.profileVersion == TensorProfileId::V1) {
             if (property == "coordinates")
               candidate = coordinatesCandidate(options, random);
             else if (property == "sum-target")

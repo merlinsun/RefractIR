@@ -128,6 +128,8 @@ namespace refractir {
           wide = static_cast<__int128>(a) - b;
         else if (op == TensorOp::Mul)
           wide = static_cast<__int128>(a) * b;
+        else if (op == TensorOp::Rem)
+          throw std::runtime_error("unsupported_exact_tensor_operation: rem requires f32");
         else
           throw std::runtime_error("unsupported exact tensor binary operator");
         if (wide < INT32_MIN || wide > INT32_MAX)

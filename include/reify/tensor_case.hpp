@@ -46,6 +46,8 @@ struct TensorCase {
   std::string evidenceStatus;
   std::string exactnessKind;
   std::uint64_t exactnessMaxAbsLeafSum = 0;
+  std::string inputMode;
+  std::uint32_t inputSeed = 0;
   std::string inputPattern;
   std::vector<std::string> operators;
   std::vector<std::pair<Shape, std::int32_t>> shapeAxes;

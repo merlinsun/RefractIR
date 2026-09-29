@@ -126,6 +126,25 @@ namespace refractir {
 
     template<unsigned Bits>
     RuntimeValue binaryResult(TensorOp op, const RuntimeValue &left, const RuntimeValue &right) {
+      if (op == TensorOp::Rem) {
+        if (left.kind != RuntimeValue::Kind::Float || right.kind != RuntimeValue::Kind::Float ||
+            left.bits != 32 || right.bits != 32)
+          throw std::runtime_error("tensor f32 remainder requires materialized f32 operands");
+        const float a = static_cast<float>(left.floatVal);
+        const float b = static_cast<float>(right.floatVal);
+        if (!std::isfinite(a) || !std::isfinite(b))
+          throw std::runtime_error("tensor f32 remainder operand is not finite");
+        if (b == 0.0f)
+          throw UndefinedBehaviorError("UB: tensor f32 remainder by zero");
+        const float remainder = std::fmod(a, b);
+        if (!std::isfinite(remainder))
+          throw UndefinedBehaviorError("UB: non-finite tensor f32 remainder result");
+        RuntimeValue result;
+        result.kind = RuntimeValue::Kind::Float;
+        result.bits = 32;
+        result.floatVal = static_cast<double>(remainder);
+        return result;
+      }
       const auto a = readFloat<Bits>(left);
       const auto b = readFloat<Bits>(right);
       if (op == TensorOp::Div && b == 0)
@@ -197,7 +216,8 @@ namespace refractir {
       }
 
       if (atom.op == TensorOp::Add || atom.op == TensorOp::Sub || atom.op == TensorOp::Mul ||
-          atom.op == TensorOp::Div || atom.op == TensorOp::Min || atom.op == TensorOp::Max) {
+          atom.op == TensorOp::Div || atom.op == TensorOp::Rem || atom.op == TensorOp::Min ||
+          atom.op == TensorOp::Max) {
         const auto sourceShape = [](const RuntimeValue &value) -> Shape {
           return value.kind == RuntimeValue::Kind::Tensor ? value.tensorShape : Shape{};
         };

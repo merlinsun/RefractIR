@@ -142,6 +142,10 @@ namespace refractir {
           return solver.make_term(smt::Kind::BV_OR, {lhs, rhs});
         case TensorOp::Xor:
           return solver.make_term(smt::Kind::BV_XOR, {lhs, rhs});
+        case TensorOp::Rem:
+          throw std::runtime_error(
+              "unsupported_theory: exact tensor rem has no f32 SMT encoding"
+          );
         default:
           throw std::runtime_error("unsupported_theory: exact tensor binary operator");
       }
@@ -165,8 +169,9 @@ namespace refractir {
     const bool isFloat = TypeUtils::getFloatBitWidth(elementType).has_value();
     const bool numericalOp =
         arg.op == TensorOp::Add || arg.op == TensorOp::Sub || arg.op == TensorOp::Mul ||
-        arg.op == TensorOp::Div || arg.op == TensorOp::Min || arg.op == TensorOp::Max ||
-        arg.op == TensorOp::Exp || arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
+        arg.op == TensorOp::Div || arg.op == TensorOp::Rem || arg.op == TensorOp::Min ||
+        arg.op == TensorOp::Max || arg.op == TensorOp::Exp || arg.op == TensorOp::Sum ||
+        arg.op == TensorOp::ReduceMin ||
         arg.op == TensorOp::ReduceMax || arg.op == TensorOp::Softmax;
     if (isFloat && numericalOp) {
       throw std::runtime_error(

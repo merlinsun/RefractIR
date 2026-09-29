@@ -636,6 +636,8 @@ namespace refractir {
       return "(" + operands[0] + " * " + operands[1] + ")";
     if (atom.op == TensorOp::Div)
       return "(" + operands[0] + " / " + operands[1] + ")";
+    if (atom.op == TensorOp::Rem)
+      return "(" + operands[0] + " % " + operands[1] + ")";
     if (atom.op == TensorOp::And)
       return "(" + operands[0] + " & " + operands[1] + ")";
     if (atom.op == TensorOp::Or)

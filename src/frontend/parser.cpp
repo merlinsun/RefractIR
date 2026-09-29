@@ -198,6 +198,7 @@ namespace refractir {
 
     if (operatorToken.lexeme == "add" || operatorToken.lexeme == "sub" ||
         operatorToken.lexeme == "mul" || operatorToken.lexeme == "div" ||
+        operatorToken.lexeme == "rem" ||
         operatorToken.lexeme == "min" || operatorToken.lexeme == "max" ||
         operatorToken.lexeme == "and" || operatorToken.lexeme == "or" ||
         operatorToken.lexeme == "xor") {
@@ -209,6 +210,8 @@ namespace refractir {
         atom.op = TensorOp::Mul;
       else if (operatorToken.lexeme == "div")
         atom.op = TensorOp::Div;
+      else if (operatorToken.lexeme == "rem")
+        atom.op = TensorOp::Rem;
       else if (operatorToken.lexeme == "min")
         atom.op = TensorOp::Min;
       else if (operatorToken.lexeme == "max")

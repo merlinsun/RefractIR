@@ -517,11 +517,14 @@ std::string buildManifestV2(const TensorCase &testCase,
                             const std::string &kernel,
                             TensorProfileId profile = TensorProfileId::V2) {
   const bool v3 = profile == TensorProfileId::V3;
-  const std::string profileName = v3 ? "tensor-v3" : "tensor-v2";
-  const std::string schemaName = v3 ? "refractir.tensor-case.v3"
-                                    : "refractir.tensor-case.v2";
-  const std::string generatorName = v3 ? "tensor-v3-construction"
-                                       : "tensor-v2-construction";
+  const bool v4 = profile == TensorProfileId::V4;
+  const std::string profileName = v4 ? "tensor-v4" : v3 ? "tensor-v3" : "tensor-v2";
+  const std::string schemaName = v4   ? "refractir.tensor-case.v4"
+                                 : v3 ? "refractir.tensor-case.v3"
+                                      : "refractir.tensor-case.v2";
+  const std::string generatorName = v4   ? "tensor-v4-construction"
+                                    : v3 ? "tensor-v3-construction"
+                                         : "tensor-v2-construction";
   std::ostringstream out;
   out << "{\"schema\":" << jsonString(schemaName) << ","
       << "\"profile\":" << jsonString(profileName)
@@ -571,6 +574,8 @@ std::string buildManifestV2(const TensorCase &testCase,
     out << "[2,1000]";
   else
     out << "[0,1]";
+  if (v4)
+    out << ",\"zero_sign_exact\":true";
   out << "},\"reference\":{\"defined\":true,\"stable\":true,\"precisions\":[";
   if (testCase.numericComparison)
     out << "128,256";
@@ -602,8 +607,10 @@ std::string buildManifestV2(const TensorCase &testCase,
     out << "{\"bound\":" << testCase.loopBounds[i] << '}';
   }
   out << "],\"input_behavior\":{\"property_passed\":true,";
-  if (v3)
+  if (v3 || v4)
     out << "\"pattern\":" << jsonString(testCase.inputPattern) << ',';
+  if (v4)
+    out << "\"input_mode\":" << jsonString(testCase.inputMode) << ',';
   out << "\"distinguishing_objective\":\"untargeted\","
       << "\"counterfactual_inputs\":[";
   for (std::size_t index = 0;
@@ -638,6 +645,10 @@ std::string buildManifestV2(const TensorCase &testCase,
       << ",\"node_limit\":12";
   if (v3)
     out << ",\"input_pattern\":" << jsonString(testCase.inputPattern);
+  if (v4)
+    out << ",\"input_mode\":" << jsonString(testCase.inputMode)
+        << ",\"input_pattern\":" << jsonString(testCase.inputPattern)
+        << ",\"input_seed\":" << testCase.inputSeed;
   out << "},\"files\":{";
   auto writeDigest = [&](std::string_view name, std::string_view data,
                          bool comma) {

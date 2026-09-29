@@ -1269,6 +1269,28 @@ namespace refractir {
       }
     }
 
+    if (atom.op == TensorOp::Rem) {
+      if (!requireOperandCount(2))
+        return Ty{std::monostate{}};
+      TypePtr leftType = resolveOperand(0);
+      TypePtr rightType = resolveOperand(1);
+      const auto left = TypeUtils::asTensor(leftType);
+      const auto right = TypeUtils::asTensor(rightType);
+      if (!left || !right) {
+        diags.error("tensor-type: rem requires two tensor operands", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (!TypeUtils::getFloatBitWidth(left->elem) ||
+          TypeUtils::getFloatBitWidth(left->elem) != 32 ||
+          TypeUtils::getFloatBitWidth(right->elem) != 32 || left->shape != right->shape) {
+        diags.error("tensor-v4: rem requires equal-shaped f32 tensor operands", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (!validateShape(left->shape))
+        return Ty{std::monostate{}};
+      return makeResult(left->shape, left->elem);
+    }
+
     if (atom.op == TensorOp::Add || atom.op == TensorOp::Sub || atom.op == TensorOp::Mul ||
         atom.op == TensorOp::Div || atom.op == TensorOp::Min || atom.op == TensorOp::Max ||
         atom.op == TensorOp::And || atom.op == TensorOp::Or || atom.op == TensorOp::Xor) {

@@ -979,11 +979,11 @@ static void refreshDescriptor(const LeafGenConfig &opts,
                             cxxopts::value<std::string>()->default_value("scalar"))
       ("tensor-dtype",      "Tensor profile element type (i32 or f32)",
                             cxxopts::value<std::string>()->default_value("auto"))
-      ("tensor-profile-version", "Tensor capability profile (v1, v2, or v3)",
+      ("tensor-profile-version", "Tensor capability profile (v1, v2, v3, or v4)",
                             cxxopts::value<std::string>()->default_value("v1"))
-      ("tensor-stratum",    "Tensor-v2 primary stratum override",
+      ("tensor-stratum",    "Tensor primary stratum override",
                             cxxopts::value<std::string>())
-      ("tensor-input-pattern", "Tensor-v3 input pattern override",
+      ("tensor-input-pattern", "Tensor-v3 input pattern or tensor-v4 input mode",
                             cxxopts::value<std::string>())
       ("tensor-property",   "Tensor postcondition family (coordinates, sum-target, softmax-dominance)",
                             cxxopts::value<std::string>())
@@ -1396,7 +1396,8 @@ int main(int argc, char **argv) {
     tensorOptions.dtype = result["tensor-dtype"].as<std::string>();
     if (tensorOptions.dtype == "auto")
       tensorOptions.dtype =
-          tensorOptions.profileVersion == refractir::TensorProfileId::V2
+          tensorOptions.profileVersion == refractir::TensorProfileId::V2 ||
+                  tensorOptions.profileVersion == refractir::TensorProfileId::V4
               ? "f32"
               : "i32";
     tensorOptions.property = result.count("tensor-property")

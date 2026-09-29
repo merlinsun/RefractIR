@@ -13,7 +13,7 @@ namespace refractir {
 
   enum class TensorConsumer { Reference, ExactSolver, Triton, C, Wasm, Python };
 
-  enum class TensorProfileId { V1, V2, V3 };
+  enum class TensorProfileId { V1, V2, V3, V4 };
 
   struct TensorProfile {
     TensorProfileId id = TensorProfileId::V1;

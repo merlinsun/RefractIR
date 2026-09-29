@@ -22,6 +22,7 @@ namespace refractir {
     Sub,
     Mul,
     Div,
+    Rem,
     Min,
     Max,
     And,
@@ -49,6 +50,8 @@ namespace refractir {
         return "mul";
       case TensorOp::Div:
         return "div";
+      case TensorOp::Rem:
+        return "rem";
       case TensorOp::Min:
         return "min";
       case TensorOp::Max:

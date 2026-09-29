@@ -21,7 +21,9 @@ namespace refractir {
       return TensorProfile{TensorProfileId::V1, 3, 256, 0};
     if (id == TensorProfileId::V2)
       return TensorProfile{TensorProfileId::V2, 3, 512, 8};
-    return TensorProfile{TensorProfileId::V3, 2, 512, 8};
+    if (id == TensorProfileId::V3)
+      return TensorProfile{TensorProfileId::V3, 2, 512, 8};
+    return TensorProfile{TensorProfileId::V4, 1, 512, 0};
   }
 
   TensorProfileId parseTensorProfileVersion(std::string_view version) {
@@ -31,6 +33,8 @@ namespace refractir {
       return TensorProfileId::V2;
     if (version == "v3")
       return TensorProfileId::V3;
+    if (version == "v4")
+      return TensorProfileId::V4;
     throw std::invalid_argument("tensor-profile: unknown tensor profile version '" +
                                 std::string(version) + "'");
   }
@@ -282,6 +286,75 @@ namespace refractir {
 
     bool expressionHasCallAtom(const Expr &expr) { return expressionContainsAtom<CallAtom>(expr); }
 
+    bool expressionHasTensorOperation(const Expr &expr, TensorOp operation);
+
+    bool atomHasTensorOperation(const Atom &atom, TensorOp operation) {
+      if (const auto *tensor = std::get_if<TensorAtom>(&atom.v))
+        return tensor->op == operation;
+      return std::visit(
+          [operation](const auto &value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SelectAtom>) {
+              return (value.cond &&
+                      (expressionHasTensorOperation(value.cond->lhs, operation) ||
+                       expressionHasTensorOperation(value.cond->rhs, operation))) ||
+                     (value.maskExpr && expressionHasTensorOperation(*value.maskExpr, operation));
+            } else if constexpr (std::is_same_v<T, CallAtom>) {
+              return std::any_of(value.args.begin(), value.args.end(), [operation](const auto &arg) {
+                return arg && expressionHasTensorOperation(*arg, operation);
+              });
+            }
+            return false;
+          },
+          atom.v
+      );
+    }
+
+    bool expressionHasTensorOperation(const Expr &expr, TensorOp operation) {
+      if (atomHasTensorOperation(expr.first, operation))
+        return true;
+      return std::any_of(expr.rest.begin(), expr.rest.end(), [operation](const Expr::Tail &tail) {
+        return atomHasTensorOperation(tail.atom, operation);
+      });
+    }
+
+    bool functionHasTensorOperation(const FunDecl &function, TensorOp operation) {
+      auto has = [operation](const Expr &expr) {
+        return expressionHasTensorOperation(expr, operation);
+      };
+      for (const auto &local: function.lets)
+        if (local.init && local.init->kind == InitVal::Kind::Atom &&
+            atomHasTensorOperation(*std::get<AtomPtr>(local.init->value), operation))
+          return true;
+      for (const auto &block: function.blocks) {
+        for (const auto &instruction: block.instrs) {
+          const bool found = std::visit(
+              [&](const auto &ins) {
+                using T = std::decay_t<decltype(ins)>;
+                if constexpr (std::is_same_v<T, AssignInstr>)
+                  return has(ins.rhs);
+                else if constexpr (std::is_same_v<T, StoreInstr>)
+                  return has(ins.ptr) || has(ins.val);
+                else if constexpr (std::is_same_v<T, AssumeInstr> ||
+                                   std::is_same_v<T, RequireInstr>)
+                  return has(ins.cond.lhs) || has(ins.cond.rhs);
+                return false;
+              },
+              instruction
+          );
+          if (found)
+            return true;
+        }
+        if (const auto branch = std::get_if<BrTerm>(&block.term);
+            branch && branch->cond && (has(branch->cond->lhs) || has(branch->cond->rhs)))
+          return true;
+        if (const auto ret = std::get_if<RetTerm>(&block.term);
+            ret && ret->value && has(*ret->value))
+          return true;
+      }
+      return false;
+    }
+
     bool v3SupportsTensorOperation(TensorOp op) {
       switch (op) {
         case TensorOp::Add:
@@ -421,6 +494,56 @@ namespace refractir {
         if (containsTensorType(local.type, structs, profile))
           return true;
       return false;
+    }
+
+    bool isF32Tensor(const TypePtr &type, const Shape &shape) {
+      const auto tensor = TypeUtils::asTensor(type);
+      return tensor && tensor->shape == shape && TypeUtils::getFloatBitWidth(tensor->elem) == 32;
+    }
+
+    bool isLocalCoef(const Coef &coef, std::string_view expected) {
+      const auto id = std::get_if<LocalOrSymId>(&coef);
+      if (!id)
+        return false;
+      const auto local = std::get_if<LocalId>(id);
+      return local && local->name == expected;
+    }
+
+    std::optional<std::string> simpleLocal(const Expr &expr);
+
+    bool isV4RemainderKernel(const FunDecl &function) {
+      if (function.params.size() != 2 || !function.syms.empty() || function.lets.size() != 1 ||
+          function.blocks.size() != 1 || function.blocks.front().instrs.size() != 1)
+        return false;
+      const auto &left = function.params[0];
+      const auto &right = function.params[1];
+      const auto leftTensor = TypeUtils::asTensor(left.type);
+      const auto rightTensor = TypeUtils::asTensor(right.type);
+      if (!leftTensor || !rightTensor || leftTensor->shape != rightTensor->shape ||
+          !isF32Tensor(left.type, leftTensor->shape) ||
+          !isF32Tensor(right.type, leftTensor->shape) ||
+          !isF32Tensor(function.retType, leftTensor->shape))
+        return false;
+
+      const auto &output = function.lets.front();
+      if (!output.isMutable || !output.init || output.init->kind != InitVal::Kind::Undef ||
+          !isF32Tensor(output.type, leftTensor->shape))
+        return false;
+      const auto *assignment = std::get_if<AssignInstr>(&function.blocks.front().instrs.front());
+      if (!assignment || assignment->lhs.base.name != output.name.name ||
+          !assignment->lhs.accesses.empty() || !assignment->rhs.rest.empty())
+        return false;
+      const auto *atom = std::get_if<TensorAtom>(&assignment->rhs.first.v);
+      if (!atom || atom->op != TensorOp::Rem || atom->operands.size() != 2 ||
+          !isLocalCoef(atom->operands[0], left.name.name) ||
+          !isLocalCoef(atom->operands[1], right.name.name))
+        return false;
+
+      const auto *ret = std::get_if<RetTerm>(&function.blocks.front().term);
+      if (!ret || !ret->value || !simpleLocal(*ret->value) ||
+          *simpleLocal(*ret->value) != output.name.name)
+        return false;
+      return true;
     }
 
     std::optional<std::string> simpleLocalAtom(const Atom &atom) {
@@ -710,6 +833,19 @@ namespace refractir {
     for (const auto &function: prog.funs) {
       if (!functionHasTensorType(function, structs, profile) && !functionHasTensorAtom(function))
         continue;
+      const bool hasRemainder = functionHasTensorOperation(function, TensorOp::Rem);
+      if (profile.id != TensorProfileId::V4 && hasRemainder)
+        diags.error("tensor-profile: tensor rem requires tensor-v4", function.span);
+      if (profile.id == TensorProfileId::V4 && !isV4RemainderKernel(function))
+        diags.error(
+            "tensor-v4: only a directly returned equal-shaped f32 vector remainder is supported",
+            function.span
+        );
+      if (profile.id == TensorProfileId::V4 && consumer == TensorConsumer::ExactSolver &&
+          hasRemainder)
+        diags.error(
+            "unsupported_theory: exact solver does not implement f32 tensor rem", function.span
+        );
       if (profile.id == TensorProfileId::V3 &&
           functionHasUnsupportedV3TensorOperation(function))
         diags.error(
