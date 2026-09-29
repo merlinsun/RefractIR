@@ -42,6 +42,7 @@
 #include "reify/path_sampler.hpp"
 #include "reify/state_profile.hpp"
 #include "reify/tensor_gen.hpp"
+#include "reify/tensor_input_policy.hpp"
 #include "reify/var_catalogue.hpp"
 #include "solver/solved_header.hpp"
 #include "solver/solver.hpp"
@@ -995,6 +996,8 @@ static void refreshDescriptor(const LeafGenConfig &opts,
                             cxxopts::value<std::string>()->default_value("ordinary"))
       ("tensor-property-target", "Output target the exact input policy solves for",
                             cxxopts::value<std::int64_t>())
+      ("tensor-output-element", "Required i32 output element as <coordinate>,...=<value>; repeatable",
+                            cxxopts::value<std::vector<std::string>>())
       ("tensor-cvc5",       "cvc5 executable for the optional tensor real-synthesis route",
                             cxxopts::value<std::string>())
       ("tensor-cvc5-feasibility", "Matching cvc5 feasibility record for real-synthesis campaigns",
@@ -1414,6 +1417,33 @@ int main(int argc, char **argv) {
     tensorOptions.inputPolicy = result["tensor-input-policy"].as<std::string>();
     if (result.count("tensor-property-target"))
       tensorOptions.propertyTarget = result["tensor-property-target"].as<std::int64_t>();
+    if (result.count("tensor-output-element")) {
+      // cxxopts splits a vector option on commas, so `0,1=-1` arrives as
+      // {"0", "1=-1"}. Rejoin the pieces of one argument, which ends at the
+      // piece carrying the value.
+      std::string pending;
+      for (const auto &piece: result["tensor-output-element"].as<std::vector<std::string>>()) {
+        if (!pending.empty())
+          pending += ',';
+        pending += piece;
+        if (piece.find('=') == std::string::npos)
+          continue;
+        try {
+          tensorOptions.outputElements.push_back(
+              refractir::reify::parseTensorOutputElement(pending)
+          );
+        } catch (const std::invalid_argument &error) {
+          std::cerr << "Error: " << error.what() << std::endl;
+          return 1;
+        }
+        pending.clear();
+      }
+      if (!pending.empty()) {
+        std::cerr << "Error: tensor output element must be <coordinate>,...=<i32>: "
+                  << pending << std::endl;
+        return 1;
+      }
+    }
     tensorOptions.target = result["target"].as<std::string>();
     tensorOptions.count =
         static_cast<std::uint32_t>(std::max(0, result["n-funcs"].as<int>()));

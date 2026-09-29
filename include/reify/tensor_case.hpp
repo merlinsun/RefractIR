@@ -12,6 +12,14 @@
 
 namespace refractir::reify {
 
+/// One required value at one logical output coordinate. The coordinate is
+/// row-major and fully padded to the output rank, so a record is unambiguous
+/// without consulting the shape it was written against.
+struct TensorOutputElementConstraint {
+  std::vector<std::uint32_t> index;
+  std::int32_t value = 0;
+};
+
 struct TensorCaseBuffer {
   std::string name;
   TensorElement element = TensorElement::I32;
@@ -57,6 +65,13 @@ struct TensorCase {
   std::string inputPolicy;
   std::optional<std::pair<std::int64_t, std::int64_t>> inputDomain;
   std::optional<std::int64_t> propertyTarget;
+  // The structured form of the same request. A scalar target states one number
+  // for the whole output; an element target states one per coordinate and says
+  // whether it covers every coordinate. Serialized beside the legacy scalar
+  // fields so a reader can check the two representations against each other.
+  std::string propertyKind = "none";
+  std::vector<TensorOutputElementConstraint> propertyElements;
+  bool propertyComplete = false;
   std::vector<std::string> operators;
   std::vector<std::pair<Shape, std::int32_t>> shapeAxes;
   std::vector<std::pair<std::string, std::int32_t>> inputCounterfactualWitnesses;

@@ -4,6 +4,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -150,11 +151,48 @@ namespace refractir::reify {
       const auto *tensor = TypeUtils::asTensor(entry->retType);
       std::string probe;
       if (property.kind == TensorInputProperty::Kind::OutputEquals) {
-        // A scalar integer return can be constrained directly. A tensor
-        // return states the property per element, which the completed
-        // extraction route does not admit yet.
+        // A scalar integer return can be constrained directly.
         if (tensor || !TypeUtils::getIntBitWidth(entry->retType).has_value())
           return std::nullopt;
+      } else if (property.kind == TensorInputProperty::Kind::ElementsEqual) {
+        // One extraction and one scalar requirement per named coordinate, each
+        // on the returned value itself: the computation is untouched, and the
+        // probe locals carry the query prefix the digest removes.
+        if (!tensor || !TypeUtils::getIntBitWidth(tensor->elem).has_value())
+          return std::nullopt;
+        if (property.elements.empty())
+          return std::nullopt;
+        for (std::size_t position = 0; position < property.elements.size(); ++position) {
+          const auto &element = property.elements[position];
+          if (element.index.size() != tensor->shape.size())
+            return std::nullopt;
+          const std::string name = std::string(queryPrefix) + "e" + std::to_string(position);
+          LetDecl local;
+          local.isMutable = true;
+          local.name = LocalId{name, {}};
+          local.type = tensor->elem;
+          local.init = InitVal{InitVal::Kind::Undef, {}, {}};
+          entry->lets.push_back(std::move(local));
+
+          TensorAtom extract;
+          extract.op = TensorOp::Extract;
+          extract.operands.push_back(Coef{LocalId{returned, {}}});
+          extract.attribute = element.index;
+
+          LValue target;
+          target.base = LocalId{name, {}};
+          AssignInstr assignment;
+          assignment.lhs = std::move(target);
+          assignment.rhs = Expr{Atom{std::move(extract), {}}, {}, {}};
+          returnBlock->instrs.push_back(Instr{std::move(assignment)});
+
+          RequireInstr requirement;
+          requirement.cond = Cond{
+              localExpr(name), RelOp::EQ, integerExpr(element.value), {}
+          };
+          returnBlock->instrs.push_back(Instr{std::move(requirement)});
+        }
+        return query;
       } else {
         // A rank-one integer tensor return reduces to the scalar the
         // property names, using only operators the profile already admits.
@@ -335,6 +373,99 @@ namespace refractir::reify {
     return {-1, 2};
   }
 
+  TensorOutputElementConstraint parseTensorOutputElement(std::string_view text) {
+    const auto equals = text.find('=');
+    if (equals == std::string_view::npos)
+      throw std::invalid_argument(
+          "tensor output element must be <coordinate>,...=<i32>: " + std::string(text)
+      );
+    const std::string_view coordinateText = text.substr(0, equals);
+    const std::string_view valueText = text.substr(equals + 1);
+    if (coordinateText.empty() || valueText.empty())
+      throw std::invalid_argument(
+          "tensor output element must be <coordinate>,...=<i32>: " + std::string(text)
+      );
+
+    TensorOutputElementConstraint constraint;
+    std::size_t begin = 0;
+    while (begin <= coordinateText.size()) {
+      const auto comma = coordinateText.find(',', begin);
+      const auto part = coordinateText.substr(
+          begin, comma == std::string_view::npos ? std::string_view::npos : comma - begin
+      );
+      if (part.empty() || !std::all_of(part.begin(), part.end(), [](const char character) {
+            return character >= '0' && character <= '9';
+          }))
+        throw std::invalid_argument(
+            "tensor output element coordinate must be a non-negative integer: " +
+            std::string(text)
+        );
+      constraint.index.push_back(static_cast<std::uint32_t>(std::stoul(std::string(part))));
+      if (comma == std::string_view::npos)
+        break;
+      begin = comma + 1;
+    }
+
+    int64_t value = 0;
+    try {
+      value = parseIntegerLiteral(std::string(valueText));
+    } catch (const std::exception &) {
+      throw std::invalid_argument(
+          "tensor output element value must be an i32: " + std::string(text)
+      );
+    }
+    if (value < std::numeric_limits<std::int32_t>::min() ||
+        value > std::numeric_limits<std::int32_t>::max())
+      throw std::invalid_argument(
+          "tensor output element value is outside i32: " + std::string(text)
+      );
+    constraint.value = static_cast<std::int32_t>(value);
+    return constraint;
+  }
+
+  bool checkTensorOutputElements(
+      const Shape &shape, std::vector<TensorOutputElementConstraint> &elements, bool &complete,
+      std::string &reason
+  ) {
+    complete = false;
+    if (shape.empty()) {
+      reason = "an element target needs a tensor output";
+      return false;
+    }
+    if (elements.empty()) {
+      reason = "an element target needs at least one coordinate";
+      return false;
+    }
+    for (const auto &element: elements) {
+      if (element.index.size() != shape.size()) {
+        reason = "an element target coordinate must state every output dimension";
+        return false;
+      }
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (element.index[axis] >= shape[axis]) {
+          reason = "an element target coordinate is outside the output shape";
+          return false;
+        }
+      }
+    }
+    // Row-major lexicographic order, so the serialized constraint list does not
+    // depend on the order the arguments were written in.
+    std::sort(
+        elements.begin(), elements.end(),
+        [](const TensorOutputElementConstraint &lhs, const TensorOutputElementConstraint &rhs) {
+          return lhs.index < rhs.index;
+        }
+    );
+    for (std::size_t position = 1; position < elements.size(); ++position) {
+      if (elements[position].index == elements[position - 1].index) {
+        reason = "an element target names the same coordinate twice";
+        return false;
+      }
+    }
+    complete = elements.size() == tensorElementCount(shape);
+    return true;
+  }
+
   std::string computationDigest(const Program &program) {
     Program filtered = cloneProgram(program);
     const auto isQuery = [](const std::string &name) {
@@ -380,8 +511,32 @@ namespace refractir::reify {
     if (property.kind == TensorInputProperty::Kind::None)
       return true;
     const auto count = shape.empty() ? 1u : tensorElementCount(shape);
-    if (output.size() < static_cast<std::size_t>(count) * 4)
+    // The transport has to agree with the declared type before any element is
+    // read: a short buffer would otherwise compare against whatever the last
+    // four bytes happened to be.
+    if (output.size() != static_cast<std::size_t>(count) * 4)
       return false;
+    // Every admitted property names integer values, so a floating output
+    // cannot satisfy one.
+    if (element != TensorElement::I32)
+      return false;
+    if (property.kind == TensorInputProperty::Kind::ElementsEqual) {
+      for (const auto &required: property.elements) {
+        std::uint32_t offset = 0;
+        for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+          if (axis >= required.index.size() || required.index[axis] >= shape[axis])
+            return false;
+          offset = offset * shape[axis] + required.index[axis];
+        }
+        const auto value =
+            static_cast<std::int64_t>(std::bit_cast<std::int32_t>(readLittleWord(
+                output, static_cast<std::size_t>(offset) * 4
+            )));
+        if (value != required.value)
+          return false;
+      }
+      return true;
+    }
     std::int64_t total = 0;
     for (std::uint32_t index = 0; index < count; ++index) {
       const auto word = readLittleWord(output, index * 4);

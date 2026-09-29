@@ -167,6 +167,36 @@ std::string sha256(std::string_view bytes) {
   return out.str();
 }
 
+/// The typed form of a case's requested property. The legacy scalar fields
+/// (`property.target`, `generator.property_target`, and the input record's
+/// `property_target`) stay beside it, and a reader requires the two
+/// representations to agree where both exist.
+void writePropertyConstraint(std::ostringstream &out, const TensorCase &testCase) {
+  if (testCase.propertyKind.empty() || testCase.propertyKind == "none")
+    return;
+  out << ",\"constraint\":{\"kind\":" << jsonString(testCase.propertyKind);
+  if (testCase.propertyKind == "elements_equal") {
+    out << ",\"complete\":" << (testCase.propertyComplete ? "true" : "false")
+        << ",\"elements\":[";
+    for (std::size_t index = 0; index < testCase.propertyElements.size(); ++index) {
+      if (index)
+        out << ',';
+      const auto &element = testCase.propertyElements[index];
+      out << "{\"index\":[";
+      for (std::size_t axis = 0; axis < element.index.size(); ++axis) {
+        if (axis)
+          out << ',';
+        out << element.index[axis];
+      }
+      out << "],\"value\":" << element.value << '}';
+    }
+    out << ']';
+  } else if (testCase.propertyTarget) {
+    out << ",\"target\":" << *testCase.propertyTarget;
+  }
+  out << '}';
+}
+
 /// Selection provenance shared by every profile's input record: which policy
 /// proposed the runtime inputs, the inclusive leaf domain it respected, and the
 /// output target it was asked to satisfy. Emitted only when the case carries
@@ -474,6 +504,7 @@ std::string buildManifest(const TensorCase &testCase,
         << jsonString(testCase.propertyThresholdF32Bits);
   if (testCase.propertyTarget)
     out << ",\"target\":" << *testCase.propertyTarget;
+  writePropertyConstraint(out, testCase);
   out << "},\"evidence\":{\"kind\":" << jsonString(testCase.evidenceKind)
       << ",\"status\":" << jsonString(testCase.evidenceStatus)
       << ",\"artifacts\":[\"program.sir\",\"inputs.bin\",\"expected.bin\"";
@@ -573,10 +604,16 @@ std::string buildManifestV2(const TensorCase &testCase,
       << ",\"source\":" << jsonString(testCase.propertySource)
       << ",\"P\":\"defined-inputs\","
       << "\"D\":"
-      << jsonString(testCase.propertyTarget ? "output-target" : "untargeted")
+      << jsonString(
+             testCase.propertyKind == "elements_equal"
+                 ? (testCase.propertyComplete ? "complete-output-target"
+                                              : "partial-output-target")
+                 : testCase.propertyTarget ? "output-target" : "untargeted"
+         )
       << ",\"validated\":true";
   if (testCase.propertyTarget)
     out << ",\"target\":" << *testCase.propertyTarget;
+  writePropertyConstraint(out, testCase);
   out << "},\"evidence\":{\"kind\":" << jsonString(testCase.evidenceKind)
       << ",\"status\":" << jsonString(testCase.evidenceStatus)
       << ",\"artifacts\":[\"program.sir\",\"inputs.bin\",\"expected.bin\"";

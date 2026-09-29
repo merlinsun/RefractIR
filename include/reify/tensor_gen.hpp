@@ -6,6 +6,7 @@
 #include <string>
 
 #include "analysis/tensor.hpp"
+#include "reify/tensor_case.hpp"
 
 namespace refractir::reify {
 
@@ -18,6 +19,9 @@ namespace refractir::reify {
     // Target the exact policy solves for. Stated before any input is
     // accepted, so the case cannot read its property back off a result.
     std::optional<std::int64_t> propertyTarget;
+    // Per-element targets, canonicalized once the output shape is known.
+    // Mutually exclusive with `propertyTarget`.
+    std::vector<TensorOutputElementConstraint> outputElements;
     std::string primaryStratum;
     std::string inputPattern;
     std::string dtype = "i32";

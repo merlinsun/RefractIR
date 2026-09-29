@@ -66,6 +66,9 @@ namespace refractir::reify {
       std::string inputPolicy;
       std::optional<TensorInputProperty> inputProperty;
       std::optional<std::pair<std::int64_t, std::int64_t>> inputDomain;
+      // ElementsEqual only: whether the constraints cover every output
+      // coordinate, which the case has to state to be readable on its own.
+      bool propertyComplete = false;
       std::uint64_t exactnessMaxAbsLeafSum = 0;
       TensorElement outputElement = TensorElement::I32;
       std::vector<std::int32_t> loopBounds;
@@ -169,6 +172,23 @@ namespace refractir::reify {
           << ",\"attempt_budget\":" << options.attemptBudget;
       if (options.propertyTarget)
         out << ",\"property_target\":" << *options.propertyTarget;
+      // A failed attempt still has to say what it was asked for.
+      if (!options.outputElements.empty()) {
+        out << ",\"output_elements\":[";
+        for (std::size_t index = 0; index < options.outputElements.size(); ++index) {
+          if (index)
+            out << ',';
+          const auto &element = options.outputElements[index];
+          out << "{\"index\":[";
+          for (std::size_t axis = 0; axis < element.index.size(); ++axis) {
+            if (axis)
+              out << ',';
+            out << element.index[axis];
+          }
+          out << "],\"value\":" << element.value << '}';
+        }
+        out << ']';
+      }
       if (options.profileVersion == TensorProfileId::V4)
         out << ",\"input_mode\":"
             << jsonString(options.inputPattern.empty() ? "ordinary" : options.inputPattern);
@@ -1269,10 +1289,27 @@ namespace refractir::reify {
                                           ? TensorInputProperty::Kind::OutputSumEquals
                                           : TensorInputProperty::Kind::OutputEquals;
         policyOptions.property.target = *options.propertyTarget;
+      } else if (!options.outputElements.empty()) {
+        policyOptions.property.kind = TensorInputProperty::Kind::ElementsEqual;
+        policyOptions.property.elements = options.outputElements;
       }
       // The exact route defaults its bound to the envelope the sampling
       // policies draw from, so a sampled witness is never outside the domain
       // the solver was given.
+      bool elementComplete = false;
+      if (policyOptions.property.kind == TensorInputProperty::Kind::ElementsEqual) {
+        const auto *returnTensor = TypeUtils::asTensor(entry.retType);
+        if (!returnTensor)
+          throw std::runtime_error(
+              "property_invalid: an element target needs a tensor return value"
+          );
+        std::string reason;
+        if (!checkTensorOutputElements(
+                returnTensor->shape, policyOptions.property.elements,
+                elementComplete, reason
+            ))
+          throw std::runtime_error("property_invalid: " + reason);
+      }
       const auto proposal = proposeTensorInputs(checked, makeSolverFactory(), policyOptions);
       if (proposal.outcome != "accepted")
         throw std::runtime_error("input_policy_" + proposal.outcome + ": " + proposal.reason);
@@ -1282,6 +1319,7 @@ namespace refractir::reify {
       candidate.inputMode = candidate.inputPolicy;
       candidate.inputProperty = policyOptions.property;
       candidate.inputDomain = proposal.domain;
+      candidate.propertyComplete = elementComplete;
       candidate.propertySource =
           options.propertyTarget
               ? std::string(tensorInputPolicyName(policyOptions.policy)) +
@@ -2063,8 +2101,27 @@ namespace refractir::reify {
       testCase.inputPattern = std::move(candidate.inputPattern);
       testCase.inputPolicy = std::move(candidate.inputPolicy);
       testCase.inputDomain = candidate.inputDomain;
+      if (candidate.inputProperty) {
+        switch (candidate.inputProperty->kind) {
+          case TensorInputProperty::Kind::None:
+            testCase.propertyKind = "none";
+            break;
+          case TensorInputProperty::Kind::OutputEquals:
+            testCase.propertyKind = "output_equals";
+            break;
+          case TensorInputProperty::Kind::OutputSumEquals:
+            testCase.propertyKind = "output_sum_equals";
+            break;
+          case TensorInputProperty::Kind::ElementsEqual:
+            testCase.propertyKind = "elements_equal";
+            testCase.propertyElements = candidate.inputProperty->elements;
+            testCase.propertyComplete = candidate.propertyComplete;
+            break;
+        }
+      }
       if (candidate.inputProperty &&
-          candidate.inputProperty->kind != TensorInputProperty::Kind::None)
+          candidate.inputProperty->kind != TensorInputProperty::Kind::None &&
+          candidate.inputProperty->kind != TensorInputProperty::Kind::ElementsEqual)
         testCase.propertyTarget = candidate.inputProperty->target;
       testCase.outputShape =
           TypeUtils::asTensor(entry.retType) ? TypeUtils::asTensor(entry.retType)->shape : Shape{};
@@ -2259,14 +2316,34 @@ namespace refractir::reify {
       return failRoute(
           "unsupported_route", "tensor input policies apply to compositional generation"
       );
-    if (options.inputPolicy == "exact" && !options.propertyTarget)
+    if (options.inputPolicy == "exact" && !options.propertyTarget && options.outputElements.empty())
       return failRoute(
-          "unsupported_route", "the exact input policy needs --tensor-property-target"
+          "unsupported_route",
+          "the exact input policy needs --tensor-property-target or --tensor-output-element"
       );
     if (options.propertyTarget && options.inputPolicy != "exact")
       return failRoute(
           "unsupported_route", "a stated property target needs the exact input policy"
       );
+    if (!options.outputElements.empty() && options.propertyTarget)
+      return failRoute(
+          "unsupported_route",
+          "--tensor-output-element and --tensor-property-target are mutually exclusive"
+      );
+    if (!options.outputElements.empty() && options.inputPolicy != "exact")
+      return failRoute(
+          "unsupported_route", "output element targets need the exact input policy"
+      );
+    if (!options.outputElements.empty() && options.generator != "compositional")
+      return failRoute(
+          "unsupported_route", "output element targets apply to compositional generation"
+      );
+    if (!options.outputElements.empty() && options.profileVersion != TensorProfileId::V2)
+      return failRoute(
+          "invalid_profile", "output element targets are admitted under tensor-v2 only"
+      );
+    if (!options.outputElements.empty() && options.dtype != "i32")
+      return failRoute("invalid_profile", "output element targets require dtype i32");
     // The compositional route proposes values through its input policy, so a
     // requested value family would be recorded without ever being applied.
     if (options.generator == "compositional" && !options.inputPattern.empty())
@@ -2456,8 +2533,9 @@ namespace refractir::reify {
             );
             return result;
           }
-          if (message.starts_with("input_policy_")) {
-            result.status = message.substr(0, message.find(':'));
+          if (message.starts_with("input_policy_") || message.starts_with("property_invalid:")) {
+            result.status = message.starts_with("property_invalid:") ? "property_invalid"
+                                                                     : message.substr(0, message.find(':'));
             result.reason = message;
             writeSummary(
                 options.outputDirectory / "generation.json", recordedOptions, result, attempts

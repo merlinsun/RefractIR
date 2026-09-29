@@ -135,6 +135,7 @@ def generate_compositional(
   policy="ordinary",
   property_target=None,
   pattern=None,
+  elements=None,
 ):
   arguments = [
     "-n",
@@ -150,11 +151,32 @@ def generate_compositional(
   ]
   if property_target is not None:
     arguments.extend(["--tensor-property-target", str(property_target)])
+  for index, value in elements or ():
+    arguments.extend(
+      ["--tensor-output-element", f"{','.join(str(axis) for axis in index)}={value}"]
+    )
   if pattern is not None:
     arguments.extend(["--tensor-input-pattern", pattern])
   if stratum is not None:
     arguments.extend(["--tensor-stratum", stratum])
   return generate(output_dir, *arguments, seed=seed, target=target)
+
+
+def row_major_coordinates(shape, offset):
+  """The coordinate a row-major linear offset names in `shape`."""
+  coordinates = [0] * len(shape)
+  for axis in range(len(shape) - 1, -1, -1):
+    coordinates[axis] = offset % shape[axis]
+    offset //= shape[axis]
+  return coordinates
+
+
+def case_output_values(case):
+  """The i32 reference output of a case, in row-major order."""
+  record = case.manifest["output"]
+  if record["dtype"] != "i32":
+    raise AssertionError("the element-property tests drive integer outputs only")
+  return list(struct.unpack(f"<{len(case.expected) // 4}i", case.expected))
 
 
 def read_summary(directory):
@@ -2527,15 +2549,40 @@ class TensorSelectionProvenanceTests(unittest.TestCase):
     with self.assertRaises(CaseValidationError):
       load_case(case.path)
 
+  def exact_sum_case(self, seeds=range(1, 41)):
+    """A rank-one case whose exact sum target the solver decides.
+
+    The sum route expresses a scalar or rank-one return only, and a seed's
+    shape is the builder's choice, so the sweep takes the first seed that both
+    fits the route and decides inside the default budget.
+    """
+    outcomes = []
+    for seed in seeds:
+      boundary_dir = tempfile.mkdtemp()
+      self.addCleanup(shutil.rmtree, boundary_dir, True)
+      exact_dir = tempfile.mkdtemp()
+      self.addCleanup(shutil.rmtree, exact_dir, True)
+      boundary = load_compositional_case(
+        self, boundary_dir, seed=seed, policy="boundary"
+      )
+      if len(boundary.manifest["output"]["shape"]) != 1:
+        continue
+      target = case_output_target(boundary)
+      result = generate_compositional(
+        exact_dir, seed=seed, policy="exact", property_target=target
+      )
+      if result.returncode == 0:
+        return (
+          boundary,
+          load_case(sorted(Path(exact_dir).glob("case_*"))[0]),
+          target,
+        )
+      outcomes.append(read_summary(exact_dir)["status"])
+    self.fail(f"no exact sum target decided within the sweep: {sorted(set(outcomes))}")
+
   def test_boundary_feasible_target_is_exact_feasible(self):
     """The exact domain contains every value the sampling policies draw."""
-    with tempfile.TemporaryDirectory() as boundary_dir:
-      boundary = load_compositional_case(self, boundary_dir, seed=19, policy="boundary")
-      target = case_output_target(boundary)
-    with tempfile.TemporaryDirectory() as exact_dir:
-      exact = load_compositional_case(
-        self, exact_dir, seed=19, policy="exact", property_target=target
-      )
+    boundary, exact, target = self.exact_sum_case()
 
     self.assertEqual(
       exact.manifest["coverage"]["input_behavior"]["property_target"], target
@@ -2577,6 +2624,247 @@ class TensorSelectionProvenanceTests(unittest.TestCase):
     self.assertEqual(summary["status"], "unsupported_route")
     self.assertIn("input pattern", summary["reason"])
     self.assertEqual(list(Path(directory).glob("case_*")), [])
+
+
+class TensorElementPropertyTests(unittest.TestCase):
+  """Per-element output targets, solved exactly and checked after replay."""
+
+  def sample_case(self, *, minimum_rank=1, distinct=False, seeds=range(1, 61)):
+    """A compositional i32 case whose output shape suits the test."""
+    for seed in seeds:
+      directory = tempfile.mkdtemp()
+      self.addCleanup(shutil.rmtree, directory, True)
+      case = load_compositional_case(self, directory, seed=seed, policy="ordinary")
+      shape = case.manifest["output"]["shape"]
+      if len(shape) < minimum_rank:
+        continue
+      if distinct and len(set(case_output_values(case))) < 2:
+        continue
+      return seed, case
+    self.fail(
+      f"no compositional case in the first {len(list(seeds))} seeds had rank "
+      f"{minimum_rank}" + (" and two distinct output values" if distinct else "")
+    )
+
+  def complete_element_case(
+    self, *, distinct=False, minimum_rank=2, seeds=range(1, 41)
+  ):
+    """Solve a complete element target on the first seed whose query decides.
+
+    A complete target pins every output coordinate, which the solver usually
+    decides at once, but a few graphs still reach the five-second budget; the
+    sweep skips those rather than turning a timeout into a case.
+    """
+    outcomes = []
+    for seed in seeds:
+      ordinary_dir = tempfile.mkdtemp()
+      self.addCleanup(shutil.rmtree, ordinary_dir, True)
+      exact_dir = tempfile.mkdtemp()
+      self.addCleanup(shutil.rmtree, exact_dir, True)
+      ordinary = load_compositional_case(
+        self, ordinary_dir, seed=seed, policy="ordinary"
+      )
+      shape = ordinary.manifest["output"]["shape"]
+      if len(shape) < minimum_rank:
+        continue
+      values = case_output_values(ordinary)
+      if distinct and len(set(values)) < 2:
+        continue
+      elements = [
+        (row_major_coordinates(shape, offset), value)
+        for offset, value in enumerate(values)
+      ]
+      result = generate_compositional(
+        exact_dir, seed=seed, policy="exact", elements=elements
+      )
+      if result.returncode == 0:
+        return (
+          seed,
+          ordinary,
+          load_case(sorted(Path(exact_dir).glob("case_*"))[0]),
+          elements,
+        )
+      outcomes.append(read_summary(exact_dir)["status"])
+    self.fail(
+      f"no complete element target decided within the sweep: {sorted(set(outcomes))}"
+    )
+
+  def exact_element_case(self, directory, seed, elements, profile="v2"):
+    """Solve one element target on the graph the same seed builds."""
+    return load_compositional_case(
+      self,
+      directory,
+      seed=seed,
+      profile=profile,
+      policy="exact",
+      elements=elements,
+    )
+
+  def replay(self, case, *, profile="v2"):
+    result, output = run_typed(
+      case.program.decode("utf-8"), case.inputs, tensor_profile=profile
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    return output
+
+  def test_v2_complete_element_target_is_solved_and_validated(self):
+    _, ordinary, case, _ = self.complete_element_case()
+    values = case_output_values(ordinary)
+
+    self.assertEqual(case.program, ordinary.program)
+    constraint = case.manifest["property"]["constraint"]
+    self.assertEqual(constraint["kind"], "elements_equal")
+    self.assertTrue(constraint["complete"])
+    self.assertEqual(len(constraint["elements"]), len(values))
+    self.assertEqual(self.replay(case), case.expected)
+
+  def partial_element_case(self, *, indices=None, seeds=range(1, 41)):
+    """Solve a partial element target on the first seed whose query decides.
+
+    A partial target leaves the solver a wide space, and Bitwuzla reaches its
+    five-second budget on some of these graphs. The budget is the documented
+    default, so the sweep picks a graph the solver can decide and the recorded
+    outcome of the others stays UNKNOWN rather than becoming an accepted case.
+    """
+    outcomes = []
+    for seed in seeds:
+      directory = tempfile.mkdtemp()
+      self.addCleanup(shutil.rmtree, directory, True)
+      ordinary_directory = tempfile.mkdtemp()
+      self.addCleanup(shutil.rmtree, ordinary_directory, True)
+      ordinary = load_compositional_case(
+        self, ordinary_directory, seed=seed, policy="ordinary"
+      )
+      shape = ordinary.manifest["output"]["shape"]
+      if len(shape) < 2:
+        continue
+      values = case_output_values(ordinary)
+      wanted = indices if indices is not None else [0, len(values) - 1]
+      elements = [
+        (row_major_coordinates(shape, offset), values[offset]) for offset in wanted
+      ]
+      result = generate_compositional(
+        directory, seed=seed, policy="exact", elements=elements
+      )
+      if result.returncode == 0:
+        return seed, load_case(sorted(Path(directory).glob("case_*"))[0]), elements
+      outcomes.append(read_summary(directory)["status"])
+    self.fail(
+      f"no partial element target decided within the sweep: {sorted(set(outcomes))}"
+    )
+
+  def test_partial_element_target_keeps_unconstrained_output_from_the_reference(self):
+    seed, case, elements = self.partial_element_case()
+
+    constraint = case.manifest["property"]["constraint"]
+    self.assertFalse(constraint["complete"])
+    self.assertEqual(
+      [record["index"] for record in constraint["elements"]],
+      [list(index) for index, _ in elements],
+    )
+    # The unconstrained coordinates are the reference's own output, not the
+    # request: expected.bin is an independent replay of the witnesses.
+    self.assertEqual(self.replay(case), case.expected)
+    shape = case.manifest["output"]["shape"]
+    replayed = case_output_values(case)
+    for index, value in elements:
+      offset = 0
+      for axis, coordinate in enumerate(index):
+        offset = offset * shape[axis] + coordinate
+      self.assertEqual(replayed[offset], value)
+
+  def test_equal_totals_with_different_elements_are_distinguished(self):
+    """The same sum is not the same output: elements are compared, not totals."""
+    _, ordinary, case, elements = self.complete_element_case(distinct=True)
+    values = case_output_values(ordinary)
+    first, second = (
+      0,
+      next(index for index, value in enumerate(values) if value != values[0]),
+    )
+
+    # Keep the coordinates and exchange the required values: the total is
+    # unchanged, and each named element now requires the other one's value.
+    swapped = [(index, value) for index, value in elements]
+    swapped[first] = (elements[first][0], elements[second][1])
+    swapped[second] = (elements[second][0], elements[first][1])
+    self.assertEqual(sum(values), sum(value for _, value in swapped))
+    self.assertNotEqual(
+      [value for _, value in swapped], [value for _, value in elements]
+    )
+
+    manifest_path = case.path / "case.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["property"]["constraint"]["elements"] = [
+      {"index": list(index), "value": value} for index, value in swapped
+    ]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with self.assertRaises(CaseValidationError):
+      load_case(case.path)
+
+  def test_element_target_rejects_invalid_or_duplicate_coordinates(self):
+    seed, ordinary = self.sample_case(minimum_rank=1)
+    shape = ordinary.manifest["output"]["shape"]
+    in_bounds = [0] * len(shape)
+    # 99 exceeds every admissible dimension, so this coordinate is out of
+    # bounds whatever shape the seed produced.
+    cases = {
+      "outside the output shape": [([99] * len(shape), 1)],
+      "same coordinate twice": [(list(in_bounds), 1), (list(in_bounds), 2)],
+    }
+    for label, elements in cases.items():
+      with self.subTest(rejection=label), tempfile.TemporaryDirectory() as directory:
+        result = generate_compositional(
+          directory, seed=seed, policy="exact", elements=elements
+        )
+        summary = read_summary(directory)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(summary["status"], "property_invalid")
+        self.assertEqual(list(Path(directory).glob("case_*")), [])
+
+    with tempfile.TemporaryDirectory() as directory:
+      result = generate(
+        directory,
+        "-n",
+        "1",
+        "--tensor-dtype",
+        "i32",
+        "--tensor-profile-version",
+        "v2",
+        "--tensor-generator",
+        "compositional",
+        "--tensor-input-policy",
+        "exact",
+        "--tensor-output-element",
+        "nonsense",
+        seed=seed,
+      )
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("tensor output element", result.stderr)
+
+  def test_element_target_is_rejected_under_v3(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = generate_compositional(
+        directory,
+        seed=5,
+        profile="v3",
+        policy="exact",
+        elements=[([0], 1)],
+      )
+      summary = read_summary(directory)
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertEqual(summary["status"], "invalid_profile")
+    self.assertIn("tensor-v2", summary["reason"])
+
+  def test_single_coordinate_partial_target_on_a_rank_one_output(self):
+    """The smallest partial request: one coordinate, the rest from the reference."""
+    seed, case, elements = self.partial_element_case(indices=[0])
+
+    constraint = case.manifest["property"]["constraint"]
+    self.assertFalse(constraint["complete"])
+    self.assertEqual(len(constraint["elements"]), 1)
+    self.assertEqual(self.replay(case), case.expected)
 
 
 if __name__ == "__main__":

@@ -46,10 +46,31 @@ namespace refractir::reify {
       OutputEquals,
       /// The element sum of a rank-one tensor return value equals `target`.
       OutputSumEquals,
+      /// Named elements of the returned tensor equal their required values.
+      /// `complete` records whether the constraints cover every coordinate;
+      /// the unconstrained coordinates of a partial request take whatever the
+      /// reference computes.
+      ElementsEqual,
     };
     Kind kind = Kind::None;
     std::int64_t target = 0;
+    std::vector<TensorOutputElementConstraint> elements;
   };
+
+  /// Parse one `--tensor-output-element` argument: a comma-separated coordinate
+  /// list, `=`, and an i32 value (`0,1=-1`). Throws std::invalid_argument when
+  /// the text is malformed.
+  TensorOutputElementConstraint parseTensorOutputElement(std::string_view text);
+
+  /// Order and check element constraints against a declared output shape:
+  /// row-major lexicographic order for deterministic serialization, every
+  /// coordinate the full output rank and in bounds, no coordinate twice. Sets
+  /// `complete` when the constraints cover every element exactly once.
+  /// Returns false with `reason` set when a constraint cannot be admitted.
+  bool checkTensorOutputElements(
+      const Shape &shape, std::vector<TensorOutputElementConstraint> &elements, bool &complete,
+      std::string &reason
+  );
 
   struct TensorInputPolicyOptions {
     TensorInputPolicy policy = TensorInputPolicy::Ordinary;

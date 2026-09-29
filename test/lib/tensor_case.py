@@ -332,7 +332,83 @@ def _recorded_targets(manifest):
     )
   if "target" in manifest.get("property", {}):
     recorded.append(("property.target", manifest["property"]["target"]))
+  constraint = manifest.get("property", {}).get("constraint")
+  if isinstance(constraint, dict) and "target" in constraint:
+    recorded.append(("property.constraint.target", constraint["target"]))
   return recorded
+
+
+def _check_property_constraint(constraint, output, expected):
+  """The typed property has to hold on the case's own reference output.
+
+  This is the same comparison the generator makes before writing a case, so a
+  manifest edited after generation, or a case whose expected bytes were
+  replaced, is rejected here rather than admitted as a witness.
+  """
+  _require(isinstance(constraint, dict), "the property constraint must be an object")
+  kind = constraint.get("kind")
+  _require(
+    kind in {"output_equals", "output_sum_equals", "elements_equal"},
+    "unknown property constraint kind",
+  )
+  _require(output["dtype"] == "i32", "a property constraint requires an integer output")
+  values = struct.unpack(f"<{len(expected) // 4}i", expected)
+  shape = output["shape"]
+  if kind == "elements_equal":
+    elements = constraint.get("elements")
+    _require(
+      isinstance(elements, list) and elements,
+      "an element constraint needs at least one element",
+    )
+    complete = constraint.get("complete")
+    _require(isinstance(complete, bool), "an element constraint states completeness")
+    seen = set()
+    for record in elements:
+      _require(isinstance(record, dict), "an element record must be an object")
+      index = record.get("index")
+      value = record.get("value")
+      _require(
+        isinstance(index, list)
+        and len(index) == len(shape)
+        and all(isinstance(axis, int) and not isinstance(axis, bool) for axis in index),
+        "an element coordinate must state every output dimension",
+      )
+      _require(
+        isinstance(value, int) and not isinstance(value, bool),
+        "an element value must be an integer",
+      )
+      offset = 0
+      for axis, coordinate in enumerate(index):
+        _require(
+          0 <= coordinate < shape[axis],
+          "an element coordinate is outside the output shape",
+        )
+        offset = offset * shape[axis] + coordinate
+      _require(tuple(index) not in seen, "an element coordinate is repeated")
+      seen.add(tuple(index))
+      _require(
+        values[offset] == value,
+        f"output element {index} is {values[offset]}, not the required {value}",
+      )
+    if complete:
+      total = 1
+      for dimension in shape:
+        total *= dimension
+      _require(
+        len(seen) == total,
+        "a complete element target must name every output coordinate",
+      )
+    return
+  target = constraint.get("target")
+  _require(
+    isinstance(target, int) and not isinstance(target, bool),
+    "a constraint target must be an integer",
+  )
+  observed = values[0] if kind == "output_equals" or not shape else sum(values)
+  _require(
+    observed == target,
+    f"the reference output {observed} does not satisfy the stated {kind} of {target}",
+  )
 
 
 def _check_selection_provenance(
@@ -386,6 +462,9 @@ def _check_selection_provenance(
           f"input {item['name']} carries {value}, outside the recorded domain",
         )
   recorded = _recorded_targets(manifest)
+  constraint = manifest.get("property", {}).get("constraint")
+  if constraint is not None:
+    _check_property_constraint(constraint, output, expected)
   if not recorded:
     return
   for field, value in recorded:
