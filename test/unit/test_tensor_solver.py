@@ -1,8 +1,74 @@
 """Bounded exact tensor symbolic execution tests."""
 
+import json
+import shutil
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from test.unit.tensor_support import SYMIR_SOLVE, solve_source
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_json(path):
+  try:
+    return json.loads(path.read_text(encoding="utf-8"))
+  except (OSError, json.JSONDecodeError):
+    return None
+
+
+def solve_case(source, *, path="^entry", entry="@kernel", flags=()):
+  """Solve one function over an explicit path, returning both model files.
+
+  Kept local because the shared `tensor_support.solve_source` helper is the
+  straight-line `^entry` case and does not take solver flags.
+  """
+  with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    source_path = root / "case.sir"
+    output_path = root / "solved.sir"
+    model_path = root / "model.json"
+    params_path = root / "params.json"
+    source_path.write_text(source, encoding="utf-8")
+    result = subprocess.run(
+      [
+        str(SYMIR_SOLVE),
+        "--main",
+        entry,
+        "--path",
+        path,
+        "--output",
+        str(output_path),
+        "--emit-model",
+        str(model_path),
+        "--emit-tensor-params",
+        str(params_path),
+        *flags,
+        str(source_path),
+      ],
+      capture_output=True,
+      text=True,
+      check=False,
+      timeout=30,
+    )
+    output = output_path.read_text(encoding="utf-8") if output_path.exists() else None
+    return result, output, load_json(model_path), load_json(params_path)
+
+
+def assert_witness(test, record):
+  """A witness record is well formed: non-empty shape and one leaf per element."""
+  test.assertIsInstance(record, dict)
+  shape = record["shape"]
+  leaves = record["leaves"]
+  test.assertIn(record["element"], ("i32", "f32"))
+  test.assertTrue(shape, "a witness shape is never empty")
+  test.assertTrue(all(dimension > 0 for dimension in shape))
+  count = 1
+  for dimension in shape:
+    count *= dimension
+  test.assertEqual(len(leaves), count)
 
 
 class TensorSolverTests(unittest.TestCase):
@@ -199,6 +265,243 @@ fun @kernel() : i32 {
     self.assertIn("SAT", result.stdout)
     self.assertEqual(model["@kernel"]["%?x"], [3, 7])
     self.assertIn("let %x__solved: tensor [2] i32 = {3, 7};", output)
+
+  def test_tensor_parameter_witness_satisfies_complete_target(self):
+    source = """\
+fun @kernel(%x: tensor [4] i32) : i32 {
+  let mut %out: i32 = undef;
+^entry:
+  %out = tensor sum %x, 0, drop;
+  require %out == 100;
+  ret %out;
+}
+"""
+
+    result, _, model, params = solve_case(source)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("SAT", result.stdout)
+    record = model["@kernel"]["%x"]
+    assert_witness(self, record)
+    self.assertEqual(record["shape"], [4])
+    self.assertEqual(record["element"], "i32")
+    self.assertEqual(len(record["leaves"]), 4)
+    self.assertEqual(sum(record["leaves"]), 100)
+    self.assertEqual(params["@kernel"]["%x"], record)
+
+  def test_two_tensor_parameters_keep_distinct_identities(self):
+    source = """\
+fun @kernel(%a: tensor [2] i32, %b: tensor [2] i32) : i32 {
+  let mut %sa: i32 = undef;
+  let mut %sb: i32 = undef;
+^entry:
+  %sa = tensor sum %a, 0, drop;
+  %sb = tensor sum %b, 0, drop;
+  require %sa == 3;
+  require %sb == 11;
+  ret %sa;
+}
+"""
+
+    result, _, model, _ = solve_case(source)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("SAT", result.stdout)
+    self.assertEqual(sorted(model["@kernel"]), ["%a", "%b"])
+    first = model["@kernel"]["%a"]
+    second = model["@kernel"]["%b"]
+    assert_witness(self, first)
+    assert_witness(self, second)
+    self.assertEqual(first["shape"], [2])
+    self.assertEqual(second["shape"], [2])
+    self.assertEqual(sum(first["leaves"]), 3)
+    self.assertEqual(sum(second["leaves"]), 11)
+    self.assertNotEqual(first["leaves"], second["leaves"])
+
+  def test_scalar_and_tensor_parameters_are_disjoint(self):
+    source = """\
+fun @kernel(%s: i32, %x: tensor [2] i32) : i32 {
+  let mut %out: i32 = undef;
+^entry:
+  %out = tensor sum %x, 0, drop;
+  require %out == 10;
+  require %s == 7;
+  ret %s;
+}
+"""
+
+    result, output, model, params = solve_case(source)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("SAT", result.stdout)
+    header = output.splitlines()[0]
+    self.assertIn("%s=7", header)
+    self.assertNotIn("%x", header)
+    self.assertEqual(list(model["@kernel"]), ["%x"])
+    self.assertEqual(list(params["@kernel"]), ["%x"])
+    self.assertNotIn("%s", model["@kernel"])
+    assert_witness(self, model["@kernel"]["%x"])
+
+  def test_bounded_counted_loop_tensor_witness(self):
+    source = """\
+fun @kernel(%x: tensor [2] i32) : i32 {
+  let mut %i: i32 = undef;
+  let mut %acc: tensor [2] i32 = undef;
+  let mut %out: i32 = undef;
+^entry:
+  %i = 0;
+  %acc = %x;
+  br ^header;
+^header:
+  br %i < 2, ^body, ^exit;
+^body:
+  %acc = tensor add %acc, %x;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor sum %acc, 0, drop;
+  require %out == 18;
+  ret %out;
+}
+"""
+    loop_path = "^entry,^header,^body,^header,^body,^header,^exit"
+
+    result, _, model, _ = solve_case(
+      source,
+      path=loop_path,
+      flags=("--tensor-profile-version", "v2", "--tensor-param-domain", "0,3"),
+    )
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("SAT", result.stdout)
+    record = model["@kernel"]["%x"]
+    assert_witness(self, record)
+    self.assertEqual(record["shape"], [2])
+    self.assertEqual(record["leaves"], [3, 3])
+
+  def test_v3_logical_tail_witness_has_no_padding(self):
+    source = """\
+fun @kernel(%x: tensor [3] i32) : i32 {
+  let mut %out: i32 = undef;
+^entry:
+  %out = tensor sum %x, 0, drop;
+  require %out == 300;
+  ret %out;
+}
+"""
+
+    result, _, model, _ = solve_case(source, flags=("--tensor-profile-version", "v3"))
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("SAT", result.stdout)
+    record = model["@kernel"]["%x"]
+    assert_witness(self, record)
+    self.assertEqual(record["shape"], [3])
+    self.assertEqual(len(record["leaves"]), 3)
+    self.assertEqual(sum(record["leaves"]), 300)
+
+  def test_v3_profile_rejects_illegal_program(self):
+    # `tensor extract` is legal under the default v1 profile and unsupported
+    # in v3, so the same source separates "checked and solved" from
+    # "rejected before solving".
+    source = """\
+fun @kernel(%x: tensor [2] i32) : i32 {
+  let mut %cell: i32 = undef;
+^entry:
+  %cell = tensor extract %x, [1];
+  require %cell == 5;
+  ret %cell;
+}
+"""
+
+    accepted, _, model, _ = solve_case(source)
+    rejected, _, _, rejected_params = solve_case(
+      source, flags=("--tensor-profile-version", "v3")
+    )
+
+    self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+    self.assertIn("SAT", accepted.stdout)
+    self.assertEqual(model["@kernel"]["%x"]["leaves"][1], 5)
+    self.assertNotEqual(rejected.returncode, 0)
+    self.assertNotIn("SAT", rejected.stdout)
+    self.assertIn("tensor-profile", rejected.stderr)
+    self.assertIsNone(rejected_params)
+
+  def test_malformed_witness_is_rejected_by_valid(self):
+    compiler = next(
+      (path for name in ("c++", "g++", "clang++") if (path := shutil.which(name))),
+      None,
+    )
+    if compiler is None:
+      self.skipTest("no C++ compiler to exercise TensorParamWitness::valid")
+
+    probe = """\
+#include <cstdint>
+#include <vector>
+
+#include "solver/solver.hpp"
+
+using Witness = refractir::SymbolicExecutor::Result::TensorParamWitness;
+
+int main() {
+  Witness complete;
+  complete.shape = {2, 2};
+  complete.leaves = {int64_t{1}, int64_t{2}, int64_t{3}, int64_t{4}};
+  if (!complete.valid())
+    return 1;
+
+  Witness shortLeaves;
+  shortLeaves.shape = {2, 2};
+  shortLeaves.leaves = {int64_t{1}};
+  if (shortLeaves.valid())
+    return 2;
+
+  Witness zeroElement;
+  zeroElement.shape = {0};
+  if (zeroElement.valid())
+    return 3;
+
+  Witness emptyShape;
+  if (emptyShape.valid())
+    return 4;
+
+  return 0;
+}
+"""
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      source_path = root / "witness_probe.cpp"
+      binary_path = root / "witness_probe"
+      source_path.write_text(probe, encoding="utf-8")
+      build = subprocess.run(
+        [
+          compiler,
+          "-std=c++20",
+          "-I",
+          str(ROOT / "include"),
+          "-o",
+          str(binary_path),
+          str(source_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=180,
+      )
+      self.assertEqual(build.returncode, 0, build.stderr)
+      outcome = subprocess.run(
+        [str(binary_path)], capture_output=True, text=True, check=False, timeout=30
+      )
+
+    failures = {
+      1: "a complete witness was rejected",
+      2: "a leaf-count disagreement was accepted",
+      3: "a zero-element shape was accepted",
+      4: "an empty shape was accepted",
+    }
+    self.assertEqual(
+      outcome.returncode, 0, failures.get(outcome.returncode, outcome.stderr)
+    )
 
 
 if __name__ == "__main__":

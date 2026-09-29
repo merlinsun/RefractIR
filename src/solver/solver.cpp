@@ -358,6 +358,66 @@ namespace refractir {
     );
   }
 
+  void SymbolicExecutor::bindParamDomain(
+      const TypePtr &type, const SymbolicValue &value, smt::ISolver &solver,
+      std::vector<smt::Term> &pathConstraints
+  ) {
+    if (!config_.tensorParamDomain)
+      return;
+    const auto [lo, hi] = *config_.tensorParamDomain;
+    if (lo > hi)
+      throw std::invalid_argument("tensor-param-domain: lower bound exceeds upper bound");
+
+    // Every leaf takes the bound, so the leaves and their scalar type come
+    // from what the parameter declared: a tensor or vector parameter is one
+    // term per element, a scalar parameter is one term.
+    TypePtr leafType = type;
+    std::vector<smt::Term> leaves;
+    switch (value.kind) {
+      case SymbolicValue::Kind::Tensor:
+      case SymbolicValue::Kind::Vec:
+        for (const auto &leaf: value.arrayVal)
+          leaves.push_back(leaf.term);
+        if (const auto *tensor = TypeUtils::asTensor(type))
+          leafType = tensor->elem;
+        else if (const auto *vec = std::get_if<VecType>(&type->v))
+          leafType = vec->elem;
+        break;
+      case SymbolicValue::Kind::Int:
+        leaves.push_back(value.term);
+        break;
+      default:
+        throw std::invalid_argument(
+            "tensor-param-domain: entry parameter has a pointer or aggregate leaf"
+        );
+    }
+    if (!std::holds_alternative<IntType>(leafType->v))
+      throw std::invalid_argument("tensor-param-domain: entry parameter leaf is not an integer");
+
+    // Clamp to the leaf type's range so make_bv_value_int64 cannot wrap the
+    // bound. A requested range that holds no value of the type is an
+    // unsatisfiable query, not a malformed one.
+    const std::uint32_t bits = TypeUtils::getIntBitWidth(leafType).value_or(0);
+    int64_t effectiveLo = lo;
+    int64_t effectiveHi = hi;
+    if (bits > 0 && bits < 64) {
+      effectiveLo = std::max(effectiveLo, -(int64_t{1} << (bits - 1)));
+      effectiveHi = std::min(effectiveHi, (int64_t{1} << (bits - 1)) - 1);
+    }
+    if (effectiveLo > effectiveHi) {
+      pathConstraints.push_back(solver.make_false());
+      return;
+    }
+
+    const auto sort = getSort(leafType, solver);
+    const auto loTerm = solver.make_bv_value_int64(sort, effectiveLo);
+    const auto hiTerm = solver.make_bv_value_int64(sort, effectiveHi);
+    for (const auto &leaf: leaves) {
+      pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {loTerm, leaf}));
+      pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {leaf, hiTerm}));
+    }
+  }
+
   SymbolicExecutor::Result SymbolicExecutor::solve(
       const std::string &funcName, const std::vector<std::string> &path,
       const std::unordered_map<std::string, int64_t> &fixedSyms
@@ -521,7 +581,9 @@ namespace refractir {
 
     // 2. Declare locals (parameters are also in store)
     for (const auto &p: entry->params) {
-      store[p.name.name] = createSymbolicValue(p.type, p.name.name, solver, &pathConstraints);
+      auto sv = createSymbolicValue(p.type, p.name.name, solver, &pathConstraints);
+      bindParamDomain(p.type, sv, solver, pathConstraints);
+      store[p.name.name] = sv;
     }
     for (const auto &l: entry->lets) {
       if (l.init) {
@@ -822,6 +884,29 @@ namespace refractir {
         const auto &sv = it->second;
         if (sv.kind == SymbolicValue::Kind::Int && sv.term.internal)
           finalRes.paramModel[p.name.name] = extractValue(sv.term);
+      }
+
+      // Tensor parameters: the declared type carries the logical shape and
+      // element kind, the symbolic store carries one leaf per logical
+      // element, and extraction is the same one every other model value
+      // uses. Leaves stay witnesses of a runtime argument; nothing here
+      // substitutes them into the program.
+      for (const auto &p: entry->params) {
+        const auto *tensor = TypeUtils::asTensor(p.type);
+        if (!tensor)
+          continue;
+        auto it = store.find(p.name.name);
+        if (it == store.end() || it->second.kind != SymbolicValue::Kind::Tensor)
+          continue;
+        Result::TensorParamWitness witness;
+        witness.shape = tensor->shape;
+        witness.element = std::holds_alternative<FloatType>(tensor->elem->v)
+                              ? TensorElement::F32
+                              : TensorElement::I32;
+        witness.leaves.reserve(it->second.arrayVal.size());
+        for (const auto &leaf: it->second.arrayVal)
+          witness.leaves.push_back(extractValue(leaf.term));
+        finalRes.tensorParamModel.emplace(p.name.name, std::move(witness));
       }
       if (retTermLocal.internal)
         finalRes.retModel = extractValue(retTermLocal);

@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include "ast/ast.hpp"
 #include "solver/provenance.hpp"
@@ -37,6 +38,13 @@ namespace refractir {
       uint32_t num_threads = 1;
       uint32_t num_smt_threads = 1; // Number of threads for the SMT solver backend
       SolvingMode mode = SolvingMode::UBFree;
+      // Optional inclusive [lo, hi] bound asserted on every integer leaf of
+      // every entry parameter: a scalar parameter contributes one leaf, a
+      // tensor parameter one per logical element. Absent leaves the entry
+      // parameters unbounded, which is the default. symirsolve spells this
+      // `--tensor-param-domain`. A parameter with a non-integer leaf, or a
+      // bound with lo > hi, is rejected by solve() with std::invalid_argument.
+      std::optional<std::pair<int64_t, int64_t>> tensorParamDomain;
     };
 
     using SolverFactory = std::function<std::unique_ptr<smt::ISolver>(const Config &)>;
@@ -101,6 +109,41 @@ namespace refractir {
       bool unknown = false;
       std::string message;
       using ModelVal = SymbolicExecutor::ModelVal;
+
+      /**
+       * One solved entry-parameter tensor: the declared logical shape, the
+       * declared element kind, and one model value per logical element in
+       * row-major order.
+       *
+       * An f32 leaf holds the exact widening of its 32-bit pattern, so
+       * narrowing it back to `float` reproduces the model bit for bit and no
+       * second float format exists here. A consumer that writes the leaf as
+       * text goes through refractir::formatDouble and reads it back through
+       * refractir::parseFloatLiteral, the canonical bit-exact pair that
+       * owns every float text boundary (docs/float.md §9).
+       */
+      struct TensorParamWitness {
+        Shape shape;                                // declared logical shape
+        TensorElement element = TensorElement::I32; // declared element kind
+        std::vector<ModelVal> leaves;               // row-major logical leaves
+
+        /// True when the witness names at least one positive dimension and
+        /// carries exactly one leaf per logical element. A zero-element or
+        /// empty shape has no runtime input bytes to build, so it is not a
+        /// witness a consumer may materialize.
+        bool valid() const noexcept {
+          if (shape.empty())
+            return false;
+          std::size_t count = 1;
+          for (const auto dimension: shape) {
+            if (dimension == 0)
+              return false;
+            count *= dimension;
+          }
+          return count == leaves.size();
+        }
+      };
+
       std::unordered_map<std::string, ModelVal> model;
       // Per-lane model for vector syms. Populated only for syms
       // of vector type. Each entry holds N lane values matching the sym's
@@ -115,6 +158,11 @@ namespace refractir {
       // (treated as symbols by the solver but printed verbatim in the
       // output). Empty when the entry has no parameters.
       std::unordered_map<std::string, ModelVal> paramModel;
+      // Solved witnesses for the entry function's tensor parameters, keyed
+      // by the parameter name. A tensor parameter also keeps its runtime
+      // identity: its values are witnesses a consumer materializes as input
+      // bytes, never constants substituted into the program.
+      std::unordered_map<std::string, TensorParamWitness> tensorParamModel;
       // Solved value for the entry function's `ret`
       // expression on the chosen path. `has_value() == false` when the
       // path's terminator is not a `ret <expr>;`.
@@ -309,6 +357,15 @@ namespace refractir {
     SymbolicValue createSymbolicValue(
         const TypePtr &t, const std::string &name, smt::ISolver &solver,
         std::vector<smt::Term> *finiteSink = nullptr
+    );
+
+    // Assert config_.tensorParamDomain on every integer leaf of one entry
+    // parameter, so a caller can bound the input space uniformly.
+    // Throws std::invalid_argument when the parameter declares a
+    // non-integer leaf or the configured bound is inverted.
+    void bindParamDomain(
+        const TypePtr &type, const SymbolicValue &value, smt::ISolver &solver,
+        std::vector<smt::Term> &pathConstraints
     );
 
     SymbolicValue makeUndef(const TypePtr &t, smt::ISolver &solver);

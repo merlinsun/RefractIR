@@ -11,6 +11,7 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 - Bounded tensor execution, numerical references, Triton emission, property-directed generation, and regression tooling.
 
 - `make test-triton` smoke case `scalar_splat_sum`, which pins a scalar argument being materialized at the declared tensor rank before a reduction.
+- Tensor parameter witnesses (`symirsolve --emit-tensor-params`, plus one record per tensor parameter in `--emit-model`) carry declared shape, element kind, and row-major logical leaves, with `f32` leaves as the exact widening of their 32-bit pattern. `--tensor-profile-version` checks a tensor program against the selected profile before solving, and `--tensor-param-domain <lo>,<hi>` bounds every integer entry-parameter leaf.
 
 - Python compilation target (`symirc --target python`): genuine `while`/`if` control flow, a boxed pointer and aggregate memory model with runtime UB traps, lane-list vectors, and symbol providers through module globals. Accepts reducible CFGs only.
 - CFG structuring analyses: dominator trees, reducibility check, loop forest, control-tree builder, and structured lowering with `while`/`do-while` peepholes and header-test loop rotation ([docs/reducibility.md](./docs/reducibility.md)).
