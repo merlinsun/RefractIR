@@ -167,6 +167,20 @@ std::string sha256(std::string_view bytes) {
   return out.str();
 }
 
+/// Selection provenance shared by every profile's input record: which policy
+/// proposed the runtime inputs, the inclusive leaf domain it respected, and the
+/// output target it was asked to satisfy. Emitted only when the case carries
+/// them, so hand-written and constructor cases keep their current shape.
+void writeSelectionProvenance(std::ostringstream &out, const TensorCase &testCase) {
+  if (!testCase.inputPolicy.empty())
+    out << "\"policy\":" << jsonString(testCase.inputPolicy) << ',';
+  if (testCase.propertyTarget)
+    out << "\"property_target\":" << *testCase.propertyTarget << ',';
+  if (testCase.inputDomain)
+    out << "\"input_domain\":{\"lo\":" << testCase.inputDomain->first
+        << ",\"hi\":" << testCase.inputDomain->second << "},";
+}
+
 std::string sourceSignature(std::string_view source) {
   Lexer lexer(source);
   const auto tokens = lexer.lexAll();
@@ -458,6 +472,8 @@ std::string buildManifest(const TensorCase &testCase,
   if (!testCase.propertyThresholdF32Bits.empty())
     out << ",\"threshold_f32_bits\":"
         << jsonString(testCase.propertyThresholdF32Bits);
+  if (testCase.propertyTarget)
+    out << ",\"target\":" << *testCase.propertyTarget;
   out << "},\"evidence\":{\"kind\":" << jsonString(testCase.evidenceKind)
       << ",\"status\":" << jsonString(testCase.evidenceStatus)
       << ",\"artifacts\":[\"program.sir\",\"inputs.bin\",\"expected.bin\"";
@@ -556,8 +572,12 @@ std::string buildManifestV2(const TensorCase &testCase,
       << jsonString(testCase.propertyId)
       << ",\"source\":" << jsonString(testCase.propertySource)
       << ",\"P\":\"defined-inputs\","
-      << "\"D\":\"untargeted\",\"validated\":true},"
-      << "\"evidence\":{\"kind\":" << jsonString(testCase.evidenceKind)
+      << "\"D\":"
+      << jsonString(testCase.propertyTarget ? "output-target" : "untargeted")
+      << ",\"validated\":true";
+  if (testCase.propertyTarget)
+    out << ",\"target\":" << *testCase.propertyTarget;
+  out << "},\"evidence\":{\"kind\":" << jsonString(testCase.evidenceKind)
       << ",\"status\":" << jsonString(testCase.evidenceStatus)
       << ",\"artifacts\":[\"program.sir\",\"inputs.bin\",\"expected.bin\"";
   if (testCase.target == "triton")
@@ -607,10 +627,11 @@ std::string buildManifestV2(const TensorCase &testCase,
     out << "{\"bound\":" << testCase.loopBounds[i] << '}';
   }
   out << "],\"input_behavior\":{\"property_passed\":true,";
-  if (v3 || v4)
+  if (!testCase.inputPattern.empty())
     out << "\"pattern\":" << jsonString(testCase.inputPattern) << ',';
   if (v4)
     out << "\"input_mode\":" << jsonString(testCase.inputMode) << ',';
+  writeSelectionProvenance(out, testCase);
   out << "\"distinguishing_objective\":\"untargeted\","
       << "\"counterfactual_inputs\":[";
   for (std::size_t index = 0;
@@ -643,11 +664,17 @@ std::string buildManifestV2(const TensorCase &testCase,
       << testCase.seed << ",\"synthesis\":" << jsonString(testCase.synthesis)
       << ",\"primary_stratum\":" << jsonString(testCase.primaryStratum)
       << ",\"node_limit\":12";
-  if (v3)
+  if (!testCase.inputPattern.empty())
     out << ",\"input_pattern\":" << jsonString(testCase.inputPattern);
+  if (!testCase.inputPolicy.empty())
+    out << ",\"input_policy\":" << jsonString(testCase.inputPolicy);
+  if (testCase.inputDomain)
+    out << ",\"input_domain\":{\"lo\":" << testCase.inputDomain->first
+        << ",\"hi\":" << testCase.inputDomain->second << "}";
+  if (testCase.propertyTarget)
+    out << ",\"property_target\":" << *testCase.propertyTarget;
   if (v4)
     out << ",\"input_mode\":" << jsonString(testCase.inputMode)
-        << ",\"input_pattern\":" << jsonString(testCase.inputPattern)
         << ",\"input_seed\":" << testCase.inputSeed;
   out << "},\"files\":{";
   auto writeDigest = [&](std::string_view name, std::string_view data,

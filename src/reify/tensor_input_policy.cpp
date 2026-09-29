@@ -206,10 +206,13 @@ namespace refractir::reify {
       std::mt19937 random(
           seed ^ (policy == TensorInputPolicy::Boundary ? 0x626f756eULL : 0x6f726469ULL)
       );
-      // Boundary sampling stays inside the integer definedness contract: an
-      // extreme magnitude would overflow a sum in the reference, which is UB
-      // rather than a boundary a case can carry.
-      static constexpr std::array<std::int32_t, 4> boundary{0, 1, -1, 2};
+      // Boundary sampling walks every value of the policy's envelope, which is
+      // also the exact route's default bound: the samplers and the solver never
+      // disagree about which leaves are reachable. The envelope stays small so
+      // an integer reference cannot overflow a reduction, which is UB rather
+      // than a boundary a case can carry.
+      const auto [envelopeLo, envelopeHi] = tensorPolicyDomain(policy);
+      const auto span = static_cast<std::int32_t>(envelopeHi - envelopeLo + 1);
       for (const auto &param: entry.params) {
         if (!isSamplable(param.type))
           throw std::runtime_error(
@@ -223,7 +226,7 @@ namespace refractir::reify {
         for (std::uint32_t index = 0; index < count; ++index) {
           const std::int32_t value =
               policy == TensorInputPolicy::Boundary
-                  ? boundary[(index + seed) % boundary.size()]
+                  ? envelopeLo + static_cast<std::int32_t>((index + seed) % span)
                   : 1 + static_cast<std::int32_t>(random() % 2);
           if (element == TensorElement::I32)
             appendLittleWord(buffer.bytes, std::bit_cast<std::uint32_t>(value));
@@ -326,6 +329,12 @@ namespace refractir::reify {
     return "ordinary";
   }
 
+  std::pair<std::int64_t, std::int64_t> tensorPolicyDomain(TensorInputPolicy policy) {
+    if (policy == TensorInputPolicy::Ordinary)
+      return {1, 2};
+    return {-1, 2};
+  }
+
   std::string computationDigest(const Program &program) {
     Program filtered = cloneProgram(program);
     const auto isQuery = [](const std::string &name) {
@@ -393,6 +402,7 @@ namespace refractir::reify {
     TensorInputProposal proposal;
     proposal.policy = options.policy;
     proposal.property = options.property;
+    proposal.domain = tensorPolicyDomain(options.policy);
     proposal.computationDigest = computationDigest(program);
 
     const FunDecl *entry = entryFunction(program);
@@ -469,7 +479,10 @@ namespace refractir::reify {
     SymbolicExecutor::Config config;
     config.timeout_ms = options.timeoutMs;
     config.seed = options.seed;
-    config.tensorParamDomain = options.domain;
+    // An explicit bound wins; otherwise the solver works inside the same
+    // envelope the samplers draw from.
+    proposal.domain = options.domain ? *options.domain : tensorPolicyDomain(options.policy);
+    config.tensorParamDomain = proposal.domain;
     SymbolicExecutor executor(*query, config, solverFactory);
     const auto result = executor.solve("@kernel", path);
     if (!result.sat) {

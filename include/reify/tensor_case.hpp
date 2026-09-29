@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,6 +50,13 @@ struct TensorCase {
   std::string inputMode;
   std::uint32_t inputSeed = 0;
   std::string inputPattern;
+  // Selection provenance, so a saved case states how its runtime inputs were
+  // chosen rather than leaving that to the campaign summary: the policy that
+  // proposed them, the inclusive leaf domain it respected, and the output
+  // target it was asked to satisfy. Empty and unset mean "not applicable".
+  std::string inputPolicy;
+  std::optional<std::pair<std::int64_t, std::int64_t>> inputDomain;
+  std::optional<std::int64_t> propertyTarget;
   std::vector<std::string> operators;
   std::vector<std::pair<Shape, std::int32_t>> shapeAxes;
   std::vector<std::pair<std::string, std::int32_t>> inputCounterfactualWitnesses;

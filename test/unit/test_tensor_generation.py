@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -133,6 +134,7 @@ def generate_compositional(
   stratum=None,
   policy="ordinary",
   property_target=None,
+  pattern=None,
 ):
   arguments = [
     "-n",
@@ -148,6 +150,8 @@ def generate_compositional(
   ]
   if property_target is not None:
     arguments.extend(["--tensor-property-target", str(property_target)])
+  if pattern is not None:
+    arguments.extend(["--tensor-input-pattern", pattern])
   if stratum is not None:
     arguments.extend(["--tensor-stratum", stratum])
   return generate(output_dir, *arguments, seed=seed, target=target)
@@ -2170,6 +2174,60 @@ class TensorGraphGenerationTests(unittest.TestCase):
         observed, "no case had two reductions with distinct live consumers"
       )
 
+  def test_compositional_can_place_a_shape_change_before_a_reduction(self):
+    """A layout change upstream of a reduction is a distinct structure.
+
+    Appending every shape operator downstream of every mandatory feature would
+    leave the generator unable to reach a graph whose reduction consumes a
+    transposed, expanded, or broadcast operand.
+    """
+    observed = []
+    for seed in range(1, 61):
+      with tempfile.TemporaryDirectory() as directory:
+        output_dir = self.generate_cases(directory, count=4, seed=seed)
+        for case_dir in sorted(output_dir.glob("case_*")):
+          source = (case_dir / "program.sir").read_text(encoding="utf-8")
+          statements = entry_statements(source)
+          producers = {}
+          for index, statement in enumerate(statements):
+            match = re.match(r"(%[A-Za-z_][\w.$-]*)\s*=", statement)
+            if match is not None:
+              producers[match.group(1)] = index
+          if self._reduce_consumes_a_shape_change(statements, producers):
+            observed.append((seed, case_dir.name))
+            break
+      if observed:
+        break
+
+    self.assertTrue(observed, "no generated reduction consumed a shape-changed operand")
+
+  @staticmethod
+  def _reduce_consumes_a_shape_change(statements, producers):
+    """Whether some tensor sum reads a value a transpose/broadcast/expand fed."""
+
+    def ancestors(index):
+      seen = set()
+      pending = [index]
+      while pending:
+        current = pending.pop()
+        for name in referenced_locals(statements[current]):
+          producer = producers.get(name)
+          if producer is None or producer in seen:
+            continue
+          seen.add(producer)
+          pending.append(producer)
+      return seen
+
+    shape = re.compile(
+      r"%[A-Za-z_][\w.$-]*\s*=\s*tensor (transpose|broadcast|expand)\b"
+    )
+    for index, statement in enumerate(statements):
+      if not re.match(r"%[A-Za-z_][\w.$-]*\s*=\s*tensor sum\b", statement):
+        continue
+      if any(shape.match(statements[upstream]) for upstream in ancestors(index)):
+        return True
+    return False
+
   def test_compositional_keeps_every_computation_in_the_backward_slice(self):
     with tempfile.TemporaryDirectory() as directory:
       output_dir = self.generate_cases(directory, count=4, seed=29)
@@ -2236,23 +2294,29 @@ def case_output_target(case):
   return values[0] if not record["shape"] else sum(values)
 
 
+def load_compositional_case(test, output_dir, **kwargs):
+  """Generate exactly one compositional case and load it through the validator."""
+  result = generate_compositional(output_dir, **kwargs)
+  test.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+  directories = sorted(Path(output_dir).glob("case_*"))
+  test.assertEqual(len(directories), 1, result.stdout + result.stderr)
+  return load_case(directories[0])
+
+
 class TensorInputPolicyTests(unittest.TestCase):
   """Input selection is a separate step over one frozen program."""
 
   def compositional_case(
     self, output_dir, *, profile="v2", policy="ordinary", property_target=None, seed=3
   ):
-    result = generate_compositional(
+    return load_compositional_case(
+      self,
       output_dir,
       profile=profile,
       policy=policy,
       property_target=property_target,
       seed=seed,
     )
-    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-    directories = sorted(Path(output_dir).glob("case_*"))
-    self.assertEqual(len(directories), 1, result.stdout + result.stderr)
-    return load_case(directories[0])
 
   def replay(self, case, *, profile="v2"):
     result, output = run_typed(
@@ -2338,6 +2402,127 @@ class TensorInputPolicyTests(unittest.TestCase):
     self.assertNotEqual(result.returncode, 0)
     self.assertEqual(summary["status"], "unsupported_route")
     self.assertIn("tensor-property-target", summary["reason"])
+
+
+class TensorSelectionProvenanceTests(unittest.TestCase):
+  """A saved case carries how its inputs were selected and what they prove."""
+
+  def exact_case(self, seed=17, profile="v2"):
+    """One exact case and the target it was asked to satisfy."""
+    with tempfile.TemporaryDirectory() as ordinary_dir:
+      ordinary = load_compositional_case(
+        self, ordinary_dir, seed=seed, profile=profile, policy="ordinary"
+      )
+      target = case_output_target(ordinary)
+    directory = tempfile.mkdtemp()
+    self.addCleanup(shutil.rmtree, directory, True)
+    case = load_compositional_case(
+      self,
+      directory,
+      seed=seed,
+      profile=profile,
+      policy="exact",
+      property_target=target,
+    )
+    return case, target
+
+  def test_exact_case_records_its_policy_target_and_domain(self):
+    case, target = self.exact_case()
+
+    generator = case.manifest["generator"]
+    self.assertEqual(generator["input_policy"], "exact")
+    self.assertEqual(generator["property_target"], target)
+    self.assertEqual(generator["input_domain"], {"lo": -1, "hi": 2})
+    behavior = case.manifest["coverage"]["input_behavior"]
+    self.assertEqual(behavior["policy"], "exact")
+    self.assertEqual(behavior["property_target"], target)
+    self.assertEqual(behavior["input_domain"], {"lo": -1, "hi": 2})
+
+  def test_exact_selection_is_recorded_as_smt_evidence(self):
+    case, target = self.exact_case()
+
+    # The stated target was solved for exactly and then checked against the
+    # replay, which is what the evidence kind has to say.
+    self.assertEqual(case.manifest["evidence"]["kind"], "exact_smt")
+    self.assertEqual(case.manifest["evidence"]["status"], "exact_smt_checked")
+    self.assertEqual(case.manifest["property"]["target"], target)
+    self.assertEqual(case.manifest["property"]["D"], "output-target")
+
+  def test_ordinary_case_records_its_policy_without_a_target(self):
+    with tempfile.TemporaryDirectory() as directory:
+      case = load_compositional_case(self, directory, seed=17, policy="ordinary")
+
+    generator = case.manifest["generator"]
+    self.assertEqual(generator["input_policy"], "ordinary")
+    self.assertNotIn("property_target", generator)
+    self.assertEqual(generator["input_domain"], {"lo": 1, "hi": 2})
+    self.assertEqual(case.manifest["coverage"]["input_behavior"]["policy"], "ordinary")
+    self.assertNotIn("target", case.manifest["property"])
+    self.assertEqual(case.manifest["evidence"]["kind"], "construction")
+
+  def test_tampered_exact_case_is_rejected_by_the_validator(self):
+    """A deliberately incorrect witness must not load as an accepted case."""
+    case, target = self.exact_case()
+    directory = case.path
+    manifest_path = directory / "case.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["coverage"]["input_behavior"]["property_target"] = target + 1
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    # Every artifact digest still matches; only the claimed target moved.
+    with self.assertRaises(CaseValidationError):
+      load_case(directory)
+
+  def test_boundary_feasible_target_is_exact_feasible(self):
+    """The exact domain contains every value the sampling policies draw."""
+    with tempfile.TemporaryDirectory() as boundary_dir:
+      boundary = load_compositional_case(self, boundary_dir, seed=19, policy="boundary")
+      target = case_output_target(boundary)
+    with tempfile.TemporaryDirectory() as exact_dir:
+      exact = load_compositional_case(
+        self, exact_dir, seed=19, policy="exact", property_target=target
+      )
+
+    self.assertEqual(
+      exact.manifest["coverage"]["input_behavior"]["property_target"], target
+    )
+    self.assertEqual(case_output_target(exact), target)
+
+  def test_compositional_v3_records_the_sampler_pattern(self):
+    with tempfile.TemporaryDirectory() as ordinary_dir:
+      ordinary = load_compositional_case(
+        self, ordinary_dir, seed=31, profile="v3", policy="ordinary"
+      )
+      target = case_output_target(ordinary)
+    with tempfile.TemporaryDirectory() as exact_dir:
+      exact = load_compositional_case(
+        self, exact_dir, seed=31, profile="v3", policy="exact", property_target=target
+      )
+
+    # The pattern names the sampler that ran, not a scheduled value family the
+    # sampler never implemented.
+    self.assertEqual(
+      ordinary.manifest["coverage"]["input_behavior"]["pattern"], "seeded-random"
+    )
+    self.assertEqual(
+      exact.manifest["coverage"]["input_behavior"]["pattern"], "smt-selected"
+    )
+    self.assertEqual(
+      exact.manifest["generator"]["input_pattern"],
+      exact.manifest["coverage"]["input_behavior"]["pattern"],
+    )
+
+  def test_compositional_generation_rejects_an_explicit_input_pattern(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = generate_compositional(
+        directory, seed=7, profile="v3", pattern="mixed-sign"
+      )
+      summary = read_summary(directory)
+
+    self.assertNotEqual(result.returncode, 0)
+    self.assertEqual(summary["status"], "unsupported_route")
+    self.assertIn("input pattern", summary["reason"])
+    self.assertEqual(list(Path(directory).glob("case_*")), [])
 
 
 if __name__ == "__main__":

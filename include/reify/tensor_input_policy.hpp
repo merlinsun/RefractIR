@@ -26,6 +26,15 @@ namespace refractir::reify {
   TensorInputPolicy parseTensorInputPolicy(std::string_view name);
   std::string_view tensorInputPolicyName(TensorInputPolicy policy);
 
+  /// Inclusive envelope of the values a policy can propose for one leaf.
+  ///
+  /// `Ordinary` draws from `[1, 2]`; `Boundary` and `Exact` both span
+  /// `[-1, 2]`, the boundary sampler by cycling through every value and the
+  /// exact route by bounding each leaf to the same interval. A target either
+  /// sampler can witness is therefore never outside the exact route's domain,
+  /// so the three policies stay comparable on one graph.
+  std::pair<std::int64_t, std::int64_t> tensorPolicyDomain(TensorInputPolicy policy);
+
   /// A property chosen before any input is accepted. `None` is the admissibility
   /// property every policy already carries: the inputs must be defined, finite
   /// when floating, and produce a defined reference result.
@@ -76,6 +85,10 @@ namespace refractir::reify {
     std::string computationDigest;
     std::string queryDigest;
     std::uint32_t symbolicElements = 0;
+    /// Inclusive bound the proposal's leaf values respect. A sampling policy
+    /// reports the envelope it draws from; the exact policy reports the bound
+    /// it asserted, which defaults to `tensorPolicyDomain(Exact)`.
+    std::pair<std::int64_t, std::int64_t> domain;
     std::vector<TensorCaseBuffer> inputs;
   };
 

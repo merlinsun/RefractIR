@@ -626,9 +626,18 @@ namespace refractir::reify {
       std::uint32_t used = 0;
       for (const auto step: schedule)
         used += stepCost(step);
+      // Fillers land anywhere after the input merges rather than only at the
+      // end, so a shape change can sit upstream of a reduction. Appending them
+      // would leave every transpose, expand, and broadcast downstream of every
+      // sum, and a reduction that consumes a reshaped operand is a different
+      // structure to compile.
       while (used < target) {
         const auto step = pickFiller(target - used);
-        schedule.push_back(step);
+        const auto span = schedule.size() - mergeCount + 1;
+        const auto position = mergeCount + random_() % span;
+        schedule.insert(
+            schedule.begin() + static_cast<std::ptrdiff_t>(position), step
+        );
         used += stepCost(step);
       }
 

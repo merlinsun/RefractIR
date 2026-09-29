@@ -60,6 +60,12 @@ namespace refractir::reify {
       std::string inputMode;
       std::uint32_t inputSeed = 0;
       std::string inputPattern;
+      // Selection provenance carried into the case manifest: the policy that
+      // proposed the runtime inputs, the target it solved for, and the
+      // inclusive leaf domain it respected.
+      std::string inputPolicy;
+      std::optional<TensorInputProperty> inputProperty;
+      std::optional<std::pair<std::int64_t, std::int64_t>> inputDomain;
       std::uint64_t exactnessMaxAbsLeafSum = 0;
       TensorElement outputElement = TensorElement::I32;
       std::vector<std::int32_t> loopBounds;
@@ -1205,6 +1211,22 @@ namespace refractir::reify {
       return metadata;
     }
 
+    /// The manifest's input-pattern label for a compositional case. The
+    /// vocabulary names value families, so this records the sampler that ran:
+    /// seeded draws, the boundary walk, or the solver's witness. A scheduled
+    /// v3 pattern would claim a family this route never implements.
+    std::string inputPatternForPolicy(TensorInputPolicy policy) {
+      switch (policy) {
+        case TensorInputPolicy::Boundary:
+          return "boundary-value";
+        case TensorInputPolicy::Exact:
+          return "smt-selected";
+        case TensorInputPolicy::Ordinary:
+          return "seeded-random";
+      }
+      return "seeded-random";
+    }
+
     Candidate compositionalCandidate(
         const TensorGenerationOptions &options, const TensorGraphLimits &limits,
         std::uint32_t seed
@@ -1248,22 +1270,18 @@ namespace refractir::reify {
                                           : TensorInputProperty::Kind::OutputEquals;
         policyOptions.property.target = *options.propertyTarget;
       }
-      // The exact route solves inside the same small-value domain the sampling
-      // policies draw from, so a witness cannot leave the integer definedness
-      // contract the reference enforces.
-      if (policyOptions.policy == TensorInputPolicy::Exact)
-        policyOptions.domain = std::make_pair<std::int64_t, std::int64_t>(1, 2);
+      // The exact route defaults its bound to the envelope the sampling
+      // policies draw from, so a sampled witness is never outside the domain
+      // the solver was given.
       const auto proposal = proposeTensorInputs(checked, makeSolverFactory(), policyOptions);
       if (proposal.outcome != "accepted")
         throw std::runtime_error("input_policy_" + proposal.outcome + ": " + proposal.reason);
       candidate.inputs = proposal.inputs;
-      // A v3 case's input pattern is a closed vocabulary of value shapes, so
-      // the policy is recorded beside it rather than replacing it.
-      candidate.inputPattern =
-          options.profileVersion == TensorProfileId::V3
-              ? options.inputPattern
-              : std::string(tensorInputPolicyName(policyOptions.policy));
-      candidate.inputMode = std::string(tensorInputPolicyName(policyOptions.policy));
+      candidate.inputPolicy = std::string(tensorInputPolicyName(policyOptions.policy));
+      candidate.inputPattern = inputPatternForPolicy(policyOptions.policy);
+      candidate.inputMode = candidate.inputPolicy;
+      candidate.inputProperty = policyOptions.property;
+      candidate.inputDomain = proposal.domain;
       candidate.propertySource =
           options.propertyTarget
               ? std::string(tensorInputPolicyName(policyOptions.policy)) +
@@ -2043,6 +2061,11 @@ namespace refractir::reify {
       testCase.inputMode = std::move(candidate.inputMode);
       testCase.inputSeed = candidate.inputSeed;
       testCase.inputPattern = std::move(candidate.inputPattern);
+      testCase.inputPolicy = std::move(candidate.inputPolicy);
+      testCase.inputDomain = candidate.inputDomain;
+      if (candidate.inputProperty &&
+          candidate.inputProperty->kind != TensorInputProperty::Kind::None)
+        testCase.propertyTarget = candidate.inputProperty->target;
       testCase.outputShape =
           TypeUtils::asTensor(entry.retType) ? TypeUtils::asTensor(entry.retType)->shape : Shape{};
       testCase.outputElement = scalarElement(
@@ -2067,10 +2090,15 @@ namespace refractir::reify {
           testCase.outputElement == TensorElement::F32 && testCase.exactnessKind.empty();
       if (testCase.numericComparison)
         testCase.propertyThresholdF32Bits = "3f4ccccd";
-      testCase.evidenceKind = options.synthesis == "exact" ? "exact_smt"
+      // A stated target that the exact policy solved for is exact SMT evidence,
+      // not construction evidence: the policy found a witness for that target
+      // and the check below replays it.
+      const bool exactSelection = testCase.inputPolicy == "exact";
+      testCase.evidenceKind = options.synthesis == "exact" || exactSelection ? "exact_smt"
                               : testCase.numericComparison ? "numerical_reference"
                                                            : "construction";
-      testCase.evidenceStatus = options.synthesis == "exact" ? "exact_smt_checked"
+      testCase.evidenceStatus = options.synthesis == "exact" || exactSelection
+                                    ? "exact_smt_checked"
                                 : testCase.numericComparison ? "numerical_reference_checked"
                                                              : "construction_checked";
 
@@ -2086,6 +2114,21 @@ namespace refractir::reify {
       } else {
         testCase.expected = runReference(program, testCase.inputs, 128, nullptr);
       }
+      // A stated target is a claim about the case's own reference output, so
+      // check it against the replay rather than trusting the query that found
+      // the witness. A mismatch means the case and its property disagree; that
+      // is a generation error, not a candidate to retry.
+      if (candidate.inputProperty &&
+          candidate.inputProperty->kind != TensorInputProperty::Kind::None &&
+          !tensorPropertyHolds(
+              testCase.expected, testCase.outputElement, testCase.outputShape,
+              *candidate.inputProperty
+          ))
+        throw std::runtime_error(
+            "property_mismatch: the replayed reference output does not satisfy the "
+            "stated target " +
+            std::to_string(candidate.inputProperty->target)
+        );
       if (options.profileVersion == TensorProfileId::V2 && testCase.inputs.size() > 1) {
         for (std::size_t inputIndex = 0; inputIndex < testCase.inputs.size(); ++inputIndex) {
           const auto witness =
@@ -2223,6 +2266,14 @@ namespace refractir::reify {
     if (options.propertyTarget && options.inputPolicy != "exact")
       return failRoute(
           "unsupported_route", "a stated property target needs the exact input policy"
+      );
+    // The compositional route proposes values through its input policy, so a
+    // requested value family would be recorded without ever being applied.
+    if (options.generator == "compositional" && !options.inputPattern.empty())
+      return failRoute(
+          "unsupported_route",
+          "a tensor input pattern describes values the compositional route does not "
+          "implement; select the values with --tensor-input-policy instead"
       );
     if (options.profileVersion == TensorProfileId::V2 && !options.primaryStratum.empty() &&
         !validV2Stratum(options.primaryStratum))

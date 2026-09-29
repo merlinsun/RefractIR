@@ -313,6 +313,73 @@ def _check_finite(data, dtype, where):
   )
 
 
+def _check_selection_provenance(
+  manifest, described_inputs, input_bytes, output, expected
+):
+  """Cross-check a case's recorded input selection against its own bytes.
+
+  A case that names the policy which proposed its runtime inputs, the leaf
+  domain it respected, or the output target it was asked to satisfy has to be
+  consistent with what it carries: the domain must contain every input leaf and
+  the reference output must satisfy the stated target. Otherwise the case is a
+  witness for a claim its own bytes do not support.
+  """
+  behavior = manifest.get("coverage", {}).get("input_behavior", {})
+  generator = manifest.get("generator", {})
+  policy = behavior.get("policy")
+  _require(
+    policy is None or generator.get("input_policy", policy) == policy,
+    "recorded input policy labels disagree",
+  )
+  domain = behavior.get("input_domain")
+  _require(
+    domain is None or generator.get("input_domain", domain) == domain,
+    "recorded input domains disagree",
+  )
+  if domain is not None:
+    _require(
+      isinstance(domain, dict)
+      and isinstance(domain.get("lo"), int)
+      and isinstance(domain.get("hi"), int)
+      and not isinstance(domain["lo"], bool)
+      and not isinstance(domain["hi"], bool),
+      "input domain must be an integer interval",
+    )
+    _require(domain["lo"] <= domain["hi"], "input domain is empty")
+    for item in described_inputs:
+      if item["dtype"] != "i32":
+        continue
+      begin = item["byte_offset"]
+      end = begin + item["byte_length"]
+      for value in struct.unpack(
+        f"<{max(0, end - begin) // 4}i", input_bytes[begin:end]
+      ):
+        _require(
+          domain["lo"] <= value <= domain["hi"],
+          f"input {item['name']} carries {value}, outside the recorded domain",
+        )
+  target = behavior.get("property_target")
+  if target is None:
+    _require(
+      "target" not in manifest.get("property", {}),
+      "the property carries a target the input record does not",
+    )
+    return
+  _require(
+    isinstance(target, int) and not isinstance(target, bool),
+    "property target must be an integer",
+  )
+  _require(
+    output["dtype"] == "i32", "a stated output target requires an integer output"
+  )
+  values = struct.unpack(f"<{len(expected) // 4}i", expected)
+  observed = values[0] if not output["shape"] else sum(values)
+  _require(
+    observed == target,
+    f"expected output {observed} does not satisfy the stated target {target}",
+  )
+
+
 def _describe(source_path, entry, symiri, *, profile):
   command = [str(symiri), "--entry", entry, "--tensor-describe"]
   if profile in {PROFILE_V2, PROFILE_V3, PROFILE_V4}:
@@ -506,6 +573,16 @@ def load_case(case_path, *, symiri=DEFAULT_SYMIRI):
       "expected output",
     )
 
+  _check_selection_provenance(
+    manifest,
+    described_inputs,
+    artifacts["inputs.bin"] if inputs else b"",
+    output,
+    artifacts[output["file"]][
+      output["byte_offset"] : output["byte_offset"] + output["byte_length"]
+    ],
+  )
+
   if inputs:
     _require(
       all(item["file"] == "inputs.bin" for item in described_inputs),
@@ -667,6 +744,10 @@ def load_case(case_path, *, symiri=DEFAULT_SYMIRI):
         "repeated-value",
         "distinct-groups",
         "seeded-random",
+        # Sampler labels: values drawn by the boundary walk or chosen by the
+        # exact input policy rather than built from a named value family.
+        "boundary-value",
+        "smt-selected",
       },
       "tensor-v3 input pattern is missing or unknown",
     )
