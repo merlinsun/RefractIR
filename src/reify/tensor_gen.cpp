@@ -129,6 +129,8 @@ namespace refractir::reify {
       std::vector<std::uint8_t> selectedExpected;
       std::vector<std::string> selectedReplayPath;
       std::vector<std::string> selectionPath;
+      /// The worker's own dependence evidence, produced inside its deadline.
+      std::vector<std::pair<std::string, std::int32_t>> selectedDependence;
       std::uint64_t selectionElapsedUs = 0;
       std::string solverSource;
       std::string finalSource;
@@ -1426,6 +1428,7 @@ namespace refractir::reify {
         proposal = supervised.proposal;
         candidate.selectedExpected = supervised.expected;
         candidate.selectedReplayPath = supervised.replayPath;
+        candidate.selectedDependence = supervised.inputCounterfactualWitnesses;
         candidate.selectionPath = policyOptions.path;
         candidate.selectionElapsedUs = supervised.elapsedUs;
       } else {
@@ -2333,18 +2336,39 @@ namespace refractir::reify {
             std::to_string(candidate.inputProperty->target)
         );
       if (options.profileVersion == TensorProfileId::V2 && testCase.inputs.size() > 1) {
-        for (std::size_t inputIndex = 0; inputIndex < testCase.inputs.size(); ++inputIndex) {
-          const auto witness =
-              inputCounterfactualWitness(program, testCase.inputs, inputIndex, testCase.expected);
-          if (!witness)
+        if (!candidate.selectedDependence.empty()) {
+          // The supervised worker ran this check inside its deadline; the
+          // parent only checks that the evidence covers every input it
+          // declared, and never replays to obtain it.
+          if (candidate.selectedDependence.size() != testCase.inputs.size())
             throw std::runtime_error(
-                "counterfactual_dependency: returned computation does not depend "
-                "on input " +
-                testCase.inputs[inputIndex].name
+                "counterfactual_dependency: the supervised selection reported no "
+                "dependence evidence"
             );
-          testCase.inputCounterfactualWitnesses.emplace_back(
-              testCase.inputs[inputIndex].name, *witness
-          );
+          for (std::size_t inputIndex = 0; inputIndex < testCase.inputs.size(); ++inputIndex) {
+            if (candidate.selectedDependence[inputIndex].first != testCase.inputs[inputIndex].name)
+              throw std::runtime_error(
+                  "counterfactual_dependency: the supervised dependence evidence names "
+                  "inputs out of order"
+              );
+            testCase.inputCounterfactualWitnesses.push_back(
+                candidate.selectedDependence[inputIndex]
+            );
+          }
+        } else {
+          for (std::size_t inputIndex = 0; inputIndex < testCase.inputs.size(); ++inputIndex) {
+            const auto witness =
+                inputCounterfactualWitness(program, testCase.inputs, inputIndex, testCase.expected);
+            if (!witness)
+              throw std::runtime_error(
+                  "counterfactual_dependency: returned computation does not depend "
+                  "on input " +
+                  testCase.inputs[inputIndex].name
+              );
+            testCase.inputCounterfactualWitnesses.emplace_back(
+                testCase.inputs[inputIndex].name, *witness
+            );
+          }
         }
       }
       return testCase;

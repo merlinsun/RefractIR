@@ -23,6 +23,11 @@
 #   stall_replay   report the replay stage, then sleep
 #   slow_valid     sleep, then produce a real result if it is still alive
 #   crash_partial  write a truncated response and exit nonzero
+#   exit_13        produce a complete response, then exit nonzero
+#   domain_violation  produce a complete response whose first leaf is outside
+#                     the domain the request stated
+#   spawn_descendant  start a helper in this process group, then stall, so a
+#                     test can check the helper did not outlive the deadline
 #   valid          run the real worker to completion
 set -u
 
@@ -59,6 +64,31 @@ case "$mode" in
   crash_partial)
     printf 'schema=refractir.tensor-selection.response.v1\nstatus=accepted\n' > "$response"
     exit 3
+    ;;
+  exit_13)
+    "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"
+    exit 13
+    ;;
+  domain_violation)
+    "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"
+    python3 - "$response" <<'PYTHON'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+lines = []
+for line in path.read_text().splitlines():
+  if line.startswith("param_bytes="):
+    # 99 as a little-endian i32, keeping the payload length so only the value
+    # disagrees with the domain the request stated.
+    payload = line.split("=", 1)[1]
+    word = "63000000"
+    line = "param_bytes=" + word + payload[len(word) :]
+  lines.append(line)
+path.write_text("\n".join(lines) + "\n")
+PYTHON
+    ;;
+  spawn_descendant)
+    sh -c "sleep 5; : > \"${FIXTURE_DESCENDANT:?}\"" &
+    sleep "$stall"
     ;;
   valid)
     exec "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"

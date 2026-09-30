@@ -327,14 +327,19 @@ namespace refractir::reify {
           response.add("status", outcome.status);
           response.add("reason", outcome.reason);
           response.add("stage", stage_);
+          // The identity and the request are reported for every terminal
+          // outcome, so a refusal is attributable to the same graph and domain
+          // an acceptance would be.
+          response.add("digest", digest_);
+          response.add(
+              "domain",
+              std::to_string(outcome.domain.first) + "," + std::to_string(outcome.domain.second)
+          );
+          response.add("symbolic_elements", std::to_string(outcome.symbolicElements));
+          if (!outcome.unknownReason.empty())
+            response.add("unknown_reason", outcome.unknownReason);
           if (outcome.status == "accepted") {
-            response.add("digest", digest_);
             response.add("path", joinLabels(path_));
-            response.add(
-                "domain",
-                std::to_string(outcome.domain.first) + "," + std::to_string(outcome.domain.second)
-            );
-            response.add("symbolic_elements", std::to_string(outcome.symbolicElements));
             response.add("expected", hexEncode(outcome.expected));
             response.add("replay", joinLabels(outcome.replayPath));
             response.add("property", "holds");
@@ -344,10 +349,10 @@ namespace refractir::reify {
               response.add("param_shape", shapeText(buffer.shape));
               response.add("param_bytes", hexEncode(buffer.bytes));
             }
-          } else {
-            if (!outcome.unknownReason.empty())
-              response.add("unknown_reason", outcome.unknownReason);
-            response.add("digest", digest_);
+            for (const auto &entry: outcome.dependence) {
+              response.add("dependence", entry.first);
+              response.add("dependence_value", std::to_string(entry.second));
+            }
           }
           writeRecord(responsePath_, response);
           return 0;
@@ -374,6 +379,7 @@ namespace refractir::reify {
         std::vector<std::string> replayPath;
         std::pair<std::int64_t, std::int64_t> domain{0, 0};
         std::uint32_t symbolicElements = 0;
+        std::vector<std::pair<std::string, std::int32_t>> dependence;
       };
 
       void note(const std::string &stage) {
@@ -384,6 +390,10 @@ namespace refractir::reify {
 
       bool prepare(const Record &request) {
         note("query");
+        // The profile decides which shapes the checker admits, so it is read
+        // before the program is checked rather than after.
+        if (const auto profile = request.get("profile"))
+          options_.profileVersion = parseTensorProfileVersion(*profile);
         const auto programHex = request.get("program");
         if (!programHex)
           return fail("selection request carries no program");
@@ -393,7 +403,9 @@ namespace refractir::reify {
         source_.assign(programBytes->begin(), programBytes->end());
         program_ = std::make_unique<Program>(parseSource(source_));
         DiagBag diagnostics;
-        if (!checkProgram(*program_, diagnostics))
+        CheckOptions check;
+        check.tensorProfile = options_.profileVersion;
+        if (!checkProgram(*program_, diagnostics, check))
           return fail("selection request program does not check");
         digest_ = computationDigest(*program_);
         if (const auto path = request.get("path"))
@@ -413,8 +425,6 @@ namespace refractir::reify {
             return fail("selection request policy is unknown");
         }
         options_.property = *property;
-        if (const auto profile = request.get("profile"))
-          options_.profileVersion = parseTensorProfileVersion(*profile);
         if (const auto dtype = request.get("dtype")) {
           const auto element = elementFromName(*dtype);
           if (!element)
@@ -423,6 +433,7 @@ namespace refractir::reify {
         }
         const auto output = tensorOutputSignature(*program_);
         outputShape_ = output.shape;
+        declaredDomain_ = options_.domain.value_or(std::pair<std::int64_t, std::int64_t>{0, 0});
         // The declared element decides the transport, and the request has to
         // agree with the program it carries.
         if (element_ != output.element)
@@ -474,28 +485,40 @@ namespace refractir::reify {
 
       Outcome select() {
         const auto backendMs = backendBudgetMs();
-        if (backendMs == 0)
-          return timeoutOutcome("the budget expired before the query started");
+        if (backendMs == 0) {
+          auto expired = timeoutOutcome("the budget expired before the query started");
+          expired.domain = declaredDomain_;
+          return expired;
+        }
 
         note("solver");
         // The backend limit is this worker's own guard, never the authority:
         // the parent kills the worker at the real deadline. A zero limit would
         // disable the backend timer, so the budget only ever hands it a
         // positive value or skips the query.
-        const auto factory = [backendMs](
+        // A backend that cannot report why it stopped must not be given its own
+        // timer: the expiry would arrive as an unexplained unknown before the
+        // deadline this project owns fires, which is exactly the cause C2
+        // exists to preserve. Such a backend runs unbounded here and the
+        // parent's deadline is what stops it.
+        const std::uint32_t backendTimer =
+            solver::backendReportsTerminationReason() ? backendMs : 0;
+        const auto factory = [backendTimer](
                                  const SymbolicExecutor::Config &config
                              ) -> std::unique_ptr<smt::ISolver> {
           SymbolicExecutor::Config bounded = config;
-          bounded.timeout_ms = backendMs;
+          bounded.timeout_ms = backendTimer;
           return solver::configuredSolverFactory()(bounded);
         };
         const auto proposal = proposeTensorInputs(*program_, factory, options_);
         if (proposal.outcome != "accepted") {
-          Outcome outcome;
-          outcome.status = proposal.outcome;
-          outcome.reason = proposal.reason;
-          outcome.unknownReason = proposal.unknownReason;
-          return outcome;
+          Outcome refusal;
+          refusal.status = proposal.outcome;
+          refusal.reason = proposal.reason;
+          refusal.unknownReason = proposal.unknownReason;
+          refusal.domain = proposal.domain;
+          refusal.symbolicElements = proposal.symbolicElements;
+          return refusal;
         }
 
         note("model");
@@ -506,7 +529,7 @@ namespace refractir::reify {
 
         note("replay");
         std::vector<std::string> visited;
-        outcome.expected = replay(proposal.inputs, visited);
+        outcome.expected = replay(proposal.inputs, &visited);
         outcome.replayPath = std::move(visited);
         if (outcome.replayPath != path_) {
           outcome.status = "path_mismatch";
@@ -515,6 +538,19 @@ namespace refractir::reify {
         }
 
         note("response");
+        if (options_.profileVersion == TensorProfileId::V2 && outcome.inputs.size() > 1) {
+          for (std::size_t index = 0; index < outcome.inputs.size(); ++index) {
+            const auto witness =
+                counterfactualWitness(outcome.inputs, index, outcome.expected);
+            if (!witness) {
+              outcome.status = "counterfactual_dependency";
+              outcome.reason = "the returned computation does not depend on input " +
+                               outcome.inputs[index].name;
+              return outcome;
+            }
+            outcome.dependence.emplace_back(outcome.inputs[index].name, *witness);
+          }
+        }
         if (!tensorPropertyHolds(outcome.expected, element_, outputShape_, options_.property)) {
           outcome.status = "model_incident";
           outcome.reason = "the replayed output does not satisfy the stated property";
@@ -524,6 +560,30 @@ namespace refractir::reify {
         return outcome;
       }
 
+      /// Whether replacing one input's leaves changes the output, which is how
+      /// a case shows that its returned value depends on that input. The check
+      /// replays, so it belongs inside this worker rather than in the parent
+      /// after the deadline has already been consumed.
+      std::optional<std::int32_t> counterfactualWitness(
+          const std::vector<TensorCaseBuffer> &inputs, std::size_t inputIndex,
+          const std::vector<std::uint8_t> &expected
+      ) {
+        for (const std::int32_t replacement: {1, 4}) {
+          auto candidate = inputs;
+          auto &bytes = candidate[inputIndex].bytes;
+          const std::uint32_t word = candidate[inputIndex].element == TensorElement::I32
+                                         ? std::bit_cast<std::uint32_t>(replacement)
+                                         : std::bit_cast<std::uint32_t>(
+                                               static_cast<float>(replacement)
+                                           );
+          for (std::size_t offset = 0; offset + 4 <= bytes.size(); offset += 4)
+            std::memcpy(bytes.data() + offset, &word, sizeof(word));
+          if (replay(candidate, nullptr) != expected)
+            return replacement;
+        }
+        return std::nullopt;
+      }
+
       Outcome timeoutOutcome(const std::string &reason) {
         Outcome outcome;
         outcome.status = "timeout";
@@ -531,10 +591,10 @@ namespace refractir::reify {
         return outcome;
       }
 
-      /// Replay the proposed inputs through the shared interpreter and collect
-      /// the blocks it enters, in order, so repeated visits stay visible.
+      /// Replay the proposed inputs through the shared interpreter, collecting
+      /// the blocks it enters in order so repeated visits stay visible.
       std::vector<std::uint8_t> replay(
-          const std::vector<TensorCaseBuffer> &inputs, std::vector<std::string> &visited
+          const std::vector<TensorCaseBuffer> &inputs, std::vector<std::string> *visited
       ) {
         const auto &entry = *entryFunction(*program_);
         const auto resultType = typeInfo(entry.retType);
@@ -560,8 +620,8 @@ namespace refractir::reify {
                 const std::string &funcName, std::uint64_t, const std::string &label, int instrIdx,
                 const Store &, const Memory &
             ) {
-              if (funcName == entryName && instrIdx == -1)
-                visited.push_back(label);
+              if (funcName == entryName && instrIdx == -1 && visited)
+                visited->push_back(label);
             }
         );
         setTensorReferenceBits(128);
@@ -594,6 +654,7 @@ namespace refractir::reify {
       TensorInputPolicyOptions options_;
       TensorElement element_ = TensorElement::I32;
       Shape outputShape_;
+      std::pair<std::int64_t, std::int64_t> declaredDomain_{0, 0};
       std::uint32_t budgetMs_ = 5000;
       std::chrono::steady_clock::time_point started_;
     };
@@ -615,23 +676,70 @@ namespace refractir::reify {
       return ": " + text;
     }
 
+    /// Read the domain a response reports. A malformed one leaves the proposal
+    /// at its previous value rather than inventing a range.
+    void readDomain(const Record &response, TensorInputProposal &proposal) {
+      const auto domain = response.get("domain");
+      if (!domain)
+        return;
+      const auto comma = domain->find(',');
+      if (comma == std::string::npos)
+        return;
+      proposal.domain = std::pair{
+          std::stoll(domain->substr(0, comma)), std::stoll(domain->substr(comma + 1))
+      };
+    }
+
+    /// Whether every leaf of a payload lies inside `domain`. The transport is
+    /// raw little-endian elements, so the check reads them as the element type
+    /// declares rather than trusting the worker's claim about them.
+    bool leavesWithinDomain(
+        const std::vector<std::uint8_t> &bytes, TensorElement element,
+        const std::pair<std::int64_t, std::int64_t> &domain
+    ) {
+      for (std::size_t offset = 0; offset + 4 <= bytes.size(); offset += 4) {
+        std::uint32_t word = 0;
+        std::memcpy(&word, bytes.data() + offset, sizeof(word));
+        if (element == TensorElement::I32) {
+          const auto value = static_cast<std::int64_t>(std::bit_cast<std::int32_t>(word));
+          if (value < domain.first || value > domain.second)
+            return false;
+        } else {
+          const auto value = static_cast<double>(std::bit_cast<float>(word));
+          if (!(value >= static_cast<double>(domain.first) &&
+                value <= static_cast<double>(domain.second)))
+            return false;
+        }
+      }
+      return true;
+    }
+
     struct Child {
       pid_t pid = -1;
       bool reaped = false;
       int status = 0;
     };
 
-    /// Terminate the child's process group and reap it. The group is signalled
-    /// rather than the process, so a backend the worker started does not
-    /// outlive the deadline.
-    void terminateChild(Child &child) {
-      if (child.pid <= 0 || child.reaped)
-        return;
-      ::kill(-child.pid, SIGKILL);
-      ::kill(child.pid, SIGKILL);
-      while (::waitpid(child.pid, &child.status, 0) < 0 && errno == EINTR) {
+    /// Signal the child's process group. The group is signalled rather than
+    /// the process, so a backend or helper the worker started cannot outlive
+    /// the selection; this is repeated on every terminal path, because a
+    /// descendant keeps the group alive after its leader has been reaped.
+    void signalGroup(pid_t pid) {
+      if (pid > 0) {
+        ::kill(-pid, SIGKILL);
+        ::kill(pid, SIGKILL);
       }
-      child.reaped = true;
+    }
+
+    /// Terminate the child's group and reap the child. `cleanup` folds in the
+    /// group signal so no terminal path can forget it.
+    void terminateChild(Child &child) {
+      signalGroup(child.pid);
+      if (child.pid > 0 && !child.reaped) {
+        while (::waitpid(child.pid, &child.status, 0) < 0 && errno == EINTR) {
+        }
+        child.reaped = true;
+      }
     }
 
   } // namespace
@@ -768,16 +876,25 @@ namespace refractir::reify {
 
     // The parent owns the deadline. The loop waits rather than blocking, so
     // expiry is decided by this clock and not by how long the child runs.
+    const auto budgetUs = static_cast<std::uint64_t>(options.timeoutMs) * 1000;
+    // Every later decision asks the clock, so validation time cannot push a
+    // result past the interval it was supposed to fit in.
+    const auto pastDeadline = [&] { return elapsedUs() >= budgetUs; };
     bool expired = false;
     while (true) {
       const auto waited = ::waitpid(child.pid, &child.status, WNOHANG);
       if (waited == child.pid) {
         child.reaped = true;
+        // A result observed at or after the deadline is late, however promptly
+        // the worker produced it: the interval covers receipt and validation,
+        // so the clock decides rather than the moment the child exited.
+        if (elapsedUs() >= budgetUs)
+          expired = true;
         break;
       }
       if (waited < 0 && errno != EINTR)
         break;
-      if (elapsedUs() >= static_cast<std::uint64_t>(options.timeoutMs) * 1000) {
+      if (elapsedUs() >= budgetUs) {
         expired = true;
         break;
       }
@@ -802,8 +919,13 @@ namespace refractir::reify {
       cleanup();
       return finish();
     }
-    if (!child.reaped)
-      terminateChild(child);
+    terminateChild(child);
+    if (!WIFEXITED(child.status) || WEXITSTATUS(child.status) != 0) {
+      result.proposal.outcome = "invalid";
+      result.proposal.reason = "the selection worker did not exit cleanly" + workerTail(logPath);
+      cleanup();
+      return finish();
+    }
 
     const auto response = readRecord(responsePath);
     if (!response) {
@@ -827,6 +949,16 @@ namespace refractir::reify {
       if (status == "timeout")
         result.proposal.timeoutSource = "solver";
       result.proposal.unknownReason = response->get("unknown_reason").value_or("");
+      // A refusal is attributable to the graph it refused, exactly as an
+      // acceptance is: the identity, the domain searched, and the symbolic
+      // size are kept rather than dropped with the candidate.
+      result.proposal.computationDigest = response->get("digest").value_or("");
+      if (result.proposal.computationDigest != digest)
+        result.proposal.computationDigest = digest;
+      result.proposal.domain = options.policy.domain.value_or(result.proposal.domain);
+      readDomain(*response, result.proposal);
+      if (const auto symbolic = response->get("symbolic_elements"))
+        result.proposal.symbolicElements = static_cast<std::uint32_t>(std::stoul(*symbolic));
       cleanup();
       return finish();
     }
@@ -842,6 +974,15 @@ namespace refractir::reify {
       cleanup();
       return finish();
     };
+    if (pastDeadline()) {
+      result.expired = true;
+      result.timeoutStage = "response";
+      result.proposal.outcome = "timeout";
+      result.proposal.timeoutSource = "selection_deadline";
+      result.proposal.reason = "the selection deadline expired during response";
+      cleanup();
+      return finish();
+    }
     if (response->get("digest").value_or("") != digest)
       return reject("the selection response describes a different program");
     if (response->get("replay").value_or("") != joinLabels(options.policy.path))
@@ -849,6 +990,10 @@ namespace refractir::reify {
     if (response->get("property").value_or("") != "holds")
       return reject("the selection response does not report the stated property");
 
+    TensorInputProposal reported;
+    reported.domain = options.policy.domain.value_or(result.proposal.domain);
+    readDomain(*response, reported);
+    const auto reportedDomain = reported.domain;
     const auto signature = tensorInputSignature(program);
     const auto names = response->all("param");
     const auto elements = response->all("param_element");
@@ -870,6 +1015,12 @@ namespace refractir::reify {
       if (bytes->size() != static_cast<std::size_t>(signature[index].elements) *
                                  tensorElementBytes(signature[index].element))
         return reject("the selection response parameter length differs from the declaration");
+      // The request states the domain the witness has to lie in, so a leaf
+      // outside it is not a witness however the response describes itself.
+      if (options.policy.domain && reportedDomain != *options.policy.domain)
+        return reject("the selection response reports a domain the request did not state");
+      if (!leavesWithinDomain(*bytes, signature[index].element, reportedDomain))
+        return reject("the selection response carries a leaf outside the stated domain");
       buffers.push_back(TensorCaseBuffer{
           signature[index].name, signature[index].element, signature[index].shape, *bytes
       });
@@ -889,9 +1040,29 @@ namespace refractir::reify {
     if (!tensorPropertyHolds(*expected, output.element, output.shape, options.policy.property))
       return reject("the returned output does not satisfy the stated property");
 
+    // The worker checked that the returned value depends on each input; the
+    // parent only checks that the evidence covers every input it declared.
+    const auto dependenceNames = response->all("dependence");
+    const auto dependenceValues = response->all("dependence_value");
+    if (dependenceNames.size() != dependenceValues.size())
+      return reject("the selection response dependence evidence is malformed");
+    const bool needsDependence =
+        options.policy.profileVersion == TensorProfileId::V2 && signature.size() > 1;
+    if (needsDependence && dependenceNames.size() != signature.size())
+      return reject("the selection response carries no dependence evidence");
+    for (std::size_t index = 0; index < dependenceNames.size(); ++index) {
+      if (dependenceNames[index] != signature[index].name)
+        return reject("the selection response dependence evidence names inputs out of order");
+    }
+
     result.proposal.outcome = "accepted";
     result.proposal.computationDigest = digest;
     result.proposal.inputs = std::move(buffers);
+    for (std::size_t index = 0; index < dependenceNames.size(); ++index) {
+      result.inputCounterfactualWitnesses.emplace_back(
+          dependenceNames[index], static_cast<std::int32_t>(std::stoll(dependenceValues[index]))
+      );
+    }
     result.proposal.domain = options.policy.domain.value_or(result.proposal.domain);
     if (const auto domain = response->get("domain")) {
       const auto comma = domain->find(',');

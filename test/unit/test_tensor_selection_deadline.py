@@ -9,6 +9,7 @@ writes, and delegates to the real worker when a test needs an honest result.
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -140,6 +141,54 @@ class SelectionDeadlineTests(unittest.TestCase):
     self.assertEqual(result["outcome"], "invalid")
     self.assertEqual(result["replay"], "no")
     self.assertEqual(result["expected_bytes"], "0")
+
+  def test_a_worker_that_fails_after_answering_is_not_accepted(self):
+    """A complete response is not enough: the worker has to exit cleanly.
+
+    A worker that crashed after writing its answer may have written it from a
+    state it could not finish from, so the answer is not evidence.
+    """
+    result = select(FIXTURE, 20_000, mode="exit_13")
+
+    self.assertEqual(result["outcome"], "invalid")
+
+  def test_a_leaf_outside_the_stated_domain_is_rejected(self):
+    """The request states the domain, so the parent checks the leaves itself.
+
+    A response can describe any domain it likes; what makes it a witness is
+    that every leaf lies in the interval the caller asked about.
+    """
+    result = select(FIXTURE, 20_000, mode="domain_violation")
+
+    self.assertEqual(result["outcome"], "invalid")
+
+  def test_terminating_a_worker_also_ends_its_descendants(self):
+    """The owned process group is signalled, not only the worker itself.
+
+    The helper writes a marker well after the deadline; if the group survived
+    the worker, the marker appears.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+      marker = Path(directory) / "descendant-survived"
+      env = dict(os.environ)
+      env["FIXTURE_MODE"] = "spawn_descendant"
+      env["FIXTURE_STALL_S"] = "30"
+      env["FIXTURE_REAL"] = str(PROBE)
+      env["FIXTURE_DESCENDANT"] = str(marker)
+      completed = subprocess.run(
+        [str(PROBE), "--select", str(FIXTURE), "300"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=(300 + OUTER_MARGIN_MS) / 1000 + 60,
+      )
+      self.assertEqual(completed.returncode, 0, completed.stderr)
+      self.assertEqual(parse(completed.stdout.strip())["outcome"], "timeout")
+
+      # The helper would write the marker five seconds after it started.
+      time.sleep(6)
+      self.assertFalse(marker.exists(), "a descendant outlived the selection deadline")
 
   def test_an_unavailable_worker_is_rejected(self):
     result = select(ROOT / "test" / "unit" / "fixtures" / "does-not-exist.sh", 20_000)

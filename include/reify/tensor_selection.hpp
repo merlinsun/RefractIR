@@ -20,6 +20,11 @@ namespace refractir::reify {
     TensorInputProposal proposal;
     std::vector<std::uint8_t> expected;
     std::vector<std::string> replayPath;
+    /// One counterfactual witness per input, in declaration order: replacing
+    /// that input's leaves changes the output. Empty when the profile does not
+    /// require the check. The worker produces it inside the deadline, so the
+    /// parent never replays to obtain it.
+    std::vector<std::pair<std::string, std::int32_t>> inputCounterfactualWitnesses;
     std::uint64_t elapsedUs = 0;
     bool replayValidated = false;
     /// Where the budget expired: `query`, `solver`, `model`, `replay`,

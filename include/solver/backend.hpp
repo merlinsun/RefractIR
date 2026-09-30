@@ -33,4 +33,16 @@ namespace refractir::solver {
     };
   }
 
+  /// Whether this build's backend reports why it stopped. A backend that does
+  /// not must not be handed a timer of its own: the expiry would reach the
+  /// caller as an unexplained unknown, and the deadline the caller owns would
+  /// never be the thing that fired.
+  [[nodiscard]] constexpr bool backendReportsTerminationReason() {
+#if defined(USE_ALIVESMT)
+    return true;
+#else
+    return false;
+#endif
+  }
+
 } // namespace refractir::solver
