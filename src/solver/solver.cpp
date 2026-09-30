@@ -1153,16 +1153,30 @@ namespace refractir {
 
     // Fold one attempt's result into a sampling aggregate.
     //
-    // The last attempt normally wins, because it describes the most recent
-    // state of the search. A reported cause is the exception: when an attempt
-    // stops for a timeout, a resource limit, or an interruption, the search
-    // was not completed, and a later attempt that reports nothing would
-    // otherwise hide that. The first reported cause is kept, so the aggregate
-    // does not depend on the order the attempts happen to finish in.
-    const auto mergeSampleResult = [](Result &aggregate, bool &hasAggregate, Result &&attempt) {
-      const bool attemptReported = attempt.unknownReason != smt::UnknownReason::Unspecified;
-      const bool aggregateReported = aggregate.unknownReason != smt::UnknownReason::Unspecified;
-      if (!hasAggregate || !aggregateReported || attemptReported) {
+    // An attempt that reported a cause says the search was not completed, and
+    // that outranks any attempt which reports nothing. Among reported causes
+    // the aggregate takes the highest-ranked one, because several attempts
+    // finish in an order that depends on scheduling and the recorded reason
+    // has to be the same either way. Within one rank the most recent attempt
+    // wins, which is the plain last-result behaviour.
+    const auto unknownReasonRank = [](smt::UnknownReason reason) {
+      switch (reason) {
+        case smt::UnknownReason::Unspecified:
+          return 0;
+        case smt::UnknownReason::ResourceLimit:
+          return 1;
+        case smt::UnknownReason::Timeout:
+          return 2;
+        case smt::UnknownReason::Interrupted:
+          return 3;
+      }
+      return 0;
+    };
+    const auto mergeSampleResult = [unknownReasonRank](
+                                       Result &aggregate, bool &hasAggregate, Result &&attempt
+                                   ) {
+      if (!hasAggregate ||
+          unknownReasonRank(attempt.unknownReason) >= unknownReasonRank(aggregate.unknownReason)) {
         aggregate = std::move(attempt);
         hasAggregate = true;
       }

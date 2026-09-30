@@ -148,6 +148,24 @@ class SolverOutcomeTests(unittest.TestCase):
     """Three unsatisfiable samples do not hide a timeout on the fourth."""
     self.assertEqual(self.sampled(1, 4, "unsat,unsat,unsat,timeout"), "reason=timeout")
 
+  def test_distinct_causes_resolve_by_precedence_not_by_order(self):
+    """Two reported causes must not depend on which attempt finished first.
+
+    Interruption outranks a timeout, which outranks a resource limit; the
+    aggregate is the same whichever order the attempts arrive in.
+    """
+    cases = {
+      "timeout,resource_limit": "reason=timeout",
+      "resource_limit,timeout": "reason=timeout",
+      "timeout,interrupted": "reason=interrupted",
+      "interrupted,timeout": "reason=interrupted",
+      "resource_limit,interrupted": "reason=interrupted",
+    }
+    for script, expected in cases.items():
+      for threads in (1, 2, 4):
+        with self.subTest(script=script, threads=threads):
+          self.assertEqual(self.sampled(threads, 2, script), expected)
+
   def test_undecided_attempts_without_a_cause_stay_unspecified(self):
     """Nothing is invented when no attempt reported anything."""
     self.assertEqual(
