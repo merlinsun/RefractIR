@@ -29,6 +29,7 @@
 #include "reify/tensor_case.hpp"
 #include "reify/tensor_graph_gen.hpp"
 #include "reify/tensor_input_policy.hpp"
+#include "reify/tensor_selection.hpp"
 #include "solver/solver.hpp"
 #if defined(USE_BITWUZLA)
 #include "solver/bitwuzla_impl.hpp"
@@ -121,6 +122,14 @@ namespace refractir::reify {
     };
 
     struct Candidate {
+      /// Set when a supervised selection replayed the inputs inside its own
+      /// deadline: the reference bytes and the path that replay entered. The
+      /// parent then checks the stated property against these bytes without
+      /// replaying again.
+      std::vector<std::uint8_t> selectedExpected;
+      std::vector<std::string> selectedReplayPath;
+      std::vector<std::string> selectionPath;
+      std::uint64_t selectionElapsedUs = 0;
       std::string solverSource;
       std::string finalSource;
       std::vector<TensorCaseBuffer> inputs;
@@ -1398,10 +1407,33 @@ namespace refractir::reify {
             ))
           throw std::runtime_error("property_invalid: " + reason);
       }
-      const auto proposal = proposeTensorInputs(
-          checked, options.solverFactory ? options.solverFactory : makeSolverFactory(),
-          policyOptions
-      );
+      TensorInputProposal proposal;
+      // Only a policy that solves can run away for long enough to need a
+      // deadline; the samplers answer from their own stream and stay in this
+      // process, where replay already happens under the generator's control.
+      const bool supervised =
+          !options.selectionWorker.empty() &&
+          policyOptions.policy == TensorInputPolicy::Exact;
+      if (supervised) {
+        // One deadline covers the request, the worker, the query, the
+        // materialized inputs, the replay, and this validation. The parent
+        // publishes only what finished inside it.
+        TensorSelectionOptions selection;
+        selection.policy = policyOptions;
+        selection.timeoutMs = options.selectionTimeoutMs;
+        const auto supervised =
+            selectAndReplayTensorInputs(checked, selection, options.selectionWorker);
+        proposal = supervised.proposal;
+        candidate.selectedExpected = supervised.expected;
+        candidate.selectedReplayPath = supervised.replayPath;
+        candidate.selectionPath = policyOptions.path;
+        candidate.selectionElapsedUs = supervised.elapsedUs;
+      } else {
+        proposal = proposeTensorInputs(
+            checked, options.solverFactory ? options.solverFactory : makeSolverFactory(),
+            policyOptions
+        );
+      }
       if (proposal.outcome != "accepted")
         throw InputPolicyFailure(
             "input_policy_" + proposal.outcome + ": " + proposal.reason, proposal,
@@ -2253,7 +2285,27 @@ namespace refractir::reify {
                                 : testCase.numericComparison ? "numerical_reference_checked"
                                                              : "construction_checked";
 
-      if (testCase.outputElement == TensorElement::F32) {
+      if (!candidate.selectedExpected.empty()) {
+        // A supervised selection replayed these inputs and confirmed the path
+        // and the stated property inside one budget, so the parent takes the
+        // bytes as they are and checks only what is bounded: the property on
+        // the returned output. Replaying here would repeat work outside that
+        // deadline.
+        if (candidate.selectedReplayPath != candidate.selectionPath)
+          throw std::runtime_error("path_mismatch: the supervised replay entered a different path");
+        testCase.expected = std::move(candidate.selectedExpected);
+        testCase.referenceStable = true;
+        if (candidate.inputProperty &&
+            candidate.inputProperty->kind != TensorInputProperty::Kind::None &&
+            !tensorPropertyHolds(
+                testCase.expected, testCase.outputElement, testCase.outputShape,
+                *candidate.inputProperty
+            ))
+          throw std::runtime_error(
+              "property_mismatch: the supervised reference output does not satisfy the "
+              "stated target"
+          );
+      } else if (testCase.outputElement == TensorElement::F32) {
         std::vector<TensorTraceEntry> trace128;
         std::vector<TensorTraceEntry> trace256;
         const auto output128 = runReference(program, testCase.inputs, 128, &trace128);

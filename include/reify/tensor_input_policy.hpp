@@ -62,6 +62,30 @@ namespace refractir::reify {
   /// the text is malformed.
   TensorOutputElementConstraint parseTensorOutputElement(std::string_view text);
 
+  /// What one runtime input has to look like: the name a case binds, its
+  /// element type, and its element count. A supervisor derives this from the
+  /// program it sent, so a worker's payload lengths are checked against the
+  /// declaration rather than against the worker's own description of them.
+  struct TensorInputSignature {
+    std::string name;
+    TensorElement element = TensorElement::I32;
+    Shape shape;
+    std::uint32_t elements = 0;
+  };
+
+  /// The output the entry function returns, in the same terms.
+  struct TensorOutputSignature {
+    TensorElement element = TensorElement::I32;
+    Shape shape;
+    std::uint32_t elements = 0;
+  };
+
+  std::vector<TensorInputSignature> tensorInputSignature(const Program &program);
+  TensorOutputSignature tensorOutputSignature(const Program &program);
+
+  /// Bytes one element occupies in the runtime transport.
+  std::size_t tensorElementBytes(TensorElement element);
+
   /// Order and check element constraints against a declared output shape:
   /// row-major lexicographic order for deterministic serialization, every
   /// coordinate the full output rank and in bounds, no coordinate twice. Sets

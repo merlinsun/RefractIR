@@ -20,6 +20,9 @@
 //     script: comma-separated answers, e.g. `timeout,unspecified` or
 //     `unsat,timeout`; the last entry repeats
 //   solver_outcome_probe --attempt-record <check-sat-result> <reason-name> <directory>
+//   solver_outcome_probe --select <worker> <timeout-ms>
+//   solver_outcome_probe --select-twice <stall-worker> <timeout-ms> <worker> <timeout-ms>
+//   solver_outcome_probe --tensor-selection-worker <request> <response>
 //
 // It prints one line per observation: `status=<sat|unsat|unknown>
 // reason=<name>` for a solve, `classify <text> -> <name>` for each diagnostic,
@@ -38,6 +41,7 @@
 #include "frontend/pipeline.hpp"
 #include "reify/tensor_gen.hpp"
 #include "reify/tensor_input_policy.hpp"
+#include "reify/tensor_selection.hpp"
 #include "solver/solver.hpp"
 
 namespace {
@@ -194,8 +198,65 @@ namespace {
 
 } // namespace
 
+namespace {
+
+  /// The program a supervised selection is asked about: one ranked tensor
+  /// input reduced to a scalar, which is what the exact policy solves for.
+  const char *SELECTION_PROGRAM =
+      "fun @kernel(%x: tensor [2] i32) : i32 {\n"
+      "  let mut %out: i32 = undef;\n"
+      "^entry:\n"
+      "  %out = tensor sum %x, 0, drop;\n"
+      "  ret %out;\n"
+      "}\n";
+
+  void printSelection(const char *label, const refractir::reify::TensorSelectionResult &result) {
+    std::cout << label << "outcome=" << result.proposal.outcome << " timeout_source="
+              << (result.proposal.timeoutSource.empty() ? "none" : result.proposal.timeoutSource)
+              << " stage=" << (result.timeoutStage.empty() ? "none" : result.timeoutStage)
+              << " replay=" << (result.replayValidated ? "yes" : "no")
+              << " expected_bytes=" << result.expected.size()
+              << " elapsed_ms=" << (result.elapsedUs / 1000)
+              << " cleanup_us=" << result.cleanupUs << "\n";
+  }
+
+  refractir::reify::TensorSelectionResult selectWith(
+      const std::string &worker, const std::string &timeoutMs
+  ) {
+    auto program = checked(SELECTION_PROGRAM);
+    refractir::reify::TensorSelectionOptions options;
+    options.policy.policy = refractir::reify::TensorInputPolicy::Exact;
+    options.policy.profileVersion = refractir::TensorProfileId::V2;
+    options.policy.property.kind = refractir::reify::TensorInputProperty::Kind::OutputEquals;
+    options.policy.property.target = 3;
+    options.policy.path = {"^entry"};
+    options.policy.domain = std::pair<std::int64_t, std::int64_t>{-1, 2};
+    options.policy.seed = 2;
+    options.timeoutMs = static_cast<std::uint32_t>(std::stoul(timeoutMs));
+    return refractir::reify::selectAndReplayTensorInputs(
+        program, options, std::filesystem::path(worker)
+    );
+  }
+
+} // namespace
+
 int main(int argc, char **argv) {
+  // The probe doubles as a real worker, so a delegating fixture can produce an
+  // honest result without a second binary.
+  if (argc == 4 && std::string(argv[1]) == "--tensor-selection-worker")
+    return refractir::reify::serveTensorSelectionRequest(argv[2], argv[3]);
   try {
+    if (argc == 4 && std::string(argv[1]) == "--select") {
+      printSelection("", selectWith(argv[2], argv[3]));
+      return 0;
+    }
+    if (argc == 6 && std::string(argv[1]) == "--select-twice") {
+      // The first child is terminated at its deadline; the second selection
+      // has to run normally in the same process.
+      printSelection("first ", selectWith(argv[2], argv[3]));
+      printSelection("second ", selectWith(argv[4], argv[5]));
+      return 0;
+    }
     if (argc >= 3 && std::string(argv[1]) == "--classify") {
       for (int index = 2; index < argc; ++index) {
         std::cout << "classify " << argv[index] << " -> "

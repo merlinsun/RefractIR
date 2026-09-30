@@ -42,6 +42,7 @@
 #include "reify/path_sampler.hpp"
 #include "reify/state_profile.hpp"
 #include "reify/tensor_gen.hpp"
+#include "reify/tensor_selection.hpp"
 #include "reify/tensor_input_policy.hpp"
 #include "reify/var_catalogue.hpp"
 #include "solver/solved_header.hpp"
@@ -1015,6 +1016,9 @@ optionOccurrences(const cxxopts::ParseResult &result, std::string_view name) {
                             cxxopts::value<std::int64_t>())
       ("tensor-output-element", "Required i32 output element as <coordinate>,...=<value>; repeatable",
                             cxxopts::value<std::vector<std::string>>())
+      ("tensor-selection-timeout-ms",
+                            "Deadline for one supervised selection: request, worker, solving, materialization, replay, and response validation",
+                            cxxopts::value<std::uint32_t>()->default_value("5000"))
       ("tensor-cvc5",       "cvc5 executable for the optional tensor real-synthesis route",
                             cxxopts::value<std::string>())
       ("tensor-cvc5-feasibility", "Matching cvc5 feasibility record for real-synthesis campaigns",
@@ -1346,7 +1350,27 @@ static void runGenerationLoop(const LeafGenConfig &leafCfg,
   }
 }
 
+/// The path this tool was started from: the executable a supervised selection
+/// runs as its worker.
+std::filesystem::path selfExecutablePath(const char *argv0) {
+#if defined(__linux__)
+  std::error_code linkError;
+  const auto linked = std::filesystem::read_symlink("/proc/self/exe", linkError);
+  if (!linkError)
+    return linked;
+#endif
+  std::error_code error;
+  const auto absolute = std::filesystem::absolute(argv0 ? argv0 : "", error);
+  return error ? std::filesystem::path{} : absolute;
+}
+
 int main(int argc, char **argv) {
+  // Private worker entry point: the selection supervisor starts this tool with
+  // a request path and a response path and nothing else. It is deliberately
+  // not an option, so no normal invocation reaches it.
+  if (argc == 4 && std::string(argv[1]) == "--tensor-selection-worker")
+    return refractir::reify::serveTensorSelectionRequest(argv[2], argv[3]);
+
   cxxopts::Options opts = makeOptions();
 
   cxxopts::ParseResult result;
@@ -1444,6 +1468,12 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
+    tensorOptions.selectionTimeoutMs = result["tensor-selection-timeout-ms"].as<std::uint32_t>();
+    if (tensorOptions.selectionTimeoutMs == 0) {
+      std::cerr << "Error: --tensor-selection-timeout-ms must be positive" << std::endl;
+      return 1;
+    }
+    tensorOptions.selectionWorker = selfExecutablePath(argc > 0 ? argv[0] : nullptr);
     tensorOptions.target = result["target"].as<std::string>();
     tensorOptions.count =
         static_cast<std::uint32_t>(std::max(0, result["n-funcs"].as<int>()));

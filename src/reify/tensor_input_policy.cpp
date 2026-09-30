@@ -466,6 +466,34 @@ namespace refractir::reify {
 
   } // namespace
 
+  std::size_t tensorElementBytes(TensorElement) {
+    // Both elements this profile transports are four bytes wide.
+    return 4;
+  }
+
+  std::vector<TensorInputSignature> tensorInputSignature(const Program &program) {
+    std::vector<TensorInputSignature> signature;
+    const auto *entry = entryFunction(program);
+    if (!entry)
+      return signature;
+    for (const auto &param: entry->params) {
+      signature.push_back(TensorInputSignature{
+          bufferName(param.name.name), elementOf(param.type), shapeOf(param.type),
+          elementCountOf(param.type)
+      });
+    }
+    return signature;
+  }
+
+  TensorOutputSignature tensorOutputSignature(const Program &program) {
+    const auto *entry = entryFunction(program);
+    if (!entry)
+      return {};
+    return TensorOutputSignature{
+        elementOf(entry->retType), shapeOf(entry->retType), elementCountOf(entry->retType)
+    };
+  }
+
   TensorOutputElementConstraint parseTensorOutputElement(std::string_view text) {
     const auto equals = text.find('=');
     if (equals == std::string_view::npos)

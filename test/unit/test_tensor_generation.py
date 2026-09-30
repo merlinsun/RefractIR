@@ -18,10 +18,11 @@ from test.unit.tensor_support import ROOT, check_source, run_typed
 RYSMITH = Path(os.environ.get("REFRACTIR_RYSMITH", ROOT / "rysmith")).resolve()
 
 
-# The only outcome a sweep may step over: the solver reached its budget without
-# deciding. Every other status is a regression, so a sweep that skipped it
-# silently would hide one.
-SWEEPABLE_OUTCOMES = frozenset({"input_policy_unknown"})
+# The outcomes a sweep may step over: the solver did not decide inside the
+# budget. `unknown` is an undecided result and `timeout` is the selection
+# deadline expiring, which the supervisor reports separately; both mean the same
+# thing to a sweep, and every other status is a regression it must not hide.
+SWEEPABLE_OUTCOMES = frozenset({"input_policy_unknown", "input_policy_timeout"})
 
 
 def admit_outcome(test, status, seed, outcomes):

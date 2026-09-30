@@ -135,6 +135,7 @@ REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
 # SMT backend, so keep its adapters outside the source set shared with rylink.
 RYSMITH_SRCS = src/rysmith.cpp src/reify/tensor_gen.cpp \
                src/reify/tensor_graph_gen.cpp src/reify/tensor_input_policy.cpp \
+               src/reify/tensor_selection.cpp \
                $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
@@ -265,7 +266,8 @@ $(SOLVER_OUTCOME_PROBE): test/unit/solver_outcome_probe.cpp $(COMMON_OBJS) $(PRO
 test-solver-outcomes: $(SOLVER_OUTCOME_PROBE) $(TARGET_SOLVER)
 	REFRACTIR_SOLVER_OUTCOME_PROBE=./$(SOLVER_OUTCOME_PROBE) \
 	  REFRACTIR_SYMIRSOLVE=./$(TARGET_SOLVER) \
-	  $(PY) -m unittest test.unit.test_tensor_selection_outcomes
+	  $(PY) -m unittest test.unit.test_tensor_selection_outcomes \
+	                     test.unit.test_tensor_selection_deadline
 
 $(TARGET_SOLVER): $(COMMON_OBJS) $(SOLVER_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)

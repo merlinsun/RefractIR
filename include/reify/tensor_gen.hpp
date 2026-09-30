@@ -39,6 +39,13 @@ namespace refractir::reify {
     /// solver outcome injects a backend instead of waiting for a real query to
     /// produce it; empty means the configured solver.
     SymbolicExecutor::SolverFactory solverFactory;
+    /// The whole selection interval, from the request through the validated
+    /// replay response. Positive, and used only when a worker is set.
+    std::uint32_t selectionTimeoutMs = 5000;
+    /// The executable a supervised selection runs in. A tool sets this to
+    /// itself so selection can be terminated without ending the tool; empty
+    /// keeps selection in this process.
+    std::filesystem::path selectionWorker;
   };
 
   struct TensorGenerationResult {
