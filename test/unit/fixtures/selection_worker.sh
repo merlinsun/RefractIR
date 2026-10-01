@@ -109,7 +109,16 @@ PYTHON
     ;;
   excess_dependence)
     "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"
-    printf 'dependence=%%not_an_input\ndependence_value=1\n' >> "$response"
+    # Two records for a program with one input, and the first one names that
+    # input: only the count is wrong, so a reader that indexes before it counts
+    # walks past the signature while the name check stays satisfied.
+    input=$(sed -n 's/^param=\(.*\)$/\1/p' "$response" | head -1)
+    {
+      printf 'dependence=%s\n' "$input"
+      printf 'dependence_value=1\n'
+      printf 'dependence=%%not_an_input\n'
+      printf 'dependence_value=2\n'
+    } >> "$response"
     ;;
   spawn_descendant)
     sh -c "sleep 5; : > \"${FIXTURE_DESCENDANT:?}\"" &

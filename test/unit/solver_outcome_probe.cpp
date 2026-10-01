@@ -20,7 +20,7 @@
 //     script: comma-separated answers, e.g. `timeout,unspecified` or
 //     `unsat,timeout`; the last entry repeats
 //   solver_outcome_probe --attempt-record <check-sat-result> <reason-name> <directory>
-//   solver_outcome_probe --select <worker> <timeout-ms>
+//   solver_outcome_probe --select <worker> <timeout-ms> [implicit-domain]
 //   solver_outcome_probe --select-twice <stall-worker> <timeout-ms> <worker> <timeout-ms>
 //   solver_outcome_probe --tensor-selection-worker <request> <response>
 //
@@ -210,6 +210,16 @@ namespace {
       "  ret %out;\n"
       "}\n";
 
+  /// The reason with its spaces replaced, so one line carries the whole record.
+  std::string oneLine(const std::string &text) {
+    std::string line = text;
+    for (char &character: line) {
+      if (character == ' ')
+        character = '_';
+    }
+    return line.empty() ? "none" : line.substr(0, 90);
+  }
+
   void printSelection(const char *label, const refractir::reify::TensorSelectionResult &result) {
     std::cout << label << "outcome=" << result.proposal.outcome << " timeout_source="
               << (result.proposal.timeoutSource.empty() ? "none" : result.proposal.timeoutSource)
@@ -222,11 +232,13 @@ namespace {
                                      ? "none"
                                      : result.proposal.computationDigest.substr(0, 8))
               << " domain=" << result.proposal.domain.first << "," << result.proposal.domain.second
-              << " symbolic=" << result.proposal.symbolicElements << "\n";
+              << " symbolic=" << result.proposal.symbolicElements
+              << " reason=" << oneLine(result.proposal.reason)
+              << "\n";
   }
 
   refractir::reify::TensorSelectionResult selectWith(
-      const std::string &worker, const std::string &timeoutMs
+      const std::string &worker, const std::string &timeoutMs, bool implicitDomain = false
   ) {
     auto program = checked(SELECTION_PROGRAM);
     refractir::reify::TensorSelectionOptions options;
@@ -235,7 +247,10 @@ namespace {
     options.policy.property.kind = refractir::reify::TensorInputProperty::Kind::OutputEquals;
     options.policy.property.target = 3;
     options.policy.path = {"^entry"};
-    options.policy.domain = std::pair<std::int64_t, std::int64_t>{-1, 2};
+    // The caller may state the interval, or leave it to the policy default the
+    // way production composition does.
+    if (!implicitDomain)
+      options.policy.domain = std::pair<std::int64_t, std::int64_t>{-1, 2};
     options.policy.seed = 2;
     options.timeoutMs = static_cast<std::uint32_t>(std::stoul(timeoutMs));
     return refractir::reify::selectAndReplayTensorInputs(
@@ -251,8 +266,9 @@ int main(int argc, char **argv) {
   if (argc == 4 && std::string(argv[1]) == "--tensor-selection-worker")
     return refractir::reify::serveTensorSelectionRequest(argv[2], argv[3]);
   try {
-    if (argc == 4 && std::string(argv[1]) == "--select") {
-      printSelection("", selectWith(argv[2], argv[3]));
+    if ((argc == 4 || argc == 5) && std::string(argv[1]) == "--select") {
+      const bool implicitDomain = argc == 5 && std::string(argv[4]) == "implicit-domain";
+      printSelection("", selectWith(argv[2], argv[3], implicitDomain));
       return 0;
     }
     if (argc == 6 && std::string(argv[1]) == "--select-twice") {

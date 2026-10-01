@@ -148,7 +148,9 @@ class SelectionDeadlineTests(unittest.TestCase):
     A response that widens the interval can make its own leaves look admissible;
     what matters is the interval the caller's policy fixes.
     """
-    result = select(FIXTURE, 20_000, mode="domain_widened")
+    # The domain is left to the policy, as production composition does: an
+    # explicit interval would be caught by the older agreement rule alone.
+    result = select(FIXTURE, 20_000, mode="domain_widened", extra=("implicit-domain",))
 
     self.assertEqual(result["outcome"], "invalid")
 

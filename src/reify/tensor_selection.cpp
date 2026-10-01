@@ -676,18 +676,25 @@ namespace refractir::reify {
       return ": " + text;
     }
 
-    /// Read the domain a response reports. A malformed one leaves the proposal
-    /// at its previous value rather than inventing a range.
-    void readDomain(const Record &response, TensorInputProposal &proposal) {
-      const auto domain = response.get("domain");
-      if (!domain)
-        return;
-      const auto comma = domain->find(',');
-      if (comma == std::string::npos)
-        return;
-      proposal.domain = std::pair{
-          std::stoll(domain->substr(0, comma)), std::stoll(domain->substr(comma + 1))
-      };
+    /// Read the interval a response reports. A missing or malformed field is
+    /// reported as such rather than skipped: an unreadable domain is a
+    /// malformed response, and accepting it would mean accepting an answer
+    /// whose interval was never established.
+    bool readDomain(const Record &response, std::pair<std::int64_t, std::int64_t> &domain) {
+      const auto field = response.get("domain");
+      if (!field)
+        return false;
+      const auto comma = field->find(',');
+      if (comma == std::string::npos || comma == 0 || comma + 1 == field->size())
+        return false;
+      try {
+        domain = std::pair{
+            std::stoll(field->substr(0, comma)), std::stoll(field->substr(comma + 1))
+        };
+      } catch (const std::exception &) {
+        return false;
+      }
+      return true;
     }
 
     /// Whether every leaf of a payload lies inside `domain`. The transport is
@@ -775,9 +782,9 @@ namespace refractir::reify {
       return result;
     };
 
-    // The domain a witness has to lie in is resolved here, from the policy
-    // when the caller stated none, so the policy default is as binding as an
-    // explicit interval and a response cannot widen it.
+    // The domain a witness has to lie in is resolved from the policy when the
+    // caller states none, so the policy default is as binding as an explicit
+    // interval and a response cannot widen it.
     const auto effectiveDomain =
         options.policy.domain.value_or(tensorPolicyDomain(options.policy.policy));
     const auto signature = tensorInputSignature(program);
@@ -787,6 +794,12 @@ namespace refractir::reify {
         total += input.elements;
       return total;
     }();
+    // Recorded before anything can return, so every terminal outcome names the
+    // graph, the interval, and the size the request was about.
+    const auto digest = computationDigest(program);
+    result.proposal.computationDigest = digest;
+    result.proposal.domain = effectiveDomain;
+    result.proposal.symbolicElements = requestedSymbolicElements;
 
     if (workerExecutable.empty() || !std::filesystem::exists(workerExecutable)) {
       result.proposal.outcome = "invalid";
@@ -815,13 +828,6 @@ namespace refractir::reify {
     const auto stagePath = responsePath.string() + ".stage";
     const auto logPath = directory / "worker.log";
 
-    const auto digest = computationDigest(program);
-    // Everything the request already fixes is recorded before the worker
-    // starts, so a timeout, a crash, or a rejected response is attributable to
-    // the same graph, domain, and size an acceptance would be.
-    result.proposal.computationDigest = digest;
-    result.proposal.domain = effectiveDomain;
-    result.proposal.symbolicElements = requestedSymbolicElements;
     Record request;
     request.add("schema", std::string(REQUEST_SCHEMA));
     request.add("program", hexEncode(printProgram(program)));
@@ -968,16 +974,18 @@ namespace refractir::reify {
       if (status == "timeout")
         result.proposal.timeoutSource = "solver";
       result.proposal.unknownReason = response->get("unknown_reason").value_or("");
-      // A refusal is attributable to the graph it refused, exactly as an
-      // acceptance is: the identity, the domain searched, and the symbolic
-      // size are kept rather than dropped with the candidate.
-      result.proposal.computationDigest = response->get("digest").value_or("");
-      if (result.proposal.computationDigest != digest)
-        result.proposal.computationDigest = digest;
-      result.proposal.domain = options.policy.domain.value_or(result.proposal.domain);
-      readDomain(*response, result.proposal);
-      if (const auto symbolic = response->get("symbolic_elements"))
-        result.proposal.symbolicElements = static_cast<std::uint32_t>(std::stoul(*symbolic));
+      // A refusal is about the request the parent made, so its own identity,
+      // interval, and size stand. A worker that refused before solving reports
+      // none of them, and one that reports a wider interval is describing
+      // something the request never asked about.
+      result.proposal.computationDigest = digest;
+      result.proposal.domain = effectiveDomain;
+      result.proposal.symbolicElements = requestedSymbolicElements;
+      if (const auto symbolic = response->get("symbolic_elements")) {
+        const auto reported = static_cast<std::uint32_t>(std::stoul(*symbolic));
+        if (reported != 0)
+          result.proposal.symbolicElements = reported;
+      }
       cleanup();
       return finish();
     }
@@ -1014,10 +1022,9 @@ namespace refractir::reify {
     if (response->get("property").value_or("") != "holds")
       return reject("the selection response does not report the stated property");
 
-    TensorInputProposal reported;
-    reported.domain = effectiveDomain;
-    readDomain(*response, reported);
-    const auto reportedDomain = reported.domain;
+    auto reportedDomain = effectiveDomain;
+    if (!readDomain(*response, reportedDomain))
+      return reject("the selection response does not state a readable domain");
     const auto names = response->all("param");
     const auto elements = response->all("param_element");
     const auto shapes = response->all("param_shape");
