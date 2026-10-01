@@ -26,6 +26,10 @@
 #   exit_13        produce a complete response, then exit nonzero
 #   domain_violation  produce a complete response whose first leaf is outside
 #                     the domain the request stated
+#   domain_widened    produce a complete response that widens the domain and
+#                     puts its leaves inside the widened interval
+#   excess_dependence append a dependence record for an input that does not
+#                     exist
 #   spawn_descendant  start a helper in this process group, then stall, so a
 #                     test can check the helper did not outlive the deadline
 #   valid          run the real worker to completion
@@ -85,6 +89,27 @@ for line in path.read_text().splitlines():
   lines.append(line)
 path.write_text("\n".join(lines) + "\n")
 PYTHON
+    ;;
+  domain_widened)
+    "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"
+    python3 - "$response" <<'PYTHON'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+lines = []
+for line in path.read_text().splitlines():
+  if line.startswith("domain="):
+    # Claim an interval wide enough for leaves the request never admitted.
+    line = "domain=-100,100"
+  if line.startswith("param_bytes="):
+    payload = line.split("=", 1)[1]
+    line = "param_bytes=63000000" + payload[8:]
+  lines.append(line)
+path.write_text("\n".join(lines) + "\n")
+PYTHON
+    ;;
+  excess_dependence)
+    "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"
+    printf 'dependence=%%not_an_input\ndependence_value=1\n' >> "$response"
     ;;
   spawn_descendant)
     sh -c "sleep 5; : > \"${FIXTURE_DESCENDANT:?}\"" &

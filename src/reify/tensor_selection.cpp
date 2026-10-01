@@ -775,6 +775,19 @@ namespace refractir::reify {
       return result;
     };
 
+    // The domain a witness has to lie in is resolved here, from the policy
+    // when the caller stated none, so the policy default is as binding as an
+    // explicit interval and a response cannot widen it.
+    const auto effectiveDomain =
+        options.policy.domain.value_or(tensorPolicyDomain(options.policy.policy));
+    const auto signature = tensorInputSignature(program);
+    const auto requestedSymbolicElements = [&signature] {
+      std::uint32_t total = 0;
+      for (const auto &input: signature)
+        total += input.elements;
+      return total;
+    }();
+
     if (workerExecutable.empty() || !std::filesystem::exists(workerExecutable)) {
       result.proposal.outcome = "invalid";
       result.proposal.reason = "the selection worker executable is unavailable";
@@ -803,6 +816,12 @@ namespace refractir::reify {
     const auto logPath = directory / "worker.log";
 
     const auto digest = computationDigest(program);
+    // Everything the request already fixes is recorded before the worker
+    // starts, so a timeout, a crash, or a rejected response is attributable to
+    // the same graph, domain, and size an acceptance would be.
+    result.proposal.computationDigest = digest;
+    result.proposal.domain = effectiveDomain;
+    result.proposal.symbolicElements = requestedSymbolicElements;
     Record request;
     request.add("schema", std::string(REQUEST_SCHEMA));
     request.add("program", hexEncode(printProgram(program)));
@@ -811,10 +830,10 @@ namespace refractir::reify {
     request.add("dtype", elementName(output.element));
     request.add("policy", std::string(tensorInputPolicyName(options.policy.policy)));
     request.add("path", joinLabels(options.policy.path));
-    if (options.policy.domain)
-      request.add("domain",
-                  std::to_string(options.policy.domain->first) + "," +
-                      std::to_string(options.policy.domain->second));
+    request.add(
+        "domain",
+        std::to_string(effectiveDomain.first) + "," + std::to_string(effectiveDomain.second)
+    );
     request.add("property", propertyText(options.policy.property));
     for (const auto &element: options.policy.property.elements) {
       std::string index;
@@ -971,6 +990,11 @@ namespace refractir::reify {
       result.proposal.outcome = "invalid";
       result.proposal.reason = reason;
       result.replayValidated = false;
+      // The identity, domain, and size of the refused request stay in place;
+      // only the response's own claims are dropped.
+      result.proposal.computationDigest = digest;
+      result.proposal.domain = effectiveDomain;
+      result.proposal.symbolicElements = requestedSymbolicElements;
       cleanup();
       return finish();
     };
@@ -991,10 +1015,9 @@ namespace refractir::reify {
       return reject("the selection response does not report the stated property");
 
     TensorInputProposal reported;
-    reported.domain = options.policy.domain.value_or(result.proposal.domain);
+    reported.domain = effectiveDomain;
     readDomain(*response, reported);
     const auto reportedDomain = reported.domain;
-    const auto signature = tensorInputSignature(program);
     const auto names = response->all("param");
     const auto elements = response->all("param_element");
     const auto shapes = response->all("param_shape");
@@ -1017,7 +1040,7 @@ namespace refractir::reify {
         return reject("the selection response parameter length differs from the declaration");
       // The request states the domain the witness has to lie in, so a leaf
       // outside it is not a witness however the response describes itself.
-      if (options.policy.domain && reportedDomain != *options.policy.domain)
+      if (reportedDomain != effectiveDomain)
         return reject("the selection response reports a domain the request did not state");
       if (!leavesWithinDomain(*bytes, signature[index].element, reportedDomain))
         return reject("the selection response carries a leaf outside the stated domain");
@@ -1048,11 +1071,30 @@ namespace refractir::reify {
       return reject("the selection response dependence evidence is malformed");
     const bool needsDependence =
         options.policy.profileVersion == TensorProfileId::V2 && signature.size() > 1;
+    // Counted before it is indexed, in every profile: the profile that does not
+    // use the evidence is exactly the one where an unexpected record would
+    // otherwise reach past the signature.
+    if (dependenceNames.size() > signature.size())
+      return reject("the selection response carries dependence evidence for more inputs than exist");
+    if (!needsDependence && !dependenceNames.empty())
+      return reject("the selection response carries dependence evidence this profile does not use");
     if (needsDependence && dependenceNames.size() != signature.size())
       return reject("the selection response carries no dependence evidence");
     for (std::size_t index = 0; index < dependenceNames.size(); ++index) {
       if (dependenceNames[index] != signature[index].name)
         return reject("the selection response dependence evidence names inputs out of order");
+    }
+
+    // The deadline covers validation too, so the clock is asked once more
+    // immediately before a result becomes an acceptance.
+    if (pastDeadline()) {
+      result.expired = true;
+      result.timeoutStage = "response";
+      result.proposal.outcome = "timeout";
+      result.proposal.timeoutSource = "selection_deadline";
+      result.proposal.reason = "the selection deadline expired during response";
+      cleanup();
+      return finish();
     }
 
     result.proposal.outcome = "accepted";
@@ -1063,15 +1105,7 @@ namespace refractir::reify {
           dependenceNames[index], static_cast<std::int32_t>(std::stoll(dependenceValues[index]))
       );
     }
-    result.proposal.domain = options.policy.domain.value_or(result.proposal.domain);
-    if (const auto domain = response->get("domain")) {
-      const auto comma = domain->find(',');
-      if (comma == std::string::npos)
-        return reject("the selection response domain is malformed");
-      result.proposal.domain = std::pair{
-          std::stoll(domain->substr(0, comma)), std::stoll(domain->substr(comma + 1))
-      };
-    }
+    result.proposal.domain = reportedDomain;
     if (const auto symbolic = response->get("symbolic_elements"))
       result.proposal.symbolicElements = static_cast<std::uint32_t>(std::stoul(*symbolic));
     result.expected = *expected;

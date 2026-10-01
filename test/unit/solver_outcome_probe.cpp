@@ -217,7 +217,12 @@ namespace {
               << " replay=" << (result.replayValidated ? "yes" : "no")
               << " expected_bytes=" << result.expected.size()
               << " elapsed_ms=" << (result.elapsedUs / 1000)
-              << " cleanup_us=" << result.cleanupUs << "\n";
+              << " cleanup_us=" << result.cleanupUs
+              << " digest=" << (result.proposal.computationDigest.empty()
+                                     ? "none"
+                                     : result.proposal.computationDigest.substr(0, 8))
+              << " domain=" << result.proposal.domain.first << "," << result.proposal.domain.second
+              << " symbolic=" << result.proposal.symbolicElements << "\n";
   }
 
   refractir::reify::TensorSelectionResult selectWith(

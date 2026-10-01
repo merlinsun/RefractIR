@@ -142,6 +142,40 @@ class SelectionDeadlineTests(unittest.TestCase):
     self.assertEqual(result["replay"], "no")
     self.assertEqual(result["expected_bytes"], "0")
 
+  def test_a_widened_domain_does_not_admit_the_witness(self):
+    """The effective domain is the policy's, not the one the response claims.
+
+    A response that widens the interval can make its own leaves look admissible;
+    what matters is the interval the caller's policy fixes.
+    """
+    result = select(FIXTURE, 20_000, mode="domain_widened")
+
+    self.assertEqual(result["outcome"], "invalid")
+
+  def test_dependence_evidence_for_more_inputs_than_exist_is_rejected(self):
+    """The evidence is counted before it is indexed.
+
+    A single-input program that receives two dependence records must be
+    refused rather than reading past the signature it is checked against.
+    """
+    result = select(FIXTURE, 20_000, mode="excess_dependence")
+
+    self.assertEqual(result["outcome"], "invalid")
+
+  def test_a_timeout_still_names_the_graph_it_abandoned(self):
+    """Expiry is an outcome about a known request, not an empty refusal."""
+    result = self.timed_out("stall_solver")
+
+    self.assertNotEqual(result["digest"], "none")
+    self.assertEqual(result["domain"], "-1,2")
+    self.assertGreater(int(result["symbolic"]), 0)
+
+  def test_a_rejected_response_still_names_the_graph_it_refused(self):
+    result = select(FIXTURE, 20_000, mode="domain_widened")
+
+    self.assertNotEqual(result["digest"], "none")
+    self.assertEqual(result["domain"], "-1,2")
+
   def test_a_worker_that_fails_after_answering_is_not_accepted(self):
     """A complete response is not enough: the worker has to exit cleanly.
 
