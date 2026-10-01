@@ -154,6 +154,28 @@ class SelectionDeadlineTests(unittest.TestCase):
 
     self.assertEqual(result["outcome"], "invalid")
 
+  def test_an_interval_with_trailing_text_is_malformed(self):
+    """A number followed by text is not a number.
+
+    `-1junk` reads as -1 to a prefix parser, which would certify an interval the
+    response never stated.
+    """
+    result = select(FIXTURE, 20_000, mode="domain_trailing")
+
+    self.assertEqual(result["outcome"], "invalid")
+
+  def test_a_refusal_keeps_the_size_the_request_declared(self):
+    """A refusal reports the request's symbolic size, not the worker's claim.
+
+    A worker that refused before solving has no search to describe, and one
+    that reports a different number is describing another request.
+    """
+    result = select(FIXTURE, 20_000, mode="refusal_wrong_size")
+
+    self.assertEqual(result["outcome"], "unsat")
+    self.assertNotEqual(result["symbolic"], "999")
+    self.assertEqual(result["symbolic"], "2")
+
   def test_dependence_evidence_for_more_inputs_than_exist_is_rejected(self):
     """The evidence is counted before it is indexed.
 

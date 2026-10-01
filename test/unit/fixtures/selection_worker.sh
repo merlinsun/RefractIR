@@ -28,6 +28,9 @@
 #                     the domain the request stated
 #   domain_widened    produce a complete response that widens the domain and
 #                     puts its leaves inside the widened interval
+#   domain_trailing   produce a complete response whose interval has a valid
+#                     number followed by text
+#   refusal_wrong_size  refuse, claiming a symbolic size the request never had
 #   excess_dependence append a dependence record for an input that does not
 #                     exist
 #   spawn_descendant  start a helper in this process group, then stall, so a
@@ -106,6 +109,23 @@ for line in path.read_text().splitlines():
   lines.append(line)
 path.write_text("\n".join(lines) + "\n")
 PYTHON
+    ;;
+  domain_trailing)
+    "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"
+    sed -i 's/^domain=.*$/domain=-1junk,2/' "$response"
+    ;;
+  refusal_wrong_size)
+    # A refusal before the query runs reports no size, and one that reports a
+    # number is describing a search the request did not ask for.
+    {
+      printf 'schema=refractir.tensor-selection.response.v1\n'
+      printf 'status=unsat\n'
+      printf 'reason=no input satisfies the stated property on this path\n'
+      printf 'stage=solver\n'
+      printf 'digest=whatever\n'
+      printf 'domain=-1,2\n'
+      printf 'symbolic_elements=999\n'
+    } > "$response"
     ;;
   excess_dependence)
     "${FIXTURE_REAL:?FIXTURE_REAL is required}" --tensor-selection-worker "$request" "$response"

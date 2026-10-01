@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -676,6 +677,16 @@ namespace refractir::reify {
       return ": " + text;
     }
 
+    /// Read one end of an interval. The token has to be one whole number:
+    /// `std::stoll` would read `-1junk` as -1, which certifies an interval the
+    /// response never stated.
+    bool readBound(std::string_view text, std::int64_t &value) {
+      if (text.empty())
+        return false;
+      const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+      return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
+    }
+
     /// Read the interval a response reports. A missing or malformed field is
     /// reported as such rather than skipped: an unreadable domain is a
     /// malformed response, and accepting it would mean accepting an answer
@@ -687,13 +698,12 @@ namespace refractir::reify {
       const auto comma = field->find(',');
       if (comma == std::string::npos || comma == 0 || comma + 1 == field->size())
         return false;
-      try {
-        domain = std::pair{
-            std::stoll(field->substr(0, comma)), std::stoll(field->substr(comma + 1))
-        };
-      } catch (const std::exception &) {
+      std::int64_t low = 0;
+      std::int64_t high = 0;
+      if (!readBound(std::string_view(*field).substr(0, comma), low) ||
+          !readBound(std::string_view(*field).substr(comma + 1), high))
         return false;
-      }
+      domain = std::pair{low, high};
       return true;
     }
 
@@ -981,11 +991,6 @@ namespace refractir::reify {
       result.proposal.computationDigest = digest;
       result.proposal.domain = effectiveDomain;
       result.proposal.symbolicElements = requestedSymbolicElements;
-      if (const auto symbolic = response->get("symbolic_elements")) {
-        const auto reported = static_cast<std::uint32_t>(std::stoul(*symbolic));
-        if (reported != 0)
-          result.proposal.symbolicElements = reported;
-      }
       cleanup();
       return finish();
     }
@@ -1102,6 +1107,15 @@ namespace refractir::reify {
       result.proposal.reason = "the selection deadline expired during response";
       cleanup();
       return finish();
+    }
+
+    // The request declared how many leaves the exact route would solve for, and
+    // the worker reports how many it did solve for; a disagreement means the
+    // accepted inputs are not the inputs the request was about.
+    if (const auto symbolic = response->get("symbolic_elements")) {
+      const auto reported = static_cast<std::uint32_t>(std::stoul(*symbolic));
+      if (reported != requestedSymbolicElements)
+        return reject("the selection response solved a different number of symbolic inputs");
     }
 
     result.proposal.outcome = "accepted";
