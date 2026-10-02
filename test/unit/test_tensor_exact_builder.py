@@ -1,5 +1,6 @@
 """Authored case export refuses stale models and incomplete reference replay."""
 
+import hashlib
 import importlib
 import json
 import struct
@@ -15,12 +16,12 @@ class ExactBuilderTests(unittest.TestCase):
     return importlib.import_module("test.lib.build_tensor_exact_loop_case")
 
   def tools(self, command, **kwargs):
-    if "--emit-tensor-params" in command:
-      model = {
-        "@kernel": {"%?x": {"shape": [2, 2], "element": "i32", "leaves": [1, 2, 4, 8]}}
-      }
-      Path(command[command.index("--emit-tensor-params") + 1]).write_text(
-        json.dumps(model)
+    if "--emit-model" in command:
+      model = {"@kernel": {"%?x": [1, 2, 4, 8]}}
+      Path(command[command.index("--emit-model") + 1]).write_text(json.dumps(model))
+    if "--output" in command:
+      Path(command[command.index("--output") + 1]).write_text(
+        "fun @kernel() : tensor [2, 2] i32 { ret tensor [2, 2] i32 [1,2,4,8]; }\n"
       )
     elif "--tensor-output" in command:
       Path(command[command.index("--tensor-output") + 1]).write_bytes(
@@ -63,18 +64,34 @@ class ExactBuilderTests(unittest.TestCase):
       return self.tools(command, **kwargs)
 
     with tempfile.TemporaryDirectory() as root:
-      self.build(Path(root) / "case", run)
-    solve = next(command for command in calls if "--emit-tensor-params" in command)
+      case = self.build(Path(root) / "case", run)
+      query = (case / "selection-query.sir").read_text()
+    solve = next(command for command in calls if "--emit-model" in command)
     self.assertEqual(solve[solve.index("--path") + 1].count("^body"), 2)
-    self.assertEqual(solve[solve.index("--tensor-param-domain") + 1], "0,8")
+    self.assertEqual(solve[solve.index("--main") + 1], "@kernel")
+    self.assertNotIn("--emit-tensor-params", solve)
+    self.assertNotIn("--tensor-param-domain", solve)
+    self.assertIn("in [0, 8]", query)
+
+  def test_archives_solved_program_as_selection_evidence(self):
+    with tempfile.TemporaryDirectory() as root:
+      case = self.build(Path(root) / "case")
+      solved = case / "selection.solved.sir"
+      manifest = json.loads((case / "case.json").read_text())
+      self.assertTrue(solved.is_file())
+      self.assertIn("selection.solved.sir", manifest["evidence"]["artifacts"])
+      self.assertEqual(
+        manifest["files"]["selection.solved.sir"]["sha256"],
+        hashlib.sha256(solved.read_bytes()).hexdigest(),
+      )
 
   def test_rejects_model_outside_frozen_domain(self):
     def run(command, **kwargs):
       result = self.tools(command, **kwargs)
-      if "--emit-tensor-params" in command:
-        path = Path(command[command.index("--emit-tensor-params") + 1])
+      if "--emit-model" in command:
+        path = Path(command[command.index("--emit-model") + 1])
         model = json.loads(path.read_text())
-        model["@kernel"]["%?x"]["leaves"][0] = 9
+        model["@kernel"]["%?x"][0] = 9
         path.write_text(json.dumps(model))
       return result
 
@@ -82,6 +99,30 @@ class ExactBuilderTests(unittest.TestCase):
       with self.assertRaisesRegex(ValueError, "domain"):
         self.build(Path(root) / "case", run)
       self.assertFalse((Path(root) / "case/case.json").exists())
+
+  def test_rejects_parameter_witness_shape_for_symbol_model(self):
+    def run(command, **kwargs):
+      result = self.tools(command, **kwargs)
+      if "--emit-model" in command:
+        path = Path(command[command.index("--emit-model") + 1])
+        path.write_text(
+          json.dumps(
+            {
+              "@kernel": {
+                "%?x": {
+                  "shape": [2, 2],
+                  "element": "i32",
+                  "leaves": [1, 2, 4, 8],
+                }
+              }
+            }
+          )
+        )
+      return result
+
+    with tempfile.TemporaryDirectory() as root:
+      with self.assertRaisesRegex(ValueError, "four i32 leaves"):
+        self.build(Path(root) / "case", run)
 
   def test_rejects_wrong_non_target_output_element(self):
     def run(command, **kwargs):
@@ -160,7 +201,7 @@ class ExactBuilderTests(unittest.TestCase):
       case = self.build(Path(root) / "case")
       model_path = case / "selection-model.json"
       model = json.loads(model_path.read_text())
-      model["@kernel"]["%?x"]["leaves"][0] = 2
+      model["@kernel"]["%?x"][0] = 2
       model_path.write_text(json.dumps(model))
       with self.assertRaisesRegex(ValueError, "SHA-256 digest mismatch"):
         self._load(case)

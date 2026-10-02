@@ -136,6 +136,70 @@ namespace {
     );
   }
 
+  void inputRootsCanBeSwapped() {
+    TensorRegion region({{"%a", type({2})}, {"%b", type({2})}});
+    region.setResults({"%b", "%a"});
+    const auto updates = region.renderStateUpdates({{"%a", "%b"}, {"%b", "%a"}});
+    require(
+        updates ==
+            std::vector<std::string>{
+                "  let mut %__region_saved_0: tensor [2] i32 = %b;",
+                "  let mut %__region_saved_1: tensor [2] i32 = %a;", "  %a = %__region_saved_0;",
+                "  %b = %__region_saved_1;"},
+        "swapped input results must be snapshotted before either destination changes"
+    );
+  }
+
+  void inputRootsCanFormLongCycles() {
+    TensorRegion region({{"%a", type({2})}, {"%b", type({2})}, {"%c", type({2})}, {"%d", type({2})}}
+    );
+    region.setResults({"%b", "%c", "%d", "%a"});
+    const auto updates =
+        region.renderStateUpdates({{"%a", "%b"}, {"%b", "%c"}, {"%c", "%d"}, {"%d", "%a"}});
+    require(
+        updates.size() == 8 && updates[4] == "  %a = %__region_saved_0;" &&
+            updates[7] == "  %d = %__region_saved_3;",
+        "all sources in a longer input-root cycle must be read from old state"
+    );
+  }
+
+  void identityRootCanShareAParallelUpdate() {
+    TensorRegion region({{"%a", type({2})}, {"%b", type({2})}, {"%c", type({2})}});
+    region.setResults({"%b", "%a", "%c"});
+    const auto updates = region.renderStateUpdates({{"%a", "%b"}, {"%b", "%a"}, {"%c", "%c"}});
+    require(
+        updates ==
+            std::vector<std::string>{
+                "  let mut %__region_saved_0: tensor [2] i32 = %b;",
+                "  let mut %__region_saved_1: tensor [2] i32 = %a;", "  %a = %__region_saved_0;",
+                "  %b = %__region_saved_1;"},
+        "an identity result must remain unchanged alongside a concurrent swap"
+    );
+  }
+
+  void passThroughSourceCanSurviveComputedWriteback() {
+    TensorRegion region({{"%a", type({2})}, {"%b", type({2})}});
+    region.add("%sum", TensorOp::Add, {"%a", "%b"});
+    region.setResults({"%sum", "%a"});
+    const auto body = region.renderBody({{"%a", "%sum"}, {"%b", "%a"}});
+    require(
+        body.size() == 4 && body[1] == "  let mut %__region_saved_0: tensor [2] i32 = %a;" &&
+            body[2] == "  %a = %sum;" && body[3] == "  %b = %__region_saved_0;",
+        "a pass-through result must survive a computed update to its input"
+    );
+  }
+
+  void repeatedPassThroughSourcesKeepTheirOldValue() {
+    TensorRegion region({{"%a", type({2})}, {"%b", type({2})}, {"%c", type({2})}});
+    region.setResults({"%b", "%a", "%c"});
+    const auto updates = region.renderStateUpdates({{"%a", "%b"}, {"%b", "%a"}, {"%c", "%a"}});
+    require(
+        updates.size() == 5 && updates[2] == "  %a = %__region_saved_0;" &&
+            updates[3] == "  %b = %__region_saved_1;" && updates[4] == "  %c = %__region_saved_1;",
+        "repeated pass-through roots must share one snapshot of their old input"
+    );
+  }
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -159,6 +223,16 @@ int main(int argc, char **argv) {
       singletonDimensionsBroadcastAcrossAxes();
     else if (name == "scalar-reduction")
       scalarReductionCanBroadcastBackToTensor();
+    else if (name == "state-input-swap")
+      inputRootsCanBeSwapped();
+    else if (name == "state-input-cycle")
+      inputRootsCanFormLongCycles();
+    else if (name == "state-input-identity")
+      identityRootCanShareAParallelUpdate();
+    else if (name == "state-input-computed-mix")
+      passThroughSourceCanSurviveComputedWriteback();
+    else if (name == "state-input-repeated")
+      repeatedPassThroughSourcesKeepTheirOldValue();
     else
       throw std::invalid_argument("unknown test name: " + name);
   } catch (const std::exception &error) {

@@ -17,18 +17,19 @@ class SelectionEvidenceTests(unittest.TestCase):
     inputs = struct.pack("<4f", *values)
     proof, output = proof_api.certify(source, inputs, (0, 8))
     query = builder.render_query()
-    model = json.dumps(
-      {"@kernel": {"%?x": {"shape": [2, 2], "element": "i32", "leaves": values}}}
-    ).encode()
+    model = json.dumps({"@kernel": {"%?x": values}}).encode()
+    solved = b"fun @kernel() : tensor [2, 2] i32 { ret %out; }\n"
     path = builder.PATH
     command = [
       "symirsolve",
       "--main",
       "@kernel",
+      "--output",
+      "/tmp/selection.solved.sir",
+      "--emit-model",
+      "/tmp/selection-model.json",
       "--path",
       ",".join(path),
-      "--tensor-param-domain",
-      "0,8",
       "query.sir",
     ]
     result = json.dumps(
@@ -36,6 +37,7 @@ class SelectionEvidenceTests(unittest.TestCase):
     ).encode()
     artifacts = {
       "selection-query.sir": query.encode(),
+      "selection.solved.sir": solved,
       "selection-model.json": model,
       "selection-result.json": result,
     }
@@ -46,6 +48,8 @@ class SelectionEvidenceTests(unittest.TestCase):
       "path": path,
       "query_file": "selection-query.sir",
       "query_sha256": hashlib.sha256(artifacts["selection-query.sir"]).hexdigest(),
+      "solved_file": "selection.solved.sir",
+      "solved_sha256": hashlib.sha256(solved).hexdigest(),
       "model_file": "selection-model.json",
       "model_sha256": hashlib.sha256(model).hexdigest(),
       "result_file": "selection-result.json",
@@ -86,9 +90,25 @@ class SelectionEvidenceTests(unittest.TestCase):
     fixture = list(self.fixture())
     fixture[4] = dict(fixture[4])
     model = json.loads(fixture[4]["selection-model.json"])
-    model["@kernel"]["%?x"]["leaves"][0] = 2
+    model["@kernel"]["%?x"][0] = 2
     fixture[4]["selection-model.json"] = json.dumps(model).encode()
     with self.assertRaisesRegex(ValueError, "model"):
+      self.validate(fixture)
+
+  def test_rejects_parameter_witness_schema_for_symbol_model(self):
+    fixture = list(self.fixture())
+    fixture[3] = copy.deepcopy(fixture[3])
+    fixture[4] = dict(fixture[4])
+    model = json.loads(fixture[4]["selection-model.json"])
+    model["@kernel"]["%?x"] = {
+      "shape": [2, 2],
+      "element": "i32",
+      "leaves": [1, 2, 4, 8],
+    }
+    encoded = json.dumps(model).encode()
+    fixture[4]["selection-model.json"] = encoded
+    fixture[3]["model_sha256"] = hashlib.sha256(encoded).hexdigest()
+    with self.assertRaisesRegex(ValueError, "model has invalid leaves"):
       self.validate(fixture)
 
 

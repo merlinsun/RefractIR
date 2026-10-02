@@ -41,6 +41,21 @@ class TensorRegionTests(unittest.TestCase):
   def test_scalar_reduction_can_be_broadcast_back_to_tensor(self):
     self.run_contract("scalar-reduction")
 
+  def test_input_roots_can_be_swapped(self):
+    self.run_contract("state-input-swap")
+
+  def test_input_roots_can_form_long_cycles(self):
+    self.run_contract("state-input-cycle")
+
+  def test_identity_root_can_share_a_parallel_update(self):
+    self.run_contract("state-input-identity")
+
+  def test_pass_through_survives_computed_writeback(self):
+    self.run_contract("state-input-computed-mix")
+
+  def test_repeated_pass_through_sources_keep_old_values(self):
+    self.run_contract("state-input-repeated")
+
 
 if __name__ == "__main__":
   unittest.main()

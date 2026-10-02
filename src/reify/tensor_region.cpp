@@ -4,6 +4,7 @@
 #include <functional>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -224,8 +225,14 @@ namespace refractir::reify {
       throw std::invalid_argument("state update count differs from region result count");
     std::unordered_set<std::int32_t> destinations;
     std::unordered_set<std::int32_t> results(results_.begin(), results_.end());
-    std::vector<std::string> assignments;
-    assignments.reserve(updates.size());
+
+    struct StateUpdate {
+      std::int32_t destination;
+      std::int32_t source;
+    };
+
+    std::vector<StateUpdate> validated;
+    validated.reserve(updates.size());
     for (const auto &[stateName, resultName]: updates) {
       const auto state = requireValue(stateName);
       const auto result = requireValue(resultName);
@@ -240,7 +247,49 @@ namespace refractir::reify {
           values_[static_cast<std::size_t>(state)].type.element !=
               values_[static_cast<std::size_t>(result)].type.element)
         throw std::invalid_argument("state update types do not match");
-      assignments.push_back("  " + stateName + " = " + resultName + ";");
+      validated.push_back({state, result});
+    }
+
+    std::unordered_map<std::int32_t, std::string> snapshots;
+    std::vector<std::string> assignments;
+    assignments.reserve(updates.size() * 2);
+    std::size_t nextSnapshot = 0;
+    for (const auto &update: validated) {
+      if (update.destination == update.source ||
+          values_[static_cast<std::size_t>(update.source)].producer >= 0 ||
+          !destinations.contains(update.source) || snapshots.contains(update.source))
+        continue;
+
+      std::string snapshotName;
+      do {
+        snapshotName = "%__region_saved_" + std::to_string(nextSnapshot++);
+      } while (std::any_of(
+                   values_.begin(), values_.end(),
+                   [&](const Value &value) { return value.name == snapshotName; }
+               ) ||
+               snapshots.end() !=
+                   std::find_if(snapshots.begin(), snapshots.end(), [&](const auto &entry) {
+                     return entry.second == snapshotName;
+                   }));
+
+      snapshots.emplace(update.source, snapshotName);
+      const auto &source = values_[static_cast<std::size_t>(update.source)];
+      assignments.push_back(
+          "  let mut " + snapshotName + ": " + tensorTypeText(source.type) + " = " + source.name +
+          ";"
+      );
+    }
+
+    for (const auto &update: validated) {
+      if (update.destination == update.source)
+        continue;
+      const auto &destination = values_[static_cast<std::size_t>(update.destination)];
+      const auto &source = values_[static_cast<std::size_t>(update.source)];
+      const auto saved = snapshots.find(update.source);
+      assignments.push_back(
+          "  " + destination.name + " = " +
+          (saved == snapshots.end() ? source.name : saved->second) + ";"
+      );
     }
     return assignments;
   }

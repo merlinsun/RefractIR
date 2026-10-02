@@ -9,6 +9,7 @@ import json
 import math
 import re
 import struct
+from pathlib import Path
 
 KIND = "composed-add-sum-f32-v1"
 EXACT_BOUND = 2**24
@@ -217,6 +218,8 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
     "path",
     "query_file",
     "query_sha256",
+    "solved_file",
+    "solved_sha256",
     "model_file",
     "model_sha256",
     "result_file",
@@ -243,10 +246,13 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
     raise ValueError("solver selection lacks complete bitwise replay")
   try:
     query = artifacts[selection["query_file"]]
+    solved = artifacts[selection["solved_file"]]
     model_bytes = artifacts[selection["model_file"]]
     result_bytes = artifacts[selection["result_file"]]
     if hashlib.sha256(query).hexdigest() != selection["query_sha256"]:
       raise ValueError("solver query digest does not match")
+    if hashlib.sha256(solved).hexdigest() != selection["solved_sha256"]:
+      raise ValueError("solver output digest does not match")
     if hashlib.sha256(model_bytes).hexdigest() != selection["model_sha256"]:
       raise ValueError("solver model digest does not match")
     if hashlib.sha256(result_bytes).hexdigest() != selection["result_sha256"]:
@@ -259,8 +265,7 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
     raise ValueError("solver query differs from the admitted integer twin")
   try:
     model = json.loads(model_bytes)
-    witness = model["@kernel"]["%?x"]
-    values = witness if isinstance(witness, list) else witness["leaves"]
+    values = model["@kernel"]["%?x"]
     solver_result = json.loads(result_bytes)
   except (KeyError, TypeError, json.JSONDecodeError) as error:
     raise ValueError("solver model or terminal result is malformed") from error
@@ -284,7 +289,6 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
   command = solver_result["command"]
   for option, expected_value in (
     ("--path", ",".join(selection["path"])),
-    ("--tensor-param-domain", "0,8"),
     ("--main", "@kernel"),
   ):
     try:
@@ -293,6 +297,18 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
       raise ValueError(f"solver command omits {option}") from error
     if actual != expected_value:
       raise ValueError(f"solver command {option} disagrees with recorded selection")
+  for option, artifact_name in (
+    ("--output", selection["solved_file"]),
+    ("--emit-model", selection["model_file"]),
+  ):
+    try:
+      actual_path = command[command.index(option) + 1]
+    except (ValueError, IndexError) as error:
+      raise ValueError(f"solver command omits {option}") from error
+    if Path(actual_path).name != artifact_name:
+      raise ValueError(f"solver command {option} differs from recorded selection")
+  if "--emit-tensor-params" in command or "--tensor-param-domain" in command:
+    raise ValueError("solver command uses tensor parameter options for a symbol query")
   output = struct.unpack("<4f", expected_bytes)
   if output[0] != selection["target"]["value"]:
     raise ValueError("complete reference output does not satisfy the solver target")

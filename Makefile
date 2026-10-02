@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-fpsan-model test-tensor-gluon-layouts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-fpsan-model test-tensor-gluon-layouts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -271,6 +271,19 @@ test-triton-gluon:
 	$(PY) -m test.tensor.gluon.run_exact_loop \
 	  --output $(BUILD_DIR)/gluon/exact-loop.json \
 	  --ir-dir $(BUILD_DIR)/gluon/ir
+
+TENSOR_EXACT_CASE_DIR ?= build/tensor_cases/exact-composed-loop
+
+test-triton-exact-loop: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) \
+	  REFRACTIR_REVISION='$(TENSOR_SOURCE_REVISION)' \
+	  REFRACTIR_WORKTREE_DIRTY='$(TENSOR_WORKTREE_DIRTY)' \
+	  REFRACTIR_COMPILER_FLAGS='$(TENSOR_COMPILER_FLAGS)' \
+	  $(PY) -m test.tensor.exact.run_integration \
+	    --output-dir $(TENSOR_EXACT_CASE_DIR) \
+	    --symiri ./$(TARGET_INTERP) --symirc ./$(TARGET_COMPILER) \
+	    --symirsolve ./$(TARGET_SOLVER)
 
 # A link-and-run consumer of the installed archive. Building libsymir.a only
 # proves that its objects were archived, not that they resolve each other.
@@ -403,9 +416,11 @@ test-tensor-frontend: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) $(PY) -m unittest test.unit.test_tensor_frontend
 
-test-tensor-exact: $(TARGET_INTERP)
-	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest \
-	  test.unit.test_tensor_exact_composed test.unit.test_tensor_exact_builder \
+test-tensor-exact: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) $(PY) -m unittest \
+	  test.unit.test_tensor_exact_cli test.unit.test_tensor_exact_composed \
+	  test.unit.test_tensor_exact_builder \
 	  test.unit.test_tensor_exact_selection_evidence test.unit.test_tensor_semantics.TensorExactTests
 
 test-tensor-numeric: $(TARGET_INTERP)

@@ -116,8 +116,7 @@ def _model_inputs(model_path: Path) -> tuple[int, ...]:
   try:
     model = json.loads(model_path.read_text(encoding="utf-8"))
     entry = model["@kernel"]
-    witness = entry["%?x"]
-    values = witness if isinstance(witness, list) else witness["leaves"]
+    values = entry["%?x"]
   except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
     raise CaseBuildError(
       "invalid_model", "solver model has no tensor witness for %?x"
@@ -181,13 +180,11 @@ def build_case(
         "@kernel",
         "--path",
         ",".join(PATH),
-        "--tensor-param-domain",
-        "0,8",
         "--timeout-ms",
         str(int(timeout_s * 1000)),
         "--output",
         str(solved_path),
-        "--emit-tensor-params",
+        "--emit-model",
         str(model_path),
         str(query_path),
       ],
@@ -195,6 +192,7 @@ def build_case(
       ledger=ledger,
     )
     values = _model_inputs(model_path)
+    solved_bytes = solved_path.read_bytes()
     selection_result_path = directory / "selection-result.json"
     selection_result = {
       "status": "SAT",
@@ -267,6 +265,7 @@ def build_case(
       "expected.bin": expected,
       "kernel.py": kernel,
       "selection-query.sir": query_bytes,
+      "selection.solved.sir": solved_bytes,
       "selection-model.json": solver_model,
       "selection-result.json": selection_result_bytes,
     }
@@ -277,6 +276,8 @@ def build_case(
       "path": PATH,
       "query_file": "selection-query.sir",
       "query_sha256": hashlib.sha256(query_bytes).hexdigest(),
+      "solved_file": "selection.solved.sir",
+      "solved_sha256": hashlib.sha256(solved_bytes).hexdigest(),
       "model_file": "selection-model.json",
       "model_sha256": hashlib.sha256(solver_model).hexdigest(),
       "result_file": "selection-result.json",
@@ -352,6 +353,7 @@ def build_case(
       },
       "solver_selection": {
         "query_file": "selection-query.sir",
+        "solved_file": "selection.solved.sir",
         "model_file": "selection-model.json",
         "query_sha256": hashlib.sha256(query_bytes).hexdigest(),
         "model_sha256": hashlib.sha256(solver_model).hexdigest(),
