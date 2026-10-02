@@ -69,7 +69,7 @@ namespace refractir::reify {
     struct Graph {
       std::vector<GraphValue> values;
       std::vector<GraphNode> nodes;
-      int root = 0;
+      std::vector<int> roots;
     };
 
     void prune(Graph &graph);
@@ -153,6 +153,10 @@ namespace refractir::reify {
       }
 
       Graph build();
+      Graph buildRegion(
+          const std::vector<TensorRegionInput> &inputs,
+          const std::vector<std::string> &resultNames
+      );
 
     private:
       bool admissible(const Shape &shape) const;
@@ -171,6 +175,7 @@ namespace refractir::reify {
       int emitDiamond(Graph &graph, int current);
       int emitDoubleReduction(Graph &graph, int current);
       int emitCopy(Graph &graph, int current);
+      int emitRegionFold(Graph &graph, int current, const Shape &shape);
       std::uint32_t pickAxisWithExtent(const Shape &shape);
       double chooseLiteral(bool multiplication);
       StepKind pickFiller(std::uint32_t remaining);
@@ -252,7 +257,11 @@ namespace refractir::reify {
 
     int Builder::appendValue(Graph &graph, const Shape &shape) {
       GraphValue value;
-      value.name = "%t" + std::to_string(temporaries_++);
+      do {
+        value.name = "%t" + std::to_string(temporaries_++);
+      } while (std::any_of(graph.values.begin(), graph.values.end(), [&](const GraphValue &prior) {
+        return prior.name == value.name;
+      }));
       value.shape = shape;
       value.element = element_;
       value.type = shape.empty() ? scalarType(element_) : tensorType(shape, element_);
@@ -559,6 +568,28 @@ namespace refractir::reify {
       return appendNode(graph, std::move(node), shape);
     }
 
+    int Builder::emitRegionFold(Graph &graph, int current, const Shape &shape) {
+      if (shape.empty())
+        throw AttemptFailure("multi-output region folding needs a tensor shape");
+      const auto axis = static_cast<std::uint32_t>(random_() % shape.size());
+
+      GraphNode reduction;
+      reduction.op = TensorOp::Sum;
+      reduction.operands = {current};
+      reduction.axis = static_cast<std::int64_t>(axis);
+      reduction.keepDims = true;
+      Shape reducedShape = shape;
+      reducedShape[axis] = 1;
+      const auto reduced = appendNode(graph, std::move(reduction), reducedShape);
+
+      GraphNode broadcast;
+      broadcast.op = TensorOp::Broadcast;
+      broadcast.operands = {reduced};
+      broadcast.attribute = shape;
+      const auto expanded = appendNode(graph, std::move(broadcast), shape);
+      return emitPair(graph, current, expanded, 0.0, TensorOp::Add);
+    }
+
     StepKind Builder::pickFiller(std::uint32_t remaining) {
       static constexpr std::array<StepKind, 4> kinds{
           StepKind::Binary, StepKind::Shape, StepKind::Reduce, StepKind::Copy};
@@ -716,7 +747,76 @@ namespace refractir::reify {
             break;
         }
       }
-      graph.root = current;
+      graph.roots = {current};
+      prune(graph);
+      return graph;
+    }
+
+    Graph Builder::buildRegion(
+        const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames
+    ) {
+      if (inputs.size() < 2 || inputs.size() > maxInputs_)
+        throw std::invalid_argument("multi-output regions need 2..maxInputs state tensors");
+      if (resultNames.size() < 2)
+        throw std::invalid_argument("multi-output regions need at least two named results");
+      if (resultNames.size() >= nodeLimit)
+        throw std::runtime_error(
+            "graph_exhaustion: result roots leave no budget for a shared graph producer"
+        );
+      if (maxRank_ == 0 || maxElements_ == 0)
+        throw std::runtime_error("graph_exhaustion: limits admit no region tensor shape");
+
+      const Shape &shape = inputs.front().type.shape;
+      if (shape.empty() || !admissible(shape))
+        throw std::invalid_argument("multi-output region input shape is outside the limits");
+      if (std::any_of(inputs.begin(), inputs.end(), [&](const TensorRegionInput &input) {
+            return input.name.empty() || input.name.front() != '%' || input.type.shape != shape ||
+                   input.type.element != element_;
+          }))
+        throw std::invalid_argument(
+            "multi-output region state inputs must be named tensors with one matching type"
+        );
+
+      std::vector<std::string> names;
+      names.reserve(inputs.size() + resultNames.size());
+      for (const auto &input: inputs)
+        names.push_back(input.name);
+      for (const auto &result: resultNames) {
+        if (result.empty() || result.front() != '%' ||
+            std::find(names.begin(), names.end(), result) != names.end())
+          throw std::invalid_argument("multi-output region result names must be unique locals");
+        names.push_back(result);
+      }
+
+      const auto minimumNodes = static_cast<std::uint32_t>(1 + resultNames.size());
+      if (budget_ < minimumNodes)
+        throw std::runtime_error(
+            "graph_exhaustion: operator budget cannot host the shared producer and every root"
+        );
+
+      Graph graph;
+      for (const auto &input: inputs) {
+        GraphValue value;
+        value.name = input.name;
+        value.shape = input.type.shape;
+        value.element = input.type.element;
+        value.type = tensorType(value.shape, value.element);
+        graph.values.push_back(std::move(value));
+      }
+
+      int current = emitPair(graph, 0, 1, 0.0, TensorOp::Add);
+      const auto availableFolds = std::min<std::uint32_t>(2, (budget_ - minimumNodes) / 3);
+      const auto foldCount = availableFolds == 0 ? 0 : 1 + random_() % availableFolds;
+      for (std::uint32_t fold = 0; fold < foldCount; ++fold)
+        current = emitRegionFold(graph, current, shape);
+
+      for (std::size_t index = 0; index < resultNames.size(); ++index) {
+        const auto result =
+            emitPair(graph, static_cast<int>(index % inputs.size()), current, 0.0, TensorOp::Add);
+        graph.values[static_cast<std::size_t>(result)].name = resultNames[index];
+        graph.roots.push_back(result);
+      }
+
       prune(graph);
       return graph;
     }
@@ -747,7 +847,10 @@ namespace refractir::reify {
 
     void prune(Graph &graph) {
       std::vector<char> reachable(graph.nodes.size(), 0);
-      std::vector<int> pending{graph.values[static_cast<std::size_t>(graph.root)].node};
+      std::vector<int> pending;
+      pending.reserve(graph.roots.size());
+      for (const auto root: graph.roots)
+        pending.push_back(graph.values[static_cast<std::size_t>(root)].node);
       while (!pending.empty()) {
         const auto node = pending.back();
         pending.pop_back();
@@ -759,13 +862,19 @@ namespace refractir::reify {
             pending.push_back(graph.values[static_cast<std::size_t>(operand)].node);
       }
       std::vector<GraphNode> live;
+      std::vector<int> remapped(graph.nodes.size(), -1);
       for (std::size_t index = 0; index < graph.nodes.size(); ++index)
-        if (reachable[index])
+        if (reachable[index]) {
+          remapped[index] = static_cast<int>(live.size());
           live.push_back(std::move(graph.nodes[index]));
+        }
       graph.nodes = std::move(live);
-      for (auto &value: graph.values)
-        if (value.node >= 0 && !reachable[static_cast<std::size_t>(value.node)])
-          value.node = -2;
+      for (auto &value: graph.values) {
+        if (value.node < 0)
+          continue;
+        const auto replacement = remapped[static_cast<std::size_t>(value.node)];
+        value.node = replacement >= 0 ? replacement : -2;
+      }
     }
 
     Expr nodeExpression(const Graph &graph, const GraphNode &node) {
@@ -797,7 +906,8 @@ namespace refractir::reify {
           continue;
         function.params.push_back(ParamDecl{LocalId{value.name, {}}, value.type, {}});
       }
-      function.retType = graph.values[static_cast<std::size_t>(graph.root)].type;
+      const auto root = graph.roots.front();
+      function.retType = graph.values[static_cast<std::size_t>(root)].type;
       for (const auto &value: graph.values) {
         if (value.node < 0)
           continue;
@@ -819,10 +929,38 @@ namespace refractir::reify {
         );
       }
       entry.term = Terminator{
-          RetTerm{localExpression(graph.values[static_cast<std::size_t>(graph.root)].name), {}}};
+          RetTerm{localExpression(graph.values[static_cast<std::size_t>(root)].name), {}}};
       function.blocks.push_back(std::move(entry));
       program.funs.push_back(std::move(function));
       return program;
+    }
+
+    TensorRegion emitRegion(
+        const Graph &graph, std::vector<TensorRegionInput> inputs,
+        const std::vector<std::string> &resultNames
+    ) {
+      TensorRegion region(std::move(inputs));
+      for (const auto &node: graph.nodes) {
+        std::vector<std::string> operands;
+        operands.reserve(node.operands.size());
+        for (const auto operand: node.operands) {
+          if (operand < 0)
+            throw std::logic_error("generated loop region contains a literal operand");
+          operands.push_back(graph.values[static_cast<std::size_t>(operand)].name);
+        }
+        region.add(
+            graph.values[static_cast<std::size_t>(node.result)].name, node.op, std::move(operands),
+            node.axis, node.keepDims, Shape(node.attribute)
+        );
+      }
+      std::vector<std::string> roots;
+      roots.reserve(graph.roots.size());
+      for (const auto root: graph.roots)
+        roots.push_back(graph.values[static_cast<std::size_t>(root)].name);
+      if (roots != resultNames)
+        throw std::logic_error("generated loop region lost a named result root");
+      region.setResults(std::move(roots));
+      return region;
     }
 
   } // namespace
@@ -840,6 +978,26 @@ namespace refractir::reify {
     }
     throw std::runtime_error(
         "graph_exhaustion: no admissible compositional tensor graph within " +
+        std::to_string(constructAttempts) + " construction attempts"
+    );
+  }
+
+  TensorRegion generateTensorRegion(
+      const TensorGenerationOptions &options, const TensorGraphLimits &limits,
+      std::vector<TensorRegionInput> inputs, std::vector<std::string> results
+  ) {
+    for (std::uint32_t attempt = 0; attempt < constructAttempts; ++attempt) {
+      std::mt19937 random(options.seed ^ (0x9e3779b9u * (attempt + 1)));
+      try {
+        Builder builder(random, options, limits);
+        const auto graph = builder.buildRegion(inputs, results);
+        return emitRegion(graph, std::move(inputs), results);
+      } catch (const AttemptFailure &) {
+        continue;
+      }
+    }
+    throw std::runtime_error(
+        "graph_exhaustion: no admissible multi-output tensor region within " +
         std::to_string(constructAttempts) + " construction attempts"
     );
   }

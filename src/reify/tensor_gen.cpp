@@ -1537,18 +1537,19 @@ namespace refractir::reify {
       std::vector<std::string> regionInstructions;
       if (variant == 6) {
         const auto tensorElement = options.dtype == "f32" ? TensorElement::F32 : TensorElement::I32;
-        TensorRegion region(
+        TensorGenerationOptions regionOptions = options;
+        regionOptions.seed = streamSeed(seed, 0x6c6f6f702d726567ULL);
+        TensorGraphLimits regionLimits;
+        regionLimits.maxInputs = 2;
+        regionLimits.maxRank = 2;
+        regionLimits.maxElements = static_cast<std::uint32_t>(tensorElementCount(inputShape));
+        regionLimits.maxOperators = 10;
+        TensorRegion region = generateTensorRegion(
+            regionOptions, regionLimits,
             {{"%acc_x", TensorTypeInfo{inputShape, tensorElement}},
-             {"%acc_y", TensorTypeInfo{inputShape, tensorElement}}}
+             {"%acc_y", TensorTypeInfo{inputShape, tensorElement}}},
+            {"%next_x", "%next_y"}
         );
-        region.add("%shared", TensorOp::Add, {"%acc_x", "%acc_y"});
-        region.add("%rows", TensorOp::Sum, {"%shared"}, 1, true);
-        region.add("%columns", TensorOp::Sum, {"%shared"}, 0, true);
-        region.add("%row_broadcast", TensorOp::Broadcast, {"%rows"}, 0, false, inputShape);
-        region.add("%column_broadcast", TensorOp::Broadcast, {"%columns"}, 0, false, inputShape);
-        region.add("%next_x", TensorOp::Add, {"%acc_x", "%row_broadcast"});
-        region.add("%next_y", TensorOp::Add, {"%acc_y", "%column_broadcast"});
-        region.setResults({"%next_x", "%next_y"});
         regionDeclarations = region.renderDeclarations();
         regionInstructions = region.renderBody({{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}});
       }
@@ -1695,12 +1696,12 @@ namespace refractir::reify {
                                 inputShape,         inputShape,    outputShape};
         candidate.rangeExtents = candidate.fullShapes;
       } else if (variant == 6) {
-        candidate.operators = {"add", "sum", "sum", "broadcast", "broadcast", "add", "add", "add"};
-        candidate.shapeAxes = {{inputShape, 1}, {inputShape, 0}};
-        candidate.fullShapes = {inputShape, Shape{rowCount, 1}, Shape{1, columnCount},
-                                inputShape, inputShape,         inputShape,
-                                inputShape, outputShape};
-        candidate.rangeExtents = candidate.fullShapes;
+        const Program checked = checkedProgram(candidate.solverSource, options.profileVersion);
+        const auto metadata = describeCompositionalGraph(entryFunction(checked));
+        candidate.operators = metadata.operators;
+        candidate.shapeAxes = metadata.shapeAxes;
+        candidate.fullShapes = metadata.fullShapes;
+        candidate.rangeExtents = metadata.fullShapes;
       } else if (variant == 3) {
         candidate.operators.insert(candidate.operators.end(), {"transpose", "expand", "broadcast"});
         candidate.shapeAxes = {{transposedShape, 0}, {inputShape, 1}};
@@ -1728,9 +1729,9 @@ namespace refractir::reify {
             "defined without i32 overflow.";
       if (variant == 6)
         candidate.propertySource =
-            "A shape-[2,2] tensor and a zero-initialized tensor feed one reusable "
-            "two-result loop region. Both sums and both next-state values are "
-            "computed from the old state before either state is updated.";
+            "A shape-[2,2] runtime tensor and a zero-initialized state tensor feed "
+            "a seeded bounded multi-output DAG inside the loop. Every generated "
+            "root is computed from the old state before either result is written back.";
       candidate.caseSeed = seed;
       candidate.loopBounds = nested ? std::vector<std::int32_t>{2, innerTripCount}
                                     : std::vector<std::int32_t>{singleTripCount};

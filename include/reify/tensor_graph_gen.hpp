@@ -1,9 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include "ast/ast.hpp"
 #include "reify/tensor_gen.hpp"
+#include "reify/tensor_region.hpp"
 
 namespace refractir::reify {
 
@@ -24,6 +27,15 @@ namespace refractir::reify {
   /// when the limits admit no graph; the caller re-checks the emitted source.
   Program generateTensorProgram(
       const TensorGenerationOptions &options, const TensorGraphLimits &limits
+  );
+
+  /// Build a seeded multi-result DAG region from same-shaped tensor state
+  /// inputs. Its bounded loop-safe subset uses add, keep-dimension sum and
+  /// broadcast. Result names are also the graph roots, so dead branches are
+  /// excluded and the dependency union of every loop-carried result is kept.
+  TensorRegion generateTensorRegion(
+      const TensorGenerationOptions &options, const TensorGraphLimits &limits,
+      std::vector<TensorRegionInput> inputs, std::vector<std::string> results
   );
 
 } // namespace refractir::reify

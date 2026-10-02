@@ -693,13 +693,20 @@ class TensorGenerationTests(unittest.TestCase):
       case = load_case(output_dir / "case_000000")
       source = case.program.decode("utf-8")
       self.assertRegex(source, r"br %i < [234], \^body, \^exit;")
-      if "%shared = tensor add %acc_x, %acc_y;" in source:
-        self.assertIn("tensor sum %shared, 1, keep", source)
-        self.assertIn("tensor sum %shared, 0, keep", source)
-        next_x = source.index("%next_x = tensor add %acc_x, %row_broadcast;")
-        next_y = source.index("%next_y = tensor add %acc_y, %column_broadcast;")
-        update_x = source.index("%acc_x = %next_x;")
-        update_y = source.index("%acc_y = %next_y;")
+      if "%next_x = tensor add %acc_x," in source:
+        body_match = re.search(
+          r"(?ms)^\^body:\n(.*?)(?=^\^[A-Za-z_][A-Za-z0-9_]*:)", source
+        )
+        self.assertIsNotNone(body_match, source)
+        if body_match is None:
+          return
+        body = body_match.group(1)
+        self.assertRegex(body, r"tensor sum %t\d+, [01], keep")
+        self.assertRegex(body, r"tensor broadcast %t\d+, \[2, 2\]")
+        next_x = body.index("%next_x = tensor add %acc_x,")
+        next_y = body.index("%next_y = tensor add %acc_y,")
+        update_x = body.index("%acc_x = %next_x;")
+        update_y = body.index("%acc_y = %next_y;")
         self.assertLess(next_x, update_x)
         self.assertLess(next_y, update_x)
         self.assertLess(update_x, update_y)
@@ -714,6 +721,47 @@ class TensorGenerationTests(unittest.TestCase):
           r"%(?:rows(?:_[xy])?|broadcast_[xy]);",
         )
       self.assertEqual(case.manifest["coverage"]["primary_stratum"], "loop-reduction")
+
+  def test_generated_multi_output_regions_vary_inside_replayed_loops(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output_dir = Path(directory) / "cases"
+      result = generate_v2_loop(output_dir, seed=20261002, dtype="i32", count=96)
+
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      signatures = set()
+      replayed = 0
+      for case_dir in sorted(output_dir.glob("case_*")):
+        case = load_case(case_dir)
+        source = case.program.decode("utf-8")
+        body_match = re.search(
+          r"(?ms)^\^body:\n(.*?)(?=^\^[A-Za-z_][A-Za-z0-9_]*:)", source
+        )
+        if (
+          body_match is None
+          or "%next_x = tensor add %acc_x, %t" not in body_match.group(1)
+        ):
+          continue
+        body = body_match.group(1)
+        signatures.add(body)
+        first_root = body.index("%next_x =")
+        second_root = body.index("%next_y =")
+        first_write = body.index("%acc_x = %next_x;")
+        second_write = body.index("%acc_y = %next_y;")
+        self.assertLess(first_root, first_write)
+        self.assertLess(second_root, first_write)
+        self.assertLess(first_write, second_write)
+        self.assertRegex(body, r"tensor sum %t\d+, [01], keep")
+        replay, expected = run_typed(source, case.inputs, tensor_profile="v2")
+        self.assertEqual(replay.returncode, 0, replay.stdout + replay.stderr)
+        self.assertEqual(expected, case.expected)
+        replayed += 1
+
+      self.assertGreaterEqual(
+        replayed, 2, "the multi-output region was not composed into loops"
+      )
+      self.assertGreaterEqual(
+        len(signatures), 2, "loop body DAGs did not vary across seeds"
+      )
 
   def test_v2_loop_input_is_runtime_and_physically_strided(self):
     with tempfile.TemporaryDirectory() as directory:
