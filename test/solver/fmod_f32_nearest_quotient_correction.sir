@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @test --path ^entry
+// SKIP: COMPILER
+// The IEEE remainder rounds 5.5/2 to 3, giving -0.5; fmod truncates to 2.
+fun @test() : i32 {
+  let %x: f32 = 5.5;
+  let %two: f32 = 2.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = %x % %two;
+  require %r == 1.5, "fmod corrects an IEEE nearest-quotient crossing";
+  ret 0;
+}

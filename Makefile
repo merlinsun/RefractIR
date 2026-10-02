@@ -135,7 +135,7 @@ REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
 # SMT backend, so keep its adapters outside the source set shared with rylink.
 RYSMITH_SRCS = src/rysmith.cpp src/reify/tensor_gen.cpp \
                src/reify/tensor_graph_gen.cpp src/reify/tensor_input_policy.cpp \
-               src/reify/tensor_selection.cpp \
+               src/reify/tensor_selection.cpp src/reify/tensor_region.cpp \
                $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-fpsan-model test-tensor-gluon-layouts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -238,6 +238,39 @@ TENSOR_EMIT_API = $(BIN_DIR)/tensor_emit_api
 $(TENSOR_EMIT_API): test/unit/tensor_emit_api.cpp $(COMMON_OBJS) $(BACKEND_SRCS:.cpp=.o) src/reify/tensor_case.o
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+TENSOR_REGION_API = $(BIN_DIR)/tensor_region_api
+
+$(TENSOR_REGION_API): test/unit/tensor_region_api.cpp src/reify/tensor_region.cpp include/reify/tensor_region.hpp
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_region_api.cpp src/reify/tensor_region.cpp
+
+test-tensor-region: $(TENSOR_REGION_API)
+	REFRACTIR_TENSOR_REGION_API=$(TENSOR_REGION_API) $(PY) -m unittest test.unit.test_tensor_region
+
+test-tensor-fpsan-model:
+	$(PY) -m unittest test.unit.test_tensor_fpsan_model
+
+test-tensor-gluon-layouts:
+	$(PY) -m unittest test.unit.test_tensor_gluon_layouts
+
+test-triton-fp-controls:
+	mkdir -p $(BUILD_DIR)/fpsan/ordinary-ir
+	$(PY) -m test.tensor.fpsan.run_ordinary_fp_controls \
+	  --output $(BUILD_DIR)/fpsan/ordinary-controls.json \
+	  --ir-dir $(BUILD_DIR)/fpsan/ordinary-ir
+
+test-triton-fpsan: test-triton-fp-controls
+	mkdir -p $(BUILD_DIR)/fpsan/instrumented-ir
+	$(PY) -m test.tensor.fpsan.run_experiment \
+	  --output $(BUILD_DIR)/fpsan/experiment.json \
+	  --ir-dir $(BUILD_DIR)/fpsan/instrumented-ir
+
+test-triton-gluon:
+	mkdir -p $(BUILD_DIR)/gluon/ir
+	$(PY) -m test.tensor.gluon.run_exact_loop \
+	  --output $(BUILD_DIR)/gluon/exact-loop.json \
+	  --ir-dir $(BUILD_DIR)/gluon/ir
 
 # A link-and-run consumer of the installed archive. Building libsymir.a only
 # proves that its objects were archived, not that they resolve each other.
@@ -371,7 +404,9 @@ test-tensor-frontend: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 	  REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) $(PY) -m unittest test.unit.test_tensor_frontend
 
 test-tensor-exact: $(TARGET_INTERP)
-	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest test.unit.test_tensor_semantics.TensorExactTests
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest \
+	  test.unit.test_tensor_exact_composed test.unit.test_tensor_exact_builder \
+	  test.unit.test_tensor_exact_selection_evidence test.unit.test_tensor_semantics.TensorExactTests
 
 test-tensor-numeric: $(TARGET_INTERP)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest test.unit.test_tensor_semantics.TensorNumericTests
@@ -399,7 +434,7 @@ test-tensor-graph-audit:
 
 # Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
 test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
-	$(MAKE) test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	$(MAKE) test-tensor-region test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
 	  test-tensor-solver test-tensor-emit test-tensor-regressions \
 	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
 	  test-tensor-reducer test-tensor-property-pilot

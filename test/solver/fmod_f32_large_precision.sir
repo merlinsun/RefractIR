@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @test --path ^entry
+// SKIP: COMPILER
+// Rounded x/y cannot be multiplied back to recover fmod's low remainder bits.
+fun @test() : i32 {
+  let %x: f32 = 10000000000.0;
+  let %three: f32 = 3.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = %x % %three;
+  require %r == 1.0, "fmod(1e10, 3) preserves the unit remainder";
+  ret 0;
+}

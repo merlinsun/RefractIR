@@ -29,6 +29,7 @@
 #include "reify/tensor_case.hpp"
 #include "reify/tensor_graph_gen.hpp"
 #include "reify/tensor_input_policy.hpp"
+#include "reify/tensor_region.hpp"
 #include "reify/tensor_selection.hpp"
 #include "solver/solver.hpp"
 #if defined(USE_BITWUZLA)
@@ -1472,7 +1473,7 @@ namespace refractir::reify {
       Candidate candidate;
       const std::array<Shape, 4> shapes{Shape{256, 2}, Shape{128, 4}, Shape{64, 2}, Shape{64, 4}};
       std::mt19937 structureRandom(streamSeed(seed, 0x6c6f6f702d737472ULL));
-      std::uniform_int_distribution<std::uint32_t> chooseLoopForm(0, 6);
+      std::uniform_int_distribution<std::uint32_t> chooseLoopForm(0, 7);
       const std::uint32_t loopForm = chooseLoopForm(structureRandom);
       const bool nested = loopForm == 0;
       const std::uint32_t variant = nested ? 0 : loopForm - 1;
@@ -1486,15 +1487,17 @@ namespace refractir::reify {
         const std::array<Shape, 3> dynamicShapes{Shape{2, 4}, Shape{4, 2}, Shape{4, 4}};
         std::uniform_int_distribution<std::size_t> chooseDynamicShape(0, dynamicShapes.size() - 1);
         inputShape = dynamicShapes[chooseDynamicShape(structureRandom)];
+      } else if (!nested && variant == 6) {
+        inputShape = {2, 2};
       } else
         inputShape = shapes[chooseShape(structureRandom)];
       const std::uint32_t rowCount = inputShape[0];
       const std::uint32_t columnCount = inputShape[1];
-      const Shape outputShape = variant == 5 ? inputShape : Shape{rowCount};
+      const Shape outputShape = variant == 5 || variant == 6 ? inputShape : Shape{rowCount};
       std::uniform_int_distribution<std::int32_t> chooseSingleTripCount(2, 4);
       std::uniform_int_distribution<std::int32_t> chooseInnerTripCount(2, 3);
       const std::int32_t singleTripCount =
-          !nested && variant == 0 ? 2 : chooseSingleTripCount(structureRandom);
+          !nested && (variant == 0 || variant == 6) ? 2 : chooseSingleTripCount(structureRandom);
       const std::int32_t innerTripCount = chooseInnerTripCount(structureRandom);
       const std::string element = options.dtype;
       const std::string inputType = "tensor " + sirShape(inputShape) + " " + element;
@@ -1520,6 +1523,35 @@ namespace refractir::reify {
         initializer << zero;
       }
       initializer << '}';
+
+      std::ostringstream inputInitializer;
+      inputInitializer << '{';
+      for (std::size_t index = 0; index < tensorElementCount(inputShape); ++index) {
+        if (index)
+          inputInitializer << ", ";
+        inputInitializer << zero;
+      }
+      inputInitializer << '}';
+
+      std::vector<std::string> regionDeclarations;
+      std::vector<std::string> regionInstructions;
+      if (variant == 6) {
+        const auto tensorElement = options.dtype == "f32" ? TensorElement::F32 : TensorElement::I32;
+        TensorRegion region(
+            {{"%acc_x", TensorTypeInfo{inputShape, tensorElement}},
+             {"%acc_y", TensorTypeInfo{inputShape, tensorElement}}}
+        );
+        region.add("%shared", TensorOp::Add, {"%acc_x", "%acc_y"});
+        region.add("%rows", TensorOp::Sum, {"%shared"}, 1, true);
+        region.add("%columns", TensorOp::Sum, {"%shared"}, 0, true);
+        region.add("%row_broadcast", TensorOp::Broadcast, {"%rows"}, 0, false, inputShape);
+        region.add("%column_broadcast", TensorOp::Broadcast, {"%columns"}, 0, false, inputShape);
+        region.add("%next_x", TensorOp::Add, {"%acc_x", "%row_broadcast"});
+        region.add("%next_y", TensorOp::Add, {"%acc_y", "%column_broadcast"});
+        region.setResults({"%next_x", "%next_y"});
+        regionDeclarations = region.renderDeclarations();
+        regionInstructions = region.renderBody({{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}});
+      }
 
       std::ostringstream source;
       source << "fun @kernel(%x: " << inputType;
@@ -1547,6 +1579,12 @@ namespace refractir::reify {
                << "  let mut %broadcast_x: " << inputType << " = undef;\n"
                << "  let mut %broadcast_y: " << inputType << " = undef;\n"
                << "  let mut %out: " << outputType << " = undef;\n";
+      } else if (variant == 6) {
+        source << "  let mut %acc_x: " << inputType << " = undef;\n"
+               << "  let mut %acc_y: " << inputType << " = " << inputInitializer.str() << ";\n"
+               << "  let mut %out: " << outputType << " = undef;\n";
+        for (const auto &declaration: regionDeclarations)
+          source << declaration << '\n';
       } else {
         source << "  let mut %acc: " << outputType << " = " << initializer.str() << ";\n"
                << "  let mut %rows: " << outputType << " = undef;\n";
@@ -1560,6 +1598,8 @@ namespace refractir::reify {
       if (variant == 5)
         source << "  %acc_x = %x;\n"
                << "  %acc_y = %y;\n";
+      else if (variant == 6)
+        source << "  %acc_x = %x;\n";
       const auto emitRows = [&](std::ostringstream &out) {
         if (variant == 4) {
           out << "  %rows_x = tensor sum %x, 0, drop;\n"
@@ -1609,6 +1649,9 @@ namespace refractir::reify {
                  << ";\n"
                  << "  %broadcast_y = tensor broadcast %expanded_y, " << sirShape(inputShape)
                  << ";\n";
+        } else if (variant == 6) {
+          for (const auto &instruction: regionInstructions)
+            source << instruction << '\n';
         } else if (variant != 2) {
           emitRows(source);
         }
@@ -1619,7 +1662,7 @@ namespace refractir::reify {
         } else if (variant == 5) {
           source << "  %acc_x = tensor add %acc_x, %broadcast_y;\n"
                  << "  %acc_y = tensor add %acc_y, %broadcast_x;\n";
-        } else {
+        } else if (variant != 6) {
           source << "  %acc = tensor add %acc, %rows;\n";
           if (variant == 1)
             source << "  %acc = tensor add %acc, %rows;\n";
@@ -1628,7 +1671,7 @@ namespace refractir::reify {
                << "  br ^header;\n";
       }
       source << "^exit:\n";
-      if (variant == 4 || variant == 5)
+      if (variant == 4 || variant == 5 || variant == 6)
         source << "  %out = tensor add %acc_x, %acc_y;\n"
                << "  ret %out;\n}\n";
       else
@@ -1650,6 +1693,13 @@ namespace refractir::reify {
         candidate.fullShapes = {inputShape,         inputShape,    rowReducedShape,
                                 columnReducedShape, expandedShape, columnExpandedShape,
                                 inputShape,         inputShape,    outputShape};
+        candidate.rangeExtents = candidate.fullShapes;
+      } else if (variant == 6) {
+        candidate.operators = {"add", "sum", "sum", "broadcast", "broadcast", "add", "add", "add"};
+        candidate.shapeAxes = {{inputShape, 1}, {inputShape, 0}};
+        candidate.fullShapes = {inputShape, Shape{rowCount, 1}, Shape{1, columnCount},
+                                inputShape, inputShape,         inputShape,
+                                inputShape, outputShape};
         candidate.rangeExtents = candidate.fullShapes;
       } else if (variant == 3) {
         candidate.operators.insert(candidate.operators.end(), {"transpose", "expand", "broadcast"});
@@ -1676,6 +1726,11 @@ namespace refractir::reify {
             "Two finite runtime tensors of shape at most [4,4] contain values in "
             "[1,2]. Their loop-carried reductions, broadcasts, and updates remain "
             "defined without i32 overflow.";
+      if (variant == 6)
+        candidate.propertySource =
+            "A shape-[2,2] tensor and a zero-initialized tensor feed one reusable "
+            "two-result loop region. Both sums and both next-state values are "
+            "computed from the old state before either state is updated.";
       candidate.caseSeed = seed;
       candidate.loopBounds = nested ? std::vector<std::int32_t>{2, innerTripCount}
                                     : std::vector<std::int32_t>{singleTripCount};

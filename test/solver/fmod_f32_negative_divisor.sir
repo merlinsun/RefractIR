@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @test --path ^entry
+// SKIP: COMPILER
+fun @test() : i32 {
+  let %ten: f32 = 10.0;
+  let mut %negative_three: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  %negative_three = 0.0 - 3.0;
+  %r = %ten % %negative_three;
+  require %r == 1.0, "fmod ignores the divisor sign for the result sign";
+  ret 0;
+}

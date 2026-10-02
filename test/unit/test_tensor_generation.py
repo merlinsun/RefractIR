@@ -693,12 +693,26 @@ class TensorGenerationTests(unittest.TestCase):
       case = load_case(output_dir / "case_000000")
       source = case.program.decode("utf-8")
       self.assertRegex(source, r"br %i < [234], \^body, \^exit;")
-      self.assertRegex(source, r"tensor sum %(?:x|transposed|acc_x|acc_y), [01], drop")
-      self.assertRegex(
-        source,
-        r"%acc(?:_[xy])? = tensor add %acc(?:_[xy])?, "
-        r"%(?:rows(?:_[xy])?|broadcast_[xy]);",
-      )
+      if "%shared = tensor add %acc_x, %acc_y;" in source:
+        self.assertIn("tensor sum %shared, 1, keep", source)
+        self.assertIn("tensor sum %shared, 0, keep", source)
+        next_x = source.index("%next_x = tensor add %acc_x, %row_broadcast;")
+        next_y = source.index("%next_y = tensor add %acc_y, %column_broadcast;")
+        update_x = source.index("%acc_x = %next_x;")
+        update_y = source.index("%acc_y = %next_y;")
+        self.assertLess(next_x, update_x)
+        self.assertLess(next_y, update_x)
+        self.assertLess(update_x, update_y)
+        self.assertIn("%out = tensor add %acc_x, %acc_y;", source)
+      else:
+        self.assertRegex(
+          source, r"tensor sum %(?:x|transposed|acc_x|acc_y), [01], drop"
+        )
+        self.assertRegex(
+          source,
+          r"%acc(?:_[xy])? = tensor add %acc(?:_[xy])?, "
+          r"%(?:rows(?:_[xy])?|broadcast_[xy]);",
+        )
       self.assertEqual(case.manifest["coverage"]["primary_stratum"], "loop-reduction")
 
   def test_v2_loop_input_is_runtime_and_physically_strided(self):

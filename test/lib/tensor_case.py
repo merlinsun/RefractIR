@@ -539,6 +539,39 @@ def _validate_exact_f32_output_proof(
     proof.get("complete_output") is True,
     "exactness proof must cover the complete output",
   )
+  if proof.get("kind") == "composed-add-sum-f32-v1":
+    from test.lib import tensor_exact_f32
+
+    _require(
+      len(described_inputs) == 1
+      and described_inputs[0]["name"] == "x"
+      and described_inputs[0]["dtype"] == "f32"
+      and described_inputs[0]["shape"] == output["shape"],
+      "composed proof requires one shape-matched runtime f32 input",
+    )
+    _require(
+      manifest.get("operator_coverage") == tensor_exact_f32.OPERATIONS,
+      "composed exactness proof disagrees with source operations",
+    )
+    _require(
+      isinstance(proof.get("selection"), dict),
+      "composed exactness proof requires checked solver selection evidence",
+    )
+    input_record = described_inputs[0]
+    input_bytes = artifacts[input_record["file"]][
+      input_record["byte_offset"] : input_record["byte_offset"]
+      + input_record["byte_length"]
+    ]
+    expected_bytes = artifacts[output["file"]][
+      output["byte_offset"] : output["byte_offset"] + output["byte_length"]
+    ]
+    try:
+      tensor_exact_f32.validate(
+        source, input_bytes, expected_bytes, proof, artifacts=artifacts
+      )
+    except ValueError as error:
+      raise CaseValidationError(str(error)) from error
+    return
   _require(
     proof.get("kind") in {"bit-preserving-f32-layout", "integer-valued-f32-reduction"},
     "unknown exact f32 proof family",

@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @test --path ^entry
+// SKIP: COMPILER
+intrinsic @from_bits(%bits: i32) : f32;
+intrinsic @signbit(%value: f32) : i1;
+fun @test() : i32 {
+  let %three: f32 = 3.0;
+  let mut %negative_zero: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+  let mut %sign: i1 = 0;
+^entry:
+  %negative_zero = call @from_bits(-2147483648);
+  %r = %negative_zero % %three;
+  %sign = call @signbit(%r);
+  require %sign == -1, "fmod preserves negative zero";
+  ret 0;
+}

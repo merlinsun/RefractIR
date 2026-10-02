@@ -194,13 +194,33 @@ namespace refractir {
       else if (arg.op == AtomOpKind::Div)
         fpRes = solver.make_term(smt::Kind::FP_DIV, {rmRNE, c, r});
       else if (arg.op == AtomOpKind::Mod) {
-        // fmod(x,y) = x - trunc(x/y)*y  (truncated-quotient, matches integer %)
-        // Encode as: fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div(x,y)), y))
-        auto rmRTZ = solver.make_rm_value(smt::RoundingMode::RTZ);
-        auto q = solver.make_term(smt::Kind::FP_DIV, {rmRNE, c, r});
-        auto qi = solver.make_term(smt::Kind::FP_RTI, {rmRTZ, q});
-        auto prod = solver.make_term(smt::Kind::FP_MUL, {rmRNE, qi, r});
-        fpRes = solver.make_term(smt::Kind::FP_SUB, {rmRNE, c, prod});
+        // SMT fp.rem uses the nearest integral quotient, while C fmod uses
+        // truncation. They differ when the nearest quotient crosses zero:
+        // the IEEE remainder then has the opposite sign from x. Add signed
+        // |y| in that case. Excluding a zero remainder preserves -0 directly
+        // and avoids treating -0 as evidence of quotient rounding.
+        auto zero = solver.make_fp_value_from_real(cSort, 0.0, smt::RoundingMode::RNE);
+        auto ieeeRemainder = solver.make_term(smt::Kind::FP_REM, {c, r});
+        auto negativeRemainder = solver.make_term(smt::Kind::FP_LT, {ieeeRemainder, zero});
+        auto negativeDividend = solver.make_term(smt::Kind::FP_LT, {c, zero});
+        auto signsDiffer =
+            solver.make_term(smt::Kind::DISTINCT, {negativeRemainder, negativeDividend});
+        auto remainderIsZero = solver.make_term(smt::Kind::FP_EQUAL, {ieeeRemainder, zero});
+        auto correct = solver.make_term(
+            smt::Kind::AND, {signsDiffer, solver.make_term(smt::Kind::NOT, {remainderIsZero})}
+        );
+        auto negativeDivisor = solver.make_term(smt::Kind::FP_LT, {r, zero});
+        auto absDivisor = solver.make_term(
+            smt::Kind::ITE,
+            {negativeDivisor, solver.make_term(smt::Kind::FP_SUB, {rmRNE, zero, r}), r}
+        );
+        auto signedDivisor = solver.make_term(
+            smt::Kind::ITE,
+            {negativeDividend, solver.make_term(smt::Kind::FP_SUB, {rmRNE, zero, absDivisor}),
+             absDivisor}
+        );
+        auto corrected = solver.make_term(smt::Kind::FP_ADD, {rmRNE, ieeeRemainder, signedDivisor});
+        fpRes = solver.make_term(smt::Kind::ITE, {correct, corrected, ieeeRemainder});
       } else
         return {};
       assertFPFinite(fpRes, solver, ub);
