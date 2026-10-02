@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test.lib import tensor_exact_f32
 from test.lib.tensor_case import CaseValidationError, load_case
 from test.lib.tensor_coverage import source_signature
 from test.unit.tensor_support import ROOT, check_source, run_typed
@@ -1866,9 +1867,24 @@ class TensorGenerationTests(unittest.TestCase):
 
       self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
       dynamic_warps = set()
+      exact_regions = 0
       for case_dir in sorted(Path(output_dir).glob("case_*")):
         case = load_case(case_dir)
         source = case.program.decode("utf-8")
+        body = source.split("^body:", maxsplit=1)[1].split("^exit:", maxsplit=1)[0]
+        if "%next_x = tensor add %acc_x," in body:
+          sample = struct.pack("<4f", 1, 2, 4, 8)
+          try:
+            proof, expected = tensor_exact_f32.certify(source, sample, (0, 8))
+          except ValueError as error:
+            if "unsupported tensor operation" not in str(error):
+              raise
+          else:
+            self.assertEqual(proof["kind"], "bounded-region-add-sum-f32-v1")
+            self.assertEqual(
+              tensor_exact_f32.validate(source, sample, expected, proof), expected
+            )
+            exact_regions += 1
         if "tensor sum %acc_x, 1, drop" not in source:
           continue
         dynamic_warps.add(case.manifest["launch"]["num_warps"])
@@ -1876,6 +1892,9 @@ class TensorGenerationTests(unittest.TestCase):
         self.assertTrue(case.manifest["reference"]["stable"])
 
       self.assertEqual(dynamic_warps, {1, 2, 4, 8})
+      self.assertGreaterEqual(
+        exact_regions, 1, "no generated loop region satisfied the exact f32 contract"
+      )
 
   def test_v3_generator_records_logical_and_execution_shapes(self):
     with tempfile.TemporaryDirectory() as directory:

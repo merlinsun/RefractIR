@@ -5,6 +5,7 @@ input domain. Nonnegative group totals bound every possible reduction tree.
 """
 
 import hashlib
+import itertools
 import json
 import math
 import re
@@ -14,6 +15,7 @@ from pathlib import Path
 KIND = "composed-add-sum-f32-v1"
 EXACT_BOUND = 2**24
 OPERATIONS = ["add", "sum", "sum", "broadcast", "broadcast", "add", "add", "add"]
+REGION_KIND = "bounded-region-add-sum-f32-v1"
 
 
 def render_program(shape=(2, 2), iterations=2, *, dtype="f32"):
@@ -60,6 +62,257 @@ def render_program(shape=(2, 2), iterations=2, *, dtype="f32"):
   )
 
 
+def _shape(text):
+  try:
+    result = tuple(int(part.strip()) for part in text.split(","))
+  except (AttributeError, ValueError) as error:
+    raise ValueError("generated region contains a malformed tensor shape") from error
+  if not result or any(size <= 0 for size in result) or math.prod(result) > 512:
+    raise ValueError("generated region tensor shape is outside the bounded subset")
+  return result
+
+
+def _coordinates(shape):
+  return itertools.product(*(range(size) for size in shape))
+
+
+def _flat_index(coordinates, shape):
+  result = 0
+  for coordinate, extent in zip(coordinates, shape):
+    result = result * extent + coordinate
+  return result
+
+
+def _broadcast_shape(left, right):
+  rank = max(len(left), len(right))
+  result = []
+  for offset in range(1, rank + 1):
+    lhs = left[-offset] if offset <= len(left) else 1
+    rhs = right[-offset] if offset <= len(right) else 1
+    if lhs != rhs and lhs != 1 and rhs != 1:
+      raise ValueError("generated region add shapes do not broadcast")
+    result.append(max(lhs, rhs))
+  return tuple(reversed(result))
+
+
+def _broadcast_values(values, source_shape, target_shape):
+  if len(source_shape) > len(target_shape):
+    raise ValueError("generated region broadcast cannot lower rank")
+  padding = len(target_shape) - len(source_shape)
+  aligned = (1,) * padding + tuple(source_shape)
+  if any(src != 1 and src != dst for src, dst in zip(aligned, target_shape)):
+    raise ValueError("generated region broadcast shapes are incompatible")
+  result = []
+  for target_coordinates in _coordinates(target_shape):
+    source_coordinates = tuple(
+      0 if source_extent == 1 else target_coordinates[axis + padding]
+      for axis, source_extent in enumerate(source_shape)
+    )
+    result.append(values[_flat_index(source_coordinates, source_shape)])
+  return tuple(result)
+
+
+def _generated_region_program(source):
+  """Parse one bounded two-state loop containing only generated region ops."""
+  signature = re.search(
+    r"(?m)^fun @kernel\(%x: tensor \[([^\]]+)\] f32\) : "
+    r"tensor \[([^\]]+)\] f32 \{$",
+    source,
+  )
+  if signature is None:
+    raise ValueError("source is outside the bounded generated-region signature")
+  input_shape = _shape(signature[1])
+  output_shape = _shape(signature[2])
+  if input_shape != output_shape or len(input_shape) != 2:
+    raise ValueError("generated region requires one rank-two input and matching output")
+
+  block_names = []
+  blocks = {}
+  current = None
+  for line in source.splitlines():
+    text = line.strip()
+    label = re.fullmatch(r"\^([A-Za-z_][A-Za-z_0-9]*):", text)
+    if label:
+      current = label[1]
+      block_names.append(current)
+      blocks[current] = []
+    elif current is not None and text and text != "}":
+      blocks[current].append(text)
+  if block_names != ["entry", "header", "body", "exit"]:
+    raise ValueError("generated region requires one canonical bounded loop")
+
+  tensor_types = {}
+  initializers = {}
+  declaration = re.compile(
+    r"^\s*let mut (%[A-Za-z_][A-Za-z_0-9.$-]*): tensor "
+    r"\[([^\]]+)\] f32 = (.*);\s*$",
+    re.MULTILINE,
+  )
+  for match in declaration.finditer(source):
+    name = match[1][1:]
+    if name in tensor_types:
+      raise ValueError("generated region redeclares a tensor value")
+    tensor_types[name] = _shape(match[2])
+    initializers[name] = match[3].strip()
+  for name, shape in (
+    ("acc_x", input_shape),
+    ("acc_y", input_shape),
+    ("out", output_shape),
+  ):
+    if tensor_types.get(name) != shape:
+      raise ValueError(
+        "generated region state or return declarations do not match the signature"
+      )
+  if initializers.get("acc_x") != "undef":
+    raise ValueError("generated region first state must be initialized from its input")
+  if initializers.get("out") != "undef":
+    raise ValueError("generated region output must be uninitialized before the loop")
+  zero_initializer = initializers.get("acc_y", "")
+  zero_values = re.fullmatch(r"\{\s*(.*?)\s*\}", zero_initializer)
+  if zero_values is None:
+    raise ValueError("generated region second state must start at positive zero")
+  zero_leaves = [leaf.strip() for leaf in zero_values[1].split(",")]
+  if len(zero_leaves) != math.prod(input_shape) or any(
+    leaf != "0.0" for leaf in zero_leaves
+  ):
+    raise ValueError("generated region second state must start at positive zero")
+  if any(
+    name not in {"acc_x", "acc_y", "out"} and initializer != "undef"
+    for name, initializer in initializers.items()
+  ):
+    raise ValueError(
+      "generated region temporaries must be uninitialized before the loop"
+    )
+
+  scalar_index = re.search(r"(?m)^\s*let mut %i: i32 = undef;\s*$", source)
+  declarations = re.findall(r"(?m)^\s*let mut ", source)
+  if scalar_index is None or len(declarations) != len(tensor_types) + 1:
+    raise ValueError("generated region loop counter is missing")
+  if "x" in tensor_types:
+    raise ValueError("generated region cannot redeclare its input parameter")
+  tensor_types["x"] = input_shape
+  if blocks["entry"] != ["%acc_x = %x;", "%i = 0;", "br ^header;"]:
+    raise ValueError(
+      "generated region entry does not initialize the two states canonically"
+    )
+  header = re.fullmatch(r"br %i < (\d+), \^body, \^exit;", " ".join(blocks["header"]))
+  if header is None or not 1 <= int(header[1]) <= 8:
+    raise ValueError("generated region loop bound is outside the bounded subset")
+  iterations = int(header[1])
+  if blocks["exit"] != [
+    "%out = tensor add %acc_x, %acc_y;",
+    "ret %out;",
+  ]:
+    raise ValueError("generated region return must combine both final states")
+
+  body = blocks["body"]
+  if len(body) < 5 or body[-2:] != ["%i = %i + 1;", "br ^header;"]:
+    raise ValueError("generated region body has an invalid loop backedge")
+  state_update_lines = body[-4:-2]
+  updates = {}
+  for line in state_update_lines:
+    update = re.fullmatch(r"(%acc_[xy]) = (%[A-Za-z_][A-Za-z_0-9.$-]*);", line)
+    if update is None or update[1][1:] in updates:
+      raise ValueError(
+        "generated region must update both states after computing its roots"
+      )
+    updates[update[1][1:]] = update[2][1:]
+  if set(updates) != {"acc_x", "acc_y"}:
+    raise ValueError("generated region must update both loop-carried states")
+
+  nodes = []
+  definitions = {}
+  for line in body[:-4]:
+    assignment = re.fullmatch(r"(%[A-Za-z_][A-Za-z_0-9.$-]*) = (.*);", line)
+    if assignment is None:
+      raise ValueError("generated region body contains a non-tensor operation")
+    destination = assignment[1][1:]
+    if destination not in tensor_types or destination in {"acc_x", "acc_y", "out"}:
+      raise ValueError("generated region writes an undeclared or loop-carried value")
+    if destination in definitions:
+      raise ValueError(
+        "generated region assigns a temporary more than once in its body"
+      )
+    expression = assignment[2]
+    binary = re.fullmatch(
+      r"tensor add (%[A-Za-z_][A-Za-z_0-9.$-]*), (%[A-Za-z_][A-Za-z_0-9.$-]*)",
+      expression,
+    )
+    reduction = re.fullmatch(
+      r"tensor sum (%[A-Za-z_][A-Za-z_0-9.$-]*), (-?\d+), keep", expression
+    )
+    broadcast = re.fullmatch(
+      r"tensor broadcast (%[A-Za-z_][A-Za-z_0-9.$-]*), \[([^\]]+)\]", expression
+    )
+    if binary:
+      operands = (binary[1][1:], binary[2][1:])
+      node = (destination, "add", operands, None)
+    elif reduction:
+      operands = (reduction[1][1:],)
+      node = (destination, "sum", operands, int(reduction[2]))
+    elif broadcast:
+      operands = (broadcast[1][1:],)
+      node = (destination, "broadcast", operands, _shape(broadcast[2]))
+    else:
+      if expression.startswith("tensor "):
+        raise ValueError("unsupported tensor operation in generated region")
+      raise ValueError("generated region contains an unsupported assignment")
+    definitions[destination] = operands
+    nodes.append(node)
+  if not nodes:
+    raise ValueError("generated region has no operations")
+
+  live = set()
+  pending = list(updates.values())
+  while pending:
+    value = pending.pop()
+    if value in live or value not in definitions:
+      continue
+    live.add(value)
+    pending.extend(definitions[value])
+  if live != set(definitions):
+    raise ValueError(
+      "generated region contains a dead operation outside the output union"
+    )
+  if any(tensor_types.get(root) != input_shape for root in updates.values()):
+    raise ValueError("generated region result shapes must match their loop states")
+
+  available = {"acc_x", "acc_y"}
+  for destination, operation, operands, attribute in nodes:
+    if any(operand not in available for operand in operands):
+      raise ValueError("generated region operations must be in dependency order")
+    output_shape = tensor_types[destination]
+    if operation == "add":
+      inferred = _broadcast_shape(*(tensor_types[name] for name in operands))
+      if inferred != output_shape:
+        raise ValueError("generated region add result has an invalid shape")
+    elif operation == "sum":
+      source_shape = tensor_types[operands[0]]
+      axis = attribute if attribute >= 0 else attribute + len(source_shape)
+      if not 0 <= axis < len(source_shape):
+        raise ValueError("generated region reduction axis is outside the input rank")
+      expected_shape = list(source_shape)
+      expected_shape[axis] = 1
+      if tuple(expected_shape) != output_shape:
+        raise ValueError("generated region keep-dim sum has an invalid result shape")
+    else:
+      if attribute != output_shape:
+        raise ValueError(
+          "generated region broadcast target differs from its result shape"
+        )
+      _broadcast_values(
+        (0,) * math.prod(tensor_types[operands[0]]),
+        tensor_types[operands[0]],
+        output_shape,
+      )
+    available.add(destination)
+  if any(root not in available for root in updates.values()):
+    raise ValueError(
+      "generated region state roots must be computed before state updates"
+    )
+  return input_shape, iterations, tensor_types, nodes, updates
+
+
 def _recognize(source):
   signature = re.search(r"fun @kernel\(%x: tensor \[(\d+),\s*(\d+)\] f32\)", source)
   loop = re.search(r"br %i < (\d+), \^body, \^exit;", source)
@@ -75,7 +328,7 @@ def _recognize(source):
   return shape, iterations
 
 
-def certify(source, input_bytes, domain=(0, 8)):
+def _certify_canonical(source, input_bytes, domain):
   """Return recomputed proof evidence and complete independent output bits."""
   shape, iterations = _recognize(source)
   if (
@@ -179,6 +432,162 @@ def certify(source, input_bytes, domain=(0, 8)):
     "bounds": bounds,
   }
   return proof, struct.pack(f"<{count}f", *values["out"])
+
+
+def _certify_generated_region(source, input_bytes, domain):
+  shape, iterations, tensor_types, nodes, updates = _generated_region_program(source)
+  if (
+    not isinstance(domain, (list, tuple))
+    or len(domain) != 2
+    or any(type(value) is not int for value in domain)
+    or not 0 <= domain[0] <= domain[1] <= EXACT_BOUND
+  ):
+    raise ValueError("exact domain requires nonnegative bounded integers")
+
+  count = math.prod(shape)
+  if not isinstance(input_bytes, bytes) or len(input_bytes) != count * 4:
+    raise ValueError("input bytes do not match the recognized tensor shape")
+  words = struct.unpack(f"<{count}I", input_bytes)
+  leaves = struct.unpack(f"<{count}f", input_bytes)
+  if any(
+    not math.isfinite(value)
+    or not value.is_integer()
+    or not domain[0] <= value <= domain[1]
+    or (value == 0 and word != 0)
+    for value, word in zip(leaves, words)
+  ):
+    raise ValueError("input requires nonnegative integer f32 values and positive zero")
+
+  values = {
+    "x": tuple(map(int, leaves)),
+    "acc_x": tuple(map(int, leaves)),
+    "acc_y": (0,) * count,
+  }
+  upper = {
+    "x": (domain[1],) * count,
+    "acc_x": (domain[1],) * count,
+    "acc_y": (0,) * count,
+  }
+  bounds = []
+
+  def record(destination, operation, actual, maxima, block, visit, *, partial=False):
+    if len(actual) != len(maxima) or len(actual) != math.prod(
+      tensor_types[destination]
+    ):
+      raise ValueError("generated region evaluator produced a malformed tensor")
+    maximum = max(maxima)
+    if maximum > EXACT_BOUND:
+      raise ValueError(
+        "materialized value or reduction partial sum exceeds exact range"
+      )
+    values[destination] = actual
+    upper[destination] = maxima
+    evidence = {
+      "block": block,
+      "visit": visit,
+      "destination": "%" + destination,
+      "operation": operation,
+      "max_value": maximum,
+    }
+    if partial:
+      evidence["max_partial_sum"] = maximum
+    bounds.append(evidence)
+
+  record("x", "input", values["x"], upper["x"], "^entry", 0)
+  record("acc_x", "input-copy", values["acc_x"], upper["acc_x"], "^entry", 0)
+  record(
+    "acc_y",
+    "positive-zero",
+    values["acc_y"],
+    upper["acc_y"],
+    "^entry",
+    0,
+  )
+
+  def add_values(left, right, output_shape):
+    broadcast_left = _broadcast_values(values[left], tensor_types[left], output_shape)
+    broadcast_right = _broadcast_values(
+      values[right], tensor_types[right], output_shape
+    )
+    upper_left = _broadcast_values(upper[left], tensor_types[left], output_shape)
+    upper_right = _broadcast_values(upper[right], tensor_types[right], output_shape)
+    return (
+      tuple(a + b for a, b in zip(broadcast_left, broadcast_right)),
+      tuple(a + b for a, b in zip(upper_left, upper_right)),
+    )
+
+  def sum_values(source_name, axis, output_shape):
+    source_shape = tensor_types[source_name]
+    normalized_axis = axis if axis >= 0 else axis + len(source_shape)
+    actual_results = []
+    upper_results = []
+    for destination_coordinates in _coordinates(output_shape):
+      actual_total = 0
+      upper_total = 0
+      for axis_coordinate in range(source_shape[normalized_axis]):
+        source_coordinates = list(destination_coordinates)
+        source_coordinates[normalized_axis] = axis_coordinate
+        source_index = _flat_index(source_coordinates, source_shape)
+        actual_total += values[source_name][source_index]
+        upper_total += upper[source_name][source_index]
+      actual_results.append(actual_total)
+      upper_results.append(upper_total)
+    return tuple(actual_results), tuple(upper_results)
+
+  for visit in range(1, iterations + 1):
+    for destination, operation, operands, attribute in nodes:
+      output_shape = tensor_types[destination]
+      if operation == "add":
+        actual, maxima = add_values(operands[0], operands[1], output_shape)
+      elif operation == "sum":
+        actual, maxima = sum_values(operands[0], attribute, output_shape)
+      else:
+        actual = _broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        maxima = _broadcast_values(
+          upper[operands[0]], tensor_types[operands[0]], output_shape
+        )
+      record(
+        destination,
+        operation,
+        actual,
+        maxima,
+        "^body",
+        visit,
+        partial=operation == "sum",
+      )
+
+    next_states = {
+      state: (values[root], upper[root]) for state, root in updates.items()
+    }
+    for state, (actual, maxima) in next_states.items():
+      record(state, "state-update", actual, maxima, "^body", visit)
+
+  output, output_upper = add_values("acc_x", "acc_y", shape)
+  record("out", "add", output, output_upper, "^exit", 0)
+  proof = {
+    "kind": REGION_KIND,
+    "complete_output": True,
+    "integer_exactness_bound": EXACT_BOUND,
+    "input_domain": list(domain),
+    "allowed_operations": ["add", "sum", "broadcast"],
+    "signed_zero": "positive-zero-only",
+    "path": ["^entry", "^header"]
+    + [block for _ in range(iterations) for block in ("^body", "^header")]
+    + ["^exit"],
+    "bounds": bounds,
+  }
+  return proof, struct.pack(f"<{count}f", *values["out"])
+
+
+def certify(source, input_bytes, domain=(0, 8)):
+  """Return recomputed proof evidence and complete independent output bits."""
+  try:
+    _recognize(source)
+  except ValueError:
+    return _certify_generated_region(source, input_bytes, domain)
+  return _certify_canonical(source, input_bytes, domain)
 
 
 def validate(source, input_bytes, expected_bytes, proof, *, artifacts=None):
