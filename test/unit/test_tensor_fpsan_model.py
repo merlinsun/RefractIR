@@ -1,5 +1,6 @@
 """Host-side contracts for the pinned FpSan payload subset."""
 
+import importlib
 import unittest
 from subprocess import CompletedProcess
 from unittest import mock
@@ -19,6 +20,9 @@ from test.lib.tensor_fpsan import (
 
 
 class TensorFpSanModelTests(unittest.TestCase):
+  def fpsan(self):
+    return importlib.import_module("test.lib.tensor_fpsan")
+
   def test_raw_word_comparison_accepts_equal_payloads(self):
     self.assertEqual(compare_words([0, 1, 0xFFFFFFFF], [0, 1, 0xFFFFFFFF]), [])
 
@@ -109,6 +113,72 @@ class TensorFpSanModelTests(unittest.TestCase):
   def test_host_model_rejects_an_unpinned_float_embedding(self):
     with self.assertRaises(ValueError):
       embed_known_f32(2.0)
+
+  def test_kernel_query_contains_its_per_kernel_bitvector_equations(self):
+    api = self.fpsan()
+    query = api.build_payload_query("sum_reduction")
+    self.assertEqual(query["variables"], ("x0", "x1", "x2", "x3"))
+    self.assertEqual(
+      query["reference_expressions"],
+      ("(bvadd (bvadd (bvadd x0 x1) x2) x3)",),
+    )
+    self.assertEqual(
+      query["candidate_expressions"],
+      ("(bvadd (bvadd x0 x1) (bvadd x2 x3))",),
+    )
+    self.assertIn("(set-logic QF_BV)", query["script"])
+    self.assertIn("(set-option :produce-models true)", query["script"])
+    self.assertIn("#x00000001", query["script"])
+
+  def test_solver_model_parser_preserves_full_width_payloads(self):
+    model = "sat\n((a #x00000001) (b #b11111111111111111111111111111111))\n"
+    self.assertEqual(
+      self.fpsan().parse_payload_model(model, ("a", "b")),
+      {"a": 1, "b": 0xFFFFFFFF},
+    )
+
+  def test_independent_evaluator_covers_arithmetic_sums_and_shape_ops(self):
+    api = self.fpsan()
+    inputs = {"a": 1, "b": 0xFFFFFFFF, "c": 1, "d": 0}
+    self.assertEqual(
+      api.evaluate_payload_case("add_tree", inputs),
+      {"reference": [1], "candidate": [1]},
+    )
+    reduction = {"x0": 1, "x1": 0xFFFFFFFF, "x2": 1, "x3": 0}
+    self.assertEqual(
+      api.evaluate_payload_case("sum_reduction", reduction),
+      {"reference": [1], "candidate": [1]},
+    )
+    matrix = {"x0": 1, "x1": 0, "x2": 0xFFFFFFFF, "x3": 1}
+    self.assertEqual(
+      api.evaluate_payload_case("transpose_copy", matrix),
+      {"reference": [1, 0xFFFFFFFF, 0, 1], "candidate": [1, 0xFFFFFFFF, 0, 1]},
+    )
+
+  def test_runtime_synthesis_records_models_and_exact_input_words(self):
+    witness = self.fpsan().synthesize_payload_case("add_tree")
+    self.assertEqual(set(witness["input_payloads"]), {"a", "b", "c", "d"})
+    self.assertEqual(len(witness["input_float_bits"]), 4)
+    self.assertEqual(witness["reference_payloads"], witness["candidate_payloads"])
+    self.assertEqual(
+      witness["input_float_bits"],
+      [
+        f"{unembed_known_payload(witness['input_payloads'][name]):08x}"
+        for name in ("a", "b", "c", "d")
+      ],
+    )
+
+  def test_synthesized_mutants_have_machine_checkable_counterexamples(self):
+    api = self.fpsan()
+    for name in ("operand_routing_fault", "lost_update_fault"):
+      witness = api.synthesize_payload_case(name)
+      self.assertNotEqual(witness["reference_payloads"], witness["candidate_payloads"])
+      self.assertEqual(len(witness["input_float_bits"]), len(witness["input_payloads"]))
+
+  def test_bitvector_solver_proves_named_kernel_equations(self):
+    proofs = self.fpsan().prove_payload_kernel_equations()
+    self.assertGreaterEqual(len(proofs), 7)
+    self.assertTrue(all(item["status"] == "unsat" for item in proofs))
 
 
 if __name__ == "__main__":

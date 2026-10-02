@@ -14,16 +14,10 @@ import triton
 import triton.language as tl
 
 from test.lib.tensor_fpsan import (
-  add32,
-  broadcast_scalar,
   compare_words,
-  embed_known_f32,
-  mul32,
+  prove_payload_kernel_equations,
   prove_payload_laws,
-  reduce_tree,
-  sub32,
-  transpose_2x2,
-  unembed_known_payload,
+  synthesize_payload_case,
 )
 
 TRITON_VERSION = "3.8.0"
@@ -100,8 +94,15 @@ def broadcast_add_zero_kernel(input_ptr, output_ptr):
   tl.store(output_ptr + offsets, zeros + value)
 
 
-def _tensor(values):
-  return torch.tensor(values, dtype=torch.float32, device="cuda")
+def _tensor_from_words(words):
+  signed_words = [word if word < 0x80000000 else word - (1 << 32) for word in words]
+  return torch.tensor(signed_words, dtype=torch.int32, device="cuda").view(
+    torch.float32
+  )
+
+
+def _case_inputs(witness):
+  return [_tensor_from_words([word]) for word in witness["input_float_words"]]
 
 
 def _raw_words(tensor):
@@ -172,11 +173,15 @@ def _capture_ir(compiled, case_name, ir_directory):
   }
 
 
-def _run_measured_case(name, launch, tensor, expected, ir_directory):
+def _run_measured_case(name, launch, tensor, expected, ir_directory, witness):
   compiled, measurement = _measure_launches(launch)
   result = _expect_words(name, tensor, expected)
   result["measurement"] = measurement
   result["compiler_ir"] = _capture_ir(compiled, name, ir_directory)
+  result["smt_witness"] = {
+    "case": witness["case"],
+    "query_sha256": witness["query_sha256"],
+  }
   return result
 
 
@@ -196,22 +201,39 @@ def run(output_path, ir_directory):
   ir_directory.mkdir(parents=True, exist_ok=True)
   if not prove_payload_laws():
     raise AssertionError("independent bit-vector payload checks failed")
+  equation_proofs = prove_payload_kernel_equations()
+  witness_names = (
+    "add_tree",
+    "add_cancellation",
+    "multiply_fixed_points",
+    "subtract_zero_identity",
+    "sum_reduction",
+    "transpose_copy",
+    "broadcast_and_add_zero",
+    "operand_routing_fault",
+    "lost_update_fault",
+  )
+  witnesses = {name: synthesize_payload_case(name) for name in witness_names}
 
-  plus_one = _tensor([1.0])
-  minus_one = _tensor([-1.0])
-  tree_inputs = [_tensor([value]) for value in (1.0, -1.0, 1.0, 0.0)]
-  matrix = _tensor([1.0, 0.0, -1.0, 1.0])
-  zero = _tensor([0.0])
-  reduction_input = _tensor([1.0, -1.0, 1.0, 0.0])
+  tree_inputs = _case_inputs(witnesses["add_tree"])
+  cancellation_inputs = _case_inputs(witnesses["add_cancellation"])
+  multiply_inputs = _case_inputs(witnesses["multiply_fixed_points"])
+  subtract_inputs = _case_inputs(witnesses["subtract_zero_identity"])
+  reduction_input = _tensor_from_words(witnesses["sum_reduction"]["input_float_words"])
+  matrix = _tensor_from_words(witnesses["transpose_copy"]["input_float_words"])
+  broadcast_input = _tensor_from_words(
+    witnesses["broadcast_and_add_zero"]["input_float_words"]
+  )
   output = torch.empty((1,), dtype=torch.float32, device="cuda")
   report = {
-    "contract": "triton-fpsan-fixed-payload-ring-v1",
+    "contract": "triton-fpsan-fixed-payload-ring-v2",
     "triton_version": triton.__version__,
     "torch_version": torch.__version__,
     "instrumentation_mode": triton.knobs.compilation.instrumentation_mode,
     "device_name": device_name,
     "compute_capability": list(torch.cuda.get_device_capability()),
     "bitvector_laws": "unsat for negated QF_BV identities",
+    "bitvector_kernel_equations": equation_proofs,
     "measurement_protocol": {
       "warmup_launches_per_case": WARMUP_LAUNCHES,
       "measured_launches_per_case": MEASURED_LAUNCHES,
@@ -220,47 +242,52 @@ def run(output_path, ir_directory):
     },
     "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     "cases": {},
+    "smt_witnesses": witnesses,
   }
 
-  fixed_payloads = [embed_known_f32(value) for value in (1.0, -1.0, 1.0, 0.0)]
-  expected_sum = reduce_tree(fixed_payloads, "left")
-  if expected_sum != reduce_tree(fixed_payloads, "balanced"):
+  expected_sum = witnesses["sum_reduction"]["reference_payloads"][0]
+  if expected_sum != witnesses["sum_reduction"]["candidate_payloads"][0]:
     raise AssertionError("host evaluator found a reduction-order mismatch")
   report["cases"]["add_tree_left"] = _run_measured_case(
     "add_tree_left",
     lambda: add_left_kernel[(1,)](*tree_inputs, output, num_warps=1),
     output,
-    [unembed_known_payload(expected_sum)],
+    witnesses["add_tree"]["reference_float_words"],
     ir_directory,
+    witnesses["add_tree"],
   )
   report["cases"]["add_tree_reassociated"] = _run_measured_case(
     "add_tree_reassociated",
     lambda: add_reassociated_kernel[(1,)](*tree_inputs, output, num_warps=1),
     output,
-    [unembed_known_payload(expected_sum)],
+    witnesses["add_tree"]["candidate_float_words"],
     ir_directory,
+    witnesses["add_tree"],
   )
 
   report["cases"]["add_cancellation"] = _run_measured_case(
     "add_cancellation",
-    lambda: add_cancel_kernel[(1,)](plus_one, minus_one, output, num_warps=1),
+    lambda: add_cancel_kernel[(1,)](*cancellation_inputs, output, num_warps=1),
     output,
-    [unembed_known_payload(add32(1, 0xFFFFFFFF))],
+    witnesses["add_cancellation"]["reference_float_words"],
     ir_directory,
+    witnesses["add_cancellation"],
   )
   report["cases"]["multiply_fixed_points"] = _run_measured_case(
     "multiply_fixed_points",
-    lambda: multiply_kernel[(1,)](plus_one, minus_one, output, num_warps=1),
+    lambda: multiply_kernel[(1,)](*multiply_inputs, output, num_warps=1),
     output,
-    [unembed_known_payload(mul32(1, 0xFFFFFFFF))],
+    witnesses["multiply_fixed_points"]["reference_float_words"],
     ir_directory,
+    witnesses["multiply_fixed_points"],
   )
   report["cases"]["subtract_zero_identity"] = _run_measured_case(
     "subtract_zero_identity",
-    lambda: subtract_zero_kernel[(1,)](plus_one, zero, output, num_warps=1),
+    lambda: subtract_zero_kernel[(1,)](*subtract_inputs, output, num_warps=1),
     output,
-    [unembed_known_payload(sub32(1, 0))],
+    witnesses["subtract_zero_identity"]["reference_float_words"],
     ir_directory,
+    witnesses["subtract_zero_identity"],
   )
 
   reduction_output = torch.empty((1,), dtype=torch.float32, device="cuda")
@@ -268,51 +295,59 @@ def run(output_path, ir_directory):
     "sum_reduction",
     lambda: reduce_sum_kernel[(1,)](reduction_input, reduction_output, num_warps=1),
     reduction_output,
-    [unembed_known_payload(expected_sum)],
+    witnesses["sum_reduction"]["reference_float_words"],
     ir_directory,
+    witnesses["sum_reduction"],
   )
 
   transposed = torch.empty((4,), dtype=torch.float32, device="cuda")
-  expected_transpose = transpose_2x2(
-    [embed_known_f32(value) for value in [1.0, 0.0, -1.0, 1.0]]
-  )
   report["cases"]["transpose_copy"] = _run_measured_case(
     "transpose_copy",
     lambda: transpose_copy_kernel[(1,)](matrix, transposed, num_warps=1),
     transposed,
-    [unembed_known_payload(value) for value in expected_transpose],
+    witnesses["transpose_copy"]["reference_float_words"],
     ir_directory,
+    witnesses["transpose_copy"],
   )
 
   broadcast = torch.empty((4,), dtype=torch.float32, device="cuda")
-  expected_broadcast = broadcast_scalar(embed_known_f32(-1.0), 4)
   report["cases"]["broadcast_and_add_zero"] = _run_measured_case(
     "broadcast_and_add_zero",
-    lambda: broadcast_add_zero_kernel[(1,)](minus_one, broadcast, num_warps=1),
+    lambda: broadcast_add_zero_kernel[(1,)](broadcast_input, broadcast, num_warps=1),
     broadcast,
-    [unembed_known_payload(value) for value in expected_broadcast],
+    witnesses["broadcast_and_add_zero"]["reference_float_words"],
     ir_directory,
+    witnesses["broadcast_and_add_zero"],
   )
 
-  route_input = _tensor([1.0, 0.0, -1.0, 1.0])
+  route_witness = witnesses["operand_routing_fault"]
+  route_input = _tensor_from_words(route_witness["input_float_words"])
   route_output = torch.empty((4,), dtype=torch.float32, device="cuda")
-  routed_payloads = [embed_known_f32(value) for value in (1.0, 0.0, -1.0, 1.0)]
-  expected_route_words = [unembed_known_payload(value) for value in routed_payloads]
+  expected_route_words = route_witness["reference_float_words"]
+  candidate_route_words = route_witness["candidate_float_words"]
   compiled_route, route_measurement = _measure_launches(
     lambda: operand_routing_fault_kernel[(1,)](route_input, route_output, num_warps=1)
   )
   actual_route_words = _raw_words(route_output)
+  if actual_route_words != candidate_route_words:
+    raise AssertionError(
+      "operand-routing kernel differs from its synthesized BV equation"
+    )
   route_mismatches = compare_words(actual_route_words, expected_route_words)
   if not route_mismatches:
     raise AssertionError("operand-routing calibration fault was not detected")
 
-  update_input = _tensor([1.0, -1.0])
+  update_witness = witnesses["lost_update_fault"]
+  update_input = _tensor_from_words(update_witness["input_float_words"])
   update_output = torch.empty((1,), dtype=torch.float32, device="cuda")
   compiled_update, update_measurement = _measure_launches(
     lambda: lost_update_fault_kernel[(1,)](update_input, update_output, num_warps=1)
   )
   actual_update_words = _raw_words(update_output)
-  expected_update_words = [unembed_known_payload(add32(1, 0xFFFFFFFF))]
+  expected_update_words = update_witness["reference_float_words"]
+  candidate_update_words = update_witness["candidate_float_words"]
+  if actual_update_words != candidate_update_words:
+    raise AssertionError("lost-update kernel differs from its synthesized BV equation")
   update_mismatches = compare_words(actual_update_words, expected_update_words)
   if not update_mismatches:
     raise AssertionError("lost-update calibration fault was not detected")
@@ -346,9 +381,15 @@ def run(output_path, ir_directory):
         "bf800000",
       ],
       "rejected_values_are_not_reinterpreted": True,
-      "fixed_input_element_count": 4,
+      "runtime_synthesis_domain": ["+0", "+1", "-1"],
+      "input_words_are_transported_through_integer_views": True,
     },
-    "input_values": ["+1", "-1", "+1", "+0"],
+    "input_float_bits_by_case": {
+      name: witness["input_float_bits"] for name, witness in witnesses.items()
+    },
+    "input_payloads_by_case": {
+      name: witness["input_payloads"] for name, witness in witnesses.items()
+    },
     "reduction_payload_hex": f"{expected_sum:08x}",
     "reduction_payload_signed": (
       expected_sum if expected_sum < 0x80000000 else expected_sum - (1 << 32)
