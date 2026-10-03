@@ -1,5 +1,6 @@
 """Host-side contracts for the pinned FpSan payload subset."""
 
+import ast
 import hashlib
 import importlib
 import tempfile
@@ -14,6 +15,7 @@ from test.lib.tensor_fpsan import (
   compare_words,
   embed_known_f32,
   f32_fmod_bits,
+  flatten_word_values,
   prove_payload_laws,
   reduce_tree,
   rounding_reassociation_bits,
@@ -21,6 +23,14 @@ from test.lib.tensor_fpsan import (
   transpose_2x2,
   unembed_known_payload,
 )
+
+
+def fpsan_generated_region_source(iterations=2):
+  path = Path(__file__).parents[1] / "tensor/fpsan/generated_region.sir"
+  source = path.read_text(encoding="utf-8")
+  return source.replace(
+    "br %i < 2, ^body, ^exit;", f"br %i < {iterations}, ^body, ^exit;"
+  )
 
 
 class TensorFpSanModelTests(unittest.TestCase):
@@ -36,6 +46,9 @@ class TensorFpSanModelTests(unittest.TestCase):
   def test_raw_word_comparison_requires_complete_equal_length_outputs(self):
     with self.assertRaisesRegex(ValueError, "length"):
       compare_words([1], [1, 1])
+
+  def test_raw_word_flattening_preserves_all_matrix_elements(self):
+    self.assertEqual(flatten_word_values([[1, 2], [3, 4]]), [1, 2, 3, 4])
 
   def test_ieee_f32_control_distinguishes_reassociated_addition(self):
     self.assertEqual(rounding_reassociation_bits(), (0x00000000, 0x33800000))
@@ -158,6 +171,122 @@ class TensorFpSanModelTests(unittest.TestCase):
       api.evaluate_payload_case("transpose_copy", matrix),
       {"reference": [1, 0xFFFFFFFF, 0, 1], "candidate": [1, 0xFFFFFFFF, 0, 1]},
     )
+
+  def test_generated_region_payload_evaluator_executes_loop_and_reductions(self):
+    result = self.fpsan().evaluate_generated_payload_region(
+      fpsan_generated_region_source(iterations=2),
+      [1, 0xFFFFFFFF, 0xFFFFFFFF, 1],
+    )
+    self.assertEqual(result, [1, 0xFFFFFFFF, 0xFFFFFFFF, 1])
+
+  def test_generated_payload_evaluator_normalizes_negative_reduction_axis(self):
+    source = fpsan_generated_region_source(iterations=1).replace(
+      "tensor sum %t0, 1, keep", "tensor sum %t0, -1, keep"
+    )
+    api = self.fpsan()
+    result = api.evaluate_generated_payload_region(
+      source, [1, 0xFFFFFFFF, 0xFFFFFFFF, 1]
+    )
+    kernel = api.render_generated_region_triton_kernel(source)
+    self.assertEqual(result, [1, 0xFFFFFFFF, 0xFFFFFFFF, 1])
+    self.assertIn("tl.sum(value_0, axis=1)", kernel)
+
+  def test_generated_region_query_encodes_tensor_graph_as_qf_bv(self):
+    query = self.fpsan().build_generated_payload_query(
+      fpsan_generated_region_source(iterations=2)
+    )
+    self.assertEqual(query["shape"], (2, 2))
+    self.assertEqual(query["iterations"], 2)
+    self.assertEqual(query["variables"], ("x0", "x1", "x2", "x3"))
+    self.assertEqual(
+      query["output_names"], ("output_0", "output_1", "output_2", "output_3")
+    )
+    self.assertIn("(set-logic QF_BV)", query["script"])
+    self.assertIn("(bvadd", query["script"])
+    self.assertNotIn("FloatingPoint", query["script"])
+
+  def test_generated_region_query_constrains_gpu_transport_to_fixed_points(self):
+    query = self.fpsan().build_generated_payload_query(
+      fpsan_generated_region_source(iterations=1)
+    )
+    for output_name in query["output_names"]:
+      self.assertIn(f"(= {output_name} #x00000000)", query["script"])
+      self.assertIn(f"(= {output_name} #x00000001)", query["script"])
+      self.assertIn(f"(= {output_name} #xFFFFFFFF)", query["script"])
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
+  def test_generated_region_synthesis_cross_checks_model_with_host_execution(
+    self, _command, run
+  ):
+    words = {
+      "x0": 1,
+      "x1": 0xFFFFFFFF,
+      "x2": 0xFFFFFFFF,
+      "x3": 1,
+      "output_0": 1,
+      "output_1": 0xFFFFFFFF,
+      "output_2": 0xFFFFFFFF,
+      "output_3": 1,
+    }
+    model = (
+      "sat\n("
+      + " ".join(f"({name} #x{value:08X})" for name, value in words.items())
+      + ")\n"
+    )
+    run.return_value = CompletedProcess(["bitwuzla"], 0, model, "")
+
+    witness = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(
+      witness["input_payloads"],
+      {name: words[name] for name in ("x0", "x1", "x2", "x3")},
+    )
+    self.assertEqual(witness["output_payloads"], [1, 0xFFFFFFFF, 0xFFFFFFFF, 1])
+    self.assertEqual(
+      witness["output_float_bits"], ["3f800000", "bf800000", "bf800000", "3f800000"]
+    )
+    self.assertEqual(len(witness["query_sha256"]), 64)
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
+  def test_generated_region_synthesis_rejects_inconsistent_solver_output(
+    self, _command, run
+  ):
+    words = {
+      "x0": 1,
+      "x1": 0xFFFFFFFF,
+      "x2": 0xFFFFFFFF,
+      "x3": 1,
+      "output_0": 0,
+      "output_1": 0,
+      "output_2": 0,
+      "output_3": 0,
+    }
+    model = (
+      "sat\n("
+      + " ".join(f"({name} #x{value:08X})" for name, value in words.items())
+      + ")\n"
+    )
+    run.return_value = CompletedProcess(["bitwuzla"], 0, model, "")
+
+    with self.assertRaisesRegex(AssertionError, "host payload evaluator"):
+      self.fpsan().synthesize_generated_region(
+        fpsan_generated_region_source(iterations=2)
+      )
+
+  def test_generated_region_triton_kernel_emits_compilable_loop_and_reductions(self):
+    source = self.fpsan().render_generated_region_triton_kernel(
+      fpsan_generated_region_source(iterations=2)
+    )
+    ast.parse(source)
+    self.assertIn("def fpsan_generated_region(input_ptr, output_ptr):", source)
+    self.assertIn("tl.static_range(2)", source)
+    self.assertIn("tl.sum(", source)
+    self.assertIn("tl.broadcast_to(", source)
+    self.assertIn("tl.store(output_ptr + offsets, output)", source)
 
   def test_runtime_synthesis_records_models_and_exact_input_words(self):
     witness = self.fpsan().synthesize_payload_case("add_tree")

@@ -15,8 +15,11 @@ import triton.language as tl
 
 from test.lib.tensor_fpsan import (
   compare_words,
+  flatten_word_values,
   prove_payload_kernel_equations,
   prove_payload_laws,
+  render_generated_region_triton_kernel,
+  synthesize_generated_region,
   synthesize_payload_case,
   validate_fpsan_payload_lowering,
   validate_instrumentation_sensitivity,
@@ -113,8 +116,47 @@ def _case_inputs(witness):
   return [_tensor_from_words([word]) for word in witness["input_float_words"]]
 
 
+def _run_generated_region_case(ir_directory):
+  source_path = Path(__file__).with_name("generated_region.sir")
+  source = source_path.read_text(encoding="utf-8")
+  witness = synthesize_generated_region(source)
+  shape = tuple(witness["shape"])
+  inputs = _tensor_from_words(witness["input_float_words"]).reshape(shape)
+  output = torch.empty(shape, dtype=torch.float32, device="cuda")
+
+  # The source is rendered only from the admitted region parsed by the host model.
+  kernel_source_path = ir_directory / "generated_region_kernel.py"
+  kernel_source = render_generated_region_triton_kernel(source)
+  kernel_source_path.write_text(kernel_source, encoding="utf-8")
+  namespace = {}
+  exec(compile(kernel_source, str(kernel_source_path), "exec"), namespace)
+  kernel = namespace["fpsan_generated_region"]
+  compiled, measurement = _measure_launches(
+    lambda: kernel[(1,)](inputs, output, num_warps=1)
+  )
+  result = _expect_words("generated_region", output, witness["output_float_words"])
+  result["measurement"] = measurement
+  result["smt_witness"] = {
+    "query_sha256": witness["query_sha256"],
+    "input_payloads": witness["input_payloads"],
+    "output_payloads": witness["output_payloads"],
+    "input_float_bits": witness["input_float_bits"],
+    "output_float_bits": witness["output_float_bits"],
+  }
+  result["payload_lowering"] = validate_fpsan_payload_lowering(
+    getattr(compiled, "asm", {}).get("llir", "")
+  )
+  result["compiler_ir"] = _capture_ir(compiled, "generated_region", ir_directory)
+  result["region_source"] = {
+    "path": source_path.name,
+    "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+  }
+  return result
+
+
 def _raw_words(tensor):
-  return [value & 0xFFFFFFFF for value in tensor.view(torch.int32).cpu().tolist()]
+  values = tensor.view(torch.int32).cpu().tolist()
+  return [value & 0xFFFFFFFF for value in flatten_word_values(values)]
 
 
 def _expect_words(name, tensor, expected):
@@ -303,6 +345,7 @@ def run(output_path, ir_directory):
     "cases": {},
     "smt_witnesses": witnesses,
     "instrumentation_sensitivity": instrumentation_sensitivity,
+    "generated_region": _run_generated_region_case(ir_directory),
   }
 
   expected_sum = witnesses["sum_reduction"]["reference_payloads"][0]

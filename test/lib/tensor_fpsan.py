@@ -8,6 +8,8 @@ import struct
 import subprocess
 from pathlib import Path
 
+from test.lib import tensor_exact_f32
+
 PAYLOAD_MASK = 0xFFFFFFFF
 KNOWN_INPUT_PAYLOADS = (0, 1, PAYLOAD_MASK)
 PINNED_TRITON_REVISION = "e2e356723ce35f46b5144373b145c55c4d712237"
@@ -174,6 +176,15 @@ def compare_words(actual, expected):
   return [
     index for index, (left, right) in enumerate(zip(actual, expected)) if left != right
   ]
+
+
+def flatten_word_values(values):
+  """Flatten scalar words returned by tensor libraries at any output rank."""
+  if isinstance(values, (list, tuple)):
+    return [word for item in values for word in flatten_word_values(item)]
+  if type(values) is not int:
+    raise ValueError("raw output words must be integers or nested sequences")
+  return [values]
 
 
 def validate_instrumentation_sensitivity(instrumented, ordinary, ordinary_expected):
@@ -344,6 +355,261 @@ def evaluate_payload_case(name, inputs):
   else:
     raise ValueError(f"unknown FpSan payload case: {name}")
   return {"reference": reference, "candidate": candidate}
+
+
+def _generated_payload_inputs(shape, inputs):
+  count = math.prod(shape)
+  if not isinstance(inputs, (tuple, list)) or len(inputs) != count:
+    raise ValueError(f"generated region needs {count} payload input words")
+  if any(type(value) is not int or not 0 <= value <= PAYLOAD_MASK for value in inputs):
+    raise ValueError("payload inputs must be unsigned 32-bit words")
+  return tuple(inputs)
+
+
+def _payload_reduce(values, input_shape, output_shape, axis):
+  axis = axis if axis >= 0 else axis + len(input_shape)
+  reduced = []
+  for output_coordinates in tensor_exact_f32._coordinates(output_shape):
+    total = 0
+    for axis_coordinate in range(input_shape[axis]):
+      coordinates = list(output_coordinates)
+      coordinates[axis] = axis_coordinate
+      index = tensor_exact_f32._flat_index(coordinates, input_shape)
+      total = add32(total, values[index])
+    reduced.append(total)
+  return tuple(reduced)
+
+
+def evaluate_generated_payload_region(source, input_payloads):
+  """Evaluate an admitted generated loop as 32-bit FpSan payload arithmetic."""
+  shape, iterations, tensor_types, nodes, updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  initial = _generated_payload_inputs(shape, input_payloads)
+  count = math.prod(shape)
+  values = {
+    "x": initial,
+    "acc_x": initial,
+    "acc_y": (0,) * count,
+  }
+
+  for _ in range(iterations):
+    for destination, operation, operands, attribute in nodes:
+      output_shape = tensor_types[destination]
+      if operation == "add":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        result = tuple(add32(a, b) for a, b in zip(left, right))
+      elif operation == "sum":
+        result = _payload_reduce(
+          values[operands[0]],
+          tensor_types[operands[0]],
+          output_shape,
+          attribute,
+        )
+      else:
+        result = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+      values[destination] = result
+
+    for state, root in updates:
+      values[state] = values[root]
+
+  left = tensor_exact_f32._broadcast_values(values["acc_x"], shape, shape)
+  right = tensor_exact_f32._broadcast_values(values["acc_y"], shape, shape)
+  return [add32(a, b) for a, b in zip(left, right)]
+
+
+def _generated_payload_smt(source):
+  shape, iterations, tensor_types, nodes, updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  count = math.prod(shape)
+  variables = tuple(f"x{index}" for index in range(count))
+  definitions = []
+
+  def define(name, expression):
+    definitions.append(f"(define-fun {name} () (_ BitVec 32) {expression})")
+
+  values = {
+    "x": list(variables),
+    "acc_x": list(variables),
+    "acc_y": ["#x00000000"] * count,
+  }
+  for visit in range(iterations):
+    for node_index, (destination, operation, operands, attribute) in enumerate(nodes):
+      output_shape = tensor_types[destination]
+      if operation == "add":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        expressions = [f"(bvadd {a} {b})" for a, b in zip(left, right)]
+      elif operation == "sum":
+        input_shape = tensor_types[operands[0]]
+        axis = attribute if attribute >= 0 else attribute + len(input_shape)
+        expressions = []
+        for output_coordinates in tensor_exact_f32._coordinates(output_shape):
+          terms = []
+          for axis_coordinate in range(input_shape[axis]):
+            coordinates = list(output_coordinates)
+            coordinates[axis] = axis_coordinate
+            index = tensor_exact_f32._flat_index(coordinates, input_shape)
+            terms.append(values[operands[0]][index])
+          expressions.append(_sum_left(terms))
+      else:
+        expressions = list(
+          tensor_exact_f32._broadcast_values(
+            values[operands[0]], tensor_types[operands[0]], output_shape
+          )
+        )
+
+      names = []
+      for element_index, expression in enumerate(expressions):
+        name = f"g_v{visit}_n{node_index}_e{element_index}"
+        define(name, expression)
+        names.append(name)
+      values[destination] = names
+
+    for state, root in updates:
+      values[state] = values[root]
+
+  output_names = tuple(f"output_{index}" for index in range(count))
+  for name, left, right in zip(output_names, values["acc_x"], values["acc_y"]):
+    define(name, f"(bvadd {left} {right})")
+  return shape, iterations, variables, output_names, definitions
+
+
+def build_generated_payload_query(source):
+  """Encode an admitted generated loop and fixed-point I/O in QF_BV."""
+  shape, iterations, variables, output_names, definitions = _generated_payload_smt(
+    source
+  )
+  lines = ["(set-logic QF_BV)", "(set-option :produce-models true)"]
+  lines.extend(f"(declare-const {name} (_ BitVec 32))" for name in variables)
+  for name in variables:
+    choices = " ".join(
+      f"(= {name} #x{payload:08X})" for payload in KNOWN_INPUT_PAYLOADS
+    )
+    lines.append(f"(assert (or {choices}))")
+  lines.extend(definitions)
+  for name in output_names:
+    choices = " ".join(
+      f"(= {name} #x{payload:08X})" for payload in KNOWN_INPUT_PAYLOADS
+    )
+    lines.append(f"(assert (or {choices}))")
+  nonzero_inputs = " ".join(f"(not (= {name} #x00000000))" for name in variables)
+  lines.append(f"(assert (or {nonzero_inputs}))")
+  lines.append("(check-sat)")
+  requested = [*variables, *output_names]
+  lines.append("(get-value (" + " ".join(requested) + "))")
+  script = "\n".join(lines) + "\n"
+  return {
+    "shape": shape,
+    "iterations": iterations,
+    "variables": variables,
+    "output_names": output_names,
+    "script": script,
+    "sha256": hashlib.sha256(script.encode("ascii")).hexdigest(),
+  }
+
+
+def synthesize_generated_region(source):
+  """Solve one generated-region query and replay it with the host payload model."""
+  query = build_generated_payload_query(source)
+  command = _solver_command()
+  result = subprocess.run(
+    command, input=query["script"], text=True, capture_output=True, check=False
+  )
+  if result.returncode != 0:
+    raise RuntimeError(
+      f"{command[0]} failed ({result.returncode}): {result.stderr.strip()}"
+    )
+  requested = [*query["variables"], *query["output_names"]]
+  model = parse_payload_model(result.stdout, requested)
+  input_payloads = [model[name] for name in query["variables"]]
+  output_payloads = [model[name] for name in query["output_names"]]
+  replayed = evaluate_generated_payload_region(source, input_payloads)
+  if output_payloads != replayed:
+    raise AssertionError("SMT model outputs disagree with the host payload evaluator")
+  try:
+    input_words = [unembed_known_payload(value) for value in input_payloads]
+    output_words = [unembed_known_payload(value) for value in output_payloads]
+  except ValueError as error:
+    raise AssertionError(
+      "generated region witness cannot be transported through fixed f32 points"
+    ) from error
+  return {
+    "query_sha256": query["sha256"],
+    "query_smt2": query["script"],
+    "shape": list(query["shape"]),
+    "iterations": query["iterations"],
+    "input_payloads": dict(zip(query["variables"], input_payloads)),
+    "output_payloads": output_payloads,
+    "input_float_words": input_words,
+    "output_float_words": output_words,
+    "input_float_bits": [f"{value:08x}" for value in input_words],
+    "output_float_bits": [f"{value:08x}" for value in output_words],
+  }
+
+
+def render_generated_region_triton_kernel(source):
+  """Emit a Triton kernel with the same dataflow and ordered updates as SIR."""
+  shape, iterations, tensor_types, nodes, updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  if len(shape) != 2:
+    raise ValueError("FpSan Triton lowering requires a rank-two generated region")
+  rows, columns = shape
+  lines = [
+    "import triton",
+    "import triton.language as tl",
+    "",
+    "@triton.jit",
+    "def fpsan_generated_region(input_ptr, output_ptr):",
+    f"    rows = tl.arange(0, {rows})",
+    f"    columns = tl.arange(0, {columns})",
+    f"    offsets = rows[:, None] * {columns} + columns[None, :]",
+    "    acc_x = tl.load(input_ptr + offsets)",
+    f"    acc_y = tl.full(({rows}, {columns}), 0.0, tl.float32)",
+    f"    for _ in tl.static_range({iterations}):",
+  ]
+  names = {"acc_x": "acc_x", "acc_y": "acc_y"}
+  for index, (destination, _operation, _operands, _attribute) in enumerate(nodes):
+    names[destination] = f"value_{index}"
+
+  for destination, operation, operands, attribute in nodes:
+    target = names[destination]
+    if operation == "add":
+      left, right = (names[name] for name in operands)
+      expression = f"{left} + {right}"
+    elif operation == "sum":
+      axis = attribute if attribute >= 0 else attribute + len(shape)
+      operand = names[operands[0]]
+      lines.append(f"        {target}_reduced = tl.sum({operand}, axis={axis})")
+      expression = f"tl.expand_dims({target}_reduced, {axis})"
+    else:
+      operand = names[operands[0]]
+      target_shape = tensor_types[destination]
+      expression = f"tl.broadcast_to({operand}, {target_shape!r})"
+    lines.append(f"        {target} = {expression}")
+
+  for state, root in updates:
+    lines.append(f"        {state} = {names[root]}")
+  lines.extend(
+    (
+      "    output = acc_x + acc_y",
+      "    tl.store(output_ptr + offsets, output)",
+    )
+  )
+  return "\n".join(lines) + "\n"
 
 
 def build_payload_query(case_name):
