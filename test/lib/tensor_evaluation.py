@@ -235,6 +235,87 @@ def _study_compiler_record(observation):
   ):
     if type(value) is not int or value < 0:
       raise ValueError(f"compiler observation {name} must be a nonnegative integer")
+
+  pass_record = observation.get("pass_observation")
+  if pass_record is None:
+    pass_record = {}
+  if not isinstance(pass_record, dict):
+    raise ValueError("compiler pass observation must be an object")
+  pass_compilations = pass_record.get("compilation_count", 0)
+  pass_snapshots = pass_record.get("snapshot_count", 0)
+  pass_transitions = pass_record.get("transition_count", 0)
+  nonzero_transitions = pass_record.get("nonzero_layout_conversion_transitions", [])
+  if not isinstance(nonzero_transitions, list) or any(
+    not isinstance(transition, dict)
+    or type(transition.get("delta")) is not int
+    or transition["delta"] == 0
+    for transition in nonzero_transitions
+  ):
+    raise ValueError("compiler pass layout-conversion transitions are invalid")
+  for name, value in (
+    ("compilation_count", pass_compilations),
+    ("snapshot_count", pass_snapshots),
+    ("transition_count", pass_transitions),
+    (
+      "effective_layout_conversion_added",
+      pass_record.get("effective_layout_conversion_added", 0),
+    ),
+    (
+      "effective_layout_conversion_removed",
+      pass_record.get("effective_layout_conversion_removed", 0),
+    ),
+    (
+      "nonzero_layout_conversion_transition_count",
+      len(nonzero_transitions),
+    ),
+  ):
+    if type(value) is not int or value < 0:
+      raise ValueError(f"compiler pass observation {name} must be nonnegative")
+  if pass_compilations not in (0, compilation_count):
+    raise ValueError("compiler pass compilation count is inconsistent")
+  if pass_compilations and (
+    pass_snapshots < pass_compilations
+    or pass_transitions != pass_snapshots - pass_compilations
+    or len(nonzero_transitions) > pass_transitions
+  ):
+    raise ValueError("compiler pass snapshot and transition counts are inconsistent")
+  signed_fields = (
+    "effective_layout_conversion_net_delta",
+    "duplicate_expression_group_delta",
+    "duplicate_repeated_operation_delta",
+    "loop_construct_delta",
+  )
+  for name in signed_fields:
+    if type(pass_record.get(name, 0)) is not int:
+      raise ValueError(f"compiler pass observation {name} must be an integer")
+  operation_deltas = pass_record.get("effective_conversion_operation_net_deltas", {})
+  if not isinstance(operation_deltas, dict) or any(
+    not isinstance(operation, str) or not operation or type(delta) is not int
+    for operation, delta in operation_deltas.items()
+  ):
+    raise ValueError("compiler pass operation deltas are invalid")
+  conversion_added = pass_record.get("effective_layout_conversion_added", 0)
+  conversion_removed = pass_record.get("effective_layout_conversion_removed", 0)
+  conversion_net = pass_record.get("effective_layout_conversion_net_delta", 0)
+  if conversion_added - conversion_removed != conversion_net:
+    raise ValueError("compiler pass layout-conversion deltas are inconsistent")
+  pass_observation = {
+    "compilations": pass_compilations,
+    "snapshots": pass_snapshots,
+    "transitions": pass_transitions,
+    "effective_layout_conversion_added": conversion_added,
+    "effective_layout_conversion_removed": conversion_removed,
+    "effective_layout_conversion_net_delta": conversion_net,
+    "operation_net_deltas": operation_deltas,
+    "nonzero_layout_conversion_transitions": len(nonzero_transitions),
+    "duplicate_expression_group_delta": pass_record.get(
+      "duplicate_expression_group_delta", 0
+    ),
+    "duplicate_repeated_operation_delta": pass_record.get(
+      "duplicate_repeated_operation_delta", 0
+    ),
+    "loop_construct_delta": pass_record.get("loop_construct_delta", 0),
+  }
   return {
     "compilations": compilation_count,
     "effective_layout_conversions": effective,
@@ -246,6 +327,7 @@ def _study_compiler_record(observation):
     "loop_status_counts": loop_status_counts,
     "ptx_warp_shuffles": warp_shuffles,
     "ptx_shared_memory_transfers": shared_transfers,
+    "pass_observation": pass_observation,
   }
 
 
@@ -285,6 +367,19 @@ def _empty_study_policy():
       "unrolled_or_removed_loop_compilations": 0,
       "ptx_warp_shuffles": 0,
       "ptx_shared_memory_transfers": 0,
+      "pass_observation": {
+        "compilations": 0,
+        "snapshots": 0,
+        "transitions": 0,
+        "effective_layout_conversion_added": 0,
+        "effective_layout_conversion_removed": 0,
+        "effective_layout_conversion_net_delta": 0,
+        "operation_net_deltas": {},
+        "nonzero_layout_conversion_transitions": 0,
+        "duplicate_expression_group_delta": 0,
+        "duplicate_repeated_operation_delta": 0,
+        "loop_construct_delta": 0,
+      },
     },
   }
 
@@ -550,6 +645,25 @@ def summarize_fixed_contract_study(ledger):
     compiler_summary["ptx_shared_memory_transfers"] += measurements[
       "ptx_shared_memory_transfers"
     ]
+    pass_summary = compiler_summary["pass_observation"]
+    pass_measurements = measurements["pass_observation"]
+    for name in (
+      "compilations",
+      "snapshots",
+      "transitions",
+      "effective_layout_conversion_added",
+      "effective_layout_conversion_removed",
+      "effective_layout_conversion_net_delta",
+      "nonzero_layout_conversion_transitions",
+      "duplicate_expression_group_delta",
+      "duplicate_repeated_operation_delta",
+      "loop_construct_delta",
+    ):
+      pass_summary[name] += pass_measurements[name]
+    for operation, delta in pass_measurements["operation_net_deltas"].items():
+      pass_summary["operation_net_deltas"][operation] = (
+        pass_summary["operation_net_deltas"].get(operation, 0) + delta
+      )
 
   unpaired = [
     key for key, policies in pairs.items() if policies != {"random", "solver"}
@@ -572,6 +686,15 @@ def summarize_fixed_contract_study(ledger):
       _finish_study_policy(policy_summary)
       policy_summary["compiler"]["conversion_operations"] = dict(
         sorted(policy_summary["compiler"]["conversion_operations"].items())
+      )
+      policy_summary["compiler"]["pass_observation"]["operation_net_deltas"] = dict(
+        sorted(
+          (operation, delta)
+          for operation, delta in policy_summary["compiler"]["pass_observation"][
+            "operation_net_deltas"
+          ].items()
+          if delta
+        )
       )
   return {
     "schema": "refractir.tensor-fixed-contract-study-summary.v1",

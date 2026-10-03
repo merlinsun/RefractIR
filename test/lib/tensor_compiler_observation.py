@@ -14,6 +14,11 @@ _LOCATION_USE = re.compile(r"\bloc\(#loc(\d+)\)")
 _LOCATION_REFERENCE = re.compile(r"#loc(\d+)")
 _TENSOR_ENCODING = re.compile(r"tensor<[^>]*,\s*(#[a-zA-Z0-9_.-]+)>")
 _INLINE_LOCATION = re.compile(r'\bloc\("(?:[^"\\]|\\.)*":(\d+):(\d+)\)')
+_PASS_DUMP_HEADER = re.compile(
+  r"^// -----// IR Dump Before (.+?): (.+?) \('builtin\.module' operation\) //----- //\s*$",
+  re.MULTILINE,
+)
+_PASS_DUMP_TERMINAL = "LLVMDIScope"
 
 
 def _location_definitions(text):
@@ -223,5 +228,155 @@ def observe_compiler_ir(
     "loop_stages": loop_stages,
     "interpretation_limit": (
       "IR shape records compiler observations; it does not prove semantic correctness"
+    ),
+  }
+
+
+def _pass_snapshot_observation(text, source_lines):
+  observation = _stage_observation(text)
+  conversions = observation["layout_conversions"]
+  for conversion in conversions:
+    conversion["source_operation"] = source_lines.get(conversion["source_line"])
+  effective_by_operation = collections.Counter(
+    conversion["source_operation"] or "unattributed"
+    for conversion in conversions
+    if conversion["layout_changed"]
+  )
+  duplicate_opcode_counts = collections.Counter()
+  repeated_operation_count = 0
+  for duplicate in observation["duplicate_expressions"]:
+    repeated_operation_count += duplicate["count"] - 1
+    opcode = re.match(
+      r"((?:tt|ttg|arith|math|scf)\.[a-zA-Z_][\w.]*)", duplicate["expression"]
+    )
+    if opcode:
+      duplicate_opcode_counts[opcode[1]] += duplicate["count"] - 1
+  return {
+    "layout_conversion_count": len(conversions),
+    "effective_layout_conversion_count": sum(
+      conversion["layout_changed"] for conversion in conversions
+    ),
+    "effective_conversion_operation_counts": dict(
+      sorted(effective_by_operation.items())
+    ),
+    "duplicate_expression_group_count": len(observation["duplicate_expressions"]),
+    "duplicate_repeated_operation_count": repeated_operation_count,
+    "duplicate_operation_counts": dict(sorted(duplicate_opcode_counts.items())),
+    "loop_construct_count": observation["loop_construct_count"],
+  }
+
+
+def _counter_delta(before, after):
+  return {
+    name: after.get(name, 0) - before.get(name, 0)
+    for name in sorted(set(before) | set(after))
+    if after.get(name, 0) != before.get(name, 0)
+  }
+
+
+def observe_pass_dumps(dump_text, *, source_lines=None):
+  """Measure adjacent MLIR pass snapshots, grouped by kernel compilation.
+
+  A transition from ``Before A`` to ``Before B`` measures the observable IR
+  change across pass A. Duplicate-expression counts describe repeated IR work;
+  they do not establish that a source value was rematerialized.
+  """
+  if not isinstance(dump_text, str) or not dump_text.strip():
+    raise ValueError("pass dump must contain MLIR snapshots")
+  if source_lines is None:
+    source_lines = {}
+  if not isinstance(source_lines, dict) or any(
+    type(line) is not int or not isinstance(name, str) or not name
+    for line, name in source_lines.items()
+  ):
+    raise ValueError("source_lines must map integer lines to operation names")
+
+  headers = list(_PASS_DUMP_HEADER.finditer(dump_text))
+  if not headers:
+    raise ValueError("pass dump contains no recognized MLIR snapshot headers")
+  if dump_text[: headers[0].start()].strip():
+    raise ValueError("pass dump contains text before the first snapshot")
+
+  snapshots = []
+  for index, header in enumerate(headers):
+    end = headers[index + 1].start() if index + 1 < len(headers) else len(dump_text)
+    snapshots.append(
+      {
+        "pass": header[1],
+        "pipeline": header[2],
+        "ir": dump_text[header.end() : end],
+      }
+    )
+
+  compilations = []
+  current = []
+  for snapshot in snapshots:
+    current.append(snapshot)
+    if snapshot["pass"] == _PASS_DUMP_TERMINAL:
+      compilations.append(current)
+      current = []
+  if current:
+    raise ValueError("pass dump compilation does not end at the final pass")
+  if not compilations:
+    raise ValueError("pass dump contains no complete compilations")
+
+  observed_compilations = []
+  for compilation in compilations:
+    transitions = []
+    observed = [
+      _pass_snapshot_observation(snapshot["ir"], source_lines)
+      for snapshot in compilation
+    ]
+    for index in range(len(compilation) - 1):
+      before, after = observed[index], observed[index + 1]
+      transitions.append(
+        {
+          "pass": compilation[index]["pass"],
+          "pipeline": compilation[index]["pipeline"],
+          "next_snapshot_pass": compilation[index + 1]["pass"],
+          "before": before,
+          "after": after,
+          "layout_conversion_delta": (
+            after["layout_conversion_count"] - before["layout_conversion_count"]
+          ),
+          "effective_layout_conversion_delta": (
+            after["effective_layout_conversion_count"]
+            - before["effective_layout_conversion_count"]
+          ),
+          "effective_conversion_operation_deltas": _counter_delta(
+            before["effective_conversion_operation_counts"],
+            after["effective_conversion_operation_counts"],
+          ),
+          "duplicate_expression_group_delta": (
+            after["duplicate_expression_group_count"]
+            - before["duplicate_expression_group_count"]
+          ),
+          "duplicate_repeated_operation_delta": (
+            after["duplicate_repeated_operation_count"]
+            - before["duplicate_repeated_operation_count"]
+          ),
+          "duplicate_operation_deltas": _counter_delta(
+            before["duplicate_operation_counts"],
+            after["duplicate_operation_counts"],
+          ),
+          "loop_construct_delta": (
+            after["loop_construct_count"] - before["loop_construct_count"]
+          ),
+        }
+      )
+    observed_compilations.append(
+      {
+        "snapshot_count": len(compilation),
+        "terminal_pass": compilation[-1]["pass"],
+        "transitions": transitions,
+      }
+    )
+
+  return {
+    "compilation_count": len(observed_compilations),
+    "compilations": observed_compilations,
+    "interpretation_limit": (
+      "pass snapshots measure IR shape changes; duplicate-expression changes are "
+      "not a proof of rematerialization"
     ),
   }

@@ -432,6 +432,20 @@ class TensorFixedStudyTests(unittest.TestCase):
 
   def test_keeps_compiler_observations_separate_for_different_contracts(self):
     ledger = _ledger()
+    for trial in ledger["trials"]:
+      trial["compiler_observation"]["pass_observation"] = {
+        "compilation_count": 1,
+        "snapshot_count": 3,
+        "transition_count": 2,
+        "effective_layout_conversion_added": 2,
+        "effective_layout_conversion_removed": 1,
+        "effective_layout_conversion_net_delta": 1,
+        "effective_conversion_operation_net_deltas": {"load_to_compute": 1},
+        "nonzero_layout_conversion_transitions": [{"delta": 1}],
+        "duplicate_expression_group_delta": -1,
+        "duplicate_repeated_operation_delta": -2,
+        "loop_construct_delta": 0,
+      }
     ledger["trials"].extend(
       [
         _trial("random", route="payload"),
@@ -454,6 +468,16 @@ class TensorFixedStudyTests(unittest.TestCase):
     self.assertEqual(solver_compiler["duplicate_expression_groups"], 1)
     self.assertEqual(solver_compiler["retained_loop_compilations"], 1)
     self.assertEqual(solver_compiler["ptx_warp_shuffles"], 2)
+    self.assertEqual(solver_compiler["pass_observation"]["compilations"], 1)
+    self.assertEqual(solver_compiler["pass_observation"]["snapshots"], 3)
+    self.assertEqual(
+      solver_compiler["pass_observation"]["effective_layout_conversion_net_delta"],
+      1,
+    )
+    self.assertEqual(
+      solver_compiler["pass_observation"]["operation_net_deltas"],
+      {"load_to_compute": 1},
+    )
     self.assertIn("comparison is route/property local", report["comparison_scope"])
 
   def test_rejects_missing_mate_in_paired_policy_protocol(self):
@@ -554,6 +578,54 @@ class TensorSelectionStudyAggregationTests(unittest.TestCase):
     self.assertEqual(observation["stages"]["ptx"]["warp_shuffle_count"], 5)
     self.assertEqual(observation["stages"]["ptx"]["shared_memory_transfer_count"], 5)
 
+  def test_aggregates_pass_level_compiler_changes(self):
+    self.gpu_report["cases"]["baseline"]["compiler"]["pass_observation"] = {
+      "snapshot_count": 2,
+      "transitions": [
+        {
+          "pass": "ConvertLayout",
+          "effective_layout_conversion_delta": 1,
+          "effective_conversion_operation_deltas": {"load_to_compute": 1},
+          "duplicate_expression_group_delta": 1,
+          "duplicate_repeated_operation_delta": 2,
+          "loop_construct_delta": 0,
+        }
+      ],
+    }
+    self.gpu_report["calibration_compiler"]["pass_observation"] = {
+      "snapshot_count": 3,
+      "transitions": [
+        {
+          "pass": "RemoveLayoutConversions",
+          "effective_layout_conversion_delta": -1,
+          "effective_conversion_operation_deltas": {"load_to_compute": -1},
+          "duplicate_expression_group_delta": -1,
+          "duplicate_repeated_operation_delta": -2,
+          "loop_construct_delta": -1,
+        },
+        {
+          "pass": "CSE",
+          "effective_layout_conversion_delta": 0,
+          "effective_conversion_operation_deltas": {},
+          "duplicate_expression_group_delta": 0,
+          "duplicate_repeated_operation_delta": 0,
+          "loop_construct_delta": 0,
+        },
+      ],
+    }
+
+    observation = run_selection_study._combined_compiler_observation(self.gpu_report)
+    pass_report = observation["pass_observation"]
+
+    self.assertEqual(pass_report["compilation_count"], 2)
+    self.assertEqual(pass_report["snapshot_count"], 5)
+    self.assertEqual(pass_report["transition_count"], 3)
+    self.assertEqual(pass_report["effective_layout_conversion_net_delta"], 0)
+    self.assertEqual(pass_report["duplicate_expression_group_delta"], 0)
+    self.assertEqual(pass_report["duplicate_repeated_operation_delta"], 0)
+    self.assertEqual(pass_report["loop_construct_delta"], -1)
+    self.assertEqual(len(pass_report["nonzero_layout_conversion_transitions"]), 2)
+
   def test_counts_calibration_mutant_compile_and_execution_cost(self):
     compilation_s, execution_s = run_selection_study._gpu_costs(self.gpu_report)
 
@@ -583,6 +655,111 @@ class TensorSelectionStudyAggregationTests(unittest.TestCase):
       self.assertEqual((arm / "gluon.stdout").read_text(), "partial stdout")
       self.assertEqual((arm / "gluon.stderr").read_text(), "partial stderr")
       self.assertEqual(trial["execution_status"], "execution_failure")
+
+
+class TensorSelectionMatrixTests(unittest.TestCase):
+  def test_selection_query_uses_requested_loop_bound_and_target(self):
+    query = run_selection_study.render_selection_query(
+      iterations=1, target=8, target_index=(0, 0)
+    )
+
+    self.assertIn("br %i < 1, ^body, ^exit;", query)
+    self.assertIn("require %selected == 8;", query)
+
+  def test_selection_query_extracts_the_requested_output_element(self):
+    query = run_selection_study.render_selection_query(
+      iterations=2, target=22, target_index=(1, 1)
+    )
+
+    self.assertIn("tensor extract %out, [1, 1]", query)
+    self.assertIn("require %selected == 22;", query)
+
+  def test_exact_loop_path_contains_every_static_iteration(self):
+    self.assertEqual(
+      run_selection_study._exact_loop_path(3),
+      [
+        "^entry",
+        "^header",
+        "^body",
+        "^header",
+        "^body",
+        "^header",
+        "^body",
+        "^header",
+        "^exit",
+      ],
+    )
+
+  def test_matrix_specs_expand_program_property_seed_and_layout_axes(self):
+    cells = run_selection_study._matrix_cell_specs(
+      iterations=(1, 2),
+      target_indices=((0, 0), (1, 1)),
+      seeds=(17, 29),
+      layout_seeds=(20261002, 20261003),
+    )
+
+    self.assertEqual(len(cells), 16)
+    self.assertEqual(len({cell["cell_id"] for cell in cells}), 16)
+    self.assertEqual(
+      {(cell["iterations"], tuple(cell["target_index"])) for cell in cells},
+      {(iteration, index) for iteration in (1, 2) for index in ((0, 0), (1, 1))},
+    )
+
+  def test_gpu_child_command_records_program_property_and_layout(self):
+    command = run_selection_study._gpu_child_command(
+      Path("gpu.json"),
+      Path("ir"),
+      input_values=(1, 2, 4, 8),
+      iterations=1,
+      target=8,
+      target_index=(0, 0),
+      layout_seed=20261003,
+    )
+
+    self.assertIn("--iterations", command)
+    self.assertIn("1", command)
+    self.assertIn("--target-index", command)
+    self.assertIn("0,0", command)
+    self.assertIn("20261003", command)
+
+  def test_matrix_runner_derives_targets_and_preserves_each_pair_summary(self):
+    def fake_run(output_dir, **kwargs):
+      return {
+        "ledger": {
+          "fixed": {"program_id": f"program-{kwargs['iterations']}"},
+          "trials": [
+            {"property_id": f"output-{kwargs['target_index']}-{kwargs['target']}"}
+          ],
+        },
+        "summary": {"status": "complete", "cell": Path(output_dir).name},
+      }
+
+    with tempfile.TemporaryDirectory() as temporary:
+      output = Path(temporary) / "matrix"
+      with mock.patch.object(run_selection_study, "run", side_effect=fake_run) as run:
+        matrix = run_selection_study.run_matrix(
+          output,
+          solver="symirsolve",
+          iterations=(1, 2),
+          target_indices=((0, 0),),
+          seeds=(17,),
+          layout_seeds=(20261002,),
+          budget_s=1.0,
+        )
+
+      self.assertEqual(matrix["status"], "complete")
+      self.assertEqual([cell["target"] for cell in matrix["cells"]], [9, 63])
+      self.assertEqual(run.call_count, 2)
+      self.assertTrue((output / "matrix.json").is_file())
+
+  def test_matrix_specs_reject_duplicate_seed_axes(self):
+    with self.assertRaisesRegex(ValueError, "seeds must be unique"):
+      run_selection_study._matrix_cell_specs(
+        iterations=(1,),
+        target_indices=((0, 0),),
+        seeds=(17, 17),
+        layout_seeds=(20261002,),
+      )
 
 
 if __name__ == "__main__":

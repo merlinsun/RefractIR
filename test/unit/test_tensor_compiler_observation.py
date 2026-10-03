@@ -5,6 +5,14 @@ import unittest
 from test.lib import tensor_compiler_observation
 
 
+def _pass_snapshot(name, ir):
+  return (
+    f"// -----// IR Dump Before {name}: {name.lower()} "
+    "('builtin.module' operation) //----- //\n"
+    f"{ir}\n"
+  )
+
+
 class TensorCompilerObservationTests(unittest.TestCase):
   def test_attributes_layout_conversion_to_source_operation(self):
     ir = """\
@@ -89,6 +97,96 @@ class TensorCompilerObservationTests(unittest.TestCase):
         expected_source_operations=("load_to_compute",),
         exact_source_operations=True,
       )
+
+  def test_pass_dump_measures_layout_conversion_removal(self):
+    before = """\
+#loc1 = loc("kernel.py":41:12)
+%4 = ttg.convert_layout %3 : tensor<2x2xf32, #blocked> -> tensor<2x2xf32, #slice> loc(#loc1)
+"""
+    after = "%3 = tt.load %arg0 : tensor<2x2xf32, #slice>\n"
+    dump = "".join(
+      (
+        _pass_snapshot("GluonInline", before),
+        _pass_snapshot("RemoveLayoutConversionsPass", after),
+        _pass_snapshot("LLVMDIScope", after),
+      )
+    )
+
+    report = tensor_compiler_observation.observe_pass_dumps(
+      dump, source_lines={41: "load_to_compute"}
+    )
+    transition = report["compilations"][0]["transitions"][0]
+    self.assertEqual(transition["effective_layout_conversion_delta"], -1)
+    self.assertEqual(
+      transition["effective_conversion_operation_deltas"], {"load_to_compute": -1}
+    )
+
+  def test_pass_dump_measures_layout_conversion_addition(self):
+    before = "%3 = tt.load %arg0 : tensor<2x2xf32, #blocked>\n"
+    after = """\
+#loc1 = loc("kernel.py":42:12)
+%4 = ttg.convert_layout %3 : tensor<2x2xf32, #blocked> -> tensor<2x2xf32, #slice> loc(#loc1)
+"""
+    dump = "".join(
+      (
+        _pass_snapshot("GluonInline", before),
+        _pass_snapshot("ConvertLayoutPass", after),
+        _pass_snapshot("LLVMDIScope", after),
+      )
+    )
+
+    report = tensor_compiler_observation.observe_pass_dumps(
+      dump, source_lines={42: "compute_to_reduction"}
+    )
+    self.assertEqual(
+      report["compilations"][0]["transitions"][0]["effective_layout_conversion_delta"],
+      1,
+    )
+
+  def test_pass_dump_measures_duplicate_expression_changes(self):
+    before = "%1 = tt.add %a, %b : tensor<4xi32>\n"
+    after = """\
+%1 = tt.add %a, %b : tensor<4xi32>
+%2 = tt.add %a, %b : tensor<4xi32>
+"""
+    dump = "".join(
+      (
+        _pass_snapshot("GluonInline", before),
+        _pass_snapshot("RematerializePass", after),
+        _pass_snapshot("LLVMDIScope", after),
+      )
+    )
+
+    report = tensor_compiler_observation.observe_pass_dumps(dump)
+    transition = report["compilations"][0]["transitions"][0]
+    self.assertEqual(transition["duplicate_expression_group_delta"], 1)
+    self.assertIn("not a proof of rematerialization", report["interpretation_limit"])
+
+  def test_pass_dump_does_not_pair_snapshots_across_compilations(self):
+    empty = "module {}\n"
+    dump = "".join(
+      (
+        _pass_snapshot("GluonInline", empty),
+        _pass_snapshot("CSEPass", empty),
+        _pass_snapshot("LLVMDIScope", empty),
+        _pass_snapshot("GluonInline", empty),
+        _pass_snapshot("CSEPass", empty),
+        _pass_snapshot("LLVMDIScope", empty),
+      )
+    )
+
+    report = tensor_compiler_observation.observe_pass_dumps(dump)
+    self.assertEqual(report["compilation_count"], 2)
+    self.assertEqual(
+      [len(compilation["transitions"]) for compilation in report["compilations"]],
+      [2, 2],
+    )
+
+  def test_pass_dump_rejects_an_incomplete_compilation(self):
+    dump = _pass_snapshot("GluonInline", "module {}\n")
+
+    with self.assertRaisesRegex(ValueError, "does not end at the final pass"):
+      tensor_compiler_observation.observe_pass_dumps(dump)
 
 
 if __name__ == "__main__":

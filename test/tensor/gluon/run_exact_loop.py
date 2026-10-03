@@ -2,9 +2,12 @@
 """Compare two Gluon layouts on the certified composed exact-f32 loop."""
 
 import argparse
+import functools
 import hashlib
 import inspect
 import json
+import math
+import os
 import statistics
 import struct
 import time
@@ -15,7 +18,10 @@ import triton
 from triton.experimental import gluon
 from triton.experimental.gluon import language as gl
 
-from test.lib.tensor_compiler_observation import observe_compiler_ir
+from test.lib.tensor_compiler_observation import (
+  observe_compiler_ir,
+  observe_pass_dumps,
+)
 from test.lib.tensor_exact_f32 import certify, render_program
 from test.lib.tensor_gluon import generate_layout_plans
 
@@ -23,8 +29,66 @@ TRITON_VERSION = "3.8.0"
 INPUT_VALUES = (1.0, 2.0, 4.0, 8.0)
 DOMAIN = (0, 8)
 ITERATIONS = 2
+TARGET = 63
+TARGET_INDEX = (0, 0)
+LAYOUT_SEED = 20261002
 WARMUP_LAUNCHES = 3
 MEASURED_LAUNCHES = 30
+
+
+def _with_pass_observations(function):
+  @functools.wraps(function)
+  def wrapped(output_path, ir_directory, *args, **kwargs):
+    ir_directory = Path(ir_directory)
+    pass_dump_path = ir_directory / "mlir-pass-dump.txt"
+    pass_dump_path.parent.mkdir(parents=True, exist_ok=True)
+    pass_dump_path.unlink(missing_ok=True)
+    variable_names = ("MLIR_ENABLE_DUMP", "MLIR_DUMP_PATH")
+    previous = {name: os.environ.get(name) for name in variable_names}
+    os.environ["MLIR_ENABLE_DUMP"] = "_composed_exact_kernel"
+    os.environ["MLIR_DUMP_PATH"] = str(pass_dump_path)
+    try:
+      result = function(output_path, ir_directory, *args, **kwargs)
+    finally:
+      for name, value in previous.items():
+        if value is None:
+          os.environ.pop(name, None)
+        else:
+          os.environ[name] = value
+
+    pass_observation = observe_pass_dumps(
+      pass_dump_path.read_text(encoding="utf-8"),
+      source_lines=_conversion_source_lines(),
+    )
+    case_names = list(result["cases"])
+    expected_names = case_names + ["calibration-add-one-output-mutant"]
+    if pass_observation["compilation_count"] != len(expected_names):
+      raise RuntimeError(
+        "compiler pass dump did not contain one compilation per layout and "
+        f"calibration case: expected {len(expected_names)}, observed "
+        f"{pass_observation['compilation_count']}"
+      )
+    for name, compilation in zip(
+      expected_names, pass_observation["compilations"], strict=True
+    ):
+      if name == "calibration-add-one-output-mutant":
+        result["calibration_compiler"]["pass_observation"] = compilation
+      else:
+        result["cases"][name]["compiler"]["pass_observation"] = compilation
+    result["compiler_pass_observation"] = {
+      "compilation_count": pass_observation["compilation_count"],
+      "snapshot_counts": [
+        item["snapshot_count"] for item in pass_observation["compilations"]
+      ],
+      "interpretation_limit": pass_observation["interpretation_limit"],
+      "dump_file": str(pass_dump_path),
+    }
+    Path(output_path).write_text(
+      json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return result
+
+  return wrapped
 
 
 @gluon.jit
@@ -77,8 +141,8 @@ def _layout_key(plan):
   )
 
 
-def _layouts():
-  first, second = generate_layout_plans((2, 2), num_warps=1, seed=20261002, count=2)
+def _layouts(seed=LAYOUT_SEED):
+  first, second = generate_layout_plans((2, 2), num_warps=1, seed=seed, count=2)
   return (
     {
       "name": "blocked-a-baseline",
@@ -226,7 +290,17 @@ def _measure_launches(kernel, args):
   return compiled, first_launch_wall_s, statistics.median(samples_ms)
 
 
-def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
+@_with_pass_observations
+def run(
+  output_path,
+  ir_directory,
+  *,
+  input_values=INPUT_VALUES,
+  iterations=ITERATIONS,
+  target=TARGET,
+  target_index=TARGET_INDEX,
+  layout_seed=LAYOUT_SEED,
+):
   if triton.__version__ != TRITON_VERSION:
     raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
   if not torch.cuda.is_available():
@@ -247,14 +321,33 @@ def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
     raise ValueError(
       "input_values must contain four integers in the frozen [0,8] domain"
     )
+  if type(iterations) is not int or not 1 <= iterations <= 8:
+    raise ValueError("iterations must be in [1,8]")
+  if (
+    isinstance(target, bool)
+    or not isinstance(target, (int, float))
+    or not math.isfinite(target)
+  ):
+    raise ValueError("target must be a finite numeric value")
+  if (
+    not isinstance(target_index, (tuple, list))
+    or len(target_index) != 2
+    or any(type(value) is not int or not 0 <= value < 2 for value in target_index)
+  ):
+    raise ValueError("target_index must identify an element of the 2x2 output")
+  if type(layout_seed) is not int or layout_seed < 0:
+    raise ValueError("layout_seed must be a nonnegative integer")
+  target_index = tuple(target_index)
   input_values = tuple(input_values)
-  source = render_program()
+  source = render_program(iterations=iterations)
   input_bytes = struct.pack("<4f", *input_values)
   reference_started = time.perf_counter()
   proof, expected_bytes = certify(source, input_bytes, DOMAIN)
   reference_validation_s = time.perf_counter() - reference_started
-  if expected_bytes[:4] != struct.pack("<f", 63.0):
-    raise ValueError("input_values do not satisfy the shared output-element property")
+  target_offset = target_index[0] * 2 + target_index[1]
+  observed_target = struct.unpack("<4f", expected_bytes)[target_offset]
+  if struct.pack("<f", observed_target) != struct.pack("<f", float(target)):
+    raise ValueError("input_values do not satisfy the requested output property")
   input_started = time.perf_counter()
   input_tensor = torch.tensor(input_values, dtype=torch.float32, device="cuda").reshape(
     2, 2
@@ -265,7 +358,7 @@ def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
 
   cases = {}
   plan_fields = ("load", "compute", "reduction", "store")
-  for case in _layouts():
+  for case in _layouts(layout_seed):
     layouts = {key: case[key] for key in plan_fields}
     for plan in layouts.values():
       plan.validate((2, 2), num_warps=1)
@@ -276,7 +369,7 @@ def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
       layouts["compute"].to_gluon_layout(),
       layouts["reduction"].to_gluon_layout(),
       layouts["store"].to_gluon_layout(),
-      ITERATIONS,
+      iterations,
       False,
     )
     compiled, first_launch_wall_s, median_launch_ms = _measure_launches(
@@ -329,16 +422,16 @@ def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
     }
 
   calibration_reference_started = time.perf_counter()
-  calibration_input_bytes = struct.pack("<4f", *INPUT_VALUES)
+  calibration_input_bytes = struct.pack("<4f", *input_values)
   _, calibration_expected_bytes = certify(source, calibration_input_bytes, DOMAIN)
   reference_validation_s += time.perf_counter() - calibration_reference_started
   calibration_input_started = time.perf_counter()
   calibration_input = torch.tensor(
-    INPUT_VALUES, dtype=torch.float32, device="cuda"
+    input_values, dtype=torch.float32, device="cuda"
   ).reshape(2, 2)
   calibration_output = torch.empty_like(calibration_input)
   input_materialization_s += time.perf_counter() - calibration_input_started
-  baseline_layouts = _layouts()[0]
+  baseline_layouts = _layouts(layout_seed)[0]
   calibration_args = (
     calibration_input,
     calibration_output,
@@ -346,7 +439,7 @@ def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
     baseline_layouts["compute"].to_gluon_layout(),
     baseline_layouts["reduction"].to_gluon_layout(),
     baseline_layouts["store"].to_gluon_layout(),
-    ITERATIONS,
+    iterations,
     True,
   )
   calibration_compiled, calibration_first_launch_s, calibration_median_launch_ms = (
@@ -389,7 +482,9 @@ def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
     "input_domain": list(DOMAIN),
     "input_bits_sha256": hashlib.sha256(input_bytes).hexdigest(),
     "input_values": list(input_values),
-    "iterations": ITERATIONS,
+    "iterations": iterations,
+    "property": {"target": target, "index": list(target_index)},
+    "layout_seed": layout_seed,
     "reference_validation_s": reference_validation_s,
     "input_materialization_s": input_materialization_s,
     "calibration_controls": calibration_controls,
@@ -417,8 +512,13 @@ def run(output_path, ir_directory, *, input_values=INPUT_VALUES):
       "baseline": baseline_name,
       "compiler_observation": (
         "effective layout changes are mapped to JIT source lines; PTX communication "
-        "counts are compared with the all-same-layout baseline"
+        "counts are compared with the all-same-layout baseline; adjacent MLIR pass "
+        "snapshots measure conversion, duplicate-expression, and loop-count deltas"
       ),
+      "pass_dump_environment": {
+        "MLIR_ENABLE_DUMP": "_composed_exact_kernel",
+        "MLIR_DUMP_PATH": "ir_directory/mlir-pass-dump.txt",
+      },
     },
     "complete_output_bits": _word_hex(expected_bytes),
     "cases": cases,
@@ -436,12 +536,32 @@ def main():
     default=",".join(str(int(value)) for value in INPUT_VALUES),
     help="four comma-separated integer leaves in the frozen [0,8] domain",
   )
+  parser.add_argument("--iterations", type=int, default=ITERATIONS)
+  parser.add_argument("--target", type=float, default=float(TARGET))
+  parser.add_argument(
+    "--target-index",
+    default=f"{TARGET_INDEX[0]},{TARGET_INDEX[1]}",
+    help="row,column of the exact output element property",
+  )
+  parser.add_argument("--layout-seed", type=int, default=LAYOUT_SEED)
   args = parser.parse_args()
   try:
     input_values = tuple(int(value.strip()) for value in args.input_values.split(","))
   except ValueError as error:
     parser.error(f"invalid --input-values: {error}")
-  result = run(args.output, Path(args.ir_dir), input_values=input_values)
+  try:
+    target_index = tuple(int(value.strip()) for value in args.target_index.split(","))
+  except ValueError as error:
+    parser.error(f"invalid --target-index: {error}")
+  result = run(
+    args.output,
+    Path(args.ir_dir),
+    input_values=input_values,
+    iterations=args.iterations,
+    target=args.target,
+    target_index=target_index,
+    layout_seed=args.layout_seed,
+  )
   print(json.dumps(result, indent=2, sort_keys=True))
 
 

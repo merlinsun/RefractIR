@@ -6,13 +6,13 @@ import hashlib
 import json
 import math
 import os
+import struct
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 from test.lib import (
-  build_tensor_exact_loop_case,
   tensor_evaluation,
   tensor_exact_f32,
   tensor_fixed_study,
@@ -22,14 +22,17 @@ ROOT = Path(__file__).resolve().parents[3]
 DOMAIN = (0, 8)
 TARGET = 63
 TARGET_INDEX = (0, 0)
+ITERATIONS = 2
 ROUTE = "exact-f32"
 SEMANTIC_CONTRACT = "composed-add-sum-f32-exact-loop-v1"
 PROPERTY_ID = "output-element-0-0-equals-63"
 PROGRAM_ID = "authored-2x2-two-state-two-iteration-loop-v1"
 DOMAIN_ID = "nonnegative-integer-valued-f32-0-through-8"
 COMPILER_SETTINGS_ID = (
-  "triton-3.8.0-v100-num-warps-1-fp-fusion-off-layout-seed-20261002-v1"
+  "triton-3.8.0-v100-num-warps-1-fp-fusion-off-layout-seed-20261002-pass-dump-v1"
 )
+LAYOUT_SEED = 20261002
+MATRIX_INPUT_VALUES = (1, 2, 4, 8)
 DEFAULT_BUDGET_S = 120.0
 SOLVER_TIMEOUT_S = 60.0
 CALIBRATION_CONTROL_CONTRACT = [
@@ -85,17 +88,201 @@ def _trial_record(policy, seed, budget_s):
   }
 
 
+def render_selection_query(*, iterations, target, target_index):
+  """Render the integer twin for a selected loop and full-output element."""
+  if type(iterations) is not int or not 1 <= iterations <= 8:
+    raise ValueError("iterations must be in [1,8]")
+  if type(target) is not int:
+    raise ValueError("selection target must be an integer")
+  if (
+    not isinstance(target_index, (tuple, list))
+    or len(target_index) != 2
+    or any(type(value) is not int or not 0 <= value < 2 for value in target_index)
+  ):
+    raise ValueError("target_index must identify an element of the 2x2 output")
+  source = tensor_exact_f32.render_program(iterations=iterations, dtype="i32")
+  source = source.replace(
+    "fun @kernel(%x: tensor [2, 2] i32) : tensor [2, 2] i32 {",
+    "fun @kernel() : tensor [2, 2] i32 {\n"
+    "  sym %?x : value tensor [2, 2] i32 in [0, 8];",
+  )
+  source = source.replace("%x", "%?x")
+  source = source.replace("^entry:\n", "  let mut %selected: i32 = undef;\n^entry:\n")
+  source = source.replace(
+    "  ret %out;",
+    f"  %selected = tensor extract %out, [{target_index[0]}, {target_index[1]}];\n"
+    f"  require %selected == {target};\n  ret %out;",
+  )
+  return source
+
+
+def _exact_loop_path(iterations):
+  if type(iterations) is not int or not 1 <= iterations <= 8:
+    raise ValueError("iterations must be in [1,8]")
+  return (
+    ["^entry", "^header"]
+    + [block for _ in range(iterations) for block in ("^body", "^header")]
+    + ["^exit"]
+  )
+
+
+def _matrix_cell_specs(*, iterations, target_indices, seeds, layout_seeds):
+  try:
+    axes = {
+      "iterations": tuple(iterations),
+      "target_indices": tuple(tuple(index) for index in target_indices),
+      "seeds": tuple(seeds),
+      "layout_seeds": tuple(layout_seeds),
+    }
+  except TypeError as error:
+    raise ValueError("selection matrix axes must be iterable") from error
+  if any(not values for values in axes.values()):
+    raise ValueError("selection matrix axes must not be empty")
+  if any(
+    type(value) is not int or not 1 <= value <= 8 for value in axes["iterations"]
+  ) or len(set(axes["iterations"])) != len(axes["iterations"]):
+    raise ValueError("matrix iterations must be unique integers in [1,8]")
+  if any(
+    len(index) != 2
+    or any(type(value) is not int or not 0 <= value < 2 for value in index)
+    for index in axes["target_indices"]
+  ) or len(set(axes["target_indices"])) != len(axes["target_indices"]):
+    raise ValueError("matrix target indices must be unique elements of the 2x2 output")
+  for name in ("seeds", "layout_seeds"):
+    if any(type(value) is not int or value < 0 for value in axes[name]) or len(
+      set(axes[name])
+    ) != len(axes[name]):
+      raise ValueError(
+        f"matrix {name.replace('_', ' ')} must be unique nonnegative integers"
+      )
+  return [
+    {
+      "cell_id": (
+        f"iter-{iteration}-output-{index[0]}-{index[1]}-"
+        f"seed-{seed}-layout-{layout_seed}"
+      ),
+      "iterations": iteration,
+      "target_index": index,
+      "seed": seed,
+      "layout_seed": layout_seed,
+    }
+    for iteration in axes["iterations"]
+    for index in axes["target_indices"]
+    for seed in axes["seeds"]
+    for layout_seed in axes["layout_seeds"]
+  ]
+
+
+def _gpu_child_command(
+  gpu_report_path,
+  ir_dir,
+  *,
+  input_values,
+  iterations,
+  target,
+  target_index,
+  layout_seed,
+):
+  return [
+    sys.executable,
+    "-m",
+    "test.tensor.gluon.run_exact_loop",
+    "--output",
+    str(gpu_report_path),
+    "--ir-dir",
+    str(ir_dir),
+    "--input-values",
+    ",".join(str(value) for value in input_values),
+    "--iterations",
+    str(iterations),
+    "--target",
+    str(target),
+    "--target-index",
+    f"{target_index[0]},{target_index[1]}",
+    "--layout-seed",
+    str(layout_seed),
+  ]
+
+
 def _combined_compiler_observation(gpu_report):
   conversions = []
   stages = {}
   effective_operations = set()
   loop_statuses = []
-  compiler_records = [
-    case["compiler"]["observation"] for case in gpu_report["cases"].values()
-  ]
+  compiler_records = []
+  pass_compilations = []
+  for name, case in gpu_report["cases"].items():
+    compiler_records.append(case["compiler"]["observation"])
+    pass_record = case["compiler"].get("pass_observation")
+    if isinstance(pass_record, dict):
+      pass_compilations.append((name, pass_record))
   calibration = gpu_report.get("calibration_compiler")
   if isinstance(calibration, dict) and isinstance(calibration.get("observation"), dict):
     compiler_records.append(calibration["observation"])
+    pass_record = calibration.get("pass_observation")
+    if isinstance(pass_record, dict):
+      pass_compilations.append(("calibration-add-one-output-mutant", pass_record))
+  pass_transitions = []
+  pass_snapshot_count = 0
+  for compilation_name, compilation in pass_compilations:
+    pass_snapshot_count += compilation.get("snapshot_count", 0)
+    for transition in compilation.get("transitions", []):
+      pass_transitions.append({"compilation": compilation_name, **transition})
+  nonzero_layout_transitions = [
+    {
+      "compilation": transition["compilation"],
+      "pass": transition["pass"],
+      "delta": transition["effective_layout_conversion_delta"],
+      "operation_deltas": transition["effective_conversion_operation_deltas"],
+    }
+    for transition in pass_transitions
+    if transition["effective_layout_conversion_delta"] != 0
+  ]
+  pass_observation = {
+    "compilation_count": len(pass_compilations),
+    "snapshot_count": pass_snapshot_count,
+    "transition_count": len(pass_transitions),
+    "effective_layout_conversion_added": sum(
+      max(0, transition["effective_layout_conversion_delta"])
+      for transition in pass_transitions
+    ),
+    "effective_layout_conversion_removed": sum(
+      max(0, -transition["effective_layout_conversion_delta"])
+      for transition in pass_transitions
+    ),
+    "effective_layout_conversion_net_delta": sum(
+      transition["effective_layout_conversion_delta"] for transition in pass_transitions
+    ),
+    "effective_conversion_operation_net_deltas": {},
+    "nonzero_layout_conversion_transitions": nonzero_layout_transitions,
+    "duplicate_expression_group_delta": sum(
+      transition["duplicate_expression_group_delta"] for transition in pass_transitions
+    ),
+    "duplicate_repeated_operation_delta": sum(
+      transition["duplicate_repeated_operation_delta"]
+      for transition in pass_transitions
+    ),
+    "loop_construct_delta": sum(
+      transition["loop_construct_delta"] for transition in pass_transitions
+    ),
+    "interpretation_limit": (
+      "pass snapshots measure IR shape changes; duplicate-expression changes are "
+      "not a proof of rematerialization"
+    ),
+  }
+  for transition in pass_transitions:
+    for operation, delta in transition["effective_conversion_operation_deltas"].items():
+      operation_deltas = pass_observation["effective_conversion_operation_net_deltas"]
+      operation_deltas[operation] = operation_deltas.get(operation, 0) + delta
+  pass_observation["effective_conversion_operation_net_deltas"] = dict(
+    sorted(
+      (operation, delta)
+      for operation, delta in pass_observation[
+        "effective_conversion_operation_net_deltas"
+      ].items()
+      if delta
+    )
+  )
   for observation in compiler_records:
     conversions.extend(observation["layout_conversions"])
     effective_operations.update(observation["effective_conversion_operations"])
@@ -143,6 +330,7 @@ def _combined_compiler_observation(gpu_report):
       for name in ("retained", "unrolled_or_removed", "not_applicable")
     },
     "stages": stages,
+    "pass_observation": pass_observation,
   }
 
 
@@ -161,13 +349,25 @@ def _gpu_costs(gpu_report):
   return compilation_s, execution_s
 
 
-def _solve_selection(solver, output_dir, *, source, seed, budget_s):
+def _solve_selection(
+  solver,
+  output_dir,
+  *,
+  source,
+  seed,
+  budget_s,
+  iterations,
+  target,
+  target_index,
+):
   trial = _trial_record("solver", seed, budget_s)
   arm_dir = output_dir / "solver"
   arm_dir.mkdir(parents=True)
   started = time.perf_counter()
   generation_started = time.perf_counter()
-  query = build_tensor_exact_loop_case.render_query()
+  query = render_selection_query(
+    iterations=iterations, target=target, target_index=target_index
+  )
   query_path = arm_dir / "selection-query.sir"
   solved_path = arm_dir / "selection.solved.sir"
   model_path = arm_dir / "selection-model.json"
@@ -181,7 +381,7 @@ def _solve_selection(solver, output_dir, *, source, seed, budget_s):
     "--main",
     "@kernel",
     "--path",
-    ",".join(build_tensor_exact_loop_case.PATH),
+    ",".join(_exact_loop_path(iterations)),
     "--timeout-ms",
     str(int(SOLVER_TIMEOUT_S * 1000)),
     "--output",
@@ -264,8 +464,8 @@ def _solve_selection(solver, output_dir, *, source, seed, budget_s):
       model,
       source,
       domain=DOMAIN,
-      target=TARGET,
-      target_index=TARGET_INDEX,
+      target=target,
+      target_index=target_index,
     )
   except ValueError as error:
     trial["admission_status"] = "refused"
@@ -288,7 +488,18 @@ def _solve_selection(solver, output_dir, *, source, seed, budget_s):
   return trial, witness
 
 
-def _run_gpu_policy(trial, output_dir, witness, *, budget_s, started):
+def _run_gpu_policy(
+  trial,
+  output_dir,
+  witness,
+  *,
+  budget_s,
+  started,
+  iterations=ITERATIONS,
+  target=TARGET,
+  target_index=TARGET_INDEX,
+  layout_seed=LAYOUT_SEED,
+):
   if trial["admission_status"] != "admitted":
     return
   remaining = budget_s - (time.perf_counter() - started)
@@ -314,17 +525,15 @@ def _run_gpu_policy(trial, output_dir, witness, *, budget_s, started):
     item for item in (str(ROOT), existing_pythonpath) if item
   )
   env["TRITON_CACHE_DIR"] = str(cache_dir)
-  command = [
-    sys.executable,
-    "-m",
-    "test.tensor.gluon.run_exact_loop",
-    "--output",
-    str(gpu_report_path),
-    "--ir-dir",
-    str(ir_dir),
-    "--input-values",
-    ",".join(str(value) for value in witness["values"]),
-  ]
+  command = _gpu_child_command(
+    gpu_report_path,
+    ir_dir,
+    input_values=witness["values"],
+    iterations=iterations,
+    target=target,
+    target_index=target_index,
+    layout_seed=layout_seed,
+  )
   remaining = budget_s - (time.perf_counter() - started)
   if remaining <= 0:
     trial["execution_status"] = "execution_failure"
@@ -411,6 +620,10 @@ def run(
   seed=17,
   proposal_budget=1000,
   budget_s=DEFAULT_BUDGET_S,
+  iterations=ITERATIONS,
+  target=TARGET,
+  target_index=TARGET_INDEX,
+  layout_seed=LAYOUT_SEED,
 ):
   output_dir = Path(output_dir).resolve()
   output_dir.mkdir(parents=True, exist_ok=False)
@@ -418,6 +631,19 @@ def run(
     raise ValueError("seed must be a nonnegative integer")
   if type(proposal_budget) is not int or proposal_budget <= 0:
     raise ValueError("proposal_budget must be a positive integer")
+  if type(iterations) is not int or not 1 <= iterations <= 8:
+    raise ValueError("iterations must be in [1,8]")
+  if type(target) is not int:
+    raise ValueError("target must be an integer")
+  if (
+    not isinstance(target_index, (tuple, list))
+    or len(target_index) != 2
+    or any(type(value) is not int or not 0 <= value < 2 for value in target_index)
+  ):
+    raise ValueError("target_index must identify an element of the 2x2 output")
+  if type(layout_seed) is not int or layout_seed < 0:
+    raise ValueError("layout_seed must be a nonnegative integer")
+  target_index = tuple(target_index)
   if (
     isinstance(budget_s, bool)
     or not isinstance(budget_s, (int, float))
@@ -426,7 +652,7 @@ def run(
   ):
     raise ValueError("budget_s must be a finite positive number")
   budget_s = float(budget_s)
-  source = tensor_exact_f32.render_program()
+  source = tensor_exact_f32.render_program(iterations=iterations)
   trials = []
 
   random_started = time.perf_counter()
@@ -440,8 +666,8 @@ def run(
     selected = tensor_fixed_study.select_random_witness(
       source,
       domain=DOMAIN,
-      target=TARGET,
-      target_index=TARGET_INDEX,
+      target=target,
+      target_index=target_index,
       seed=seed,
       proposal_budget=proposal_budget,
       deadline=random_started + budget_s,
@@ -486,12 +712,23 @@ def run(
       selected,
       budget_s=budget_s,
       started=random_started,
+      iterations=iterations,
+      target=target,
+      target_index=target_index,
+      layout_seed=layout_seed,
     )
   trials.append(random_trial)
 
   solver_started = time.perf_counter()
   solver_trial, solver_witness = _solve_selection(
-    Path(solver).resolve(), output_dir, source=source, seed=seed, budget_s=budget_s
+    Path(solver).resolve(),
+    output_dir,
+    source=source,
+    seed=seed,
+    budget_s=budget_s,
+    iterations=iterations,
+    target=target,
+    target_index=target_index,
   )
   if solver_witness is not None:
     _run_gpu_policy(
@@ -500,9 +737,33 @@ def run(
       solver_witness,
       budget_s=budget_s,
       started=solver_started,
+      iterations=iterations,
+      target=target,
+      target_index=target_index,
+      layout_seed=layout_seed,
     )
   trials.append(solver_trial)
 
+  program_id = (
+    PROGRAM_ID
+    if iterations == ITERATIONS
+    else f"authored-2x2-two-state-loop-iterations-{iterations}-v1"
+  )
+  property_id = f"output-element-{target_index[0]}-{target_index[1]}-equals-{target}"
+  compiler_settings_id = (
+    "triton-3.8.0-v100-num-warps-1-fp-fusion-off-layout-seed-"
+    f"{layout_seed}-pass-dump-v1"
+  )
+  trial_id = f"seed-{seed}"
+  for trial in trials:
+    trial.update(
+      {
+        "program_id": program_id,
+        "property_id": property_id,
+        "compiler_settings_id": compiler_settings_id,
+        "trial": trial_id,
+      }
+    )
   ledger = {
     "schema": "refractir.tensor-fixed-contract-study.v1",
     "protocol": {
@@ -510,15 +771,18 @@ def run(
       "random_seed": seed,
       "random_proposal_budget": proposal_budget,
       "solver_timeout_s": SOLVER_TIMEOUT_S,
+      "iterations": iterations,
+      "property": {"target": target, "index": list(target_index)},
+      "layout_seed": layout_seed,
       "cache_isolation": "fresh TRITON_CACHE_DIR per policy arm",
       "calibration_control_contract": CALIBRATION_CONTROL_CONTRACT,
     },
     "fixed": {
-      "program_id": PROGRAM_ID,
+      "program_id": program_id,
       "program_sha256": hashlib.sha256(source.encode()).hexdigest(),
       "input_domain_id": DOMAIN_ID,
       "input_domain": list(DOMAIN),
-      "compiler_settings_id": COMPILER_SETTINGS_ID,
+      "compiler_settings_id": compiler_settings_id,
       "budget_s": budget_s,
     },
     "trials": trials,
@@ -529,6 +793,84 @@ def run(
   return {"ledger": ledger, "summary": summary}
 
 
+def run_matrix(
+  output_dir,
+  *,
+  solver,
+  iterations=(1, 2),
+  target_indices=((0, 0), (1, 1)),
+  seeds=(17, 29),
+  layout_seeds=(LAYOUT_SEED, LAYOUT_SEED + 1),
+  proposal_budget=1000,
+  budget_s=DEFAULT_BUDGET_S,
+):
+  """Run matched random/solver pairs over a fixed program/property/layout matrix."""
+  cells = _matrix_cell_specs(
+    iterations=iterations,
+    target_indices=target_indices,
+    seeds=seeds,
+    layout_seeds=layout_seeds,
+  )
+  iterations = tuple(iterations)
+  target_indices = tuple(tuple(index) for index in target_indices)
+  seeds = tuple(seeds)
+  layout_seeds = tuple(layout_seeds)
+  output_dir = Path(output_dir).resolve()
+  output_dir.mkdir(parents=True, exist_ok=False)
+  matrix = {
+    "schema": "refractir.tensor-selection-matrix.v1",
+    "status": "in_progress",
+    "protocol": {
+      "input_domain": list(DOMAIN),
+      "anchor_input_values": list(MATRIX_INPUT_VALUES),
+      "iterations": list(iterations),
+      "target_indices": [list(index) for index in target_indices],
+      "seeds": list(seeds),
+      "layout_seeds": list(layout_seeds),
+      "proposal_budget": proposal_budget,
+      "budget_s_per_policy": budget_s,
+      "pairing": "random and solver share one frozen program, property, seed and layout seed",
+    },
+    "cells": [],
+  }
+  matrix_path = output_dir / "matrix.json"
+  _write_json(matrix_path, matrix)
+  for cell in cells:
+    source = tensor_exact_f32.render_program(iterations=cell["iterations"])
+    anchor_bytes = struct.pack("<4f", *MATRIX_INPUT_VALUES)
+    _, anchor_output = tensor_exact_f32.certify(source, anchor_bytes, DOMAIN)
+    index = tuple(cell["target_index"])
+    target_value = struct.unpack("<4f", anchor_output)[index[0] * 2 + index[1]]
+    if not target_value.is_integer():
+      raise ValueError("matrix anchor must produce integer-valued properties")
+    target = int(target_value)
+    cell_report = run(
+      output_dir / cell["cell_id"],
+      solver=solver,
+      seed=cell["seed"],
+      proposal_budget=proposal_budget,
+      budget_s=budget_s,
+      iterations=cell["iterations"],
+      target=target,
+      target_index=index,
+      layout_seed=cell["layout_seed"],
+    )
+    matrix["cells"].append(
+      {
+        **cell,
+        "target": target,
+        "program_id": cell_report["ledger"]["fixed"]["program_id"],
+        "property_id": cell_report["ledger"]["trials"][0]["property_id"],
+        "study_path": str(Path(cell["cell_id"]) / "study.json"),
+        "summary": cell_report["summary"],
+      }
+    )
+    _write_json(matrix_path, matrix)
+  matrix["status"] = "complete"
+  _write_json(matrix_path, matrix)
+  return matrix
+
+
 def main(argv=None):
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("--output-dir", required=True)
@@ -536,15 +878,43 @@ def main(argv=None):
   parser.add_argument("--seed", type=int, default=17)
   parser.add_argument("--proposal-budget", type=int, default=1000)
   parser.add_argument("--budget-s", type=float, default=DEFAULT_BUDGET_S)
+  parser.add_argument("--matrix", action="store_true")
+  parser.add_argument("--seeds", default="17,29")
+  parser.add_argument("--iterations", default="1,2")
+  parser.add_argument("--target-indices", default="0,0;1,1")
+  parser.add_argument("--layout-seeds", default=f"{LAYOUT_SEED},{LAYOUT_SEED + 1}")
   args = parser.parse_args(argv)
-  report = run(
-    args.output_dir,
-    solver=args.symirsolve,
-    seed=args.seed,
-    proposal_budget=args.proposal_budget,
-    budget_s=args.budget_s,
-  )
-  print(json.dumps(report["summary"], sort_keys=True))
+  if args.matrix:
+    try:
+      iterations = tuple(int(value.strip()) for value in args.iterations.split(","))
+      seeds = tuple(int(value.strip()) for value in args.seeds.split(","))
+      layout_seeds = tuple(int(value.strip()) for value in args.layout_seeds.split(","))
+      target_indices = tuple(
+        tuple(int(value.strip()) for value in pair.split(","))
+        for pair in args.target_indices.split(";")
+      )
+    except ValueError as error:
+      parser.error(f"invalid matrix axis: {error}")
+    report = run_matrix(
+      args.output_dir,
+      solver=args.symirsolve,
+      iterations=iterations,
+      target_indices=target_indices,
+      seeds=seeds,
+      layout_seeds=layout_seeds,
+      proposal_budget=args.proposal_budget,
+      budget_s=args.budget_s,
+    )
+  else:
+    report = run(
+      args.output_dir,
+      solver=args.symirsolve,
+      seed=args.seed,
+      proposal_budget=args.proposal_budget,
+      budget_s=args.budget_s,
+    )
+    report = report["summary"]
+  print(json.dumps(report, sort_keys=True))
   return 0
 
 
