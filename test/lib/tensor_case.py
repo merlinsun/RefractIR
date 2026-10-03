@@ -539,9 +539,17 @@ def _validate_exact_f32_output_proof(
     proof.get("complete_output") is True,
     "exactness proof must cover the complete output",
   )
-  if proof.get("kind") == "composed-add-sum-f32-v1":
+  if proof.get("kind") in {
+    "composed-add-sum-f32-v1",
+    "bounded-region-add-sum-f32-v1",
+  }:
     from test.lib import tensor_exact_f32
 
+    expected_operators = (
+      tensor_exact_f32.OPERATIONS
+      if proof.get("kind") == tensor_exact_f32.KIND
+      else tensor_exact_f32.generated_region_operations(source)
+    )
     _require(
       len(described_inputs) == 1
       and described_inputs[0]["name"] == "x"
@@ -550,7 +558,7 @@ def _validate_exact_f32_output_proof(
       "composed proof requires one shape-matched runtime f32 input",
     )
     _require(
-      manifest.get("operator_coverage") == tensor_exact_f32.OPERATIONS,
+      manifest.get("operator_coverage") == expected_operators,
       "composed exactness proof disagrees with source operations",
     )
     _require(

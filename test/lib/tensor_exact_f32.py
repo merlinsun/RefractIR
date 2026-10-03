@@ -330,6 +330,70 @@ def _recognize(source):
   return shape, iterations
 
 
+def generated_region_operations(source):
+  """Return source-order tensor operations for an admitted generated region."""
+  _, _, _, nodes, _ = _generated_region_program(source)
+  return [operation for _, operation, _, _ in nodes] + ["add"]
+
+
+def generated_region_path(iterations):
+  return (
+    ["^entry", "^header"]
+    + [block for _ in range(iterations) for block in ("^body", "^header")]
+    + ["^exit"]
+  )
+
+
+def render_generated_region_query(source, domain, target):
+  """Build the i32 SMT twin only after the f32 region has been admitted."""
+  shape, iterations, _, _, _ = _generated_region_program(source)
+  if (
+    not isinstance(domain, (list, tuple))
+    or len(domain) != 2
+    or any(type(value) is not int for value in domain)
+    or not 0 <= domain[0] <= domain[1] <= EXACT_BOUND
+  ):
+    raise ValueError("exact domain requires nonnegative bounded integers")
+  if type(target) is not int:
+    raise ValueError("generated region target must be an integer")
+  shape_text = ", ".join(str(value) for value in shape)
+  signature = re.compile(
+    r"(?m)^fun @kernel\(%x: tensor \[[^\]]+\] f32\) : "
+    r"tensor \[[^\]]+\] f32 \{$"
+  )
+  match = signature.search(source)
+  if match is None:
+    raise ValueError("generated region query requires the admitted kernel signature")
+  query = (
+    source[: match.start()]
+    + (
+      "fun @kernel() : tensor ["
+      + shape_text
+      + "] i32 {\n  sym %?x : value tensor ["
+      + shape_text
+      + f"] i32 in [{domain[0]}, {domain[1]}];"
+    )
+    + source[match.end() :]
+  )
+  query = re.sub(r"\bf32\b", "i32", query)
+  query = re.sub(r"(?<![\w.])0\.0(?![\w.])", "0", query)
+  query = re.sub(r"%x\b", "%?x", query)
+  if "^entry:\n" not in query or query.count("  ret %out;") != 1:
+    raise ValueError("generated region query lost its canonical control flow")
+  query = query.replace(
+    "^entry:\n", "  let mut %__exact_selected: i32 = undef;\n^entry:\n", 1
+  )
+  query = query.replace(
+    "  ret %out;",
+    "  %__exact_selected = tensor extract %out, [0, 0];\n"
+    f"  require %__exact_selected == {target};\n  ret %out;",
+    1,
+  )
+  if len(generated_region_path(iterations)) < 5:
+    raise ValueError("generated region path is malformed")
+  return query
+
+
 def _certify_canonical(source, input_bytes, domain):
   """Return recomputed proof evidence and complete independent output bits."""
   shape, iterations = _recognize(source)
@@ -617,12 +681,14 @@ def validate(source, input_bytes, expected_bytes, proof, *, artifacts=None):
     if artifacts is None:
       raise ValueError("solver selection artifacts are required")
     validate_selection(
-      source, input_bytes, expected_bytes, recorded_selection, artifacts
+      source, input_bytes, expected_bytes, recorded_selection, artifacts, proof=proof
     )
   return expected
 
 
-def validate_selection(source, input_bytes, expected_bytes, selection, artifacts):
+def validate_selection(
+  source, input_bytes, expected_bytes, selection, artifacts, *, proof=None
+):
   """Check the exact i32 query, returned model and solver terminal record."""
   required = {
     "method",
@@ -641,20 +707,54 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
   }
   if not isinstance(selection, dict) or set(selection) != required:
     raise ValueError("solver selection evidence is incomplete")
-  if selection["method"] != "bounded-integer-twin-smt" or selection["domain"] != [0, 8]:
+  if selection["method"] != "bounded-integer-twin-smt":
     raise ValueError("solver selection domain or method is invalid")
-  if selection["target"] != {"index": [0, 0], "value": 63}:
+  try:
+    canonical_shape, iterations = _recognize(source)
+    generated = False
+  except ValueError:
+    canonical_shape, iterations, _, _, _ = _generated_region_program(source)
+    generated = True
+  domain = selection["domain"]
+  if (
+    not isinstance(domain, list)
+    or len(domain) != 2
+    or any(type(value) is not int for value in domain)
+    or not 0 <= domain[0] <= domain[1] <= EXACT_BOUND
+    or (not generated and domain != [0, 8])
+  ):
+    raise ValueError("solver selection domain or method is invalid")
+  if proof is not None and proof.get("input_domain") != domain:
+    raise ValueError("solver selection domain differs from the exactness proof")
+  target = selection["target"]
+  if (
+    not isinstance(target, dict)
+    or set(target) != {"index", "value"}
+    or not isinstance(target["index"], list)
+    or len(target["index"]) != len(canonical_shape)
+    or any(type(value) is not int for value in target["index"])
+    or any(
+      coordinate < 0 or coordinate >= extent
+      for coordinate, extent in zip(target["index"], canonical_shape)
+    )
+    or type(target["value"]) is not int
+  ):
     raise ValueError("solver selection target is invalid")
-  if selection["path"] != [
-    "^entry",
-    "^header",
-    "^body",
-    "^header",
-    "^body",
-    "^header",
-    "^exit",
-  ]:
-    raise ValueError("solver selection path does not visit both loop iterations")
+  expected_path = (
+    generated_region_path(iterations)
+    if generated
+    else [
+      "^entry",
+      "^header",
+      "^body",
+      "^header",
+      "^body",
+      "^header",
+      "^exit",
+    ]
+  )
+  if selection["path"] != expected_path:
+    raise ValueError("solver selection path does not match the admitted loop visits")
   if selection["replay"] != "complete-f32-output-bitwise":
     raise ValueError("solver selection lacks complete bitwise replay")
   try:
@@ -672,9 +772,13 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
       raise ValueError("solver result digest does not match")
   except (KeyError, TypeError) as error:
     raise ValueError("solver selection artifact is missing") from error
-  from test.lib.build_tensor_exact_loop_case import render_query
+  if generated:
+    expected_query = render_generated_region_query(source, domain, target["value"])
+  else:
+    from test.lib.build_tensor_exact_loop_case import render_query
 
-  if query != render_query().encode():
+    expected_query = render_query()
+  if query != expected_query.encode():
     raise ValueError("solver query differs from the admitted integer twin")
   try:
     model = json.loads(model_bytes)
@@ -684,8 +788,10 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
     raise ValueError("solver model or terminal result is malformed") from error
   if (
     not isinstance(values, list)
-    or len(values) != 4
-    or any(type(value) is not int or not 0 <= value <= 8 for value in values)
+    or len(values) != math.prod(canonical_shape)
+    or any(
+      type(value) is not int or not domain[0] <= value <= domain[1] for value in values
+    )
   ):
     raise ValueError("solver model has invalid leaves for the declared domain")
   if struct.pack("<4f", *values) != input_bytes:
@@ -722,6 +828,7 @@ def validate_selection(source, input_bytes, expected_bytes, selection, artifacts
       raise ValueError(f"solver command {option} differs from recorded selection")
   if "--emit-tensor-params" in command or "--tensor-param-domain" in command:
     raise ValueError("solver command uses tensor parameter options for a symbol query")
-  output = struct.unpack("<4f", expected_bytes)
-  if output[0] != selection["target"]["value"]:
+  output = struct.unpack(f"<{len(expected_bytes) // 4}f", expected_bytes)
+  output_index = _flat_index(target["index"], canonical_shape)
+  if output[output_index] != target["value"]:
     raise ValueError("complete reference output does not satisfy the solver target")

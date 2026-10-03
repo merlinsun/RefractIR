@@ -442,7 +442,8 @@ test-tensor-exact: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER)
 	  REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) $(PY) -m unittest \
 	  test.unit.test_tensor_exact_cli test.unit.test_tensor_exact_composed \
 	  test.unit.test_tensor_exact_builder \
-	  test.unit.test_tensor_exact_selection_evidence test.unit.test_tensor_semantics.TensorExactTests
+	  test.unit.test_tensor_exact_selection_evidence \
+	  test.unit.test_tensor_exact_region_case test.unit.test_tensor_semantics.TensorExactTests
 
 test-tensor-numeric: $(TARGET_INTERP)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest test.unit.test_tensor_semantics.TensorNumericTests
