@@ -368,13 +368,13 @@ def run_refractirc_test(refractirc_path, target="c", structured=False):
       if res_gcc.returncode != 0:
         return TestResult.FAIL, f"GCC error:\n{res_gcc.stderr}"
 
-      # Run executable; disable LSAN so it works outside ptrace environments
-      # ASAN flag enables runtime cross-object pointer-compare / -subtract
-      # detection (paired with the -fsanitize options above) per spec rule 14.
+      # Disable LSAN so the runner works outside ptrace environments. Enable
+      # cross-object comparisons (rule 14) and dead-frame dereference checks
+      # (rule 27) explicitly because ASan runtime defaults vary by toolchain.
       run_cmd = [
         "env",
         "LSAN_OPTIONS=detect_leaks=0",
-        "ASAN_OPTIONS=detect_invalid_pointer_pairs=2",
+        "ASAN_OPTIONS=detect_invalid_pointer_pairs=2:detect_stack_use_after_return=1",
         exe_out,
       ]
     elif target == "python":
