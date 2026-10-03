@@ -6,9 +6,22 @@ import re
 import shutil
 import struct
 import subprocess
+from pathlib import Path
 
 PAYLOAD_MASK = 0xFFFFFFFF
 KNOWN_INPUT_PAYLOADS = (0, 1, PAYLOAD_MASK)
+PINNED_TRITON_REVISION = "e2e356723ce35f46b5144373b145c55c4d712237"
+PINNED_FPSAN_SOURCE_SHA256 = {
+  "python/triton/backends/nvidia/compiler.py": (
+    "e4326bac1f3d3a9bf76cff03b66e5c849aaac384562efa6f4caf59c936709ccb"
+  ),
+  "lib/Dialect/TritonInstrument/Transforms/FpSanitizer.cpp": (
+    "55288bde0dfe83d68acd84c284afe929ab17b3f46d268513d39701c11d4e41c8"
+  ),
+  "lib/Conversion/TritonInstrumentToLLVM/FpSanToLLVM.cpp": (
+    "04bc0482782501db8768c520e0afdab64538e1de521ec12c220f9214a2129f33"
+  ),
+}
 _WORD_ZERO = "#x00000000"
 _WORD_ONE = "#x00000001"
 _WORD_NEG_ONE = "#xFFFFFFFF"
@@ -161,6 +174,132 @@ def compare_words(actual, expected):
   return [
     index for index, (left, right) in enumerate(zip(actual, expected)) if left != right
   ]
+
+
+def validate_instrumentation_sensitivity(instrumented, ordinary, ordinary_expected):
+  """Require an enabled FpSan run to differ from its verified IEEE control."""
+  if any(
+    not isinstance(words, (list, tuple)) or not words
+    for words in (instrumented, ordinary, ordinary_expected)
+  ):
+    raise ValueError("instrumentation sensitivity outputs must be non-empty sequences")
+  ordinary_mismatches = compare_words(ordinary, ordinary_expected)
+  if ordinary_mismatches:
+    raise AssertionError("disabled-mode control did not match its expected IEEE result")
+  mismatch_lanes = compare_words(instrumented, ordinary)
+  if not mismatch_lanes:
+    raise AssertionError(
+      "FpSan output matched ordinary IEEE execution; instrumentation is inactive"
+    )
+  return {"status": "pass", "mismatch_lanes": mismatch_lanes}
+
+
+def validate_fpsan_payload_lowering(llvm_ir):
+  """Require integer payload addition and reject residual IEEE arithmetic."""
+  if not isinstance(llvm_ir, str) or not llvm_ir.strip():
+    raise ValueError("FpSan payload lowering requires non-empty LLVM IR")
+  lines = llvm_ir.splitlines()
+  integer_operations = [
+    line.strip()
+    for line in lines
+    if re.search(
+      r"\badd\s+(?:i\d+|<\d+\s*x\s*i\d+>)|@llvm\.vector\.reduce\.add\b", line
+    )
+  ]
+  floating_operations = [
+    line.strip() for line in lines if re.search(r"\bf(?:add|sub|mul|div|rem)\b", line)
+  ]
+  if floating_operations:
+    raise AssertionError(
+      "FpSan payload lowering retained floating-point arithmetic: "
+      + "; ".join(floating_operations)
+    )
+  if not integer_operations:
+    raise AssertionError("FpSan payload lowering has no integer payload addition")
+  return {
+    "status": "pass",
+    "integer_operation_lines": integer_operations,
+    "floating_operation_lines": floating_operations,
+  }
+
+
+def verify_fpsan_source_identity(
+  source_root,
+  git_revision,
+  *,
+  expected_revision=PINNED_TRITON_REVISION,
+  expected_sources=None,
+):
+  """Verify the pinned Triton revision and hashes of its FpSan implementation."""
+  source_root = Path(source_root).resolve()
+  source_manifest = (
+    PINNED_FPSAN_SOURCE_SHA256 if expected_sources is None else expected_sources
+  )
+  if not re.fullmatch(r"[0-9a-f]{40}", git_revision):
+    raise ValueError("Triton git revision must be a full lowercase commit hash")
+  if git_revision != expected_revision:
+    raise RuntimeError(
+      f"expected pinned Triton revision {expected_revision}, found {git_revision}"
+    )
+  if not source_manifest:
+    raise ValueError("FpSan source manifest must not be empty")
+
+  actual_hashes = {}
+  for relative_path, expected_hash in source_manifest.items():
+    path = Path(relative_path)
+    if path.is_absolute() or ".." in path.parts:
+      raise ValueError("FpSan source manifest paths must stay inside the source root")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+      raise ValueError(f"invalid SHA-256 in FpSan source manifest: {relative_path}")
+    source_path = (source_root / path).resolve()
+    try:
+      source_path.relative_to(source_root)
+    except ValueError as error:
+      raise ValueError(
+        "FpSan source manifest paths must stay inside the source root"
+      ) from error
+    try:
+      contents = source_path.read_bytes()
+    except OSError as error:
+      raise RuntimeError(f"FpSan source file is missing: {relative_path}") from error
+    actual_hash = hashlib.sha256(contents).hexdigest()
+    if actual_hash != expected_hash:
+      raise RuntimeError(
+        f"FpSan source hash mismatch for {relative_path}: {actual_hash}"
+      )
+    actual_hashes[relative_path] = actual_hash
+
+  return {
+    "git_commit": git_revision,
+    "source_sha256": actual_hashes,
+  }
+
+
+def verify_installed_fpsan_source(triton_module):
+  """Locate Triton's source checkout and verify the FpSan implementation pin."""
+  module_file = Path(triton_module.__file__).resolve()
+  source_root = next(
+    (
+      parent
+      for parent in module_file.parents
+      if (parent / ".git").exists()
+      and (parent / "python/triton/__init__.py").resolve() == module_file
+    ),
+    None,
+  )
+  if source_root is None:
+    raise RuntimeError("installed Triton source checkout cannot be identified")
+  result = subprocess.run(
+    ["git", "-C", str(source_root), "rev-parse", "HEAD"],
+    capture_output=True,
+    text=True,
+    check=False,
+  )
+  if result.returncode != 0:
+    raise RuntimeError(f"cannot read Triton source revision: {result.stderr.strip()}")
+  identity = verify_fpsan_source_identity(source_root, result.stdout.strip())
+  identity["source_root"] = str(source_root)
+  return identity
 
 
 def _payload_inputs(name, inputs):

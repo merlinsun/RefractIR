@@ -18,6 +18,9 @@ from test.lib.tensor_fpsan import (
   prove_payload_kernel_equations,
   prove_payload_laws,
   synthesize_payload_case,
+  validate_fpsan_payload_lowering,
+  validate_instrumentation_sensitivity,
+  verify_installed_fpsan_source,
 )
 
 TRITON_VERSION = "3.8.0"
@@ -41,6 +44,11 @@ def add_reassociated_kernel(a_ptr, b_ptr, c_ptr, d_ptr, out_ptr):
   c = tl.load(c_ptr)
   d = tl.load(d_ptr)
   tl.store(out_ptr, (a + c) + (b + d))
+
+
+@triton.jit
+def instrumentation_sensitivity_kernel(a_ptr, b_ptr, out_ptr):
+  tl.store(out_ptr, tl.load(a_ptr) + tl.load(b_ptr))
 
 
 @triton.jit
@@ -185,9 +193,58 @@ def _run_measured_case(name, launch, tensor, expected, ir_directory, witness):
   return result
 
 
+def _run_instrumentation_sensitivity(ir_directory):
+  left = torch.tensor([1.0], dtype=torch.float32, device="cuda")
+  right = torch.tensor([1.0], dtype=torch.float32, device="cuda")
+  instrumented_output = torch.empty((1,), dtype=torch.float32, device="cuda")
+  ordinary_output = torch.empty_like(instrumented_output)
+  previous_mode = triton.knobs.compilation.instrumentation_mode
+  try:
+    triton.knobs.compilation.instrumentation_mode = "fpsan"
+    compiled_instrumented = instrumentation_sensitivity_kernel[(1,)](
+      left, right, instrumented_output, num_warps=1
+    )
+    torch.cuda.synchronize()
+    instrumented_words = _raw_words(instrumented_output)
+
+    triton.knobs.compilation.instrumentation_mode = ""
+    compiled_ordinary = instrumentation_sensitivity_kernel[(1,)](
+      left, right, ordinary_output, num_warps=1
+    )
+    torch.cuda.synchronize()
+    ordinary_words = _raw_words(ordinary_output)
+  finally:
+    triton.knobs.compilation.instrumentation_mode = previous_mode
+
+  ordinary_expected = [0x40000000]
+  acceptance = validate_instrumentation_sensitivity(
+    instrumented_words, ordinary_words, ordinary_expected
+  )
+  payload_lowering = validate_fpsan_payload_lowering(
+    getattr(compiled_instrumented, "asm", {}).get("llir", "")
+  )
+  return {
+    **acceptance,
+    "payload_lowering": payload_lowering,
+    "input_bits": ["3f800000", "3f800000"],
+    "instrumented_bits": [f"{word:08x}" for word in instrumented_words],
+    "ordinary_bits": [f"{word:08x}" for word in ordinary_words],
+    "ordinary_expected_bits": [f"{word:08x}" for word in ordinary_expected],
+    "compiler_ir": {
+      "fpsan": _capture_ir(
+        compiled_instrumented, "instrumentation_sensitivity_fpsan", ir_directory
+      ),
+      "ordinary": _capture_ir(
+        compiled_ordinary, "instrumentation_sensitivity_ordinary", ir_directory
+      ),
+    },
+  }
+
+
 def run(output_path, ir_directory):
   if triton.__version__ != TRITON_VERSION:
     raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
+  source_identity = verify_installed_fpsan_source(triton)
   if not torch.cuda.is_available():
     raise RuntimeError("CUDA device is unavailable")
   device_name = torch.cuda.get_device_name()
@@ -199,6 +256,7 @@ def run(output_path, ir_directory):
     raise RuntimeError("installed Triton has no FpSan instrumentation knob")
   triton.knobs.compilation.instrumentation_mode = "fpsan"
   ir_directory.mkdir(parents=True, exist_ok=True)
+  instrumentation_sensitivity = _run_instrumentation_sensitivity(ir_directory)
   if not prove_payload_laws():
     raise AssertionError("independent bit-vector payload checks failed")
   equation_proofs = prove_payload_kernel_equations()
@@ -228,6 +286,7 @@ def run(output_path, ir_directory):
   report = {
     "contract": "triton-fpsan-fixed-payload-ring-v2",
     "triton_version": triton.__version__,
+    "triton_source_identity": source_identity,
     "torch_version": torch.__version__,
     "instrumentation_mode": triton.knobs.compilation.instrumentation_mode,
     "device_name": device_name,
@@ -243,6 +302,7 @@ def run(output_path, ir_directory):
     "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     "cases": {},
     "smt_witnesses": witnesses,
+    "instrumentation_sensitivity": instrumentation_sensitivity,
   }
 
   expected_sum = witnesses["sum_reduction"]["reference_payloads"][0]

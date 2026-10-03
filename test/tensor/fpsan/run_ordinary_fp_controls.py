@@ -13,7 +13,11 @@ import triton
 import triton.language as tl
 from triton.language.extra.cuda import libdevice
 
-from test.lib.tensor_fpsan import f32_fmod_bits, rounding_reassociation_bits
+from test.lib.tensor_fpsan import (
+  f32_fmod_bits,
+  rounding_reassociation_bits,
+  verify_installed_fpsan_source,
+)
 
 TRITON_VERSION = "3.8.0"
 WARMUP_LAUNCHES = 3
@@ -91,6 +95,7 @@ def _measure_launches(launch):
 def run(output_path, ir_directory):
   if triton.__version__ != TRITON_VERSION:
     raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
+  source_identity = verify_installed_fpsan_source(triton)
   if not torch.cuda.is_available():
     raise RuntimeError("CUDA device is unavailable")
   device_name = torch.cuda.get_device_name()
@@ -112,6 +117,7 @@ def run(output_path, ir_directory):
   report = {
     "contract": "ordinary-ieee-f32-controls-v1",
     "triton_version": triton.__version__,
+    "triton_source_identity": source_identity,
     "torch_version": torch.__version__,
     "instrumentation_mode": getattr(
       triton.knobs.compilation, "instrumentation_mode", ""

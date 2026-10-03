@@ -1,8 +1,12 @@
 """Host-side contracts for the pinned FpSan payload subset."""
 
+import hashlib
 import importlib
+import tempfile
 import unittest
+from pathlib import Path
 from subprocess import CompletedProcess
+from types import SimpleNamespace
 from unittest import mock
 
 from test.lib.tensor_fpsan import (
@@ -179,6 +183,159 @@ class TensorFpSanModelTests(unittest.TestCase):
     proofs = self.fpsan().prove_payload_kernel_equations()
     self.assertGreaterEqual(len(proofs), 7)
     self.assertTrue(all(item["status"] == "unsat" for item in proofs))
+
+  def test_instrumentation_sensitivity_accepts_a_detected_difference(self):
+    result = self.fpsan().validate_instrumentation_sensitivity(
+      [0x2AAEB900], [0x40000000], [0x40000000]
+    )
+    self.assertEqual(result["status"], "pass")
+    self.assertEqual(result["mismatch_lanes"], [0])
+
+  def test_instrumentation_sensitivity_rejects_an_inactive_mode(self):
+    with self.assertRaisesRegex(AssertionError, "matched ordinary IEEE"):
+      self.fpsan().validate_instrumentation_sensitivity(
+        [0x40000000], [0x40000000], [0x40000000]
+      )
+
+  def test_instrumentation_sensitivity_checks_the_disabled_reference(self):
+    with self.assertRaisesRegex(AssertionError, "disabled-mode control"):
+      self.fpsan().validate_instrumentation_sensitivity(
+        [0x2AAEB900], [0x3F800000], [0x40000000]
+      )
+
+  def test_instrumentation_sensitivity_rejects_empty_outputs(self):
+    with self.assertRaisesRegex(ValueError, "non-empty"):
+      self.fpsan().validate_instrumentation_sensitivity([], [], [])
+
+  def test_instrumentation_sensitivity_validates_raw_word_width(self):
+    with self.assertRaisesRegex(ValueError, "unsigned 32-bit"):
+      self.fpsan().validate_instrumentation_sensitivity(
+        [0x1_0000_0000], [0x40000000], [0x40000000]
+      )
+
+  def test_payload_lowering_accepts_integer_reduction_without_float_arithmetic(self):
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      "call i32 @llvm.vector.reduce.add.v2i32(<2 x i32> %payload)"
+    )
+    self.assertEqual(result["status"], "pass")
+    self.assertEqual(len(result["integer_operation_lines"]), 1)
+
+  def test_payload_lowering_rejects_floating_add_even_with_integer_add(self):
+    with self.assertRaisesRegex(AssertionError, "floating-point arithmetic"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        "%sum = add i32 %a, %b\n%float = fadd float %x, %y"
+      )
+
+  def test_payload_lowering_rejects_ir_without_integer_addition(self):
+    with self.assertRaisesRegex(AssertionError, "integer payload addition"):
+      self.fpsan().validate_fpsan_payload_lowering("ret void")
+
+  def test_payload_lowering_rejects_empty_ir(self):
+    with self.assertRaisesRegex(ValueError, "non-empty LLVM IR"):
+      self.fpsan().validate_fpsan_payload_lowering("")
+
+  def test_payload_lowering_rejects_floating_multiply(self):
+    with self.assertRaisesRegex(AssertionError, "floating-point arithmetic"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        "%sum = call i32 @llvm.vector.reduce.add.v2i32(%payload)\n"
+        "%product = fmul float %x, %y"
+      )
+
+  def test_source_identity_accepts_the_pinned_revision_and_hashes(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      root = Path(temporary)
+      source = root / "lib/FpSan.cpp"
+      source.parent.mkdir(parents=True)
+      source.write_bytes(b"pinned implementation")
+      digest = hashlib.sha256(source.read_bytes()).hexdigest()
+      identity = self.fpsan().verify_fpsan_source_identity(
+        root,
+        "a" * 40,
+        expected_revision="a" * 40,
+        expected_sources={"lib/FpSan.cpp": digest},
+      )
+    self.assertEqual(identity["git_commit"], "a" * 40)
+    self.assertEqual(identity["source_sha256"], {"lib/FpSan.cpp": digest})
+
+  def test_source_identity_rejects_a_different_git_revision(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      with self.assertRaisesRegex(RuntimeError, "pinned Triton revision"):
+        self.fpsan().verify_fpsan_source_identity(
+          Path(temporary),
+          "b" * 40,
+          expected_revision="a" * 40,
+          expected_sources={},
+        )
+
+  def test_source_identity_rejects_changed_instrumentation_source(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      root = Path(temporary)
+      source = root / "lib/FpSan.cpp"
+      source.parent.mkdir(parents=True)
+      source.write_bytes(b"modified implementation")
+      with self.assertRaisesRegex(RuntimeError, "source hash mismatch"):
+        self.fpsan().verify_fpsan_source_identity(
+          root,
+          "a" * 40,
+          expected_revision="a" * 40,
+          expected_sources={"lib/FpSan.cpp": hashlib.sha256(b"pinned").hexdigest()},
+        )
+
+  def test_source_identity_rejects_missing_instrumentation_source(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      with self.assertRaisesRegex(RuntimeError, "source file is missing"):
+        self.fpsan().verify_fpsan_source_identity(
+          Path(temporary),
+          "a" * 40,
+          expected_revision="a" * 40,
+          expected_sources={"lib/FpSan.cpp": "0" * 64},
+        )
+
+  def test_source_identity_requires_a_nonempty_source_manifest(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      with self.assertRaisesRegex(ValueError, "source manifest"):
+        self.fpsan().verify_fpsan_source_identity(
+          Path(temporary),
+          "a" * 40,
+          expected_revision="a" * 40,
+          expected_sources={},
+        )
+
+  def test_source_identity_rejects_manifest_paths_outside_checkout(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      with self.assertRaisesRegex(ValueError, "stay inside the source root"):
+        self.fpsan().verify_fpsan_source_identity(
+          Path(temporary),
+          "a" * 40,
+          expected_revision="a" * 40,
+          expected_sources={"../outside.cpp": "0" * 64},
+        )
+
+  def test_installed_source_verification_records_the_checkout_revision(self):
+    api = self.fpsan()
+    with tempfile.TemporaryDirectory() as temporary:
+      root = Path(temporary)
+      (root / ".git").mkdir()
+      module_path = root / "python/triton/__init__.py"
+      module_path.parent.mkdir(parents=True)
+      module_path.write_text("", encoding="utf-8")
+      module = SimpleNamespace(__file__=str(module_path))
+      with mock.patch.object(
+        api.subprocess,
+        "run",
+        return_value=CompletedProcess(["git"], 0, "a" * 40 + "\n", ""),
+      ) as run:
+        with mock.patch.object(
+          api,
+          "verify_fpsan_source_identity",
+          return_value={"git_commit": "a" * 40, "source_sha256": {}},
+        ):
+          identity = api.verify_installed_fpsan_source(module)
+    self.assertEqual(identity["git_commit"], "a" * 40)
+    self.assertEqual(Path(identity["source_root"]), root.resolve())
+    self.assertEqual(
+      run.call_args.args[0], ["git", "-C", str(root.resolve()), "rev-parse", "HEAD"]
+    )
 
 
 if __name__ == "__main__":
