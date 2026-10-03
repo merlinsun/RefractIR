@@ -153,6 +153,361 @@ def end_to_end_seconds(record):
   return sum(_nonnegative_finite(record.get(key), key) for key in _COST_FIELDS)
 
 
+def _study_compiler_record(observation):
+  if not isinstance(observation, dict):
+    raise ValueError("compiler_observation must be an object")
+  conversions = observation.get("layout_conversions")
+  if not isinstance(conversions, list):
+    raise ValueError("compiler observation must include layout_conversions")
+  effective = 0
+  conversion_operations = {}
+  for index, conversion in enumerate(conversions):
+    if (
+      not isinstance(conversion, dict)
+      or type(conversion.get("layout_changed")) is not bool
+    ):
+      raise ValueError(f"compiler conversion {index} has no layout-change result")
+    if conversion["layout_changed"]:
+      effective += 1
+      operation = conversion.get("source_operation")
+      if not isinstance(operation, str) or not operation:
+        raise ValueError("effective layout conversion has no source operation")
+      conversion_operations[operation] = conversion_operations.get(operation, 0) + 1
+  if type(observation.get("layout_conversion_count")) is not int or (
+    observation["layout_conversion_count"] != effective
+  ):
+    raise ValueError("compiler observation layout-conversion count is inconsistent")
+  if observation.get("effective_conversion_operations") != sorted(
+    conversion_operations
+  ):
+    raise ValueError("compiler observation conversion identities are inconsistent")
+  compilation_count = observation.get("compilation_count", 1)
+  _positive_integer(compilation_count, "compiler observation compilation_count")
+
+  loop_status = observation.get("loop_status")
+  if loop_status not in {"retained", "unrolled_or_removed", "not_applicable"}:
+    raise ValueError("compiler observation has an invalid loop status")
+  loop_status_counts = observation.get("loop_status_counts")
+  if loop_status_counts is None:
+    loop_status_counts = {
+      name: compilation_count * int(loop_status == name)
+      for name in ("retained", "unrolled_or_removed", "not_applicable")
+    }
+  if (
+    not isinstance(loop_status_counts, dict)
+    or set(loop_status_counts) != {"retained", "unrolled_or_removed", "not_applicable"}
+    or any(type(count) is not int or count < 0 for count in loop_status_counts.values())
+    or sum(loop_status_counts.values()) != compilation_count
+  ):
+    raise ValueError("compiler observation loop-status counts are inconsistent")
+  stages = observation.get("stages")
+  if not isinstance(stages, dict):
+    raise ValueError("compiler observation must include stage records")
+  reused_values = 0
+  duplicate_groups = 0
+  duplicate_operations = 0
+  for stage, data in stages.items():
+    if not isinstance(stage, str) or not isinstance(data, dict):
+      raise ValueError("compiler observation stage must be an object")
+    reused = data.get("reused_values", [])
+    duplicates = data.get("duplicate_expressions", [])
+    if not isinstance(reused, list) or not isinstance(duplicates, list):
+      raise ValueError(
+        f"compiler stage {stage} has invalid reuse/rematerialization data"
+      )
+    reused_values += len(reused)
+    duplicate_groups += len(duplicates)
+    for group in duplicates:
+      if not isinstance(group, dict) or type(group.get("count")) is not int:
+        raise ValueError(f"compiler stage {stage} has invalid duplicate expression")
+      if group["count"] < 2:
+        raise ValueError("duplicate expression groups must contain repeated operations")
+      duplicate_operations += group["count"] - 1
+
+  ptx = stages.get("ptx", {})
+  if not isinstance(ptx, dict):
+    raise ValueError("PTX compiler stage must be an object")
+  warp_shuffles = ptx.get("warp_shuffle_count", 0)
+  shared_transfers = ptx.get("shared_memory_transfer_count", 0)
+  for name, value in (
+    ("warp_shuffle_count", warp_shuffles),
+    ("shared_memory_transfer_count", shared_transfers),
+  ):
+    if type(value) is not int or value < 0:
+      raise ValueError(f"compiler observation {name} must be a nonnegative integer")
+  return {
+    "compilations": compilation_count,
+    "effective_layout_conversions": effective,
+    "conversion_operations": conversion_operations,
+    "reused_values": reused_values,
+    "duplicate_expression_groups": duplicate_groups,
+    "duplicate_operations": duplicate_operations,
+    "loop_status": loop_status,
+    "loop_status_counts": loop_status_counts,
+    "ptx_warp_shuffles": warp_shuffles,
+    "ptx_shared_memory_transfers": shared_transfers,
+  }
+
+
+def _empty_study_policy():
+  return {
+    "attempts": 0,
+    "admitted": 0,
+    "refused": 0,
+    "timeouts": 0,
+    "unsat": 0,
+    "gpu_executions": 0,
+    "useful_executions": 0,
+    "mismatches": 0,
+    "elapsed_s": 0.0,
+    "allocated_budget_s": 0.0,
+    "cost_s": {field: 0.0 for field in _COST_FIELDS},
+    "calibration_counts": {
+      name: 0
+      for name in ("true_positive", "false_negative", "true_negative", "false_positive")
+    },
+    "compiler": {
+      "compilations": 0,
+      "compilations_without_observation": 0,
+      "effective_layout_conversions": 0,
+      "conversion_operations": {},
+      "reused_values": 0,
+      "duplicate_expression_groups": 0,
+      "duplicate_operations": 0,
+      "retained_loop_compilations": 0,
+      "unrolled_or_removed_loop_compilations": 0,
+      "ptx_warp_shuffles": 0,
+      "ptx_shared_memory_transfers": 0,
+    },
+  }
+
+
+def _finish_study_policy(summary):
+  summary["admission_rate"] = (
+    summary["admitted"] / summary["attempts"] if summary["attempts"] else None
+  )
+  summary["useful_executions_per_budget_second"] = (
+    summary["useful_executions"] / summary["allocated_budget_s"]
+    if summary["allocated_budget_s"]
+    else None
+  )
+  summary["end_to_end_cost_per_useful_execution_s"] = (
+    sum(summary["cost_s"].values()) / summary["useful_executions"]
+    if summary["useful_executions"]
+    else None
+  )
+  counts = summary.pop("calibration_counts")
+  sensitivity_denominator = counts["true_positive"] + counts["false_negative"]
+  specificity_denominator = counts["true_negative"] + counts["false_positive"]
+  summary["calibration"] = {
+    **counts,
+    "sensitivity": counts["true_positive"] / sensitivity_denominator
+    if sensitivity_denominator
+    else None,
+    "specificity": counts["true_negative"] / specificity_denominator
+    if specificity_denominator
+    else None,
+  }
+
+
+def summarize_fixed_contract_study(ledger):
+  """Summarize paired selection policies under one frozen K/domain/settings/budget.
+
+  Semantic routes and properties remain separate in the result: admission and
+  calibration rates are comparable only within one route/property pair.
+  """
+  if not isinstance(ledger, dict) or ledger.get("schema") != (
+    "refractir.tensor-fixed-contract-study.v1"
+  ):
+    raise ValueError("fixed-contract study schema is invalid")
+  fixed = ledger.get("fixed")
+  trials = ledger.get("trials")
+  if not isinstance(fixed, dict) or not isinstance(trials, list) or not trials:
+    raise ValueError(
+      "fixed-contract study requires a frozen contract and trial records"
+    )
+  identities = ("program_id", "input_domain_id", "compiler_settings_id")
+  for name in identities:
+    if not isinstance(fixed.get(name), str) or not fixed[name]:
+      raise ValueError(f"fixed study must pin {name}")
+  budget = _nonnegative_finite(fixed.get("budget_s"), "fixed budget_s")
+  if budget == 0:
+    raise ValueError("fixed budget_s must be positive")
+
+  routes = {}
+  pairs = {}
+  calibration_pairs = {}
+  seen_records = set()
+  for index, trial in enumerate(trials):
+    if not isinstance(trial, dict):
+      raise ValueError(f"trial {index} must be an object")
+    for name in identities:
+      if trial.get(name) != fixed[name]:
+        raise ValueError(f"trial {index} differs from frozen {name}")
+    route = trial.get("route")
+    contract = trial.get("semantic_contract")
+    property_id = trial.get("property_id")
+    policy = trial.get("selection_policy")
+    trial_id = trial.get("trial")
+    if not all(
+      isinstance(value, str) and value
+      for value in (route, contract, property_id, trial_id)
+    ):
+      raise ValueError(
+        f"trial {index} must identify its route, contract, property and trial"
+      )
+    if policy not in {"random", "solver"}:
+      raise ValueError(f"trial {index} selection_policy must be random or solver")
+    pair_key = (route, contract, property_id, trial_id)
+    record_key = (*pair_key, policy)
+    if record_key in seen_records:
+      raise ValueError(f"trial {index} duplicates a selection-policy trial")
+    seen_records.add(record_key)
+    pairs.setdefault(pair_key, set()).add(policy)
+
+    if _nonnegative_finite(trial.get("budget_s"), f"trial {index} budget_s") != budget:
+      raise ValueError("every trial must receive the frozen fixed budget")
+    elapsed = _nonnegative_finite(trial.get("elapsed_s"), f"trial {index} elapsed_s")
+    if elapsed > budget:
+      raise ValueError(f"trial {index} exceeded its fixed budget")
+    admission = trial.get("admission_status")
+    if admission not in {"admitted", "refused", "timeout", "unsat"}:
+      raise ValueError(f"trial {index} has an invalid admission_status")
+    execution = trial.get("execution_status")
+    if execution not in {"pass", "mismatch", "execution_failure", "not_run"}:
+      raise ValueError(f"trial {index} has an invalid execution_status")
+    if admission != "admitted" and execution != "not_run":
+      raise ValueError(
+        "a refused, timed-out or UNSAT selection cannot have an execution result"
+      )
+
+    cost = trial.get("cost_s")
+    if not isinstance(cost, dict):
+      raise ValueError(f"trial {index} must account for every pipeline cost")
+    charged = end_to_end_seconds(cost)
+    if charged > elapsed:
+      raise ValueError(f"trial {index} stage costs exceed elapsed_s")
+
+    route_key = f"{route}:{contract}:{property_id}"
+    summary = routes.setdefault(
+      route_key,
+      {
+        "route": route,
+        "semantic_contract": contract,
+        "property_id": property_id,
+        "paired_trials": 0,
+        "policies": {name: _empty_study_policy() for name in ("random", "solver")},
+      },
+    )
+    policy_summary = summary["policies"][policy]
+    policy_summary["attempts"] += 1
+    policy_summary["admitted"] += int(admission == "admitted")
+    policy_summary["refused"] += int(admission == "refused")
+    policy_summary["timeouts"] += int(admission == "timeout")
+    policy_summary["unsat"] += int(admission == "unsat")
+    policy_summary["gpu_executions"] += int(execution != "not_run")
+    policy_summary["useful_executions"] += int(execution == "pass")
+    policy_summary["mismatches"] += int(execution == "mismatch")
+    policy_summary["elapsed_s"] += elapsed
+    policy_summary["allocated_budget_s"] += budget
+    for field in _COST_FIELDS:
+      policy_summary["cost_s"][field] += _nonnegative_finite(
+        cost.get(field), f"trial {index} {field}"
+      )
+
+    controls = trial.get("calibration_controls", [])
+    if not isinstance(controls, list):
+      raise ValueError(f"trial {index} calibration_controls must be an array")
+    calibration_contract = {}
+    for control in controls:
+      if (
+        not isinstance(control, dict)
+        or not isinstance(control.get("control_id"), str)
+        or not control["control_id"]
+        or type(control.get("expected_detection")) is not bool
+        or type(control.get("observed_detection")) is not bool
+      ):
+        raise ValueError(f"trial {index} has an invalid calibration control")
+      control_id = control["control_id"]
+      if control_id in calibration_contract:
+        raise ValueError(f"trial {index} has a duplicate calibration control id")
+      calibration_contract[control_id] = control["expected_detection"]
+      if control["expected_detection"]:
+        bucket = "true_positive" if control["observed_detection"] else "false_negative"
+      else:
+        bucket = "false_positive" if control["observed_detection"] else "true_negative"
+      policy_summary["calibration_counts"][bucket] += 1
+    if set(calibration_contract.values()) != {False, True}:
+      raise ValueError(
+        f"trial {index} requires positive and negative calibration controls"
+      )
+    calibration_pairs.setdefault(pair_key, {})[policy] = calibration_contract
+
+    compiler = trial.get("compiler_observation")
+    compiler_summary = policy_summary["compiler"]
+    if compiler is None:
+      compiler_summary["compilations_without_observation"] += int(
+        execution != "not_run"
+      )
+      continue
+    measurements = _study_compiler_record(compiler)
+    compiler_summary["compilations"] += measurements["compilations"]
+    compiler_summary["effective_layout_conversions"] += measurements[
+      "effective_layout_conversions"
+    ]
+    for operation, count in measurements["conversion_operations"].items():
+      compiler_summary["conversion_operations"][operation] = (
+        compiler_summary["conversion_operations"].get(operation, 0) + count
+      )
+    compiler_summary["reused_values"] += measurements["reused_values"]
+    compiler_summary["duplicate_expression_groups"] += measurements[
+      "duplicate_expression_groups"
+    ]
+    compiler_summary["duplicate_operations"] += measurements["duplicate_operations"]
+    compiler_summary["retained_loop_compilations"] += measurements[
+      "loop_status_counts"
+    ]["retained"]
+    compiler_summary["unrolled_or_removed_loop_compilations"] += measurements[
+      "loop_status_counts"
+    ]["unrolled_or_removed"]
+    compiler_summary["ptx_warp_shuffles"] += measurements["ptx_warp_shuffles"]
+    compiler_summary["ptx_shared_memory_transfers"] += measurements[
+      "ptx_shared_memory_transfers"
+    ]
+
+  unpaired = [
+    key for key, policies in pairs.items() if policies != {"random", "solver"}
+  ]
+  if unpaired:
+    raise ValueError("paired fixed-contract study is missing selection-policy mate")
+  if any(
+    policies.get("random") != policies.get("solver")
+    for policies in calibration_pairs.values()
+  ):
+    raise ValueError("paired selection policies must use the same calibration controls")
+  for summary in routes.values():
+    summary["paired_trials"] = sum(
+      route == summary["route"]
+      and contract == summary["semantic_contract"]
+      and property_id == summary["property_id"]
+      for route, contract, property_id, _trial_id in pairs
+    )
+    for policy_summary in summary["policies"].values():
+      _finish_study_policy(policy_summary)
+      policy_summary["compiler"]["conversion_operations"] = dict(
+        sorted(policy_summary["compiler"]["conversion_operations"].items())
+      )
+  return {
+    "schema": "refractir.tensor-fixed-contract-study-summary.v1",
+    "fixed": {**fixed, "budget_s": budget},
+    "routes": dict(sorted(routes.items())),
+    "comparison_scope": (
+      "comparison is route/property local; do not compare admission or SAT rates "
+      "across different semantic contracts or properties"
+    ),
+  }
+
+
 def archived_v1_end_to_end_eligible(preparation_cost):
   """Archived v1 cases qualify only when generation and reference costs exist."""
   if not isinstance(preparation_cost, dict):

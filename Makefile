@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-fpsan-model test-tensor-gluon-layouts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-compiler-observation test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -263,6 +263,9 @@ test-tensor-fpsan-model:
 test-tensor-gluon-layouts:
 	$(PY) -m unittest test.unit.test_tensor_gluon_layouts
 
+test-tensor-compiler-observation:
+	$(PY) -m unittest test.unit.test_tensor_compiler_observation
+
 test-triton-fp-controls:
 	mkdir -p $(BUILD_DIR)/fpsan/ordinary-ir
 	$(PY) -m test.tensor.fpsan.run_ordinary_fp_controls \
@@ -280,6 +283,13 @@ test-triton-gluon:
 	$(PY) -m test.tensor.gluon.run_exact_loop \
 	  --output $(BUILD_DIR)/gluon/exact-loop.json \
 	  --ir-dir $(BUILD_DIR)/gluon/ir
+
+TENSOR_GLUON_STUDY_DIR ?= $(BUILD_DIR)/gluon/fixed-domain-study-$(shell date +%Y%m%d-%H%M%S)
+
+test-triton-gluon-study: $(TARGET_SOLVER)
+	$(PY) -m test.tensor.gluon.run_selection_study \
+	  --output-dir $(TENSOR_GLUON_STUDY_DIR) \
+	  --symirsolve ./$(TARGET_SOLVER)
 
 TENSOR_EXACT_CASE_DIR ?= build/tensor_cases/exact-composed-loop
 
@@ -458,7 +468,7 @@ test-tensor-graph-audit:
 
 # Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
 test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
-	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-compiler-observation test-tensor-fixed-study test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
 	  test-tensor-solver test-tensor-emit test-tensor-regressions \
 	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
 	  test-tensor-reducer test-tensor-property-pilot
@@ -471,6 +481,9 @@ test-tensor-historical:
 
 test-tensor-evaluation:
 	$(PY) -m unittest test.unit.test_tensor_evaluation
+
+test-tensor-fixed-study:
+	$(PY) -m unittest test.unit.test_tensor_fixed_study test.unit.test_tensor_fixed_selection
 
 test-tensor-reducer:
 	$(PY) -m unittest test.unit.test_tensor_reducer
