@@ -104,11 +104,11 @@ namespace refractir::reify {
       InputPolicyFailure(
           std::string message, const TensorInputProposal &proposal, std::string selectedPath
       ) :
-          std::runtime_error(std::move(message)), outcome(proposal.outcome),
-          timeoutSource(proposal.timeoutSource), unknownReason(proposal.unknownReason),
-          domain(proposal.domain), symbolicElements(proposal.symbolicElements),
-          candidateDigest(proposal.computationDigest), queryDigest(proposal.queryDigest),
-          path(std::move(selectedPath)) {}
+          std::runtime_error(std::move(message)),
+          outcome(proposal.outcome), timeoutSource(proposal.timeoutSource),
+          unknownReason(proposal.unknownReason), domain(proposal.domain),
+          symbolicElements(proposal.symbolicElements), candidateDigest(proposal.computationDigest),
+          queryDigest(proposal.queryDigest), path(std::move(selectedPath)) {}
 
       std::string outcome;
       std::string timeoutSource;
@@ -171,14 +171,14 @@ namespace refractir::reify {
         "bit-preserving-f32-layout", "exact-f32-reduction", "loop-reduction",
         "multi-input-composition", "untargeted-exploration"};
     constexpr std::array<std::string_view, 6> v3StratumSchedule{
-        "tail-arithmetic", "tail-sum", "tail-layout", "tail-broadcast",
-        "tail-loop", "tail-untargeted"};
+        "tail-arithmetic", "tail-sum",  "tail-layout",
+        "tail-broadcast",  "tail-loop", "tail-untargeted"};
     constexpr std::array<std::string_view, 6> v3InputPatterns{
-        "coordinate-distinct", "mixed-sign", "cancellation", "repeated-value",
-        "distinct-groups", "seeded-random"};
-    constexpr std::array<std::string_view, 6> v4BoundaryPatterns{
-        "signed-zero", "small-integer", "power-of-two", "repeated-value",
-        "exact-multiple", "mixed-sign"};
+        "coordinate-distinct", "mixed-sign",      "cancellation",
+        "repeated-value",      "distinct-groups", "seeded-random"};
+    constexpr std::array<std::string_view, 6> v4BoundaryPatterns{"signed-zero",    "small-integer",
+                                                                 "power-of-two",   "repeated-value",
+                                                                 "exact-multiple", "mixed-sign"};
 
     std::uint64_t splitMix64(std::uint64_t value) {
       value += 0x9e3779b97f4a7c15ULL;
@@ -240,10 +240,12 @@ namespace refractir::reify {
         throw std::runtime_error("cannot create tensor generation summary: " + path.string());
       out << "{\"schema\":\"refractir.tensor-generation.v1\","
           << "\"profile\":"
-          << jsonString(options.profileVersion == TensorProfileId::V4 ? "tensor-v4"
-                       : options.profileVersion == TensorProfileId::V3 ? "tensor-v3"
-                       : options.profileVersion == TensorProfileId::V2 ? "tensor-v2"
-                                                                       : "tensor-v1")
+          << jsonString(
+                 options.profileVersion == TensorProfileId::V4   ? "tensor-v4"
+                 : options.profileVersion == TensorProfileId::V3 ? "tensor-v3"
+                 : options.profileVersion == TensorProfileId::V2 ? "tensor-v2"
+                                                                 : "tensor-v1"
+             )
           << ",\"status\":" << jsonString(result.status) << ",\"requested\":" << result.requested
           << ",\"emitted\":" << result.emitted << ",\"rejected\":" << result.rejected
           << ",\"seed\":" << options.seed << ",\"dtype\":" << jsonString(options.dtype)
@@ -314,8 +316,7 @@ namespace refractir::reify {
         if (i)
           out << ',';
         out << "{\"case\":" << attempt.caseIndex << ",\"attempt\":" << attempt.attempt
-            << ",\"seed\":" << attempt.seed
-            << ",\"property_id\":" << jsonString(attempt.property)
+            << ",\"seed\":" << attempt.seed << ",\"property_id\":" << jsonString(attempt.property)
             << ",\"primary_stratum\":" << jsonString(attempt.stratum)
             << ",\"policy\":" << jsonString(attempt.policy)
             << ",\"outcome\":" << jsonString(attempt.outcome);
@@ -545,17 +546,15 @@ namespace refractir::reify {
       constexpr std::array<std::uint32_t, 5> tileExtents{32, 32, 64, 64, 128};
       if (index < lengths.size())
         return {lengths[index]};
-      const auto pair =
-          ((index - static_cast<std::uint32_t>(lengths.size())) / 2) % 10;
+      const auto pair = ((index - static_cast<std::uint32_t>(lengths.size())) / 2) % 10;
       const auto lengthIndex = pair / 2;
       const auto tail = lengths[lengthIndex];
       const auto other = 512 / tileExtents[lengthIndex];
       return pair % 2 == 0 ? Shape{tail, other} : Shape{other, tail};
     }
 
-    std::vector<std::int32_t> v3PatternValues(
-        const Shape &shape, std::string_view pattern, std::uint32_t seed
-    ) {
+    std::vector<std::int32_t>
+    v3PatternValues(const Shape &shape, std::string_view pattern, std::uint32_t seed) {
       const auto count = tensorElementCount(shape);
       std::vector<std::int32_t> values(count);
       std::mt19937 random(seed);
@@ -564,8 +563,7 @@ namespace refractir::reify {
         if (pattern == "coordinate-distinct") {
           values[index] = static_cast<std::int32_t>(index + 1);
         } else if (pattern == "mixed-sign") {
-          values[index] = (index % 2 == 0 ? 1 : -1) *
-                          static_cast<std::int32_t>(index % 7 + 1);
+          values[index] = (index % 2 == 0 ? 1 : -1) * static_cast<std::int32_t>(index % 7 + 1);
         } else if (pattern == "cancellation") {
           const auto magnitude = static_cast<std::int32_t>(index / 2 % 8 + 1);
           values[index] = index % 2 == 0 ? magnitude : -magnitude;
@@ -606,8 +604,8 @@ namespace refractir::reify {
       buffer.elementOffset = (seed >> 2) % 3;
       std::uint64_t lastAddress = buffer.elementOffset;
       for (std::size_t axis = 0; axis < buffer.shape.size(); ++axis)
-        lastAddress += static_cast<std::uint64_t>(buffer.shape[axis] - 1) *
-                       buffer.elementStrides[axis];
+        lastAddress +=
+            static_cast<std::uint64_t>(buffer.shape[axis] - 1) * buffer.elementStrides[axis];
       if (lastAddress >= std::numeric_limits<std::uint32_t>::max())
         throw std::runtime_error("tensor-v3 physical layout exceeds its storage limit");
       buffer.storageSpan = static_cast<std::uint32_t>(lastAddress + 1);
@@ -1300,10 +1298,9 @@ namespace refractir::reify {
         if (!tensor)
           return;
         metadata.shapeAxes.emplace_back(
-            tensor->shape,
-            static_cast<std::int32_t>(normalizeTensorAxis(
-                tensorAtom->axis, static_cast<std::uint32_t>(tensor->shape.size())
-            ))
+            tensor->shape, static_cast<std::int32_t>(normalizeTensorAxis(
+                               tensorAtom->axis, static_cast<std::uint32_t>(tensor->shape.size())
+                           ))
         );
       };
 
@@ -1348,8 +1345,7 @@ namespace refractir::reify {
     }
 
     Candidate compositionalCandidate(
-        const TensorGenerationOptions &options, const TensorGraphLimits &limits,
-        std::uint32_t seed
+        const TensorGenerationOptions &options, const TensorGraphLimits &limits, std::uint32_t seed
     ) {
       TensorGenerationOptions graphOptions = options;
       graphOptions.seed = seed;
@@ -1400,13 +1396,11 @@ namespace refractir::reify {
       if (policyOptions.property.kind == TensorInputProperty::Kind::ElementsEqual) {
         const auto *returnTensor = TypeUtils::asTensor(entry.retType);
         if (!returnTensor)
-          throw std::runtime_error(
-              "property_invalid: an element target needs a tensor return value"
+          throw std::runtime_error("property_invalid: an element target needs a tensor return value"
           );
         std::string reason;
         if (!checkTensorOutputElements(
-                returnTensor->shape, policyOptions.property.elements,
-                elementComplete, reason
+                returnTensor->shape, policyOptions.property.elements, elementComplete, reason
             ))
           throw std::runtime_error("property_invalid: " + reason);
       }
@@ -1415,8 +1409,7 @@ namespace refractir::reify {
       // deadline; the samplers answer from their own stream and stay in this
       // process, where replay already happens under the generator's control.
       const bool supervised =
-          !options.selectionWorker.empty() &&
-          policyOptions.policy == TensorInputPolicy::Exact;
+          !options.selectionWorker.empty() && policyOptions.policy == TensorInputPolicy::Exact;
       if (supervised) {
         // One deadline covers the request, the worker, the query, the
         // materialized inputs, the replay, and this validation. The parent
@@ -1550,8 +1543,11 @@ namespace refractir::reify {
              {"%acc_y", TensorTypeInfo{inputShape, tensorElement}}},
             {"%next_x", "%next_y"}
         );
-        regionDeclarations = region.renderDeclarations();
-        regionInstructions = region.renderBody({{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}});
+        const std::vector<std::pair<std::string, std::string>> stateUpdates{
+            {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
+        const std::vector<std::string> reservedNames{"%i", "%out"};
+        regionDeclarations = region.renderDeclarations(stateUpdates, reservedNames);
+        regionInstructions = region.renderBody(stateUpdates, reservedNames);
       }
 
       std::ostringstream source;
@@ -1982,9 +1978,10 @@ namespace refractir::reify {
       return candidate;
     }
 
-    Candidate v3Candidate(const TensorGenerationOptions &options,
-                          std::uint32_t seed, std::uint32_t caseIndex,
-                          std::string_view stratum) {
+    Candidate v3Candidate(
+        const TensorGenerationOptions &options, std::uint32_t seed, std::uint32_t caseIndex,
+        std::string_view stratum
+    ) {
       Candidate candidate;
       candidate.caseSeed = seed;
       candidate.inputPattern = options.inputPattern;
@@ -2006,9 +2003,8 @@ namespace refractir::reify {
       const auto axis = targetShape.size() == 1 ? 0u : (caseIndex - 5) % 2;
       const auto makeInput = [&](const Shape &shape) {
         auto values = v3PatternValues(shape, options.inputPattern, seed);
-        TensorCaseBuffer input{"x", element == "i32" ? TensorElement::I32
-                                                        : TensorElement::F32,
-                               shape, {}};
+        TensorCaseBuffer input{
+            "x", element == "i32" ? TensorElement::I32 : TensorElement::F32, shape, {}};
         if (element == "i32") {
           input.bytes = encodeI32Tensor(values);
         } else {
@@ -2026,11 +2022,13 @@ namespace refractir::reify {
           operationBody = "  %out = tensor mul %x, " + two + ";\n";
           candidate.operators = {"mul"};
         } else {
-          operationBody = "  %tmp = tensor mul %x, " + two + ";\n"
+          operationBody = "  %tmp = tensor mul %x, " + two +
+                          ";\n"
                           "  %out = tensor add %tmp, %x;\n";
           candidate.operators = {"mul", "add"};
         }
-        candidate.propertySource = "The generated arithmetic result is defined for every logical element.";
+        candidate.propertySource =
+            "The generated arithmetic result is defined for every logical element.";
       } else if (stratum == "tail-sum") {
         Shape reducedShape = targetShape;
         reducedShape.erase(reducedShape.begin() + axis);
@@ -2054,7 +2052,8 @@ namespace refractir::reify {
           operationBody = "  %out = %x;\n";
           candidate.operators = {"copy"};
         }
-        candidate.propertySource = "The logical output preserves the input values under the declared layout operation.";
+        candidate.propertySource =
+            "The logical output preserves the input values under the declared layout operation.";
       } else if (stratum == "tail-broadcast") {
         outputShape = targetShape;
         if (targetShape.size() == 1) {
@@ -2063,24 +2062,28 @@ namespace refractir::reify {
           outputType = tensorType(outputShape);
           localDeclarations = "  let mut %expanded: " + tensorType(Shape{1, 1}) + " = undef;\n";
           operationBody = "  %expanded = tensor expand %x, 1;\n"
-                          "  %out = tensor broadcast %expanded, " + sirShape(outputShape) + ";\n";
+                          "  %out = tensor broadcast %expanded, " +
+                          sirShape(outputShape) + ";\n";
           candidate.operators = {"expand", "broadcast"};
         } else {
-          inputShape = targetShape[0] < targetShape[1]
-                           ? Shape{1, targetShape[1]}
-                           : Shape{targetShape[0], 1};
+          inputShape =
+              targetShape[0] < targetShape[1] ? Shape{1, targetShape[1]} : Shape{targetShape[0], 1};
           outputType = tensorType(outputShape);
           operationBody = "  %out = tensor broadcast %x, " + sirShape(outputShape) + ";\n";
           candidate.operators = {"broadcast"};
         }
-        candidate.propertySource = "Broadcast values are defined at every logical output coordinate.";
+        candidate.propertySource =
+            "Broadcast values are defined at every logical output coordinate.";
       } else if (stratum == "tail-loop") {
         outputShape.erase(outputShape.begin() + axis);
         outputType = outputShape.empty() ? scalarType : tensorType(outputShape);
         const auto reductionType = outputShape.empty() ? scalarType : tensorType(outputShape);
         localDeclarations = "  let mut %i: i32 = undef;\n"
-                            "  let mut %acc: " + tensorType(inputShape) + " = undef;\n"
-                            "  let mut %partial: " + reductionType + " = undef;\n";
+                            "  let mut %acc: " +
+                            tensorType(inputShape) +
+                            " = undef;\n"
+                            "  let mut %partial: " +
+                            reductionType + " = undef;\n";
         operationBody = "  %acc = tensor mul %x, " + zero + ";\n";
         if (outputShape.empty()) {
           operationBody += "  %out = " + zero + ";\n";
@@ -2088,12 +2091,13 @@ namespace refractir::reify {
           operationBody += "  %out = tensor sum %acc, " + std::to_string(axis) + ", drop;\n";
         }
         operationBody += "  %i = 0;\n"
-                        "  br ^header;\n"
-                        "^header:\n"
-                        "  br %i < 3, ^body, ^exit;\n"
-                        "^body:\n"
-                        "  %acc = tensor add %acc, %x;\n"
-                        "  %partial = tensor sum %acc, " + std::to_string(axis) + ", drop;\n";
+                         "  br ^header;\n"
+                         "^header:\n"
+                         "  br %i < 3, ^body, ^exit;\n"
+                         "^body:\n"
+                         "  %acc = tensor add %acc, %x;\n"
+                         "  %partial = tensor sum %acc, " +
+                         std::to_string(axis) + ", drop;\n";
         if (outputShape.empty()) {
           operationBody += "  %out = %out + %partial;\n";
         } else {
@@ -2109,15 +2113,15 @@ namespace refractir::reify {
         candidate.propertySource =
             "The loop-carried tensor is reduced on the selected logical axis each iteration.";
       } else {
-        throw std::runtime_error("tensor-v3 has no constructor for stratum " +
-                                 std::string(stratum));
+        throw std::runtime_error(
+            "tensor-v3 has no constructor for stratum " + std::string(stratum)
+        );
       }
 
       const std::string inputType = tensorType(inputShape);
       std::ostringstream source;
       source << "fun @kernel(%x: " << inputType << ") : " << outputType << " {\n"
-             << localDeclarations
-             << "  let mut %out: " << outputType << " = undef;\n"
+             << localDeclarations << "  let mut %out: " << outputType << " = undef;\n"
              << "^entry:\n";
       if (stratum == "tail-loop")
         source << operationBody;
@@ -2135,8 +2139,7 @@ namespace refractir::reify {
       candidate.inputs.clear();
       makeInput(inputShape);
 
-      if (stratum == "tail-sum" && element == "f32" &&
-          options.inputPattern != "seeded-random") {
+      if (stratum == "tail-sum" && element == "f32" && options.inputPattern != "seeded-random") {
         candidate.exactnessKind = "integer-valued-f32-reduction";
         const auto values = v3PatternValues(inputShape, options.inputPattern, seed);
         for (const auto value: values)
@@ -2158,9 +2161,9 @@ namespace refractir::reify {
       return static_cast<float>(numerator) / static_cast<float>(scale);
     }
 
-    Candidate v4RemainderCandidate(const TensorGenerationOptions &options,
-                                   std::uint32_t graphSeed,
-                                   std::uint32_t caseIndex) {
+    Candidate v4RemainderCandidate(
+        const TensorGenerationOptions &options, std::uint32_t graphSeed, std::uint32_t caseIndex
+    ) {
       Candidate candidate;
       const std::uint32_t valueSeed = streamSeed(graphSeed, 0x76342d76616c7565ULL);
       std::mt19937 graphRandom(streamSeed(graphSeed, 0x76342d6772617068ULL));
@@ -2190,9 +2193,8 @@ namespace refractir::reify {
         }
         candidate.inputPattern = "seeded-random";
       } else {
-        candidate.inputPattern = std::string(
-            v4BoundaryPatterns[caseIndex % v4BoundaryPatterns.size()]
-        );
+        candidate.inputPattern =
+            std::string(v4BoundaryPatterns[caseIndex % v4BoundaryPatterns.size()]);
         constexpr std::array<std::int32_t, 8> smallValues{-8, -4, -2, -1, 1, 2, 4, 8};
         constexpr std::array<int, 7> powerExponents{-12, -8, -4, 0, 4, 8, 12};
         for (std::uint32_t lane = 0; lane < count; ++lane) {
@@ -2203,9 +2205,8 @@ namespace refractir::reify {
               break;
             case 1:
               lhs[lane] = static_cast<float>(smallValues[(lane + caseIndex) % smallValues.size()]);
-              rhs[lane] = static_cast<float>(
-                  smallValues[(lane + caseIndex + 3) % smallValues.size()]
-              );
+              rhs[lane] =
+                  static_cast<float>(smallValues[(lane + caseIndex + 3) % smallValues.size()]);
               break;
             case 2: {
               const int lhsExponent = powerExponents[(lane + caseIndex) % powerExponents.size()];
@@ -2240,18 +2241,16 @@ namespace refractir::reify {
       }
 
       std::ostringstream source;
-      source << "fun @kernel(%x: " << tensorF32Type(shape) << ", %y: "
-             << tensorF32Type(shape) << ") : " << tensorF32Type(shape) << " {\n"
+      source << "fun @kernel(%x: " << tensorF32Type(shape) << ", %y: " << tensorF32Type(shape)
+             << ") : " << tensorF32Type(shape) << " {\n"
              << "  let mut %out: " << tensorF32Type(shape) << " = undef;\n"
              << "^entry:\n"
              << "  %out = tensor rem %x, %y;\n"
              << "  ret %out;\n}\n";
       candidate.solverSource = source.str();
       candidate.finalSource = candidate.solverSource;
-      candidate.inputs.push_back(
-          {"x", TensorElement::F32, shape, encodeF32Tensor(lhs)});
-      candidate.inputs.push_back(
-          {"y", TensorElement::F32, shape, encodeF32Tensor(rhs)});
+      candidate.inputs.push_back({"x", TensorElement::F32, shape, encodeF32Tensor(lhs)});
+      candidate.inputs.push_back({"y", TensorElement::F32, shape, encodeF32Tensor(rhs)});
       return candidate;
     }
 
@@ -2268,12 +2267,11 @@ namespace refractir::reify {
       testCase.target = options.target;
       testCase.seed = candidate.caseSeed.value_or(options.seed);
       constexpr std::array<std::uint32_t, 4> warpCounts = {1, 2, 4, 8};
-      testCase.numWarps = options.profileVersion == TensorProfileId::V4
-                              ? 1
-                          : options.profileVersion != TensorProfileId::V1
-                              ? warpCounts[splitMix64(testCase.seed ^ 0x776172702d636667ULL) %
-                                            warpCounts.size()]
-                              : 4;
+      testCase.numWarps =
+          options.profileVersion == TensorProfileId::V4 ? 1
+          : options.profileVersion != TensorProfileId::V1
+              ? warpCounts[splitMix64(testCase.seed ^ 0x776172702d636667ULL) % warpCounts.size()]
+              : 4;
       testCase.synthesis = options.synthesis;
       testCase.propertyId = propertyId;
       testCase.propertySource =
@@ -2337,10 +2335,9 @@ namespace refractir::reify {
       // and the check below replays it.
       const bool exactSelection = testCase.inputPolicy == "exact";
       testCase.evidenceKind = options.synthesis == "exact" || exactSelection ? "exact_smt"
-                              : testCase.numericComparison ? "numerical_reference"
-                                                           : "construction";
-      testCase.evidenceStatus = options.synthesis == "exact" || exactSelection
-                                    ? "exact_smt_checked"
+                              : testCase.numericComparison                   ? "numerical_reference"
+                                                                             : "construction";
+      testCase.evidenceStatus = options.synthesis == "exact" || exactSelection ? "exact_smt_checked"
                                 : testCase.numericComparison ? "numerical_reference_checked"
                                                              : "construction_checked";
 
@@ -2407,8 +2404,7 @@ namespace refractir::reify {
                   "counterfactual_dependency: the supervised dependence evidence names "
                   "inputs out of order"
               );
-            testCase.inputCounterfactualWitnesses.push_back(
-                candidate.selectedDependence[inputIndex]
+            testCase.inputCounterfactualWitnesses.push_back(candidate.selectedDependence[inputIndex]
             );
           }
         } else {
@@ -2521,8 +2517,7 @@ namespace refractir::reify {
       return failRoute(
           "unsupported_route", "tensor generator must be constructor or compositional"
       );
-    if (options.generator == "compositional" &&
-        options.profileVersion != TensorProfileId::V2 &&
+    if (options.generator == "compositional" && options.profileVersion != TensorProfileId::V2 &&
         options.profileVersion != TensorProfileId::V3)
       return failRoute(
           "invalid_profile", "compositional generation supports tensor-v2 and tensor-v3"
@@ -2557,9 +2552,7 @@ namespace refractir::reify {
           "--tensor-output-element and --tensor-property-target are mutually exclusive"
       );
     if (!options.outputElements.empty() && options.inputPolicy != "exact")
-      return failRoute(
-          "unsupported_route", "output element targets need the exact input policy"
-      );
+      return failRoute("unsupported_route", "output element targets need the exact input policy");
     if (!options.outputElements.empty() && options.generator != "compositional")
       return failRoute(
           "unsupported_route", "output element targets apply to compositional generation"
@@ -2618,9 +2611,7 @@ namespace refractir::reify {
       return failRoute("invalid_profile", "tensor-v4 generation requires defined-inputs property");
     if (options.profileVersion == TensorProfileId::V4 && !options.primaryStratum.empty() &&
         options.primaryStratum != "f32-remainder")
-      return failRoute(
-          "invalid_profile", "tensor-v4 primary stratum must be f32-remainder"
-      );
+      return failRoute("invalid_profile", "tensor-v4 primary stratum must be f32-remainder");
     if (options.profileVersion == TensorProfileId::V1 &&
         (property == "coordinates" || property == "sum-target") && options.dtype != "i32")
       return failRoute("invalid_profile", property + " requires tensor dtype i32");
@@ -2634,8 +2625,7 @@ namespace refractir::reify {
       );
     if (options.profileVersion != TensorProfileId::V1 && options.synthesis != "construction")
       return failRoute(
-          "unsupported_route",
-          "tensor-v2/v3/v4 graph generation requires construction"
+          "unsupported_route", "tensor-v2/v3/v4 graph generation requires construction"
       );
     if (options.profileVersion == TensorProfileId::V1 && options.synthesis == "exact" &&
         options.dtype == "f32")
@@ -2662,27 +2652,23 @@ namespace refractir::reify {
       // caller may still name one to label the run.
       const bool compositional = options.generator == "compositional";
       const std::string caseStratum =
-          compositional
-              ? options.primaryStratum
+          compositional ? options.primaryStratum
           : options.profileVersion == TensorProfileId::V2
               ? (options.primaryStratum.empty() ? v2StratumForCase(caseIndex)
                                                 : options.primaryStratum)
-              : options.profileVersion == TensorProfileId::V3
-                  ? (options.primaryStratum.empty() ? v3StratumForCase(caseIndex)
-                                                    : options.primaryStratum)
-              : options.profileVersion == TensorProfileId::V4
-                  ? (options.primaryStratum.empty() ? "f32-remainder"
-                                                    : options.primaryStratum)
+          : options.profileVersion == TensorProfileId::V3
+              ? (options.primaryStratum.empty() ? v3StratumForCase(caseIndex)
+                                                : options.primaryStratum)
+          : options.profileVersion == TensorProfileId::V4
+              ? (options.primaryStratum.empty() ? "f32-remainder" : options.primaryStratum)
               : std::string{};
       TensorGenerationOptions caseOptions = options;
       caseOptions.primaryStratum = caseStratum;
       if (options.profileVersion == TensorProfileId::V3)
-        caseOptions.inputPattern = options.inputPattern.empty()
-                                       ? v3InputPatternForCase(caseIndex)
-                                       : options.inputPattern;
+        caseOptions.inputPattern =
+            options.inputPattern.empty() ? v3InputPatternForCase(caseIndex) : options.inputPattern;
       if (options.profileVersion == TensorProfileId::V4)
-        caseOptions.inputPattern = options.inputPattern.empty() ? "ordinary"
-                                                                : options.inputPattern;
+        caseOptions.inputPattern = options.inputPattern.empty() ? "ordinary" : options.inputPattern;
       if (!compositional && options.profileVersion == TensorProfileId::V2 &&
           (caseStratum == "bit-preserving-f32-layout" || caseStratum == "exact-f32-reduction") &&
           caseOptions.dtype != "f32") {
@@ -2690,8 +2676,8 @@ namespace refractir::reify {
         result.reason =
             "stratum " + caseStratum + " requires f32; requested dtype is " + caseOptions.dtype;
         attempts.push_back(attemptRecord(
-            caseIndex, 0, options.seed, options, caseProperty, caseStratum,
-            "unavailable", result.reason
+            caseIndex, 0, options.seed, options, caseProperty, caseStratum, "unavailable",
+            result.reason
         ));
         writeSummary(
             options.outputDirectory / "generation.json", recordedOptions, result, attempts
@@ -2730,8 +2716,8 @@ namespace refractir::reify {
             result.status = "stratum_unavailable";
             result.reason = "no constructor is registered for primary stratum " + caseStratum;
             attempts.push_back(attemptRecord(
-                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
-                "unavailable", result.reason
+                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum, "unavailable",
+                result.reason
             ));
             writeSummary(
                 options.outputDirectory / "generation.json", recordedOptions, result, attempts
@@ -2750,8 +2736,7 @@ namespace refractir::reify {
           writeTensorCase(directory, caseData);
           ++result.emitted;
           attempts.push_back(attemptRecord(
-              caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
-              "accepted", {}
+              caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum, "accepted", {}
           ));
           accepted = true;
           break;
@@ -2767,19 +2752,20 @@ namespace refractir::reify {
             return result;
           }
           if (message.starts_with("input_policy_") || message.starts_with("property_invalid:")) {
-            result.status = message.starts_with("property_invalid:") ? "property_invalid"
-                                                                     : message.substr(0, message.find(':'));
+            result.status = message.starts_with("property_invalid:")
+                                ? "property_invalid"
+                                : message.substr(0, message.find(':'));
             result.reason = message;
             // The record keeps the request the attempt was made under, not
             // only its refusal: an interrupted or undecided query is accounted
             // for here rather than disappearing into a status string.
             auto record = attemptRecord(
-                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
-                result.status, message
+                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum, result.status,
+                message
             );
             if (const auto *failure = dynamic_cast<const InputPolicyFailure *>(&error)) {
-              record.domain =
-                  std::to_string(failure->domain.first) + "," + std::to_string(failure->domain.second);
+              record.domain = std::to_string(failure->domain.first) + "," +
+                              std::to_string(failure->domain.second);
               record.symbolicElements = failure->symbolicElements;
               record.timeoutSource = failure->timeoutSource;
               record.unknownReason = failure->unknownReason;
@@ -2797,8 +2783,8 @@ namespace refractir::reify {
             exhausted = true;
             exhaustionReason = message;
             attempts.push_back(attemptRecord(
-                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
-                "exhausted", message
+                caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum, "exhausted",
+                message
             ));
             continue;
           }
@@ -2812,8 +2798,8 @@ namespace refractir::reify {
           }
           ++result.rejected;
           attempts.push_back(attemptRecord(
-              caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum,
-              "rejected", message
+              caseIndex, attempt, attemptSeed, options, caseProperty, caseStratum, "rejected",
+              message
           ));
         }
       }
@@ -2821,9 +2807,8 @@ namespace refractir::reify {
         result.status = exhausted ? "graph_exhaustion" : "shortfall";
         result.reason = exhausted
                             ? exhaustionReason
-                            : "requested " + std::to_string(options.count) +
-                                  " cases but emitted " + std::to_string(result.emitted) +
-                                  " within attempt budget " +
+                            : "requested " + std::to_string(options.count) + " cases but emitted " +
+                                  std::to_string(result.emitted) + " within attempt budget " +
                                   std::to_string(options.attemptBudget);
         writeSummary(
             options.outputDirectory / "generation.json", recordedOptions, result, attempts

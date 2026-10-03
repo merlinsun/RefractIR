@@ -136,13 +136,13 @@ namespace refractir::reify {
       Builder(
           std::mt19937 &random, const TensorGenerationOptions &options,
           const TensorGraphLimits &limits
-      )
-          : random_(random), profile_(tensorProfile(options.profileVersion)),
-            element_(options.dtype == "i32" ? TensorElement::I32 : TensorElement::F32) {
+      ) :
+          random_(random),
+          profile_(tensorProfile(options.profileVersion)),
+          element_(options.dtype == "i32" ? TensorElement::I32 : TensorElement::F32) {
         if (options.profileVersion != TensorProfileId::V2 &&
             options.profileVersion != TensorProfileId::V3)
-          throw std::runtime_error(
-              "compositional generation supports tensor-v2 and tensor-v3 only"
+          throw std::runtime_error("compositional generation supports tensor-v2 and tensor-v3 only"
           );
         if (options.dtype != "i32" && options.dtype != "f32")
           throw std::invalid_argument("compositional tensor elements must be i32 or f32");
@@ -154,8 +154,7 @@ namespace refractir::reify {
 
       Graph build();
       Graph buildRegion(
-          const std::vector<TensorRegionInput> &inputs,
-          const std::vector<std::string> &resultNames
+          const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames
       );
 
     private:
@@ -189,6 +188,7 @@ namespace refractir::reify {
       std::uint32_t maxInputs_ = 0;
       std::uint32_t temporaries_ = 0;
       std::uint32_t multiplications_ = 0;
+      std::vector<std::string> reservedNames_;
     };
 
     bool Builder::admissible(const Shape &shape) const {
@@ -228,10 +228,9 @@ namespace refractir::reify {
         Shape shape(rank);
         for (auto &dimension: shape)
           dimension = chooseExtent(rank == 1);
-        const bool reducible =
-            std::any_of(shape.begin(), shape.end(), [](std::uint32_t dimension) {
-              return dimension > 1;
-            });
+        const bool reducible = std::any_of(shape.begin(), shape.end(), [](std::uint32_t dimension) {
+          return dimension > 1;
+        });
         if (!reducible)
           shape[random_() % rank] = profile_.id == TensorProfileId::V3 ? 3 : 2;
         if (admissible(shape))
@@ -259,9 +258,11 @@ namespace refractir::reify {
       GraphValue value;
       do {
         value.name = "%t" + std::to_string(temporaries_++);
-      } while (std::any_of(graph.values.begin(), graph.values.end(), [&](const GraphValue &prior) {
-        return prior.name == value.name;
-      }));
+      } while (std::find(reservedNames_.begin(), reservedNames_.end(), value.name) !=
+                   reservedNames_.end() ||
+               std::any_of(graph.values.begin(), graph.values.end(), [&](const GraphValue &prior) {
+                 return prior.name == value.name;
+               }));
       value.shape = shape;
       value.element = element_;
       value.type = shape.empty() ? scalarType(element_) : tensorType(shape, element_);
@@ -299,9 +300,8 @@ namespace refractir::reify {
       const Shape currentShape = graph.values[static_cast<std::size_t>(current)].shape;
       Shape result = currentShape;
       if (other >= 0) {
-        const auto merged = applyBinary(
-            currentShape, graph.values[static_cast<std::size_t>(other)].shape
-        );
+        const auto merged =
+            applyBinary(currentShape, graph.values[static_cast<std::size_t>(other)].shape);
         if (!merged)
           throw AttemptFailure("binary operands do not broadcast");
         result = *merged;
@@ -448,10 +448,9 @@ namespace refractir::reify {
 
     int Builder::emitReduce(Graph &graph, int current) {
       const Shape shape = graph.values[static_cast<std::size_t>(current)].shape;
-      const bool reducible =
-          std::any_of(shape.begin(), shape.end(), [](std::uint32_t dimension) {
-            return dimension > 1;
-          });
+      const bool reducible = std::any_of(shape.begin(), shape.end(), [](std::uint32_t dimension) {
+        return dimension > 1;
+      });
       if (!reducible)
         return emitBinary(graph, current);
       const auto axis = pickAxisWithExtent(shape);
@@ -516,10 +515,9 @@ namespace refractir::reify {
 
     int Builder::emitDoubleReduction(Graph &graph, int current) {
       const Shape shape = graph.values[static_cast<std::size_t>(current)].shape;
-      const bool reducible =
-          std::any_of(shape.begin(), shape.end(), [](std::uint32_t dimension) {
-            return dimension > 1;
-          });
+      const bool reducible = std::any_of(shape.begin(), shape.end(), [](std::uint32_t dimension) {
+        return dimension > 1;
+      });
       if (!reducible)
         return emitBinary(graph, current);
       const auto firstAxis = pickAxisWithExtent(shape);
@@ -623,9 +621,7 @@ namespace refractir::reify {
             "graph_exhaustion: compositional graphs need at least two runtime inputs"
         );
       if (maxRank_ == 0 || maxElements_ == 0)
-        throw std::runtime_error(
-            "graph_exhaustion: compositional limits admit no tensor shape"
-        );
+        throw std::runtime_error("graph_exhaustion: compositional limits admit no tensor shape");
 
       const auto tensorInputs = 2 + random_() % (std::min(maxInputs_, 3u) - 1u);
       const bool scalarInput = maxInputs_ >= 3 && tensorInputs == 2 && random_() % 3 == 0;
@@ -652,9 +648,8 @@ namespace refractir::reify {
       // a fixed seed still selects the same working shape and input shapes. The
       // graph around them changes; the tensors the solver has to reason about do
       // not, which is what keeps an exact-selection query inside its budget.
-      const auto featureCost =
-          stepCost(StepKind::DoubleReduction) +
-          (wantDiamond ? stepCost(StepKind::Diamond) : std::uint32_t{0});
+      const auto featureCost = stepCost(StepKind::DoubleReduction) +
+                               (wantDiamond ? stepCost(StepKind::Diamond) : std::uint32_t{0});
       const auto minimum = mergeCost + featureCost;
       const auto target = minimum + random_() % (budget_ - minimum + 1);
 
@@ -683,10 +678,9 @@ namespace refractir::reify {
       std::shuffle(pending.begin(), pending.end(), random_);
       // Each fork branch applies a tensor operator, so the first pending input
       // has to be a tensor; a scalar input still merges like any other.
-      const auto tensorPartner =
-          std::find_if(pending.begin(), pending.end(), [&](int index) {
-            return !graph.values[static_cast<std::size_t>(index)].shape.empty();
-          });
+      const auto tensorPartner = std::find_if(pending.begin(), pending.end(), [&](int index) {
+        return !graph.values[static_cast<std::size_t>(index)].shape.empty();
+      });
       if (tensorPartner != pending.end())
         std::iter_swap(pending.begin(), tensorPartner);
 
@@ -713,9 +707,7 @@ namespace refractir::reify {
         const auto step = pickFiller(target - used);
         const auto span = schedule.size() - mergeSteps + 1;
         const auto position = mergeSteps + random_() % span;
-        schedule.insert(
-            schedule.begin() + static_cast<std::ptrdiff_t>(position), step
-        );
+        schedule.insert(schedule.begin() + static_cast<std::ptrdiff_t>(position), step);
         used += stepCost(step);
       }
 
@@ -787,6 +779,7 @@ namespace refractir::reify {
           throw std::invalid_argument("multi-output region result names must be unique locals");
         names.push_back(result);
       }
+      reservedNames_ = std::move(names);
 
       const auto minimumNodes = static_cast<std::uint32_t>(1 + resultNames.size());
       if (budget_ < minimumNodes)
@@ -924,9 +917,8 @@ namespace refractir::reify {
       for (const auto &node: graph.nodes) {
         LValue target;
         target.base = LocalId{graph.values[static_cast<std::size_t>(node.result)].name, {}};
-        entry.instrs.push_back(
-            Instr{AssignInstr{std::move(target), nodeExpression(graph, node), {}}}
-        );
+        entry.instrs.push_back(Instr{
+            AssignInstr{std::move(target), nodeExpression(graph, node), {}}});
       }
       entry.term = Terminator{
           RetTerm{localExpression(graph.values[static_cast<std::size_t>(root)].name), {}}};

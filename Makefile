@@ -245,8 +245,10 @@ $(TENSOR_REGION_API): test/unit/tensor_region_api.cpp src/reify/tensor_region.cp
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_region_api.cpp src/reify/tensor_region.cpp
 
-test-tensor-region: $(TENSOR_REGION_API)
-	REFRACTIR_TENSOR_REGION_API=$(TENSOR_REGION_API) $(PY) -m unittest test.unit.test_tensor_region
+test-tensor-region: $(TENSOR_REGION_API) $(TARGET_INTERP)
+	REFRACTIR_TENSOR_REGION_API=$(TENSOR_REGION_API) \
+	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
+	  $(PY) -m unittest test.unit.test_tensor_region test.unit.test_tensor_region_integration
 
 TENSOR_GRAPH_REGION_API = $(BIN_DIR)/tensor_graph_region_api
 

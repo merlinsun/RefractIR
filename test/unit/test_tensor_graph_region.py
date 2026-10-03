@@ -31,6 +31,21 @@ class TensorGraphRegionApiTests(unittest.TestCase):
   def test_mismatched_state_shapes_are_rejected(self):
     self.run_contract("mismatched-signature")
 
+  def test_first_temporary_name_can_be_a_requested_result(self):
+    self.run_contract("result-name-t0-minimal")
+
+  def test_requested_name_is_reserved_across_generated_folds(self):
+    self.run_contract("result-name-t0-folds")
+
+  def test_adjacent_temporary_names_are_reserved(self):
+    self.run_contract("adjacent-temporary-names")
+
+  def test_requested_temporary_name_survives_three_output_roots(self):
+    self.run_contract("result-name-t0-three-roots")
+
+  def test_requested_temporary_name_reservation_is_seed_independent(self):
+    self.run_contract("result-name-t0-seed-variation")
+
 
 if __name__ == "__main__":
   unittest.main()

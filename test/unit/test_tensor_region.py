@@ -56,6 +56,9 @@ class TensorRegionTests(unittest.TestCase):
   def test_repeated_pass_through_sources_keep_old_values(self):
     self.run_contract("state-input-repeated")
 
+  def test_snapshot_names_skip_enclosing_function_locals(self):
+    self.run_contract("snapshot-reserved-name")
+
 
 if __name__ == "__main__":
   unittest.main()

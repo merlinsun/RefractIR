@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -139,14 +140,22 @@ namespace {
   void inputRootsCanBeSwapped() {
     TensorRegion region({{"%a", type({2})}, {"%b", type({2})}});
     region.setResults({"%b", "%a"});
-    const auto updates = region.renderStateUpdates({{"%a", "%b"}, {"%b", "%a"}});
+    const std::vector<std::pair<std::string, std::string>> mapping{{"%a", "%b"}, {"%b", "%a"}};
+    const auto declarations = region.renderDeclarations(mapping);
+    const auto updates = region.renderStateUpdates(mapping);
+    require(
+        declarations ==
+            std::vector<std::string>{
+                "  let mut %__region_saved_0: tensor [2] i32 = undef;",
+                "  let mut %__region_saved_1: tensor [2] i32 = undef;"},
+        "snapshot locals must be declared in the function preamble"
+    );
     require(
         updates ==
             std::vector<std::string>{
-                "  let mut %__region_saved_0: tensor [2] i32 = %b;",
-                "  let mut %__region_saved_1: tensor [2] i32 = %a;", "  %a = %__region_saved_0;",
-                "  %b = %__region_saved_1;"},
-        "swapped input results must be snapshotted before either destination changes"
+                "  %__region_saved_0 = %b;", "  %__region_saved_1 = %a;",
+                "  %a = %__region_saved_0;", "  %b = %__region_saved_1;"},
+        "swap snapshots must be assignments inside the block, not declarations"
     );
   }
 
@@ -158,7 +167,8 @@ namespace {
         region.renderStateUpdates({{"%a", "%b"}, {"%b", "%c"}, {"%c", "%d"}, {"%d", "%a"}});
     require(
         updates.size() == 8 && updates[4] == "  %a = %__region_saved_0;" &&
-            updates[7] == "  %d = %__region_saved_3;",
+            updates[7] == "  %d = %__region_saved_3;" &&
+            updates[0] == "  %__region_saved_0 = %b;" && updates[3] == "  %__region_saved_3 = %a;",
         "all sources in a longer input-root cycle must be read from old state"
     );
   }
@@ -170,10 +180,9 @@ namespace {
     require(
         updates ==
             std::vector<std::string>{
-                "  let mut %__region_saved_0: tensor [2] i32 = %b;",
-                "  let mut %__region_saved_1: tensor [2] i32 = %a;", "  %a = %__region_saved_0;",
-                "  %b = %__region_saved_1;"},
-        "an identity result must remain unchanged alongside a concurrent swap"
+                "  %__region_saved_0 = %b;", "  %__region_saved_1 = %a;",
+                "  %a = %__region_saved_0;", "  %b = %__region_saved_1;"},
+        "snapshot assignments must preserve a swap and leave the identity state alone"
     );
   }
 
@@ -183,9 +192,9 @@ namespace {
     region.setResults({"%sum", "%a"});
     const auto body = region.renderBody({{"%a", "%sum"}, {"%b", "%a"}});
     require(
-        body.size() == 4 && body[1] == "  let mut %__region_saved_0: tensor [2] i32 = %a;" &&
-            body[2] == "  %a = %sum;" && body[3] == "  %b = %__region_saved_0;",
-        "a pass-through result must survive a computed update to its input"
+        body.size() == 4 && body[1] == "  %__region_saved_0 = %a;" && body[2] == "  %a = %sum;" &&
+            body[3] == "  %b = %__region_saved_0;",
+        "a pass-through result must be copied before a computed update to its input"
     );
   }
 
@@ -194,10 +203,58 @@ namespace {
     region.setResults({"%b", "%a", "%c"});
     const auto updates = region.renderStateUpdates({{"%a", "%b"}, {"%b", "%a"}, {"%c", "%a"}});
     require(
-        updates.size() == 5 && updates[2] == "  %a = %__region_saved_0;" &&
+        updates.size() == 5 && updates[0] == "  %__region_saved_0 = %b;" &&
+            updates[1] == "  %__region_saved_1 = %a;" &&
+            updates[2] == "  %a = %__region_saved_0;" &&
             updates[3] == "  %b = %__region_saved_1;" && updates[4] == "  %c = %__region_saved_1;",
-        "repeated pass-through roots must share one snapshot of their old input"
+        "repeated pass-through roots must share one copy of their old input"
     );
+  }
+
+  void snapshotNamesAvoidReservedFunctionLocals() {
+    TensorRegion region({{"%a", type({2})}, {"%b", type({2})}});
+    region.setResults({"%b", "%a"});
+    const std::vector<std::pair<std::string, std::string>> mapping{{"%a", "%b"}, {"%b", "%a"}};
+    const std::vector<std::string> reserved{"%__region_saved_0"};
+    const auto declarations = region.renderDeclarations(mapping, reserved);
+    const auto updates = region.renderStateUpdates(mapping, reserved);
+    require(
+        declarations.front() == "  let mut %__region_saved_1: tensor [2] i32 = undef;" &&
+            updates.front() == "  %__region_saved_1 = %b;",
+        "snapshot allocation must skip enclosing-function locals consistently"
+    );
+  }
+
+  std::string renderSwapSource() {
+    TensorRegion region({{"%a", type({2})}, {"%b", type({2})}});
+    region.setResults({"%b", "%a"});
+    const std::vector<std::pair<std::string, std::string>> mapping{{"%a", "%b"}, {"%b", "%a"}};
+    const std::vector<std::string> reserved{"%x", "%i", "%a", "%b", "%out", "%__region_saved_0"};
+    std::ostringstream source;
+    source << "fun @kernel(%x: tensor [2] i32) : tensor [2] i32 {\n"
+           << "  let mut %i: i32 = undef;\n"
+           << "  let mut %a: tensor [2] i32 = undef;\n"
+           << "  let mut %b: tensor [2] i32 = {3, 4};\n"
+           << "  let mut %out: tensor [2] i32 = undef;\n"
+           << "  let mut %__region_saved_0: tensor [2] i32 = undef;\n";
+    for (const auto &declaration: region.renderDeclarations(mapping, reserved))
+      source << declaration << '\n';
+    source << "^entry:\n"
+           << "  %a = %x;\n"
+           << "  %i = 0;\n"
+           << "  br ^header;\n"
+           << "^header:\n"
+           << "  br %i < 1, ^body, ^exit;\n"
+           << "^body:\n";
+    for (const auto &instruction: region.renderBody(mapping, reserved))
+      source << instruction << '\n';
+    source << "  %i = %i + 1;\n"
+           << "  br ^header;\n"
+           << "^exit:\n"
+           << "  %out = %a;\n"
+           << "  ret %out;\n"
+           << "}\n";
+    return source.str();
   }
 
 } // namespace
@@ -233,7 +290,12 @@ int main(int argc, char **argv) {
       passThroughSourceCanSurviveComputedWriteback();
     else if (name == "state-input-repeated")
       repeatedPassThroughSourcesKeepTheirOldValue();
-    else
+    else if (name == "snapshot-reserved-name")
+      snapshotNamesAvoidReservedFunctionLocals();
+    else if (name == "render-swap-source") {
+      std::cout << renderSwapSource();
+      return 0;
+    } else
       throw std::invalid_argument("unknown test name: " + name);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

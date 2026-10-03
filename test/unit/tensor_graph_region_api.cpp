@@ -31,6 +31,39 @@ namespace {
     );
   }
 
+  TensorRegion makeNamedRegion(
+      std::uint32_t seed, std::uint32_t maxOperators, std::vector<std::string> results,
+      Shape shape = {4, 4}
+  ) {
+    TensorGenerationOptions options;
+    options.profileVersion = TensorProfileId::V2;
+    options.dtype = "i32";
+    options.seed = seed;
+    TensorGraphLimits limits;
+    limits.maxInputs = 2;
+    limits.maxRank = 2;
+    limits.maxElements = 64;
+    limits.maxOperators = maxOperators;
+    const TensorTypeInfo type{shape, TensorElement::I32};
+    return generateTensorRegion(
+        options, limits, {{"%acc_x", type}, {"%acc_y", type}}, std::move(results)
+    );
+  }
+
+  void requireUniqueInstructionResults(const TensorRegion &region) {
+    std::vector<std::string> names;
+    for (const auto &instruction: region.renderInstructions()) {
+      const auto equals = instruction.find(" =");
+      require(equals != std::string::npos, "rendered region instruction has no result");
+      names.push_back(instruction.substr(2, equals - 2));
+    }
+    std::sort(names.begin(), names.end());
+    require(
+        std::adjacent_find(names.begin(), names.end()) == names.end(),
+        "generated temporary and requested result names must stay unique"
+    );
+  }
+
   std::string joined(const std::vector<std::string> &lines) {
     std::string result;
     for (const auto &line: lines) {
@@ -112,6 +145,31 @@ namespace {
     }
     throw std::runtime_error("state tensors with incompatible shapes must be rejected");
   }
+
+  void resultNameT0IsReservedBeforeTheSharedProducer() {
+    const auto region = makeNamedRegion(3, 3, {"%t0", "%next_y"});
+    requireUniqueInstructionResults(region);
+  }
+
+  void resultNameT0IsReservedWithFoldNodes() {
+    const auto region = makeNamedRegion(7, 10, {"%t0", "%next_y"});
+    requireUniqueInstructionResults(region);
+  }
+
+  void adjacentTemporaryNamesAreReserved() {
+    const auto region = makeNamedRegion(11, 3, {"%t0", "%t1"});
+    requireUniqueInstructionResults(region);
+  }
+
+  void firstResultNameStaysUniqueWithThreeRoots() {
+    const auto region = makeNamedRegion(19, 4, {"%t0", "%first", "%second"});
+    requireUniqueInstructionResults(region);
+  }
+
+  void reservedNamesDoNotDependOnSeed() {
+    const auto region = makeNamedRegion(29, 8, {"%t0", "%other"});
+    requireUniqueInstructionResults(region);
+  }
 } // namespace
 
 int main(int argc, char **argv) {
@@ -133,6 +191,16 @@ int main(int argc, char **argv) {
       differentSeedsVaryTheRegion();
     else if (name == "mismatched-signature")
       mismatchedStateShapesAreRejected();
+    else if (name == "result-name-t0-minimal")
+      resultNameT0IsReservedBeforeTheSharedProducer();
+    else if (name == "result-name-t0-folds")
+      resultNameT0IsReservedWithFoldNodes();
+    else if (name == "adjacent-temporary-names")
+      adjacentTemporaryNamesAreReserved();
+    else if (name == "result-name-t0-three-roots")
+      firstResultNameStaysUniqueWithThreeRoots();
+    else if (name == "result-name-t0-seed-variation")
+      reservedNamesDoNotDependOnSeed();
     else
       throw std::invalid_argument("unknown tensor graph region test: " + name);
   } catch (const std::exception &error) {

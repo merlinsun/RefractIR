@@ -5,6 +5,8 @@ import importlib
 import struct
 import unittest
 
+from test.unit.tensor_support import SYMIRI, check_source, run_typed
+
 SOURCE = """\
 fun @kernel(%x: tensor [2, 2] f32) : tensor [2, 2] f32 {
   let mut %i: i32 = undef;
@@ -131,6 +133,33 @@ fun @kernel(%x: tensor [2, 2] f32) : tensor [2, 2] f32 {{
 """
 
 
+def generated_sequential_region_source(updates, iterations=2):
+  """A tiny generated-region witness whose state writes can alias in order."""
+  return f"""\
+fun @kernel(%x: tensor [2, 2] f32) : tensor [2, 2] f32 {{
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [2, 2] f32 = undef;
+  let mut %acc_y: tensor [2, 2] f32 = {{0.0, 0.0, 0.0, 0.0}};
+  let mut %t0: tensor [2, 2] f32 = undef;
+  let mut %out: tensor [2, 2] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < {iterations}, ^body, ^exit;
+^body:
+  %t0 = tensor add %acc_x, %acc_y;
+{updates}
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}}
+"""
+
+
 class GeneratedRegionExactTests(unittest.TestCase):
   """Exact bounds for the restricted generated multi-output region subset."""
 
@@ -183,6 +212,66 @@ class GeneratedRegionExactTests(unittest.TestCase):
     )
     with self.assertRaisesRegex(ValueError, "unsupported tensor operation"):
       self.api.certify(unsupported, self.input_bytes, (0, 8))
+
+
+class GeneratedRegionSequentialUpdateTests(unittest.TestCase):
+  """The checker must match ordered SIR state writes, including aliases."""
+
+  def assert_sequential_output(self, updates, *, iterations, values):
+    source = generated_sequential_region_source(updates, iterations)
+    input_bytes = struct.pack("<4f", *values)
+    _proof, actual = self.api.certify(source, input_bytes, (0, 8))
+    expected = struct.pack("<4f", *(value * (2**iterations) for value in values))
+    self.assertEqual(actual, expected)
+    self.assertEqual(self.api.validate(source, input_bytes, expected, _proof), expected)
+
+  def setUp(self):
+    self.api = importlib.import_module("test.lib.tensor_exact_f32")
+
+  def test_later_y_write_reads_new_x(self):
+    self.assert_sequential_output(
+      "  %acc_x = %t0;\n  %acc_y = %acc_x;", iterations=2, values=(1, 2, 4, 8)
+    )
+
+  def test_later_x_write_reads_new_y(self):
+    self.assert_sequential_output(
+      "  %acc_y = %t0;\n  %acc_x = %acc_y;", iterations=2, values=(1, 2, 4, 8)
+    )
+
+  def test_three_visits_preserve_forward_state_dependency(self):
+    self.assert_sequential_output(
+      "  %acc_x = %t0;\n  %acc_y = %acc_x;", iterations=3, values=(1, 2, 4, 8)
+    )
+
+  def test_three_visits_preserve_reverse_state_dependency(self):
+    self.assert_sequential_output(
+      "  %acc_y = %t0;\n  %acc_x = %acc_y;", iterations=3, values=(1, 2, 4, 8)
+    )
+
+  def test_mutated_input_lanes_keep_ordered_alias_semantics(self):
+    self.assert_sequential_output(
+      "  %acc_x = %t0;\n  %acc_y = %acc_x;", iterations=2, values=(8, 3, 5, 1)
+    )
+
+
+@unittest.skipUnless(SYMIRI.is_file(), "native interpreter unavailable")
+class GeneratedRegionInterpreterTests(unittest.TestCase):
+  def test_mutated_update_dependencies_match_frontend_and_interpreter(self):
+    input_values = (1, 2, 4, 8)
+    input_bytes = struct.pack("<4f", *input_values)
+    expected = struct.pack("<4f", *(4 * value for value in input_values))
+    update_orders = (
+      "  %acc_x = %t0;\n  %acc_y = %acc_x;",
+      "  %acc_y = %t0;\n  %acc_x = %acc_y;",
+    )
+    for updates in update_orders:
+      with self.subTest(updates=updates):
+        source = generated_sequential_region_source(updates, iterations=2)
+        checked = check_source(source, tensor_profile="v2")
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        result, output = run_typed(source, input_bytes, tensor_profile="v2")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(output, expected)
 
 
 if __name__ == "__main__":

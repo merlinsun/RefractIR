@@ -28,11 +28,19 @@ namespace refractir::reify {
 
     [[nodiscard]] const TensorTypeInfo &typeOf(const std::string &name) const;
     [[nodiscard]] std::vector<std::string> renderDeclarations() const;
+    [[nodiscard]] std::vector<std::string> renderDeclarations(
+        const std::vector<std::pair<std::string, std::string>> &updates,
+        const std::vector<std::string> &reservedNames = {}
+    ) const;
     [[nodiscard]] std::vector<std::string> renderInstructions() const;
-    [[nodiscard]] std::vector<std::string>
-    renderBody(const std::vector<std::pair<std::string, std::string>> &updates) const;
-    [[nodiscard]] std::vector<std::string>
-    renderStateUpdates(const std::vector<std::pair<std::string, std::string>> &updates) const;
+    [[nodiscard]] std::vector<std::string> renderBody(
+        const std::vector<std::pair<std::string, std::string>> &updates,
+        const std::vector<std::string> &reservedNames = {}
+    ) const;
+    [[nodiscard]] std::vector<std::string> renderStateUpdates(
+        const std::vector<std::pair<std::string, std::string>> &updates,
+        const std::vector<std::string> &reservedNames = {}
+    ) const;
 
   private:
     struct Value {
@@ -53,6 +61,13 @@ namespace refractir::reify {
     [[nodiscard]] std::int32_t requireValue(const std::string &name) const;
     [[nodiscard]] std::string renderNode(const Node &node) const;
     [[nodiscard]] std::vector<char> liveNodes() const;
+    using IndexedUpdate = std::pair<std::int32_t, std::int32_t>;
+    using Snapshot = std::pair<std::int32_t, std::string>;
+    [[nodiscard]] std::vector<IndexedUpdate>
+    validateStateUpdates(const std::vector<std::pair<std::string, std::string>> &updates) const;
+    [[nodiscard]] std::vector<Snapshot> stateSnapshots(
+        const std::vector<IndexedUpdate> &updates, const std::vector<std::string> &reservedNames
+    ) const;
 
     std::vector<Value> values_;
     std::vector<Node> nodes_;

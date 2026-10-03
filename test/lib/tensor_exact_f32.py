@@ -209,15 +209,17 @@ def _generated_region_program(source):
   if len(body) < 5 or body[-2:] != ["%i = %i + 1;", "br ^header;"]:
     raise ValueError("generated region body has an invalid loop backedge")
   state_update_lines = body[-4:-2]
-  updates = {}
+  updates = []
+  update_states = set()
   for line in state_update_lines:
     update = re.fullmatch(r"(%acc_[xy]) = (%[A-Za-z_][A-Za-z_0-9.$-]*);", line)
-    if update is None or update[1][1:] in updates:
+    if update is None or update[1][1:] in update_states:
       raise ValueError(
         "generated region must update both states after computing its roots"
       )
-    updates[update[1][1:]] = update[2][1:]
-  if set(updates) != {"acc_x", "acc_y"}:
+    update_states.add(update[1][1:])
+    updates.append((update[1][1:], update[2][1:]))
+  if update_states != {"acc_x", "acc_y"}:
     raise ValueError("generated region must update both loop-carried states")
 
   nodes = []
@@ -263,7 +265,7 @@ def _generated_region_program(source):
     raise ValueError("generated region has no operations")
 
   live = set()
-  pending = list(updates.values())
+  pending = [root for _, root in updates]
   while pending:
     value = pending.pop()
     if value in live or value not in definitions:
@@ -274,7 +276,7 @@ def _generated_region_program(source):
     raise ValueError(
       "generated region contains a dead operation outside the output union"
     )
-  if any(tensor_types.get(root) != input_shape for root in updates.values()):
+  if any(tensor_types.get(root) != input_shape for _, root in updates):
     raise ValueError("generated region result shapes must match their loop states")
 
   available = {"acc_x", "acc_y"}
@@ -306,7 +308,7 @@ def _generated_region_program(source):
         output_shape,
       )
     available.add(destination)
-  if any(root not in available for root in updates.values()):
+  if any(root not in available for _, root in updates):
     raise ValueError(
       "generated region state roots must be computed before state updates"
     )
@@ -558,11 +560,10 @@ def _certify_generated_region(source, input_bytes, domain):
         partial=operation == "sum",
       )
 
-    next_states = {
-      state: (values[root], upper[root]) for state, root in updates.items()
-    }
-    for state, (actual, maxima) in next_states.items():
-      record(state, "state-update", actual, maxima, "^body", visit)
+    # RefractIR writes mutable locals in source order. A later update may read
+    # a loop-carried value that an earlier update has already changed.
+    for state, root in updates:
+      record(state, "state-update", values[root], upper[root], "^body", visit)
 
   output, output_upper = add_values("acc_x", "acc_y", shape)
   record("out", "add", output, output_upper, "^exit", 0)
@@ -572,6 +573,9 @@ def _certify_generated_region(source, input_bytes, domain):
     "integer_exactness_bound": EXACT_BOUND,
     "input_domain": list(domain),
     "allowed_operations": ["add", "sum", "broadcast"],
+    "state_update_order": [
+      {"state": "%" + state, "value": "%" + root} for state, root in updates
+    ],
     "signed_zero": "positive-zero-only",
     "path": ["^entry", "^header"]
     + [block for _ in range(iterations) for block in ("^body", "^header")]

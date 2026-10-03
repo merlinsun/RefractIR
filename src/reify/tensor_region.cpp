@@ -207,6 +207,21 @@ namespace refractir::reify {
     return declarations;
   }
 
+  std::vector<std::string> TensorRegion::renderDeclarations(
+      const std::vector<std::pair<std::string, std::string>> &updates,
+      const std::vector<std::string> &reservedNames
+  ) const {
+    auto declarations = renderDeclarations();
+    const auto validated = validateStateUpdates(updates);
+    for (const auto &[source, name]: stateSnapshots(validated, reservedNames)) {
+      declarations.push_back(
+          "  let mut " + name + ": " +
+          tensorTypeText(values_[static_cast<std::size_t>(source)].type) + " = undef;"
+      );
+    }
+    return declarations;
+  }
+
   std::vector<std::string> TensorRegion::renderInstructions() const {
     const auto live = liveNodes();
     std::vector<std::string> instructions;
@@ -216,8 +231,8 @@ namespace refractir::reify {
     return instructions;
   }
 
-  std::vector<std::string>
-  TensorRegion::renderStateUpdates(const std::vector<std::pair<std::string, std::string>> &updates
+  std::vector<TensorRegion::IndexedUpdate>
+  TensorRegion::validateStateUpdates(const std::vector<std::pair<std::string, std::string>> &updates
   ) const {
     if (results_.empty())
       throw std::logic_error("tensor region results have not been set");
@@ -226,12 +241,7 @@ namespace refractir::reify {
     std::unordered_set<std::int32_t> destinations;
     std::unordered_set<std::int32_t> results(results_.begin(), results_.end());
 
-    struct StateUpdate {
-      std::int32_t destination;
-      std::int32_t source;
-    };
-
-    std::vector<StateUpdate> validated;
+    std::vector<IndexedUpdate> validated;
     validated.reserve(updates.size());
     for (const auto &[stateName, resultName]: updates) {
       const auto state = requireValue(stateName);
@@ -247,57 +257,78 @@ namespace refractir::reify {
           values_[static_cast<std::size_t>(state)].type.element !=
               values_[static_cast<std::size_t>(result)].type.element)
         throw std::invalid_argument("state update types do not match");
-      validated.push_back({state, result});
+      validated.emplace_back(state, result);
+    }
+    return validated;
+  }
+
+  std::vector<TensorRegion::Snapshot> TensorRegion::stateSnapshots(
+      const std::vector<IndexedUpdate> &updates, const std::vector<std::string> &reservedNames
+  ) const {
+    std::unordered_set<std::int32_t> destinations;
+    for (const auto &[destination, source]: updates) {
+      (void) source;
+      destinations.insert(destination);
     }
 
-    std::unordered_map<std::int32_t, std::string> snapshots;
-    std::vector<std::string> assignments;
-    assignments.reserve(updates.size() * 2);
+    std::unordered_set<std::int32_t> snappedSources;
+    std::unordered_set<std::string> usedNames;
+    for (const auto &value: values_)
+      usedNames.insert(value.name);
+    usedNames.insert(reservedNames.begin(), reservedNames.end());
+
+    std::vector<Snapshot> snapshots;
+    snapshots.reserve(updates.size());
     std::size_t nextSnapshot = 0;
-    for (const auto &update: validated) {
-      if (update.destination == update.source ||
-          values_[static_cast<std::size_t>(update.source)].producer >= 0 ||
-          !destinations.contains(update.source) || snapshots.contains(update.source))
+    for (const auto &[destination, source]: updates) {
+      if (destination == source || values_[static_cast<std::size_t>(source)].producer >= 0 ||
+          !destinations.contains(source) || !snappedSources.insert(source).second)
         continue;
 
-      std::string snapshotName;
+      std::string name;
       do {
-        snapshotName = "%__region_saved_" + std::to_string(nextSnapshot++);
-      } while (std::any_of(
-                   values_.begin(), values_.end(),
-                   [&](const Value &value) { return value.name == snapshotName; }
-               ) ||
-               snapshots.end() !=
-                   std::find_if(snapshots.begin(), snapshots.end(), [&](const auto &entry) {
-                     return entry.second == snapshotName;
-                   }));
+        name = "%__region_saved_" + std::to_string(nextSnapshot++);
+      } while (!usedNames.insert(name).second);
+      snapshots.emplace_back(source, std::move(name));
+    }
+    return snapshots;
+  }
 
-      snapshots.emplace(update.source, snapshotName);
-      const auto &source = values_[static_cast<std::size_t>(update.source)];
-      assignments.push_back(
-          "  let mut " + snapshotName + ": " + tensorTypeText(source.type) + " = " + source.name +
-          ";"
-      );
+  std::vector<std::string> TensorRegion::renderStateUpdates(
+      const std::vector<std::pair<std::string, std::string>> &updates,
+      const std::vector<std::string> &reservedNames
+  ) const {
+    const auto validated = validateStateUpdates(updates);
+    const auto snapshots = stateSnapshots(validated, reservedNames);
+    std::unordered_map<std::int32_t, std::string> snapshotNames;
+    std::vector<std::string> assignments;
+    assignments.reserve(snapshots.size() + validated.size());
+    for (const auto &[sourceIndex, name]: snapshots) {
+      const auto &source = values_[static_cast<std::size_t>(sourceIndex)];
+      snapshotNames.emplace(sourceIndex, name);
+      assignments.push_back("  " + name + " = " + source.name + ";");
     }
 
-    for (const auto &update: validated) {
-      if (update.destination == update.source)
+    for (const auto &[destinationIndex, sourceIndex]: validated) {
+      if (destinationIndex == sourceIndex)
         continue;
-      const auto &destination = values_[static_cast<std::size_t>(update.destination)];
-      const auto &source = values_[static_cast<std::size_t>(update.source)];
-      const auto saved = snapshots.find(update.source);
+      const auto &destination = values_[static_cast<std::size_t>(destinationIndex)];
+      const auto &source = values_[static_cast<std::size_t>(sourceIndex)];
+      const auto saved = snapshotNames.find(sourceIndex);
       assignments.push_back(
           "  " + destination.name + " = " +
-          (saved == snapshots.end() ? source.name : saved->second) + ";"
+          (saved == snapshotNames.end() ? source.name : saved->second) + ";"
       );
     }
     return assignments;
   }
 
-  std::vector<std::string>
-  TensorRegion::renderBody(const std::vector<std::pair<std::string, std::string>> &updates) const {
+  std::vector<std::string> TensorRegion::renderBody(
+      const std::vector<std::pair<std::string, std::string>> &updates,
+      const std::vector<std::string> &reservedNames
+  ) const {
     auto body = renderInstructions();
-    auto assignments = renderStateUpdates(updates);
+    auto assignments = renderStateUpdates(updates, reservedNames);
     body.insert(body.end(), assignments.begin(), assignments.end());
     return body;
   }
