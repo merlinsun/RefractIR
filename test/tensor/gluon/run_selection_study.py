@@ -32,6 +32,10 @@ COMPILER_SETTINGS_ID = (
 )
 DEFAULT_BUDGET_S = 120.0
 SOLVER_TIMEOUT_S = 60.0
+CALIBRATION_CONTROL_CONTRACT = [
+  {"control_id": "correct-layout-baseline", "expected_detection": False},
+  {"control_id": "add-one-output-mutant", "expected_detection": True},
+]
 
 
 def _write_json(path, value):
@@ -53,6 +57,12 @@ def _empty_costs():
     "compilation_s": 0.0,
     "gpu_execution_s": 0.0,
   }
+
+
+def _text_output(value):
+  if isinstance(value, bytes):
+    return value.decode("utf-8", errors="replace")
+  return value or ""
 
 
 def _trial_record(policy, seed, budget_s):
@@ -180,6 +190,12 @@ def _solve_selection(solver, output_dir, *, source, seed, budget_s):
     str(model_path),
     str(query_path),
   ]
+  remaining = budget_s - (time.perf_counter() - started)
+  if remaining <= 0:
+    trial["admission_status"] = "timeout"
+    trial["selection_record"] = {"reason": "fixed arm budget expired before solving"}
+    trial["elapsed_s"] = time.perf_counter() - started
+    return trial, None
   solve_started = time.perf_counter()
   try:
     result = subprocess.run(
@@ -187,25 +203,41 @@ def _solve_selection(solver, output_dir, *, source, seed, budget_s):
       capture_output=True,
       text=True,
       check=False,
-      timeout=min(SOLVER_TIMEOUT_S, budget_s),
+      timeout=min(SOLVER_TIMEOUT_S, remaining),
     )
   except subprocess.TimeoutExpired as error:
     trial["admission_status"] = "timeout"
     trial["selection_record"] = {"reason": "SMT selection process timed out"}
     trial["cost_s"]["selection_s"] = time.perf_counter() - solve_started
     trial["elapsed_s"] = time.perf_counter() - started
-    (arm_dir / "selection.stdout").write_text(error.stdout or "", encoding="utf-8")
-    (arm_dir / "selection.stderr").write_text(error.stderr or "", encoding="utf-8")
+    (arm_dir / "selection.stdout").write_text(
+      _text_output(error.stdout), encoding="utf-8"
+    )
+    (arm_dir / "selection.stderr").write_text(
+      _text_output(error.stderr), encoding="utf-8"
+    )
     return trial, None
   except OSError as error:
     trial["admission_status"] = "refused"
     trial["selection_record"] = {"reason": f"cannot start solver: {error}"}
+    trial["cost_s"]["selection_s"] = time.perf_counter() - solve_started
     trial["elapsed_s"] = time.perf_counter() - started
     return trial, None
 
   trial["cost_s"]["selection_s"] = time.perf_counter() - solve_started
-  (arm_dir / "selection.stdout").write_text(result.stdout, encoding="utf-8")
-  (arm_dir / "selection.stderr").write_text(result.stderr, encoding="utf-8")
+  (arm_dir / "selection.stdout").write_text(
+    _text_output(result.stdout), encoding="utf-8"
+  )
+  (arm_dir / "selection.stderr").write_text(
+    _text_output(result.stderr), encoding="utf-8"
+  )
+  if time.perf_counter() - started > budget_s:
+    trial["admission_status"] = "timeout"
+    trial["selection_record"] = {
+      "reason": "SMT selection completed after the arm budget"
+    }
+    trial["elapsed_s"] = time.perf_counter() - started
+    return trial, None
   if result.returncode != 0:
     trial["admission_status"] = "unsat" if "UNSAT" in result.stdout else "refused"
     trial["selection_record"] = {
@@ -293,6 +325,14 @@ def _run_gpu_policy(trial, output_dir, witness, *, budget_s, started):
     "--input-values",
     ",".join(str(value) for value in witness["values"]),
   ]
+  remaining = budget_s - (time.perf_counter() - started)
+  if remaining <= 0:
+    trial["execution_status"] = "execution_failure"
+    trial["selection_record"]["execution_error"] = (
+      "fixed arm budget exhausted before GPU child"
+    )
+    trial["elapsed_s"] = time.perf_counter() - started
+    return
   child_started = time.perf_counter()
   try:
     result = subprocess.run(
@@ -305,16 +345,23 @@ def _run_gpu_policy(trial, output_dir, witness, *, budget_s, started):
       timeout=remaining,
     )
   except subprocess.TimeoutExpired as error:
-    (arm_dir / "gluon.stdout").write_text(error.stdout or "", encoding="utf-8")
-    (arm_dir / "gluon.stderr").write_text(error.stderr or "", encoding="utf-8")
+    (arm_dir / "gluon.stdout").write_text(_text_output(error.stdout), encoding="utf-8")
+    (arm_dir / "gluon.stderr").write_text(_text_output(error.stderr), encoding="utf-8")
     trial["execution_status"] = "execution_failure"
     trial["selection_record"]["execution_error"] = (
       "Gluon child exceeded fixed arm budget"
     )
     trial["elapsed_s"] = time.perf_counter() - started
     return
-  (arm_dir / "gluon.stdout").write_text(result.stdout, encoding="utf-8")
-  (arm_dir / "gluon.stderr").write_text(result.stderr, encoding="utf-8")
+  (arm_dir / "gluon.stdout").write_text(_text_output(result.stdout), encoding="utf-8")
+  (arm_dir / "gluon.stderr").write_text(_text_output(result.stderr), encoding="utf-8")
+  if time.perf_counter() - started > budget_s:
+    trial["execution_status"] = "execution_failure"
+    trial["selection_record"]["execution_error"] = (
+      "Gluon child completed after the fixed arm budget"
+    )
+    trial["elapsed_s"] = time.perf_counter() - started
+    return
   if result.returncode != 0:
     trial["execution_status"] = "execution_failure"
     trial["selection_record"]["execution_error"] = result.stderr[-4000:]
@@ -389,14 +436,27 @@ def run(
   generation_started = time.perf_counter()
   (random_dir / "program.sir").write_text(source, encoding="utf-8")
   random_trial["cost_s"]["generation_s"] = time.perf_counter() - generation_started
-  selected = tensor_fixed_study.select_random_witness(
-    source,
-    domain=DOMAIN,
-    target=TARGET,
-    target_index=TARGET_INDEX,
-    seed=seed,
-    proposal_budget=proposal_budget,
-  )
+  try:
+    selected = tensor_fixed_study.select_random_witness(
+      source,
+      domain=DOMAIN,
+      target=TARGET,
+      target_index=TARGET_INDEX,
+      seed=seed,
+      proposal_budget=proposal_budget,
+      deadline=random_started + budget_s,
+    )
+  except Exception as error:
+    selected = {
+      "status": "selection_error",
+      "reason": f"random input selection failed: {error}",
+      "generation_s": 0.0,
+      "selection_s": time.perf_counter() - random_started,
+      "reference_validation_s": 0.0,
+      "proposal_count": 0,
+      "values": None,
+      "input_bytes": None,
+    }
   random_trial["cost_s"]["generation_s"] += selected["generation_s"]
   random_trial["cost_s"]["selection_s"] = selected["selection_s"]
   random_trial["cost_s"]["reference_validation_s"] = selected["reference_validation_s"]
@@ -405,13 +465,18 @@ def run(
     "seed": seed,
     "proposal_budget": proposal_budget,
     "proposal_count": selected["proposal_count"],
+    "reason": selected.get("reason"),
     "values": list(selected["values"]) if selected["values"] is not None else None,
     "input_sha256": hashlib.sha256(selected["input_bytes"]).hexdigest()
     if selected["input_bytes"] is not None
     else None,
   }
   random_trial["admission_status"] = (
-    "admitted" if selected["status"] == "accepted" else "refused"
+    "admitted"
+    if selected["status"] == "accepted"
+    else "timeout"
+    if selected["status"] == "timeout"
+    else "refused"
   )
   random_trial["elapsed_s"] = time.perf_counter() - random_started
   if selected["status"] == "accepted":
@@ -446,6 +511,7 @@ def run(
       "random_proposal_budget": proposal_budget,
       "solver_timeout_s": SOLVER_TIMEOUT_S,
       "cache_isolation": "fresh TRITON_CACHE_DIR per policy arm",
+      "calibration_control_contract": CALIBRATION_CONTROL_CONTRACT,
     },
     "fixed": {
       "program_id": PROGRAM_ID,
@@ -457,8 +523,8 @@ def run(
     },
     "trials": trials,
   }
-  summary = tensor_evaluation.summarize_fixed_contract_study(ledger)
   _write_json(output_dir / "study.json", ledger)
+  summary = tensor_evaluation.summarize_fixed_contract_study(ledger)
   _write_json(output_dir / "summary.json", summary)
   return {"ledger": ledger, "summary": summary}
 

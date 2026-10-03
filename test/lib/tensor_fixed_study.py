@@ -98,6 +98,7 @@ def select_random_witness(
   target_index,
   seed,
   proposal_budget,
+  deadline=None,
 ):
   """Sample one common-domain input policy and check every proposal independently."""
   _validate_contract(domain, target, target_index)
@@ -105,12 +106,24 @@ def select_random_witness(
     raise ValueError("seed must be a nonnegative integer")
   if type(proposal_budget) is not int or proposal_budget <= 0:
     raise ValueError("proposal_budget must be a positive integer")
+  if deadline is not None and (
+    isinstance(deadline, bool)
+    or not isinstance(deadline, (int, float))
+    or not math.isfinite(deadline)
+  ):
+    raise ValueError("deadline must be a finite monotonic timestamp")
   generator = random.Random(seed)
   started = time.perf_counter()
   generation_s = 0.0
   reference_validation_s = 0.0
   last_values = None
-  for proposal_count in range(1, proposal_budget + 1):
+  proposal_count = 0
+  status = None
+  for _ in range(proposal_budget):
+    if deadline is not None and time.perf_counter() >= deadline:
+      status = "timeout"
+      break
+    proposal_count += 1
     generation_started = time.perf_counter()
     values = tuple(generator.randint(domain[0], domain[1]) for _ in range(4))
     generation_s += time.perf_counter() - generation_started
@@ -120,21 +133,31 @@ def select_random_witness(
     )
     reference_validation_s += time.perf_counter() - reference_started
     last_values = values
+    if deadline is not None and time.perf_counter() >= deadline:
+      status = "timeout"
+      break
     if struct.pack(
       "<f", output_element(output_bytes, (2, 2), target_index)
     ) == struct.pack("<f", float(target)):
+      status = "accepted"
       result = {
-        "status": "accepted",
         "values": values,
         "input_bytes": struct.pack("<4f", *values),
         "output_bytes": output_bytes,
         "proof": proof,
-        "proposal_count": proposal_count,
       }
       break
-  else:
+  if status == "timeout":
     result = {
-      "status": "proposal_exhausted",
+      "values": None,
+      "input_bytes": None,
+      "output_bytes": None,
+      "proof": None,
+      "last_proposed_values": last_values,
+    }
+  elif status != "accepted":
+    status = "proposal_exhausted"
+    result = {
       "values": None,
       "input_bytes": None,
       "output_bytes": None,
@@ -145,6 +168,8 @@ def select_random_witness(
   elapsed = time.perf_counter() - started
   result.update(
     {
+      "status": status,
+      "proposal_count": proposal_count,
       "generation_s": generation_s,
       "reference_validation_s": reference_validation_s,
       "selection_s": max(0.0, elapsed - generation_s - reference_validation_s),

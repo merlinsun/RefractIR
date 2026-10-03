@@ -261,7 +261,14 @@ def _empty_study_policy():
     "mismatches": 0,
     "elapsed_s": 0.0,
     "allocated_budget_s": 0.0,
+    "budget_overrun_s": 0.0,
     "cost_s": {field: 0.0 for field in _COST_FIELDS},
+    "calibration_expected_controls": 0,
+    "calibration_observed_controls": 0,
+    "calibration_expected_positive": 0,
+    "calibration_observed_positive": 0,
+    "calibration_expected_negative": 0,
+    "calibration_observed_negative": 0,
     "calibration_counts": {
       name: 0
       for name in ("true_positive", "false_negative", "true_negative", "false_positive")
@@ -291,23 +298,77 @@ def _finish_study_policy(summary):
     if summary["allocated_budget_s"]
     else None
   )
+  stage_cost = sum(summary["cost_s"].values())
+  summary["stage_accounted_cost_per_useful_execution_s"] = (
+    stage_cost / summary["useful_executions"] if summary["useful_executions"] else None
+  )
   summary["end_to_end_cost_per_useful_execution_s"] = (
-    sum(summary["cost_s"].values()) / summary["useful_executions"]
+    summary["elapsed_s"] / summary["useful_executions"]
     if summary["useful_executions"]
     else None
   )
   counts = summary.pop("calibration_counts")
-  sensitivity_denominator = counts["true_positive"] + counts["false_negative"]
-  specificity_denominator = counts["true_negative"] + counts["false_positive"]
+  observed_controls = summary.pop("calibration_observed_controls")
+  expected_controls = summary.pop("calibration_expected_controls")
+  expected_positive = summary.pop("calibration_expected_positive")
+  observed_positive = summary.pop("calibration_observed_positive")
+  expected_negative = summary.pop("calibration_expected_negative")
+  observed_negative = summary.pop("calibration_observed_negative")
   summary["calibration"] = {
     **counts,
-    "sensitivity": counts["true_positive"] / sensitivity_denominator
-    if sensitivity_denominator
+    "observed_controls": observed_controls,
+    "unobserved_controls": expected_controls - observed_controls,
+    "unobserved_positive_controls": expected_positive - observed_positive,
+    "unobserved_negative_controls": expected_negative - observed_negative,
+    "sensitivity": counts["true_positive"] / expected_positive
+    if observed_positive == expected_positive and expected_positive
     else None,
-    "specificity": counts["true_negative"] / specificity_denominator
-    if specificity_denominator
+    "specificity": counts["true_negative"] / expected_negative
+    if observed_negative == expected_negative and expected_negative
     else None,
   }
+
+
+def _study_calibration_contract(ledger, trials):
+  protocol = ledger.get("protocol", {})
+  declared = (
+    protocol.get("calibration_control_contract") if isinstance(protocol, dict) else None
+  )
+  if declared is None:
+    declared = next(
+      (
+        [
+          {
+            "control_id": control.get("control_id"),
+            "expected_detection": control.get("expected_detection"),
+          }
+          for control in trial.get("calibration_controls", [])
+        ]
+        for trial in trials
+        if isinstance(trial, dict) and trial.get("calibration_controls")
+      ),
+      None,
+    )
+  if not isinstance(declared, list) or not declared:
+    raise ValueError("study protocol must declare calibration control expectations")
+  contract = {}
+  for control in declared:
+    if (
+      not isinstance(control, dict)
+      or not isinstance(control.get("control_id"), str)
+      or not control["control_id"]
+      or type(control.get("expected_detection")) is not bool
+    ):
+      raise ValueError("study calibration control contract is invalid")
+    control_id = control["control_id"]
+    if control_id in contract:
+      raise ValueError("study calibration control contract has duplicate ids")
+    contract[control_id] = control["expected_detection"]
+  if set(contract.values()) != {False, True}:
+    raise ValueError(
+      "study calibration contract requires positive and negative controls"
+    )
+  return contract
 
 
 def summarize_fixed_contract_study(ledger):
@@ -333,6 +394,7 @@ def summarize_fixed_contract_study(ledger):
   budget = _nonnegative_finite(fixed.get("budget_s"), "fixed budget_s")
   if budget == 0:
     raise ValueError("fixed budget_s must be positive")
+  calibration_contract = _study_calibration_contract(ledger, trials)
 
   routes = {}
   pairs = {}
@@ -368,12 +430,15 @@ def summarize_fixed_contract_study(ledger):
     if _nonnegative_finite(trial.get("budget_s"), f"trial {index} budget_s") != budget:
       raise ValueError("every trial must receive the frozen fixed budget")
     elapsed = _nonnegative_finite(trial.get("elapsed_s"), f"trial {index} elapsed_s")
-    if elapsed > budget:
-      raise ValueError(f"trial {index} exceeded its fixed budget")
     admission = trial.get("admission_status")
+    execution = trial.get("execution_status")
+    if elapsed > budget and not (
+      admission == "timeout"
+      or (admission == "admitted" and execution == "execution_failure")
+    ):
+      raise ValueError(f"trial {index} exceeded its fixed budget")
     if admission not in {"admitted", "refused", "timeout", "unsat"}:
       raise ValueError(f"trial {index} has an invalid admission_status")
-    execution = trial.get("execution_status")
     if execution not in {"pass", "mismatch", "execution_failure", "not_run"}:
       raise ValueError(f"trial {index} has an invalid execution_status")
     if admission != "admitted" and execution != "not_run":
@@ -410,6 +475,7 @@ def summarize_fixed_contract_study(ledger):
     policy_summary["mismatches"] += int(execution == "mismatch")
     policy_summary["elapsed_s"] += elapsed
     policy_summary["allocated_budget_s"] += budget
+    policy_summary["budget_overrun_s"] += max(0.0, elapsed - budget)
     for field in _COST_FIELDS:
       policy_summary["cost_s"][field] += _nonnegative_finite(
         cost.get(field), f"trial {index} {field}"
@@ -418,7 +484,7 @@ def summarize_fixed_contract_study(ledger):
     controls = trial.get("calibration_controls", [])
     if not isinstance(controls, list):
       raise ValueError(f"trial {index} calibration_controls must be an array")
-    calibration_contract = {}
+    observed_controls = set()
     for control in controls:
       if (
         not isinstance(control, dict)
@@ -429,19 +495,29 @@ def summarize_fixed_contract_study(ledger):
       ):
         raise ValueError(f"trial {index} has an invalid calibration control")
       control_id = control["control_id"]
-      if control_id in calibration_contract:
+      if control_id in observed_controls:
         raise ValueError(f"trial {index} has a duplicate calibration control id")
-      calibration_contract[control_id] = control["expected_detection"]
+      observed_controls.add(control_id)
+      if control_id not in calibration_contract:
+        raise ValueError(f"trial {index} observed an undeclared calibration control")
+      if control["expected_detection"] != calibration_contract[control_id]:
+        raise ValueError(f"trial {index} changed a calibration control expectation")
       if control["expected_detection"]:
+        policy_summary["calibration_observed_positive"] += 1
         bucket = "true_positive" if control["observed_detection"] else "false_negative"
       else:
+        policy_summary["calibration_observed_negative"] += 1
         bucket = "false_positive" if control["observed_detection"] else "true_negative"
       policy_summary["calibration_counts"][bucket] += 1
-    if set(calibration_contract.values()) != {False, True}:
-      raise ValueError(
-        f"trial {index} requires positive and negative calibration controls"
-      )
-    calibration_pairs.setdefault(pair_key, {})[policy] = calibration_contract
+    policy_summary["calibration_expected_controls"] += len(calibration_contract)
+    policy_summary["calibration_observed_controls"] += len(observed_controls)
+    policy_summary["calibration_expected_positive"] += sum(
+      calibration_contract.values()
+    )
+    policy_summary["calibration_expected_negative"] += sum(
+      not expected for expected in calibration_contract.values()
+    )
+    calibration_pairs.setdefault(pair_key, {})[policy] = calibration_contract.copy()
 
     compiler = trial.get("compiler_observation")
     compiler_summary = policy_summary["compiler"]
