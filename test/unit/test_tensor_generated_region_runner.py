@@ -1,8 +1,8 @@
 """Generated Gluon compiler summaries must classify counted loops."""
 
-import importlib.util
 import hashlib
-import math
+import importlib.util
+import json
 import struct
 import sys
 import tempfile
@@ -137,7 +137,9 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
         "shared_memory_transfers_in_ptx": 0,
       },
     )
-    self.assertIn("do not establish rematerialization", comparison["interpretation_limit"])
+    self.assertIn(
+      "do not establish rematerialization", comparison["interpretation_limit"]
+    )
 
   def test_ordinary_reference_matches_the_exact_integer_region_contract(self):
     experiment = _load_fpsan_experiment()
@@ -198,6 +200,224 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     )
 
     self.assertEqual(len(words), 4)
+
+  def _wide_counterexample(self):
+    from test.lib import tensor_fpsan
+
+    source = (ROOT / "test/tensor/gluon/programs/native-seed-7.sir").read_text(
+      encoding="utf-8"
+    )
+    source = source.replace("tensor [2, 2]", "tensor [2, 4]")
+    source = source.replace("tensor [1, 2]", "tensor [1, 4]")
+    source = source.replace("[2, 2];", "[2, 4];")
+    source = source.replace(
+      "{0.0, 0.0, 0.0, 0.0}",
+      "{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}",
+    )
+    payloads = (3, 3, 4, 2, 2, 8, 3, 0)
+    input_words = [tensor_fpsan.unembed_generated_payload(value) for value in payloads]
+    return source, struct.pack("<8I", *input_words)
+
+  def test_ordinary_reference_admits_nonnegative_two_term_reductions(self):
+    experiment = _load_fpsan_experiment()
+    from test.lib import tensor_fpsan
+
+    source = (ROOT / "test/tensor/gluon/programs/native-seed-7.sir").read_text(
+      encoding="utf-8"
+    )
+    words = [tensor_fpsan.unembed_generated_payload(value) for value in (1, 2, 3, 4)]
+
+    admission = experiment._ordinary_generated_region_admission(
+      source, struct.pack("<4I", *words)
+    )
+
+    self.assertEqual(admission["status"], "admitted")
+    self.assertEqual(admission["max_reduction_width"], 2)
+    self.assertEqual(
+      admission["contract"], "nonnegative-f32-reduction-width-at-most-2-v1"
+    )
+
+  def test_ordinary_reference_excludes_reductions_with_four_terms(self):
+    experiment = _load_fpsan_experiment()
+    source, input_bytes = self._wide_counterexample()
+
+    admission = experiment._ordinary_generated_region_admission(source, input_bytes)
+
+    self.assertEqual(admission["status"], "unclassified")
+    self.assertEqual(admission["max_reduction_width"], 4)
+    self.assertIn("reduction width 4", admission["reason"])
+
+  def test_unclassified_reduction_difference_keeps_actual_and_reference_words(self):
+    experiment = _load_fpsan_experiment()
+    source, input_bytes = self._wide_counterexample()
+    expected_words = experiment._ordinary_generated_region_output_words(
+      source, input_bytes
+    )
+    alternate_words = [
+      0x3120CDD2,
+      0x313F7AF7,
+      0x3120609F,
+      0x3120FEF6,
+      0x314C8A3E,
+      0x3179054C,
+      0x314BEBE6,
+      0x314C5919,
+    ]
+
+    comparison = experiment._ordinary_generated_region_comparison(
+      source, input_bytes, alternate_words
+    )
+
+    self.assertEqual(comparison["status"], "unclassified")
+    self.assertEqual(comparison["difference"], "different")
+    self.assertEqual(comparison["mismatch_lanes"], [0, 1, 2])
+    self.assertEqual(comparison["actual_words"], alternate_words)
+    self.assertEqual(comparison["reference_words"], expected_words)
+
+  def test_generated_region_corpus_checkpoints_success_before_later_failure(self):
+    experiment = _load_fpsan_experiment()
+    with tempfile.TemporaryDirectory() as temporary:
+      root = Path(temporary)
+      sources = []
+      for program_id in ("native-seed-7", "native-seed-17"):
+        source_path = root / f"{program_id}.sir"
+        source_path.write_text(f"fixture {program_id}\n", encoding="utf-8")
+        source = source_path.read_bytes()
+        sources.append(
+          {
+            "program_id": program_id,
+            "source_path": source_path,
+            "source_sha256": hashlib.sha256(source).hexdigest(),
+            "generation": {"seed": int(program_id.rsplit("-", 1)[1])},
+          }
+        )
+      output_path = root / "report.json"
+      report = {"generated_regions": {"programs": {}}}
+
+      def run_case(case_ir, source_path, **kwargs):
+        saved = json.loads(output_path.read_text(encoding="utf-8"))
+        programs = saved["generated_regions"]["programs"]
+        self.assertEqual(set(programs), {"native-seed-7", "native-seed-17"})
+        if source_path.name == "native-seed-7.sir":
+          self.assertEqual(programs["native-seed-17"]["status"], "queued")
+          return {
+            "status": "pass",
+            "elapsed_s": 0.25,
+            "smt_witness": {"input_float_words": [0x3F800000]},
+            "ordinary_reference": {"status": "pass"},
+          }
+        self.assertEqual(programs["native-seed-7"]["status"], "pass")
+        raise AssertionError("synthetic output mismatch")
+
+      with mock.patch.object(
+        experiment,
+        "_run_generated_region_case",
+        side_effect=run_case,
+      ):
+        experiment._run_generated_region_corpus(
+          report,
+          output_path,
+          root / "ir",
+          sources,
+          target=1268,
+          target_index=(0, 0),
+          timeout_s=30.0,
+        )
+
+      saved = json.loads(output_path.read_text(encoding="utf-8"))
+      programs = saved["generated_regions"]["programs"]
+      self.assertEqual(programs["native-seed-7"]["status"], "pass")
+      self.assertEqual(
+        programs["native-seed-7"]["smt_witness"]["input_float_words"],
+        [0x3F800000],
+      )
+      self.assertEqual(
+        programs["native-seed-7"]["ordinary_reference"]["status"], "pass"
+      )
+      self.assertEqual(programs["native-seed-17"]["status"], "ERROR")
+      self.assertEqual(
+        programs["native-seed-17"]["failure"]["message"],
+        "synthetic output mismatch",
+      )
+      self.assertEqual(saved["generated_regions"]["status"], "failed")
+      self.assertEqual(saved["status"], "failed")
+      self.assertEqual(
+        programs["native-seed-17"]["property"],
+        {"kind": "output-payload-equals", "target": 1268, "index": [0, 0]},
+      )
+      self.assertGreaterEqual(programs["native-seed-17"]["elapsed_s"], 0.0)
+
+  def test_generated_region_failure_saves_stage_witness_and_available_ir(self):
+    experiment = _load_fpsan_experiment()
+    with tempfile.TemporaryDirectory() as temporary:
+      root = Path(temporary)
+      source_path = root / "native-seed-7.sir"
+      source_path.write_text("fixture native-seed-7\n", encoding="utf-8")
+      source = source_path.read_bytes()
+      sources = [
+        {
+          "program_id": "native-seed-7",
+          "source_path": source_path,
+          "source_sha256": hashlib.sha256(source).hexdigest(),
+          "generation": {"seed": 7},
+        }
+      ]
+      output_path = root / "report.json"
+      report = {"generated_regions": {"programs": {}}}
+
+      def fail_after_partial_execution(case_ir, source_path, **kwargs):
+        (case_ir / "ordinary.ttgir").write_text(
+          "module { tensor.generate }", encoding="utf-8"
+        )
+        kwargs["checkpoint"](
+          "ordinary_execution",
+          smt_witness={"input_float_words": [0x3F800000]},
+          ordinary_output_words=[0x3120CDD2],
+        )
+        raise RuntimeError("ordinary output mismatch")
+
+      with mock.patch.object(
+        experiment,
+        "_run_generated_region_case",
+        side_effect=fail_after_partial_execution,
+      ):
+        experiment._run_generated_region_corpus(
+          report,
+          output_path,
+          root / "ir",
+          sources,
+          target=1268,
+          target_index=(0, 0),
+          timeout_s=30.0,
+        )
+
+      saved = json.loads(output_path.read_text(encoding="utf-8"))
+      result = saved["generated_regions"]["programs"]["native-seed-7"]
+      self.assertEqual(result["failure"]["stage"], "ordinary_execution")
+      self.assertEqual(result["smt_witness"]["input_float_words"], [0x3F800000])
+      self.assertEqual(result["ordinary_output_words"], [0x3120CDD2])
+      self.assertEqual(result["source"]["sha256"], hashlib.sha256(source).hexdigest())
+      self.assertEqual(result["property"]["target"], 1268)
+      self.assertEqual(len(result["artifacts"]), 1)
+      self.assertEqual(result["artifacts"][0]["path"], "ordinary.ttgir")
+
+  def test_unavailable_finite_reference_is_unclassified_with_actual_words(self):
+    experiment = _load_fpsan_experiment()
+    source = (ROOT / "test/tensor/gluon/programs/native-seed-7.sir").read_text(
+      encoding="utf-8"
+    )
+    max_finite = struct.unpack("<f", struct.pack("<I", 0x7F7FFFFF))[0]
+    input_bytes = struct.pack("<4f", max_finite, max_finite, 0.0, 0.0)
+
+    comparison = experiment._ordinary_generated_region_comparison(
+      source, input_bytes, [0, 0, 0, 0]
+    )
+
+    self.assertEqual(comparison["status"], "unclassified")
+    self.assertEqual(comparison["difference"], "unavailable")
+    self.assertIsNone(comparison["reference_words"])
+    self.assertEqual(comparison["actual_words"], [0, 0, 0, 0])
+    self.assertIn("reference unavailable", comparison["admission"]["reason"])
 
 
 if __name__ == "__main__":

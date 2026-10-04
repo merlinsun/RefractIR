@@ -5,10 +5,12 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import statistics
 import struct
 import time
+import traceback
 from pathlib import Path
 
 import torch
@@ -138,7 +140,9 @@ def _ordinary_generated_region_output_words(source, input_bytes):
   )
   count = math.prod(shape)
   if not isinstance(input_bytes, bytes) or len(input_bytes) != count * 4:
-    raise ValueError("ordinary generated reference input does not match the tensor shape")
+    raise ValueError(
+      "ordinary generated reference input does not match the tensor shape"
+    )
   input_values = struct.unpack(f"<{count}f", input_bytes)
   if any(not math.isfinite(value) for value in input_values):
     raise ValueError("ordinary generated reference requires finite f32 inputs")
@@ -190,6 +194,305 @@ def _ordinary_generated_region_output_words(source, input_bytes):
   return list(struct.unpack(f"<{count}I", output_bytes))
 
 
+def _ordinary_generated_region_admission(source, input_bytes):
+  """Admit only positive finite transports with unambiguous short reductions."""
+  shape, _, tensor_types, nodes, _ = tensor_exact_f32._generated_region_program(source)
+  count = math.prod(shape)
+  if not isinstance(input_bytes, bytes) or len(input_bytes) != count * 4:
+    raise ValueError("ordinary reference input does not match the tensor shape")
+  input_words = struct.unpack(f"<{count}I", input_bytes)
+  input_values = struct.unpack(f"<{count}f", input_bytes)
+  reductions = []
+  for destination, operation, operands, attribute in nodes:
+    if operation != "sum":
+      continue
+    input_shape = tensor_types[operands[0]]
+    axis = attribute if attribute >= 0 else attribute + len(input_shape)
+    width = input_shape[axis]
+    reductions.append({"destination": destination, "axis": axis, "width": width})
+  max_width = max((item["width"] for item in reductions), default=0)
+  result = {
+    "status": "admitted",
+    "contract": "nonnegative-f32-reduction-width-at-most-2-v1",
+    "max_reduction_width": max_width,
+    "reductions": reductions,
+  }
+  if any(not math.isfinite(value) for value in input_values):
+    result.update(status="unclassified", reason="input transport is not finite f32")
+  elif any(word & 0x80000000 for word in input_words):
+    result.update(
+      status="unclassified", reason="input transport contains a negative f32 value"
+    )
+  elif max_width > 2:
+    unsupported = next(item for item in reductions if item["width"] > 2)
+    result.update(
+      status="unclassified",
+      reason=(
+        f"reduction width {unsupported['width']} at %{unsupported['destination']} "
+        "has no target-independent bitwise RNE tree contract"
+      ),
+    )
+  return result
+
+
+_REFERENCE_NOT_PROVIDED = object()
+
+
+def _ordinary_generated_region_comparison(
+  source,
+  input_bytes,
+  actual_words,
+  *,
+  admission=None,
+  reference_words=_REFERENCE_NOT_PROVIDED,
+):
+  admission = (
+    _ordinary_generated_region_admission(source, input_bytes)
+    if admission is None
+    else admission
+  )
+  if reference_words is _REFERENCE_NOT_PROVIDED:
+    try:
+      reference_words = _ordinary_generated_region_output_words(source, input_bytes)
+    except ValueError as error:
+      reference_words = None
+      reference_error = f"sequential RNE reference unavailable: {error}"
+      reason = admission.get("reason")
+      admission = {
+        **admission,
+        "status": "unclassified",
+        "reason": f"{reason}; {reference_error}" if reason else reference_error,
+      }
+  actual_words = [int(value) & 0xFFFFFFFF for value in actual_words]
+  mismatch_lanes = (
+    None if reference_words is None else compare_words(actual_words, reference_words)
+  )
+  if admission["status"] != "admitted" or reference_words is None:
+    status = "unclassified"
+  elif mismatch_lanes:
+    status = "FAIL"
+  else:
+    status = "pass"
+  if mismatch_lanes is None:
+    difference = "unavailable"
+  elif mismatch_lanes:
+    difference = "different"
+  else:
+    difference = "matches"
+  return {
+    "status": status,
+    "difference": difference,
+    "admission": admission,
+    "mismatch_lanes": mismatch_lanes,
+    "actual_words": actual_words,
+    "reference_words": reference_words,
+    "actual_bits": [f"{value:08x}" for value in actual_words],
+    "reference_bits": None
+    if reference_words is None
+    else [f"{value:08x}" for value in reference_words],
+    "expected_bits": None
+    if reference_words is None
+    else [f"{value:08x}" for value in reference_words],
+    "interpretation": (
+      "bitwise agreement with the sequential RNE reference is classified only "
+      "inside the admitted subset; other observations are diagnostic"
+    ),
+  }
+
+
+def _write_report_checkpoint(output_path, report):
+  output_path = Path(output_path)
+  output_path.parent.mkdir(parents=True, exist_ok=True)
+  temporary_path = output_path.with_name(output_path.name + ".tmp")
+  temporary_path.write_text(
+    json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+  )
+  os.replace(temporary_path, output_path)
+
+
+def _case_artifact_inventory(case_directory):
+  if not case_directory.exists():
+    return []
+  artifacts = []
+  for path in sorted(item for item in case_directory.rglob("*") if item.is_file()):
+    content = path.read_bytes()
+    artifacts.append(
+      {
+        "path": path.relative_to(case_directory).as_posix(),
+        "bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+      }
+    )
+  return artifacts
+
+
+def _generated_case_status(entries):
+  statuses = [entry.get("status") for entry in entries]
+  if any(status in {"ERROR", "FAIL"} for status in statuses):
+    return "failed"
+  if any(status in {"queued", "running"} for status in statuses):
+    return "running"
+  if all(status == "pass" for status in statuses):
+    return "pass"
+  return "incomplete"
+
+
+def _refresh_report_status(report):
+  generated_regions = report.get("generated_regions", {})
+  programs = generated_regions.get("programs", {})
+  if programs:
+    generated_regions["status"] = _generated_case_status(programs.values())
+  else:
+    generated_regions.setdefault("status", "queued")
+  entries = list(programs.values())
+  authored = report.get("generated_region")
+  if isinstance(authored, dict):
+    entries.append(authored)
+  report["status"] = _generated_case_status(entries)
+
+
+def _run_generated_region_case_record(
+  report,
+  output_path,
+  case_directory,
+  entry,
+  *,
+  source_path,
+  target,
+  target_index,
+  timeout_s,
+):
+  """Run one generated case while atomically checkpointing structured evidence."""
+  case_directory = Path(case_directory)
+  source_path = Path(source_path)
+  started = time.perf_counter()
+  entry.setdefault("source", {"path": source_path.name, "sha256": None})
+  entry.setdefault(
+    "property",
+    None
+    if target is None
+    else {
+      "kind": "output-payload-equals",
+      "target": target,
+      "index": list(target_index),
+    },
+  )
+  entry.update(status="running", stage="start", elapsed_s=0.0, artifacts=[])
+  _refresh_report_status(report)
+  _write_report_checkpoint(output_path, report)
+
+  def checkpoint(stage, **fields):
+    entry["stage"] = stage
+    entry.update(fields)
+    entry["elapsed_s"] = time.perf_counter() - started
+    _refresh_report_status(report)
+    _write_report_checkpoint(output_path, report)
+
+  try:
+    case_directory.mkdir(parents=True, exist_ok=True)
+    if entry["source"].get("sha256") is None:
+      source_bytes = source_path.read_bytes()
+      entry["source"]["sha256"] = hashlib.sha256(source_bytes).hexdigest()
+    result = _run_generated_region_case(
+      case_directory,
+      source_path=source_path,
+      target=target,
+      target_index=target_index,
+      timeout_s=timeout_s,
+      checkpoint=checkpoint,
+    )
+    entry.update(result)
+    entry.setdefault("status", "ERROR")
+    entry["stage"] = "complete"
+  except Exception as error:
+    failure_stage = entry.get("stage", "case_execution")
+    entry["status"] = "ERROR"
+    entry["stage"] = "failed"
+    entry["failure"] = {
+      "type": type(error).__name__,
+      "message": str(error),
+      "stage": failure_stage,
+      "traceback": traceback.format_exc()[-8000:],
+    }
+  entry["elapsed_s"] = time.perf_counter() - started
+  try:
+    entry["artifacts"] = _case_artifact_inventory(case_directory)
+  except OSError as error:
+    entry["artifact_inventory_error"] = f"{type(error).__name__}: {error}"
+    entry["artifacts"] = []
+  _refresh_report_status(report)
+  _write_report_checkpoint(output_path, report)
+  return entry
+
+
+def _run_generated_region_corpus(
+  report,
+  output_path,
+  ir_directory,
+  sources,
+  *,
+  target,
+  target_index,
+  timeout_s,
+):
+  section = report["generated_regions"]
+  programs = {}
+  section["programs"] = programs
+  section["status"] = "running"
+  report["status"] = "running"
+
+  pending = []
+  for record in sources:
+    program_id = record["program_id"]
+    source_path = Path(record["source_path"])
+    source_bytes = source_path.read_bytes()
+    source_sha256 = (
+      record.get("source_sha256") or hashlib.sha256(source_bytes).hexdigest()
+    )
+    property_record = (
+      None
+      if target is None
+      else {
+        "kind": "output-payload-equals",
+        "target": target,
+        "index": list(target_index),
+      }
+    )
+    entry = {
+      "program_id": program_id,
+      "status": "queued",
+      "stage": "queued",
+      "source": {"path": source_path.name, "sha256": source_sha256},
+      "generation": record.get("generation"),
+      "property": property_record,
+      "elapsed_s": 0.0,
+      "artifacts": [],
+    }
+    programs[program_id] = entry
+    pending.append((record, entry))
+  _refresh_report_status(report)
+  _write_report_checkpoint(output_path, report)
+  for record, entry in pending:
+    program_id = entry["program_id"]
+    source_path = Path(record["source_path"])
+    _run_generated_region_case_record(
+      report,
+      output_path,
+      Path(ir_directory) / "generated_regions" / program_id,
+      entry,
+      source_path=source_path,
+      target=target,
+      target_index=target_index,
+      timeout_s=timeout_s,
+    )
+    section["status"] = _generated_case_status(programs.values())
+    _refresh_report_status(report)
+    _write_report_checkpoint(output_path, report)
+  section["status"] = _generated_case_status(programs.values())
+  _write_report_checkpoint(output_path, report)
+  return programs
+
+
 def _generated_region_corpus_sources():
   program_dir = Path(__file__).resolve().parents[1] / "gluon" / "programs"
   manifest_path = program_dir / "native-generated-corpus.json"
@@ -221,6 +524,7 @@ def _run_generated_region_case(
   target=None,
   target_index=(0, 0),
   timeout_s=30.0,
+  checkpoint=None,
 ):
   case_started = time.perf_counter()
   ir_directory = Path(ir_directory)
@@ -230,13 +534,49 @@ def _run_generated_region_case(
     if source_path is None
     else Path(source_path)
   )
+
+  def note(stage, **fields):
+    if checkpoint is not None:
+      checkpoint(stage, **fields)
+
+  note("load_source", source={"path": source_path.name})
   source = source_path.read_text(encoding="utf-8")
+  source_identity = {
+    "path": source_path.name,
+    "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+  }
+  requested_property = (
+    None
+    if target is None
+    else {
+      "kind": "output-payload-equals",
+      "target": target,
+      "index": list(target_index),
+    }
+  )
+  note(
+    "smt_synthesis",
+    region_source=source_identity,
+    requested_property=requested_property,
+  )
   witness = synthesize_generated_region(
     source,
     target=target,
     target_index=target_index,
     timeout_s=timeout_s,
   )
+  query_smt2 = witness.get("query_smt2")
+  if isinstance(query_smt2, str) and query_smt2:
+    (ir_directory / "selection-query.smt2").write_text(query_smt2, encoding="utf-8")
+  solver_record = {
+    "status": witness.get("status"),
+    "property": witness.get("property"),
+    "cost_s": witness.get("cost_s"),
+    "solver": witness.get("solver"),
+    "query_sha256": witness.get("query_sha256"),
+    "solver_outcome": witness.get("solver_outcome"),
+  }
+  note("smt_terminal", selection=solver_record)
   if witness["status"] != "SAT":
     return {
       "status": witness["status"],
@@ -246,14 +586,25 @@ def _run_generated_region_case(
       "transport_contract": witness.get("transport_contract"),
       "solver": witness.get("solver"),
       "query_sha256": witness.get("query_sha256"),
-      "query_smt2": witness.get("query_smt2"),
+      "query_file": "selection-query.smt2" if query_smt2 else None,
       "solver_outcome": witness.get("solver_outcome"),
-      "region_source": {
-        "path": source_path.name,
-        "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
-      },
+      "region_source": source_identity,
     }
   shape = tuple(witness["shape"])
+  smt_witness = {
+    "transport_contract": witness["transport_contract"],
+    "query_sha256": witness["query_sha256"],
+    "input_payloads": witness["input_payloads"],
+    "output_payloads": witness["output_payloads"],
+    "input_float_words": witness["input_float_words"],
+    "output_float_words": witness["output_float_words"],
+    "input_float_bits": witness["input_float_bits"],
+    "output_float_bits": witness["output_float_bits"],
+    "calibration_mutants": witness["calibration_mutants"],
+    "property": witness["property"],
+    "cost_s": witness["cost_s"],
+  }
+  note("smt_witness", smt_witness=smt_witness)
   inputs = _tensor_from_words(witness["input_float_words"]).reshape(shape)
 
   # The source is rendered only from the admitted region parsed by the host model.
@@ -263,61 +614,96 @@ def _run_generated_region_case(
   namespace = {}
   exec(compile(kernel_source, str(kernel_source_path), "exec"), namespace)
   kernel = namespace["fpsan_generated_region"]
+  note("fpsan_execution", input_float_words=witness["input_float_words"])
   output, compiled, measurement = _run_generated_kernel_mode(
     kernel, inputs, shape, "fpsan"
   )
-  result = _expect_words("generated_region", output, witness["output_float_words"])
-  result["measurement"] = measurement
-  result["smt_witness"] = {
-    "transport_contract": witness["transport_contract"],
-    "query_sha256": witness["query_sha256"],
-    "input_payloads": witness["input_payloads"],
-    "output_payloads": witness["output_payloads"],
-    "input_float_bits": witness["input_float_bits"],
-    "output_float_bits": witness["output_float_bits"],
-    "calibration_mutants": witness["calibration_mutants"],
+  fpsan_words = _raw_words(output)
+  fpsan_ir = _capture_ir(compiled, "generated_region_fpsan", ir_directory)
+  note(
+    "fpsan_output_captured",
+    fpsan_output_words=fpsan_words,
+    fpsan_expected_words=witness["output_float_words"],
+    fpsan_measurement=measurement,
+    fpsan_compiler_ir=fpsan_ir,
+  )
+  fpsan_result = _expect_words(
+    "generated_region", output, witness["output_float_words"]
+  )
+  result = {
+    **fpsan_result,
+    "measurement": measurement,
+    "smt_witness": smt_witness,
+    "fpsan_output_words": fpsan_words,
   }
-  result["smt_witness"]["property"] = witness["property"]
-  result["smt_witness"]["cost_s"] = witness["cost_s"]
   result["payload_lowering"] = validate_fpsan_payload_lowering(
     getattr(compiled, "asm", {}).get("llir", "")
   )
-  fpsan_ir = _capture_ir(compiled, "generated_region_fpsan", ir_directory)
   result["compiler_ir"] = fpsan_ir
   result["compiler_modes"] = {"fpsan": fpsan_ir}
 
   input_bytes = struct.pack(
     f"<{len(witness['input_float_words'])}I", *witness["input_float_words"]
   )
-  ordinary_expected_words = _ordinary_generated_region_output_words(source, input_bytes)
+  ordinary_admission = _ordinary_generated_region_admission(source, input_bytes)
+  try:
+    ordinary_expected_words = _ordinary_generated_region_output_words(
+      source, input_bytes
+    )
+  except ValueError as error:
+    ordinary_expected_words = None
+    reference_error = f"sequential RNE reference unavailable: {error}"
+    reason = ordinary_admission.get("reason")
+    ordinary_admission = {
+      **ordinary_admission,
+      "status": "unclassified",
+      "reason": f"{reason}; {reference_error}" if reason else reference_error,
+    }
+  note(
+    "ordinary_execution",
+    ordinary_reference_admission=ordinary_admission,
+    ordinary_reference_words=ordinary_expected_words,
+  )
   ordinary_output, ordinary_compiled, ordinary_measurement = _run_generated_kernel_mode(
     kernel, inputs, shape, ""
   )
-  ordinary_result = _expect_words(
-    "generated_region_ordinary", ordinary_output, ordinary_expected_words
+  ordinary_words = _raw_words(ordinary_output)
+  ordinary_ir = _capture_ir(
+    ordinary_compiled, "generated_region_ordinary", ir_directory
   )
-  ordinary_result["measurement"] = ordinary_measurement
-  ordinary_ir = _capture_ir(ordinary_compiled, "generated_region_ordinary", ir_directory)
+  ordinary_comparison = _ordinary_generated_region_comparison(
+    source,
+    input_bytes,
+    ordinary_words,
+    admission=ordinary_admission,
+    reference_words=ordinary_expected_words,
+  )
+  ordinary_comparison["measurement"] = ordinary_measurement
+  ordinary_comparison["compiler_ir"] = ordinary_ir
+  note(
+    "ordinary_output_captured",
+    ordinary_reference=ordinary_comparison,
+    ordinary_compiler_ir=ordinary_ir,
+  )
   result["compiler_modes"]["ordinary"] = ordinary_ir
-  result["ordinary_reference"] = {
-    "status": ordinary_result["status"],
-    "actual_bits": ordinary_result["actual_bits"],
-    "expected_bits": ordinary_result["expected_bits"],
-    "measurement": ordinary_measurement,
-    "compiler_ir": ordinary_ir,
-  }
+  result["ordinary_reference"] = ordinary_comparison
+  if ordinary_comparison["status"] == "FAIL":
+    result["status"] = "FAIL"
+    result["failure"] = {
+      "type": "AssertionError",
+      "message": "ordinary GPU output differs from the admitted RNE reference",
+      "stage": "ordinary_output_captured",
+    }
   result["compiler_mode_comparison"] = _compare_generated_compiler_modes(
     fpsan_ir, ordinary_ir
   )
-  result["region_source"] = {
-    "path": source_path.name,
-    "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
-  }
+  result["region_source"] = source_identity
   result["calibration_mutants"] = {}
   for mutant_name, render_options in (
     ("lost_iteration", {"iteration_count": witness["iterations"] - 1}),
     ("lost_update_acc_y", {"omitted_updates": ("acc_y",)}),
   ):
+    note(f"{mutant_name}_execution")
     mutant_kernel_source = render_generated_region_triton_kernel(
       source, **render_options
     )
@@ -334,12 +720,23 @@ def _run_generated_region_case(
       lambda: mutant_kernel[(1,)](inputs, mutant_output, num_warps=1)
     )
     actual_mutant_words = _raw_words(mutant_output)
+    mutant_ir = _capture_ir(
+      mutant_compiled, f"generated_region_{mutant_name}", ir_directory
+    )
     expected_mutant_words = [
       int(value, 16)
-      for value in witness["calibration_mutants"][mutant_name][
-        "candidate_float_bits"
-      ]
+      for value in witness["calibration_mutants"][mutant_name]["candidate_float_bits"]
     ]
+    note(
+      f"{mutant_name}_output_captured",
+      last_mutant={
+        "name": mutant_name,
+        "actual_words": actual_mutant_words,
+        "expected_words": expected_mutant_words,
+        "measurement": mutant_measurement,
+        "compiler_ir": mutant_ir,
+      },
+    )
     if actual_mutant_words != expected_mutant_words:
       raise AssertionError(
         f"{mutant_name} GPU output differs from its synthesized payload model"
@@ -356,11 +753,10 @@ def _run_generated_region_case(
       "payload_lowering": validate_fpsan_payload_lowering(
         getattr(mutant_compiled, "asm", {}).get("llir", "")
       ),
-      "compiler_ir": _capture_ir(
-        mutant_compiled, f"generated_region_{mutant_name}", ir_directory
-      ),
+      "compiler_ir": mutant_ir,
     }
   result["elapsed_s"] = time.perf_counter() - case_started
+  note("complete")
   return result
 
 
@@ -393,8 +789,7 @@ def _compare_generated_compiler_modes(fpsan_ir, ordinary_ir):
       )
     },
     "metric_delta_fpsan_minus_ordinary": {
-      metric: fpsan_ir.get(metric, 0) - ordinary_ir.get(metric, 0)
-      for metric in metrics
+      metric: fpsan_ir.get(metric, 0) - ordinary_ir.get(metric, 0) for metric in metrics
     },
     "interpretation_limit": (
       "paired compiler artifacts describe observed transformations; repeated IR "
@@ -547,6 +942,8 @@ def run(
   generated_target_index=(0, 0),
   generated_timeout_s=30.0,
 ):
+  output_path = Path(output_path)
+  ir_directory = Path(ir_directory)
   if triton.__version__ != TRITON_VERSION:
     raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
   source_identity = verify_installed_fpsan_source(triton)
@@ -588,20 +985,23 @@ def run(
     witnesses["broadcast_and_add_zero"]["input_float_words"]
   )
   output = torch.empty((1,), dtype=torch.float32, device="cuda")
-  generated_region_result = _run_generated_region_case(ir_directory)
   generated_region_corpus = _generated_region_corpus_sources()
+  requested_property = (
+    None
+    if generated_target is None
+    else {
+      "kind": "output-payload-equals",
+      "target": generated_target,
+      "index": list(generated_target_index),
+    }
+  )
+  generated_region_result = {
+    "program_id": "authored-generated-region",
+    "status": "queued",
+    "stage": "queued",
+    "property": None,
+  }
   generated_region_results = {}
-  for record in generated_region_corpus:
-    case_ir_directory = ir_directory / "generated_regions" / record["program_id"]
-    result = _run_generated_region_case(
-      case_ir_directory,
-      source_path=record["source_path"],
-      target=generated_target,
-      target_index=generated_target_index,
-      timeout_s=generated_timeout_s,
-    )
-    result["program_id"] = record["program_id"]
-    generated_region_results[record["program_id"]] = result
   report = {
     "contract": "triton-fpsan-fixed-payload-ring-v2",
     "triton_version": triton.__version__,
@@ -617,13 +1017,7 @@ def run(
       "input_transport": (
         "payload integers in [0,8] map through the pinned finite-f32 mixer"
       ),
-      "property": None
-      if generated_target is None
-      else {
-        "kind": "output-payload-equals",
-        "target": generated_target,
-        "index": list(generated_target_index),
-      },
+      "property": requested_property,
       "selection_budget_s_per_program": generated_timeout_s,
       "gpu_launch_protocol": {
         "warmup_launches": WARMUP_LAUNCHES,
@@ -633,6 +1027,12 @@ def run(
       "transport_contract": (
         "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237"
       ),
+      "ordinary_reference_contract": {
+        "admission": "nonnegative-f32-reduction-width-at-most-2-v1",
+        "excluded_case_policy": (
+          "run and retain actual/reference words as unclassified diagnostic evidence"
+        ),
+      },
     },
     "compute_capability": list(torch.cuda.get_device_capability()),
     "bitvector_laws": "unsat for negated QF_BV identities",
@@ -655,9 +1055,37 @@ def run(
       ),
       "input_payload_range": [0, 8],
       "output_payload_range": [0, 1 << 24],
+      "status": "queued",
       "programs": generated_region_results,
     },
+    "status": "running",
   }
+
+  _write_report_checkpoint(output_path, report)
+  _run_generated_region_case_record(
+    report,
+    output_path,
+    ir_directory / "generated_region",
+    report["generated_region"],
+    source_path=Path(__file__).with_name("generated_region.sir"),
+    target=None,
+    target_index=generated_target_index,
+    timeout_s=generated_timeout_s,
+  )
+  _run_generated_region_corpus(
+    report,
+    output_path,
+    ir_directory,
+    generated_region_corpus,
+    target=generated_target,
+    target_index=generated_target_index,
+    timeout_s=generated_timeout_s,
+  )
+  generated_region_result = report["generated_region"]
+  generated_region_results = report["generated_regions"]["programs"]
+  report["status"] = "running"
+  report["stage"] = "fixed_payload_kernel_cases"
+  _write_report_checkpoint(output_path, report)
 
   expected_sum = witnesses["sum_reduction"]["reference_payloads"][0]
   if expected_sum != witnesses["sum_reduction"]["candidate_payloads"][0]:
@@ -809,15 +1237,13 @@ def run(
       expected_sum if expected_sum < 0x80000000 else expected_sum - (1 << 32)
     ),
   }
-  report["status"] = (
-    "pass"
-    if generated_region_result.get("status") == "pass"
-    and all(
-      result.get("status") == "pass" for result in generated_region_results.values()
-    )
-    else "incomplete"
+  generated_status = _generated_case_status(
+    [generated_region_result, *generated_region_results.values()]
   )
-  Path(output_path).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+  report["generated_regions"]["status"] = generated_status
+  report["status"] = generated_status
+  report["stage"] = "complete"
+  _write_report_checkpoint(output_path, report)
   return report
 
 
@@ -843,6 +1269,8 @@ def main():
     generated_timeout_s=args.generated_timeout_s,
   )
   print(json.dumps(report, indent=2, sort_keys=True))
+  if report.get("status") != "pass":
+    raise SystemExit(1)
 
 
 if __name__ == "__main__":
