@@ -26,6 +26,7 @@ from test.lib.tensor_compiler_observation import (
 from test.lib.tensor_gluon import BlockedLayoutPlan, generate_layout_plans
 from test.lib.tensor_gluon_lowering import (
   cross_lane_threads_per_warp,
+  reduction_blocked_layout,
   render_gluon_kernel,
 )
 
@@ -106,13 +107,13 @@ def _with_generated_pass_observations(function):
   return wrapped
 
 
-def _measure_region_kernel(kernel, args):
+def _measure_region_kernel(kernel, args, *, num_warps):
   started = time.perf_counter()
-  compiled = kernel[(1,)](*args, num_warps=1, enable_fp_fusion=False)
+  compiled = kernel[(1,)](*args, num_warps=num_warps, enable_fp_fusion=False)
   torch.cuda.synchronize()
   compilation_wall_s = time.perf_counter() - started
   for _ in range(WARMUP_LAUNCHES):
-    kernel[(1,)](*args, num_warps=1, enable_fp_fusion=False)
+    kernel[(1,)](*args, num_warps=num_warps, enable_fp_fusion=False)
   torch.cuda.synchronize()
   launches_per_batch = MEASURED_LAUNCHES // tensor_route_protocol.MEASUREMENT_BATCHES
   samples_ms = []
@@ -121,7 +122,7 @@ def _measure_region_kernel(kernel, args):
     end = torch.cuda.Event(enable_timing=True)
     start.record()
     for _ in range(launches_per_batch):
-      kernel[(1,)](*args, num_warps=1, enable_fp_fusion=False)
+      kernel[(1,)](*args, num_warps=num_warps, enable_fp_fusion=False)
     end.record()
     torch.cuda.synchronize()
     samples_ms.append(start.elapsed_time(end) / launches_per_batch)
@@ -171,6 +172,8 @@ def run_program(
   target=None,
   target_index=(0, 0),
   layout_seed=20261002,
+  num_warps=1,
+  layout_count=5,
 ):
   """Compare sampled Gluon layouts on one admitted generated-region source."""
   if triton.__version__ != TRITON_VERSION:
@@ -184,6 +187,10 @@ def run_program(
     )
   if type(layout_seed) is not int or layout_seed < 0:
     raise ValueError("layout_seed must be a nonnegative integer")
+  if type(num_warps) is not int or num_warps <= 0 or num_warps & (num_warps - 1):
+    raise ValueError("num_warps must be a positive power of two")
+  if type(layout_count) is not int or layout_count <= 0:
+    raise ValueError("layout_count must be a positive integer")
 
   source_path = Path(program_path).resolve()
   source = source_path.read_text(encoding="utf-8")
@@ -237,22 +244,25 @@ def run_program(
   }
   if not reduction_axes:
     raise ValueError("generated region has no full-shape reduction to distribute")
-  reduction_threads = cross_lane_threads_per_warp(shape, reduction_axes)
-  reduction_order = (1, 0) if reduction_threads == (1, 32) else (0, 1)
-  reduction_layout = BlockedLayoutPlan(
-    "reduction-blocked-cross-lane",
-    (1, 1),
-    reduction_threads,
-    (1, 1),
-    reduction_order,
+  reduction_layout = reduction_blocked_layout(
+    shape, reduction_axes, num_warps=num_warps
   )
-  plans = generate_layout_plans(shape, num_warps=1, seed=layout_seed, count=5)
+  reduction_layout.validate(shape, num_warps=num_warps)
+  plans = [reduction_layout]
+  if layout_count > 1:
+    plans.extend(
+      generate_layout_plans(
+        shape,
+        num_warps=num_warps,
+        seed=layout_seed,
+        count=layout_count - 1,
+      )
+    )
   generated = render_gluon_kernel(source)
   kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
   cases = {}
   for plan in plans:
-    plan.validate(shape, num_warps=1)
-    reduction_layout.validate(shape, num_warps=1)
+    plan.validate(shape, num_warps=num_warps)
     args = (
       input_tensor,
       output_tensor,
@@ -261,7 +271,7 @@ def run_program(
       reduction_layout.to_gluon_layout(),
       plan.to_gluon_layout(),
     )
-    compiled, measurement = _measure_region_kernel(kernel, args)
+    compiled, measurement = _measure_region_kernel(kernel, args, num_warps=num_warps)
     actual_bytes = output_tensor.view(torch.uint8).cpu().numpy().tobytes()
     if actual_bytes != expected_bytes:
       raise AssertionError(
@@ -310,7 +320,7 @@ def run_program(
     baseline_plan.to_gluon_layout(),
   )
   mutant_compiled, mutant_measurement = _measure_region_kernel(
-    mutant_kernel, mutant_args
+    mutant_kernel, mutant_args, num_warps=num_warps
   )
   mutant_bytes = output_tensor.view(torch.uint8).cpu().numpy().tobytes()
   mutant_detected = mutant_bytes != expected_bytes
@@ -367,12 +377,12 @@ def run_program(
       "measurement": mutant_measurement,
     },
     "measurement_protocol": {
-      "num_warps": 1,
+      "num_warps": num_warps,
       "enable_fp_fusion": False,
       "warmup_launches_per_layout": WARMUP_LAUNCHES,
       "measured_launches_per_layout": MEASURED_LAUNCHES,
       "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
-      "expected_layout_count": len(plans),
+      "expected_layout_count": layout_count,
       "cache": tensor_route_protocol.cache_record_from_environment(),
       "measurement_accounting": tensor_route_protocol.measurement_accounting(
         useful_compilations=len(cases),
@@ -595,6 +605,8 @@ def main():
   parser.add_argument("--target", type=float)
   parser.add_argument("--target-index", default="0,0")
   parser.add_argument("--layout-seed", type=int, default=20261002)
+  parser.add_argument("--num-warps", type=int, default=1)
+  parser.add_argument("--layout-count", type=int, default=5)
   args = parser.parse_args()
   if args.program:
     try:
@@ -614,6 +626,8 @@ def main():
       target=args.target,
       target_index=target_index,
       layout_seed=args.layout_seed,
+      num_warps=args.num_warps,
+      layout_count=args.layout_count,
     )
   elif args.case_dir:
     report = run(args.case_dir, args.output, args.ir_dir, symiri=args.symiri)

@@ -22,6 +22,7 @@ NATIVE_GENERATED_PROGRAM_IDS = (
   "native-seed-0-shape-2x4-iterations-3",
   "native-seed-3-shape-4x2-iterations-4",
   "native-seed-6-shape-2x4-iterations-2",
+  "native-seed-2-shape-8x8-iterations-2",
 )
 
 
@@ -53,7 +54,7 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
     ]
 
     self.assertEqual(
-      len({hashlib.sha256(source.encode()).hexdigest() for source in sources}), 6
+      len({hashlib.sha256(source.encode()).hexdigest() for source in sources}), 7
     )
 
   def test_default_matrix_includes_all_frozen_native_graph_programs(self):
@@ -67,7 +68,7 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
       layout_seeds=(20261002, 20261003),
     )
 
-    self.assertEqual(len(cells), 48)
+    self.assertEqual(len(cells), 56)
     self.assertEqual(
       {cell["program_id"] for cell in cells}, set(NATIVE_GENERATED_PROGRAM_IDS)
     )

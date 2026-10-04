@@ -3,6 +3,7 @@
 import unittest
 
 from test.lib.tensor_gluon import BlockedLayoutPlan, generate_layout_plans
+from test.lib.tensor_gluon_lowering import reduction_blocked_layout
 
 
 class TensorGluonLayoutTests(unittest.TestCase):
@@ -65,6 +66,44 @@ class TensorGluonLayoutTests(unittest.TestCase):
   def test_generation_rejects_invalid_seed(self):
     with self.assertRaisesRegex(ValueError, "seed"):
       generate_layout_plans((2, 2), num_warps=1, seed=-1, count=2)
+
+  def test_four_warp_row_reduction_shards_warps_over_rows(self):
+    layout = reduction_blocked_layout((8, 8), {1}, num_warps=4)
+
+    self.assertEqual(layout.threads_per_warp, (1, 32))
+    self.assertEqual(layout.warps_per_cta, (4, 1))
+    layout.validate((8, 8), num_warps=4)
+
+  def test_four_warp_column_reduction_shards_warps_over_columns(self):
+    layout = reduction_blocked_layout((8, 8), {0}, num_warps=4)
+
+    self.assertEqual(layout.threads_per_warp, (32, 1))
+    self.assertEqual(layout.warps_per_cta, (1, 4))
+    layout.validate((8, 8), num_warps=4)
+
+  def test_four_warp_orthogonal_reductions_pick_a_stable_primary_axis(self):
+    layout = reduction_blocked_layout((8, 8), {0, 1}, num_warps=4)
+
+    self.assertEqual(layout.threads_per_warp, (1, 32))
+    self.assertEqual(layout.warps_per_cta, (4, 1))
+    layout.validate((8, 8), num_warps=4)
+
+  def test_four_warps_fit_small_nonreduction_extent_across_both_axes(self):
+    layout = reduction_blocked_layout((2, 8), {1}, num_warps=4)
+
+    self.assertEqual(layout.warps_per_cta, (2, 2))
+    layout.validate((2, 8), num_warps=4)
+
+  def test_reduction_layout_rejects_unsupported_warp_count(self):
+    with self.assertRaisesRegex(ValueError, "num_warps"):
+      reduction_blocked_layout((8, 8), {1}, num_warps=3)
+
+  def test_one_warp_reduction_layout_preserves_the_existing_lane_mapping(self):
+    layout = reduction_blocked_layout((2, 2), {1}, num_warps=1)
+
+    self.assertEqual(layout.threads_per_warp, (1, 32))
+    self.assertEqual(layout.warps_per_cta, (1, 1))
+    self.assertEqual(layout.order, (1, 0))
 
 
 if __name__ == "__main__":

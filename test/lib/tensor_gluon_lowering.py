@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from test.lib.tensor_exact_f32 import _generated_region_program
+from test.lib.tensor_gluon import BlockedLayoutPlan
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,33 @@ def cross_lane_threads_per_warp(shape, reduction_axes):
     if axis in axes and shape[axis] > 1:
       return (1, 32) if axis == 1 else (32, 1)
   raise ValueError("region has no nontrivial reduction axis for cross-lane testing")
+
+
+def reduction_blocked_layout(shape, reduction_axes, *, num_warps):
+  """Place CTA warps on the non-reduced axis, spilling across axes if needed."""
+  if type(num_warps) is not int or num_warps <= 0 or num_warps & (num_warps - 1):
+    raise ValueError("num_warps must be a positive power of two")
+  threads_per_warp = cross_lane_threads_per_warp(shape, reduction_axes)
+  reduction_axis = 1 if threads_per_warp == (1, 32) else 0
+  parallel_axis = 1 - reduction_axis
+
+  parallel_extent = shape[parallel_axis]
+  warps_on_parallel_axis = 1 << min(
+    num_warps.bit_length() - 1,
+    parallel_extent.bit_length() - 1,
+  )
+  warps_on_reduction_axis = num_warps // warps_on_parallel_axis
+  warps_per_cta = [1, 1]
+  warps_per_cta[parallel_axis] = warps_on_parallel_axis
+  warps_per_cta[reduction_axis] = warps_on_reduction_axis
+  order = (1, 0) if reduction_axis == 1 else (0, 1)
+  return BlockedLayoutPlan(
+    f"reduction-blocked-{num_warps}-warps",
+    (1, 1),
+    threads_per_warp,
+    tuple(warps_per_cta),
+    order,
+  )
 
 
 def render_gluon_kernel(source):

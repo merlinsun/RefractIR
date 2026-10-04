@@ -110,6 +110,7 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
         "native-seed-0-shape-2x4-iterations-3",
         "native-seed-3-shape-4x2-iterations-4",
         "native-seed-6-shape-2x4-iterations-2",
+        "native-seed-2-shape-8x8-iterations-2",
       ],
     )
     for source in sources:

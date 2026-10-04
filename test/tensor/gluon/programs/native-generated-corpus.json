@@ -132,6 +132,28 @@
       "program_id": "native-seed-6-shape-2x4-iterations-2",
       "source_file": "native-seed-6-shape-2x4-iterations-2.sir",
       "source_sha256": "77ab1b7ad5cfefbd41e7cdb65e068cdb8aecc639676e3eabc8ed7e6eab5b0e8a"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 2,
+        "profile": "v2",
+        "seed": 2,
+        "shape": [
+          8,
+          8
+        ]
+      },
+      "program_id": "native-seed-2-shape-8x8-iterations-2",
+      "source_file": "native-seed-2-shape-8x8-iterations-2.sir",
+      "source_sha256": "aa2d0561c54a226d006fa43deff1393953c37d53d7e48d10f8610d0749c6e30e"
     }
   ],
   "schema": "refractir.generated-region-corpus.v1"
