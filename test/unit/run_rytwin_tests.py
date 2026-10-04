@@ -1614,7 +1614,11 @@ def test_de_morgan_doubles_the_complements(rytwin):
   both ways round."""
   kept, ok = rules_kept(rytwin, OPEN_BITWISE_FIXTURE, "openbits")
   check("mba-demorgan fires on a conjunction", "mba-demorgan-and" in kept, str(kept))
-  kept2, ok2 = rules_kept(rytwin, OR_FIXTURE, "bitor")
+  # The OR fixture also matches several arithmetic crossings. Sample a fixed,
+  # wider seed set so this checks the De Morgan rule's availability rather than
+  # whether six random candidate draws happened to select it.
+  demorgan_or_seeds = tuple(str(seed) for seed in range(1, 129))
+  kept2, ok2 = rules_kept(rytwin, OR_FIXTURE, "bitor", seeds=demorgan_or_seeds)
   check("and on a disjunction", "mba-demorgan-or" in kept2, str(kept2))
   check("and the twins validate", ok and ok2)
 
