@@ -103,6 +103,39 @@ def _matching_reports():
   return fpsan, exact
 
 
+def _gpu_measurement(*, warmups, measured):
+  return {
+    "first_launch_wall_s_including_compilation": 0.1,
+    "warmup_launches": warmups,
+    "measured_launches": measured,
+  }
+
+
+def _gpu_case(*, warmups=3, measured=30):
+  return {
+    "compiler": {"observation": {"compilation_count": 1}},
+    "measurement": _gpu_measurement(warmups=warmups, measured=measured),
+  }
+
+
+def _gpu_report(*, cases=None, expected_layout_count=2, calibration=True):
+  return {
+    "cases": cases or {"layout-a": _gpu_case(), "layout-b": _gpu_case()},
+    "calibration_compiler": (
+      {
+        "observation": {"compilation_count": 1},
+        "measurement": _gpu_measurement(warmups=2, measured=7),
+      }
+      if calibration
+      else None
+    ),
+    "measurement_protocol": {
+      "expected_layout_count": expected_layout_count,
+      "measurement_accounting": {"calibration_compilations": 1},
+    },
+  }
+
+
 class TensorRouteProtocolTests(unittest.TestCase):
   def test_cache_policy_creates_only_a_fresh_empty_directory(self):
     protocol = importlib.import_module("test.lib.tensor_route_protocol")
@@ -251,8 +284,67 @@ class TensorRouteProtocolTests(unittest.TestCase):
       metrics["fpsan"]["measurement_accounting"]["calibration_compilations"], 2
     )
     exact_accounting = metrics["exact"]["policies"]["random"]["measurement_accounting"]
-    self.assertEqual(exact_accounting["useful_compilations"], 5)
-    self.assertEqual(exact_accounting["calibration_compilations"], 1)
+    self.assertEqual(exact_accounting["status"], "unknown")
+    self.assertIsNone(exact_accounting["total"]["total_compilations"])
+
+  def test_gpu_work_accounting_uses_observed_layout_and_calibration_records(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+
+    accounting = protocol.gpu_report_work_accounting(_gpu_report())
+
+    self.assertEqual(accounting["status"], "complete")
+    self.assertEqual(accounting["observed"]["useful_compilations"], 2)
+    self.assertEqual(accounting["observed"]["calibration_compilations"], 1)
+    self.assertEqual(accounting["observed"]["useful_warmup_launches"], 6)
+    self.assertEqual(accounting["observed"]["calibration_warmup_launches"], 2)
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 67)
+    self.assertEqual(accounting["total"], accounting["observed"])
+
+  def test_partial_gpu_report_keeps_lower_bounds_and_withholds_totals(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+
+    accounting = protocol.gpu_report_work_accounting(
+      _gpu_report(
+        cases={"layout-a": _gpu_case(warmups=1, measured=4)}, calibration=False
+      )
+    )
+
+    self.assertEqual(accounting["status"], "partial")
+    self.assertEqual(accounting["observed"]["useful_compilations"], 1)
+    self.assertEqual(accounting["observed"]["useful_measured_launches"], 4)
+    self.assertIsNone(accounting["total"]["total_compilations"])
+    self.assertIsNone(accounting["total"]["total_measured_launches"])
+
+  def test_empty_gpu_report_is_unknown_instead_of_zero_work(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+
+    accounting = protocol.gpu_report_work_accounting({})
+
+    self.assertEqual(accounting["status"], "unknown")
+    self.assertEqual(accounting["observed"]["total_compilations"], 0)
+    self.assertIsNone(accounting["total"]["total_compilations"])
+
+  def test_exact_route_metrics_use_accounting_retained_in_policy_summary(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    fpsan, exact = _matching_reports()
+    exact["cells"][0]["summary"]["routes"][
+      "exact-f32:contract:output-element-0-0-equals-1268"
+    ]["policies"]["random"]["work_accounting"] = protocol.gpu_report_work_accounting(
+      _gpu_report(
+        cases={
+          "layout-a": _gpu_case(warmups=1, measured=4),
+          "layout-b": _gpu_case(warmups=2, measured=5),
+        }
+      )
+    )
+
+    accounting = protocol.compare_route_reports(fpsan, exact)["programs"][0][
+      "route_metrics"
+    ]["exact"]["policies"]["random"]["measurement_accounting"]
+
+    self.assertEqual(accounting["status"], "complete")
+    self.assertEqual(accounting["observed"]["useful_compilations"], 2)
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 16)
 
   def test_route_comparison_records_budgets_without_merging_them(self):
     protocol = importlib.import_module("test.lib.tensor_route_protocol")

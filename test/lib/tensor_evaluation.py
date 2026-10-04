@@ -345,6 +345,7 @@ def _empty_study_policy():
     "allocated_budget_s": 0.0,
     "budget_overrun_s": 0.0,
     "cost_s": {field: 0.0 for field in _COST_FIELDS},
+    "_work_accounting_records": [],
     "calibration_expected_controls": 0,
     "calibration_observed_controls": 0,
     "calibration_expected_positive": 0,
@@ -422,6 +423,11 @@ def _finish_study_policy(summary):
     if observed_negative == expected_negative and expected_negative
     else None,
   }
+  from test.lib import tensor_route_protocol
+
+  summary["work_accounting"] = tensor_route_protocol.aggregate_gpu_work_accounting(
+    summary.pop("_work_accounting_records")
+  )
 
 
 def _study_calibration_contract(ledger, trials):
@@ -490,6 +496,7 @@ def summarize_fixed_contract_study(ledger):
   if budget == 0:
     raise ValueError("fixed budget_s must be positive")
   calibration_contract = _study_calibration_contract(ledger, trials)
+  from test.lib import tensor_route_protocol
 
   routes = {}
   pairs = {}
@@ -560,6 +567,14 @@ def summarize_fixed_contract_study(ledger):
       },
     )
     policy_summary = summary["policies"][policy]
+    work_accounting = trial.get("work_accounting")
+    if work_accounting is None:
+      work_accounting = (
+        tensor_route_protocol.no_gpu_work_accounting()
+        if execution == "not_run"
+        else tensor_route_protocol.unknown_gpu_work_accounting()
+      )
+    policy_summary["_work_accounting_records"].append(work_accounting)
     policy_summary["attempts"] += 1
     policy_summary["admitted"] += int(admission == "admitted")
     policy_summary["refused"] += int(admission == "refused")

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test.lib import tensor_evaluation
+from test.lib import tensor_evaluation, tensor_route_protocol
 from test.tensor.gluon import run_selection_study
 
 
@@ -101,6 +101,89 @@ class TensorFixedStudyTests(unittest.TestCase):
     self.assertEqual(route["policies"]["random"]["refused"], 1)
     self.assertEqual(route["policies"]["solver"]["useful_executions"], 1)
     self.assertEqual(route["policies"]["solver"]["allocated_budget_s"], 10)
+
+  def test_refused_and_unsat_trials_report_known_zero_gpu_work(self):
+    ledger = _ledger()
+    for trial, admission in zip(ledger["trials"], ("refused", "unsat"), strict=True):
+      trial["admission_status"] = admission
+      trial["execution_status"] = "not_run"
+      trial["compiler_observation"] = None
+      trial["cost_s"]["compilation_s"] = 0.0
+      trial["cost_s"]["gpu_execution_s"] = 0.0
+
+    report = tensor_evaluation.summarize_fixed_contract_study(ledger)
+    policies = report["routes"]["exact:exact-contract-v1:exact-output-property"][
+      "policies"
+    ]
+
+    for policy in policies.values():
+      accounting = policy["work_accounting"]
+      self.assertEqual(accounting["status"], "not_started")
+      self.assertEqual(accounting["total"]["total_compilations"], 0)
+      self.assertEqual(accounting["total"]["total_measured_launches"], 0)
+
+  def test_interrupted_gpu_trial_without_report_has_unknown_work(self):
+    ledger = _ledger()
+    trial = ledger["trials"][0]
+    trial["execution_status"] = "execution_failure"
+    trial["compiler_observation"] = None
+    trial["cost_s"]["compilation_s"] = 0.0
+    trial["cost_s"]["gpu_execution_s"] = 0.0
+
+    report = tensor_evaluation.summarize_fixed_contract_study(ledger)
+    accounting = report["routes"]["exact:exact-contract-v1:exact-output-property"][
+      "policies"
+    ]["random"]["work_accounting"]
+
+    self.assertEqual(accounting["status"], "unknown")
+    self.assertEqual(accounting["observed"]["useful_compilations"], 0)
+    self.assertIsNone(accounting["total"]["total_compilations"])
+    self.assertIsNone(accounting["total"]["total_measured_launches"])
+
+  def test_policy_summary_preserves_observed_work_and_censored_mate(self):
+    ledger = _ledger()
+    report = {
+      "cases": {
+        "layout-a": {
+          "compiler": {"observation": {}},
+          "measurement": {
+            "first_launch_wall_s_including_compilation": 0.1,
+            "warmup_launches": 2,
+            "measured_launches": 6,
+          },
+        }
+      },
+      "calibration_compiler": {
+        "observation": {},
+        "measurement": {
+          "first_launch_wall_s_including_compilation": 0.1,
+          "warmup_launches": 1,
+          "measured_launches": 4,
+        },
+      },
+      "measurement_protocol": {
+        "expected_layout_count": 1,
+        "measurement_accounting": {"calibration_compilations": 1},
+      },
+    }
+    ledger["trials"][0]["work_accounting"] = (
+      tensor_route_protocol.gpu_report_work_accounting(report)
+    )
+    ledger["trials"][1]["execution_status"] = "execution_failure"
+    ledger["trials"][1]["compiler_observation"] = None
+
+    summary = tensor_evaluation.summarize_fixed_contract_study(ledger)["routes"][
+      "exact:exact-contract-v1:exact-output-property"
+    ]["policies"]
+
+    self.assertEqual(summary["random"]["work_accounting"]["status"], "complete")
+    self.assertEqual(
+      summary["random"]["work_accounting"]["total"]["total_measured_launches"], 10
+    )
+    self.assertEqual(summary["solver"]["work_accounting"]["status"], "unknown")
+    self.assertIsNone(
+      summary["solver"]["work_accounting"]["total"]["total_compilations"]
+    )
 
   def test_rejects_stage_costs_or_elapsed_time_over_the_fixed_budget(self):
     ledger = _ledger()

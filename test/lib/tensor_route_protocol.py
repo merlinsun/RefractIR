@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 
@@ -12,6 +13,16 @@ NUM_WARPS = 1
 ENABLE_FP_FUSION = False
 INPUT_DOMAIN = [0, 8]
 TARGET_INDEX = [0, 0]
+_WORK_SPLIT_FIELDS = (
+  "useful_compilations",
+  "calibration_compilations",
+  "useful_executions",
+  "calibration_executions",
+  "useful_warmup_launches",
+  "calibration_warmup_launches",
+  "useful_measured_launches",
+  "calibration_measured_launches",
+)
 
 
 def prepare_fresh_cache(path):
@@ -73,6 +84,180 @@ def measurement_accounting(
     "total_warmup_launches": total_executions * WARMUP_LAUNCHES,
     "total_measured_launches": total_executions * MEASURED_LAUNCHES,
   }
+
+
+def _work_accounting(status, split_counts, *, trial_status_counts=None):
+  if status not in {"not_started", "complete", "partial", "unknown"}:
+    raise ValueError("invalid GPU work-accounting status")
+  if not isinstance(split_counts, dict) or any(
+    type(split_counts.get(name)) is not int or split_counts[name] < 0
+    for name in _WORK_SPLIT_FIELDS
+  ):
+    raise ValueError("GPU work counts must be nonnegative integers")
+  observed = {name: split_counts[name] for name in _WORK_SPLIT_FIELDS}
+  observed.update(
+    {
+      "total_compilations": (
+        observed["useful_compilations"] + observed["calibration_compilations"]
+      ),
+      "total_executions": (
+        observed["useful_executions"] + observed["calibration_executions"]
+      ),
+      "total_warmup_launches": (
+        observed["useful_warmup_launches"] + observed["calibration_warmup_launches"]
+      ),
+      "total_measured_launches": (
+        observed["useful_measured_launches"] + observed["calibration_measured_launches"]
+      ),
+    }
+  )
+  exact = status in {"not_started", "complete"}
+  result = {
+    "status": status,
+    "observed": observed,
+    "total": dict(observed) if exact else {name: None for name in observed},
+    "measurement_protocol": {
+      "warmup_launches_per_execution": WARMUP_LAUNCHES,
+      "measured_launches_per_execution": MEASURED_LAUNCHES,
+      "measurement_batches": MEASUREMENT_BATCHES,
+    },
+  }
+  if trial_status_counts is not None:
+    result["trial_status_counts"] = trial_status_counts
+  return result
+
+
+def no_gpu_work_accounting():
+  """Represent an arm known to have stopped before starting GPU work."""
+  return _work_accounting("not_started", {name: 0 for name in _WORK_SPLIT_FIELDS})
+
+
+def unknown_gpu_work_accounting():
+  """Represent attempted GPU work for which no usable report was retained."""
+  return _work_accounting("unknown", {name: 0 for name in _WORK_SPLIT_FIELDS})
+
+
+def gpu_report_work_accounting(report):
+  """Derive lower bounds and completeness from retained per-kernel records."""
+  if not isinstance(report, dict):
+    return unknown_gpu_work_accounting()
+  cases = report.get("cases")
+  if not isinstance(cases, dict):
+    return unknown_gpu_work_accounting()
+  counts = {name: 0 for name in _WORK_SPLIT_FIELDS}
+  incomplete = False
+
+  def account_entry(compiler, measurement, prefix):
+    nonlocal incomplete
+    compiler_observed = isinstance(compiler, dict) and isinstance(
+      compiler.get("observation"), dict
+    )
+    measurement_present = isinstance(measurement, dict)
+    measured_counts_valid = measurement_present and all(
+      type(measurement.get(field)) is int and measurement[field] >= 0
+      for field in ("warmup_launches", "measured_launches")
+    )
+    first_launch_time = (
+      measurement.get("first_launch_wall_s_including_compilation")
+      if measurement_present
+      else None
+    )
+    first_launch_observed = (
+      type(first_launch_time) in (int, float)
+      and math.isfinite(first_launch_time)
+      and first_launch_time >= 0
+    )
+    measurement_observed = measured_counts_valid or first_launch_observed
+    if compiler_observed or measurement_observed:
+      counts[f"{prefix}_compilations"] += 1
+    launch_observed = first_launch_observed or (
+      measured_counts_valid
+      and sum(measurement[field] for field in ("warmup_launches", "measured_launches"))
+      > 0
+    )
+    if compiler_observed or launch_observed:
+      counts[f"{prefix}_executions"] += 1
+    if measured_counts_valid:
+      counts[f"{prefix}_warmup_launches"] += measurement["warmup_launches"]
+      counts[f"{prefix}_measured_launches"] += measurement["measured_launches"]
+    if not compiler_observed or not measured_counts_valid:
+      incomplete = True
+    return compiler_observed and measured_counts_valid and first_launch_observed
+
+  complete_cases = 0
+  for case in cases.values():
+    if not isinstance(case, dict):
+      incomplete = True
+      continue
+    complete_cases += account_entry(
+      case.get("compiler"), case.get("measurement"), "useful"
+    )
+
+  calibration = report.get("calibration_compiler")
+  calibration_complete = account_entry(
+    calibration if isinstance(calibration, dict) else None,
+    calibration.get("measurement") if isinstance(calibration, dict) else None,
+    "calibration",
+  )
+  protocol = report.get("measurement_protocol", {})
+  declared = (
+    protocol.get("measurement_accounting", {}) if isinstance(protocol, dict) else {}
+  )
+  expected_cases = (
+    protocol.get("expected_layout_count") if isinstance(protocol, dict) else None
+  )
+  if type(expected_cases) is not int:
+    expected_cases = (
+      declared.get("useful_compilations") if isinstance(declared, dict) else None
+    )
+  expected_calibrations = (
+    declared.get("calibration_compilations", 1) if isinstance(declared, dict) else 1
+  )
+  all_cases_present = (
+    type(expected_cases) is int
+    and expected_cases > 0
+    and len(cases) == expected_cases
+    and complete_cases == len(cases)
+  )
+  calibration_count_matches = type(expected_calibrations) is int and (
+    expected_calibrations == counts["calibration_compilations"]
+  )
+  complete = all_cases_present and calibration_complete and calibration_count_matches
+  has_observed_work = any(counts.values())
+  status = "complete" if complete else "partial" if has_observed_work else "unknown"
+  if incomplete and complete:
+    raise AssertionError("incomplete GPU work cannot be marked complete")
+  return _work_accounting(status, counts)
+
+
+def aggregate_gpu_work_accounting(records):
+  """Aggregate exact and censored trial records without filling unknown totals."""
+  counts = {name: 0 for name in _WORK_SPLIT_FIELDS}
+  status_counts = {
+    name: 0 for name in ("not_started", "complete", "partial", "unknown")
+  }
+  for index, record in enumerate(records):
+    if not isinstance(record, dict) or record.get("status") not in status_counts:
+      raise ValueError(f"GPU work record {index} has an invalid status")
+    observed = record.get("observed")
+    if not isinstance(observed, dict):
+      raise ValueError(f"GPU work record {index} has no observed counts")
+    status = record["status"]
+    status_counts[status] += 1
+    for name in _WORK_SPLIT_FIELDS:
+      value = observed.get(name)
+      if type(value) is not int or value < 0:
+        raise ValueError(f"GPU work record {index} has an invalid {name}")
+      counts[name] += value
+  if status_counts["unknown"]:
+    status = "unknown"
+  elif status_counts["partial"]:
+    status = "partial"
+  elif status_counts["complete"]:
+    status = "complete"
+  else:
+    status = "not_started"
+  return _work_accounting(status, counts, trial_status_counts=status_counts)
 
 
 def _admitted_exact_cell(cell):
@@ -169,14 +354,10 @@ def _exact_route_metrics(cell, exact_protocol):
           "duplicate_operations",
         )
       },
-      "measurement_accounting": measurement_accounting(
-        useful_compilations=5,
-        calibration_compilations=1,
-        useful_executions=5,
-        calibration_executions=1,
-      ),
-      "measurement_accounting_source": (
-        "five generated layouts and one add-one-output calibration kernel"
+      "measurement_accounting": (
+        policy["work_accounting"]
+        if isinstance(policy.get("work_accounting"), dict)
+        else unknown_gpu_work_accounting()
       ),
     }
   return {

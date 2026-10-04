@@ -104,6 +104,7 @@ def _trial_record(policy, seed, budget_s):
     "cost_s": _empty_costs(),
     "calibration_controls": [],
     "compiler_observation": None,
+    "work_accounting": tensor_route_protocol.no_gpu_work_accounting(),
   }
 
 
@@ -423,6 +424,15 @@ def _gpu_costs(gpu_report):
   return compilation_s, execution_s
 
 
+def _retain_gpu_work_accounting(trial, report_path):
+  try:
+    report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+  except (OSError, json.JSONDecodeError):
+    return None
+  trial["work_accounting"] = tensor_route_protocol.gpu_report_work_accounting(report)
+  return report
+
+
 def _solve_selection(
   solver,
   output_dir,
@@ -625,6 +635,7 @@ def _run_gpu_policy(
     )
     trial["elapsed_s"] = time.perf_counter() - started
     return
+  trial["work_accounting"] = tensor_route_protocol.unknown_gpu_work_accounting()
   child_started = time.perf_counter()
   try:
     result = subprocess.run(
@@ -643,6 +654,13 @@ def _run_gpu_policy(
     trial["selection_record"]["execution_error"] = (
       "Gluon child exceeded fixed arm budget"
     )
+    _retain_gpu_work_accounting(trial, gpu_report_path)
+    trial["elapsed_s"] = time.perf_counter() - started
+    return
+  except OSError as error:
+    trial["execution_status"] = "execution_failure"
+    trial["selection_record"]["execution_error"] = f"cannot start Gluon child: {error}"
+    trial["work_accounting"] = tensor_route_protocol.no_gpu_work_accounting()
     trial["elapsed_s"] = time.perf_counter() - started
     return
   (arm_dir / "gluon.stdout").write_text(_text_output(result.stdout), encoding="utf-8")
@@ -652,11 +670,13 @@ def _run_gpu_policy(
     trial["selection_record"]["execution_error"] = (
       "Gluon child completed after the fixed arm budget"
     )
+    _retain_gpu_work_accounting(trial, gpu_report_path)
     trial["elapsed_s"] = time.perf_counter() - started
     return
   if result.returncode != 0:
     trial["execution_status"] = "execution_failure"
     trial["selection_record"]["execution_error"] = result.stderr[-4000:]
+    _retain_gpu_work_accounting(trial, gpu_report_path)
     trial["elapsed_s"] = time.perf_counter() - started
     return
   try:
@@ -664,6 +684,16 @@ def _run_gpu_policy(
   except (OSError, json.JSONDecodeError) as error:
     trial["execution_status"] = "execution_failure"
     trial["selection_record"]["execution_error"] = f"invalid GPU report: {error}"
+    trial["elapsed_s"] = time.perf_counter() - started
+    return
+  trial["work_accounting"] = tensor_route_protocol.gpu_report_work_accounting(
+    gpu_report
+  )
+  if trial["work_accounting"]["status"] != "complete":
+    trial["execution_status"] = "execution_failure"
+    trial["selection_record"]["execution_error"] = (
+      "Gluon report has incomplete work accounting"
+    )
     trial["elapsed_s"] = time.perf_counter() - started
     return
   expected_hash = hashlib.sha256(witness["input_bytes"]).hexdigest()

@@ -328,6 +328,7 @@ def run_program(
     expected_bytes
   )
   result = {
+    "status": "pass",
     "contract": "generated-region-exact-f32-layout-study-v1",
     "triton_version": triton.__version__,
     "torch_version": torch.__version__,
@@ -371,6 +372,7 @@ def run_program(
       "warmup_launches_per_layout": WARMUP_LAUNCHES,
       "measured_launches_per_layout": MEASURED_LAUNCHES,
       "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+      "expected_layout_count": len(plans),
       "cache": tensor_route_protocol.cache_record_from_environment(),
       "measurement_accounting": tensor_route_protocol.measurement_accounting(
         useful_compilations=len(cases),
