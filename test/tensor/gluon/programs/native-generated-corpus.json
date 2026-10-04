@@ -1,0 +1,72 @@
+{
+  "description": "Frozen sources emitted by the native multi-output tensor graph builder.",
+  "programs": [
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 2,
+        "profile": "v2",
+        "seed": 7,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      "program_id": "native-seed-7",
+      "source_file": "native-seed-7.sir",
+      "source_sha256": "4a9126ff887332f86194c4d12e8f8ba1507911deffff6e9ea938cda4f31f75c3"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 2,
+        "profile": "v2",
+        "seed": 17,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      "program_id": "native-seed-17",
+      "source_file": "native-seed-17.sir",
+      "source_sha256": "dace0344a0a4b036eaaf5c193a78a5f2a347c1c3c45a74cc14ad13e93841786c"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 2,
+        "profile": "v2",
+        "seed": 29,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      "program_id": "native-seed-29",
+      "source_file": "native-seed-29.sir",
+      "source_sha256": "e0b62484fb191cd1c294c974f89214236994c6a73706fa08ece79d7fe2624e77"
+    }
+  ],
+  "schema": "refractir.generated-region-corpus.v1"
+}

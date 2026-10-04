@@ -806,7 +806,7 @@ def validate_selection(
     )
   ):
     raise ValueError("solver model has invalid leaves for the declared domain")
-  if struct.pack("<4f", *values) != input_bytes:
+  if struct.pack(f"<{math.prod(canonical_shape)}f", *values) != input_bytes:
     raise ValueError("solver model leaves differ from the exported input bits")
   if (
     not isinstance(solver_result, dict)

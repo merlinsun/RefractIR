@@ -4,8 +4,10 @@
 import argparse
 import hashlib
 import json
+import math
 import re
 import statistics
+import struct
 import time
 from pathlib import Path
 
@@ -13,6 +15,7 @@ import torch
 import triton
 import triton.language as tl
 
+from test.lib import tensor_exact_f32
 from test.lib.tensor_fpsan import (
   compare_words,
   flatten_word_values,
@@ -116,13 +119,126 @@ def _case_inputs(witness):
   return [_tensor_from_words([word]) for word in witness["input_float_words"]]
 
 
-def _run_generated_region_case(ir_directory):
-  source_path = Path(__file__).with_name("generated_region.sir")
+def _round_f32_add(left, right):
+  if not math.isfinite(left) or not math.isfinite(right):
+    raise ValueError("ordinary generated reference requires finite f32 operands")
+  try:
+    result = struct.unpack("<f", struct.pack("<f", left + right))[0]
+  except OverflowError as error:
+    raise ValueError("ordinary generated reference overflowed finite f32") from error
+  if not math.isfinite(result):
+    raise ValueError("ordinary generated reference overflowed finite f32")
+  return result
+
+
+def _ordinary_generated_region_output_words(source, input_bytes):
+  """Execute admitted add/sum/broadcast regions with one RNE f32 step per op."""
+  shape, iterations, tensor_types, nodes, updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  count = math.prod(shape)
+  if not isinstance(input_bytes, bytes) or len(input_bytes) != count * 4:
+    raise ValueError("ordinary generated reference input does not match the tensor shape")
+  input_values = struct.unpack(f"<{count}f", input_bytes)
+  if any(not math.isfinite(value) for value in input_values):
+    raise ValueError("ordinary generated reference requires finite f32 inputs")
+  values = {
+    "x": tuple(input_values),
+    "acc_x": tuple(input_values),
+    "acc_y": (0.0,) * count,
+  }
+
+  for _ in range(iterations):
+    for destination, operation, operands, attribute in nodes:
+      output_shape = tensor_types[destination]
+      if operation == "add":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        result = tuple(_round_f32_add(a, b) for a, b in zip(left, right))
+      elif operation == "sum":
+        input_shape = tensor_types[operands[0]]
+        axis = attribute if attribute >= 0 else attribute + len(input_shape)
+        result_values = []
+        for output_coordinates in tensor_exact_f32._coordinates(output_shape):
+          total = 0.0
+          for axis_coordinate in range(input_shape[axis]):
+            coordinates = list(output_coordinates)
+            coordinates[axis] = axis_coordinate
+            index = tensor_exact_f32._flat_index(coordinates, input_shape)
+            total = _round_f32_add(total, values[operands[0]][index])
+          result_values.append(total)
+        result = tuple(result_values)
+      else:
+        result = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+      values[destination] = result
+
+    for state, root in updates:
+      values[state] = tuple(values[root])
+
+  output_left = tensor_exact_f32._broadcast_values(values["acc_x"], shape, shape)
+  output_right = tensor_exact_f32._broadcast_values(values["acc_y"], shape, shape)
+  output_values = tuple(
+    _round_f32_add(left, right) for left, right in zip(output_left, output_right)
+  )
+  output_bytes = struct.pack(f"<{count}f", *output_values)
+  return list(struct.unpack(f"<{count}I", output_bytes))
+
+
+def _generated_region_corpus_sources():
+  program_dir = Path(__file__).resolve().parents[1] / "gluon" / "programs"
+  manifest_path = program_dir / "native-generated-corpus.json"
+  manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+  if manifest.get("schema") != "refractir.generated-region-corpus.v1":
+    raise ValueError(f"unsupported generated-region corpus: {manifest_path}")
+  sources = []
+  for record in manifest["programs"]:
+    source_path = program_dir / record["source_file"]
+    source = source_path.read_text(encoding="utf-8")
+    source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    if source_hash != record["source_sha256"]:
+      raise ValueError(f"frozen generated-region source hash mismatch: {source_path}")
+    sources.append(
+      {
+        "program_id": record["program_id"],
+        "source_path": source_path,
+        "source_sha256": source_hash,
+        "generation": record["generation"],
+      }
+    )
+  return sources
+
+
+def _run_generated_region_case(ir_directory, source_path=None):
+  ir_directory = Path(ir_directory)
+  ir_directory.mkdir(parents=True, exist_ok=True)
+  source_path = (
+    Path(__file__).with_name("generated_region.sir")
+    if source_path is None
+    else Path(source_path)
+  )
   source = source_path.read_text(encoding="utf-8")
   witness = synthesize_generated_region(source)
+  if witness["status"] != "SAT":
+    return {
+      "status": witness["status"],
+      "transport_contract": witness.get("transport_contract"),
+      "solver": witness.get("solver"),
+      "query_sha256": witness.get("query_sha256"),
+      "query_smt2": witness.get("query_smt2"),
+      "solver_outcome": witness.get("solver_outcome"),
+      "region_source": {
+        "path": source_path.name,
+        "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+      },
+    }
   shape = tuple(witness["shape"])
   inputs = _tensor_from_words(witness["input_float_words"]).reshape(shape)
-  output = torch.empty(shape, dtype=torch.float32, device="cuda")
 
   # The source is rendered only from the admitted region parsed by the host model.
   kernel_source_path = ir_directory / "generated_region_kernel.py"
@@ -131,27 +247,141 @@ def _run_generated_region_case(ir_directory):
   namespace = {}
   exec(compile(kernel_source, str(kernel_source_path), "exec"), namespace)
   kernel = namespace["fpsan_generated_region"]
-  compiled, measurement = _measure_launches(
-    lambda: kernel[(1,)](inputs, output, num_warps=1)
+  output, compiled, measurement = _run_generated_kernel_mode(
+    kernel, inputs, shape, "fpsan"
   )
   result = _expect_words("generated_region", output, witness["output_float_words"])
   result["measurement"] = measurement
   result["smt_witness"] = {
+    "transport_contract": witness["transport_contract"],
     "query_sha256": witness["query_sha256"],
     "input_payloads": witness["input_payloads"],
     "output_payloads": witness["output_payloads"],
     "input_float_bits": witness["input_float_bits"],
     "output_float_bits": witness["output_float_bits"],
+    "calibration_mutants": witness["calibration_mutants"],
   }
   result["payload_lowering"] = validate_fpsan_payload_lowering(
     getattr(compiled, "asm", {}).get("llir", "")
   )
-  result["compiler_ir"] = _capture_ir(compiled, "generated_region", ir_directory)
+  fpsan_ir = _capture_ir(compiled, "generated_region_fpsan", ir_directory)
+  result["compiler_ir"] = fpsan_ir
+  result["compiler_modes"] = {"fpsan": fpsan_ir}
+
+  input_bytes = struct.pack(
+    f"<{len(witness['input_float_words'])}I", *witness["input_float_words"]
+  )
+  ordinary_expected_words = _ordinary_generated_region_output_words(source, input_bytes)
+  ordinary_output, ordinary_compiled, ordinary_measurement = _run_generated_kernel_mode(
+    kernel, inputs, shape, ""
+  )
+  ordinary_result = _expect_words(
+    "generated_region_ordinary", ordinary_output, ordinary_expected_words
+  )
+  ordinary_result["measurement"] = ordinary_measurement
+  ordinary_ir = _capture_ir(ordinary_compiled, "generated_region_ordinary", ir_directory)
+  result["compiler_modes"]["ordinary"] = ordinary_ir
+  result["ordinary_reference"] = {
+    "status": ordinary_result["status"],
+    "actual_bits": ordinary_result["actual_bits"],
+    "expected_bits": ordinary_result["expected_bits"],
+    "measurement": ordinary_measurement,
+    "compiler_ir": ordinary_ir,
+  }
+  result["compiler_mode_comparison"] = _compare_generated_compiler_modes(
+    fpsan_ir, ordinary_ir
+  )
   result["region_source"] = {
     "path": source_path.name,
     "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
   }
+  result["calibration_mutants"] = {}
+  for mutant_name, render_options in (
+    ("lost_iteration", {"iteration_count": witness["iterations"] - 1}),
+    ("lost_update_acc_y", {"omitted_updates": ("acc_y",)}),
+  ):
+    mutant_kernel_source = render_generated_region_triton_kernel(
+      source, **render_options
+    )
+    mutant_source_path = ir_directory / f"generated_region_{mutant_name}.py"
+    mutant_source_path.write_text(mutant_kernel_source, encoding="utf-8")
+    mutant_namespace = {}
+    exec(
+      compile(mutant_kernel_source, str(mutant_source_path), "exec"),
+      mutant_namespace,
+    )
+    mutant_output = torch.empty(shape, dtype=torch.float32, device="cuda")
+    mutant_kernel = mutant_namespace["fpsan_generated_region"]
+    mutant_compiled, mutant_measurement = _measure_launches(
+      lambda: mutant_kernel[(1,)](inputs, mutant_output, num_warps=1)
+    )
+    actual_mutant_words = _raw_words(mutant_output)
+    expected_mutant_words = [
+      int(value, 16)
+      for value in witness["calibration_mutants"][mutant_name][
+        "candidate_float_bits"
+      ]
+    ]
+    if actual_mutant_words != expected_mutant_words:
+      raise AssertionError(
+        f"{mutant_name} GPU output differs from its synthesized payload model"
+      )
+    mismatch_lanes = compare_words(actual_mutant_words, witness["output_float_words"])
+    if not mismatch_lanes:
+      raise AssertionError(f"generated-region {mutant_name} mutant was not detected")
+    result["calibration_mutants"][mutant_name] = {
+      "status": "detected",
+      "mismatch_lanes": mismatch_lanes,
+      "actual_bits": [f"{value:08x}" for value in actual_mutant_words],
+      "expected_bits": [f"{value:08x}" for value in expected_mutant_words],
+      "measurement": mutant_measurement,
+      "payload_lowering": validate_fpsan_payload_lowering(
+        getattr(mutant_compiled, "asm", {}).get("llir", "")
+      ),
+      "compiler_ir": _capture_ir(
+        mutant_compiled, f"generated_region_{mutant_name}", ir_directory
+      ),
+    }
   return result
+
+
+def _run_generated_kernel_mode(kernel, inputs, shape, instrumentation_mode):
+  output = torch.empty(shape, dtype=torch.float32, device="cuda")
+  previous_mode = triton.knobs.compilation.instrumentation_mode
+  try:
+    triton.knobs.compilation.instrumentation_mode = instrumentation_mode
+    compiled, measurement = _measure_launches(
+      lambda: kernel[(1,)](inputs, output, num_warps=1)
+    )
+    torch.cuda.synchronize()
+  finally:
+    triton.knobs.compilation.instrumentation_mode = previous_mode
+  return output, compiled, measurement
+
+
+def _compare_generated_compiler_modes(fpsan_ir, ordinary_ir):
+  metrics = (
+    "layout_conversion_operations_in_ttgir",
+    "warp_shuffle_operations_in_ptx",
+    "shared_memory_transfers_in_ptx",
+  )
+  return {
+    "stage_hashes_equal": {
+      stage: fpsan_ir["stage_sha256"].get(stage)
+      == ordinary_ir["stage_sha256"].get(stage)
+      for stage in sorted(
+        set(fpsan_ir["stage_sha256"]) | set(ordinary_ir["stage_sha256"])
+      )
+    },
+    "metric_delta_fpsan_minus_ordinary": {
+      metric: fpsan_ir.get(metric, 0) - ordinary_ir.get(metric, 0)
+      for metric in metrics
+    },
+    "interpretation_limit": (
+      "paired compiler artifacts describe observed transformations; repeated IR "
+      "expressions alone do not establish rematerialization"
+    ),
+  }
 
 
 def _raw_words(tensor):
@@ -205,16 +435,23 @@ def _measure_launches(launch):
 def _capture_ir(compiled, case_name, ir_directory):
   assembly = getattr(compiled, "asm", {})
   paths = {}
+  stage_sha256 = {}
+  stage_bytes = {}
   for name in ("ttir", "ttgir", "llir", "ptx", "sass"):
     source = assembly.get(name)
     if isinstance(source, str) and source:
       path = ir_directory / f"{case_name}.{name}"
       path.write_text(source)
       paths[name] = str(path)
+      encoded = source.encode("utf-8")
+      stage_sha256[name] = hashlib.sha256(encoded).hexdigest()
+      stage_bytes[name] = len(encoded)
   ttgir = assembly.get("ttgir", "")
   ptx = assembly.get("ptx", "")
   return {
     "files": paths,
+    "stage_sha256": stage_sha256,
+    "stage_bytes": stage_bytes,
     "layout_conversion_operations_in_ttgir": len(
       re.findall(r"(?:ttg\.)?convert_layout|convert_layout", ttgir)
     ),
@@ -325,6 +562,16 @@ def run(output_path, ir_directory):
     witnesses["broadcast_and_add_zero"]["input_float_words"]
   )
   output = torch.empty((1,), dtype=torch.float32, device="cuda")
+  generated_region_result = _run_generated_region_case(ir_directory)
+  generated_region_corpus = _generated_region_corpus_sources()
+  generated_region_results = {}
+  for record in generated_region_corpus:
+    case_ir_directory = ir_directory / "generated_regions" / record["program_id"]
+    result = _run_generated_region_case(
+      case_ir_directory, source_path=record["source_path"]
+    )
+    result["program_id"] = record["program_id"]
+    generated_region_results[record["program_id"]] = result
   report = {
     "contract": "triton-fpsan-fixed-payload-ring-v2",
     "triton_version": triton.__version__,
@@ -345,7 +592,16 @@ def run(output_path, ir_directory):
     "cases": {},
     "smt_witnesses": witnesses,
     "instrumentation_sensitivity": instrumentation_sensitivity,
-    "generated_region": _run_generated_region_case(ir_directory),
+    "generated_region": generated_region_result,
+    "generated_regions": {
+      "corpus_schema": "refractir.generated-region-corpus.v1",
+      "payload_transport_contract": (
+        "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237"
+      ),
+      "input_payload_range": [0, 8],
+      "output_payload_range": [0, 1 << 24],
+      "programs": generated_region_results,
+    },
   }
 
   expected_sum = witnesses["sum_reduction"]["reference_payloads"][0]
@@ -498,6 +754,14 @@ def run(output_path, ir_directory):
       expected_sum if expected_sum < 0x80000000 else expected_sum - (1 << 32)
     ),
   }
+  report["status"] = (
+    "pass"
+    if generated_region_result.get("status") == "pass"
+    and all(
+      result.get("status") == "pass" for result in generated_region_results.values()
+    )
+    else "incomplete"
+  )
   Path(output_path).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
   return report
 

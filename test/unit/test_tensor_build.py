@@ -191,3 +191,15 @@ class TensorBuildTests(unittest.TestCase):
   def test_tensor_gate_includes_property_pilot(self):
     _, recipe = makefile_target("test-tensor")
     self.assertIn("test-tensor-property-pilot", recipe)
+
+  def test_fixed_study_target_runs_generated_selection_contracts(self):
+    _, recipe = makefile_target("test-tensor-fixed-study")
+    self.assertIn("test.unit.test_tensor_generated_selection_study", recipe)
+
+  def test_generated_region_corpus_is_built_and_checked_by_tensor_gate(self):
+    declaration, recipe = makefile_target("test-tensor-generated-corpus")
+    self.assertTrue(declaration.startswith("test-tensor-generated-corpus:"))
+    self.assertIn("tensor_graph_region_export", declaration)
+    self.assertIn("test.unit.test_tensor_generated_region_corpus", recipe)
+    _, tensor_recipe = makefile_target("test-tensor")
+    self.assertIn("test-tensor-generated-corpus", tensor_recipe)

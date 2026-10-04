@@ -36,10 +36,22 @@ MATRIX_INPUT_VALUES = (1, 2, 4, 8)
 DEFAULT_BUDGET_S = 120.0
 SOLVER_TIMEOUT_S = 60.0
 PROGRAM_DIR = Path(__file__).with_name("programs")
+_NATIVE_CORPUS_PATH = PROGRAM_DIR / "native-generated-corpus.json"
+_NATIVE_CORPUS = json.loads(_NATIVE_CORPUS_PATH.read_text(encoding="utf-8"))
+if _NATIVE_CORPUS.get("schema") != "refractir.generated-region-corpus.v1":
+  raise ValueError(f"unsupported native generated-region corpus: {_NATIVE_CORPUS_PATH}")
+NATIVE_PROGRAM_RECORDS = {
+  record["program_id"]: record for record in _NATIVE_CORPUS["programs"]
+}
+NATIVE_PROGRAM_SOURCES = {
+  program_id: PROGRAM_DIR / record["source_file"]
+  for program_id, record in NATIVE_PROGRAM_RECORDS.items()
+}
 PROGRAM_SOURCES = {
   "row-reduction-v1": PROGRAM_DIR / "row-reduction-v1.sir",
   "column-reduction-v1": PROGRAM_DIR / "column-reduction-v1.sir",
   "two-axis-reduction-v1": PROGRAM_DIR / "two-axis-reduction-v1.sir",
+  **NATIVE_PROGRAM_SOURCES,
 }
 CALIBRATION_CONTROL_CONTRACT = [
   {"control_id": "correct-layout-baseline", "expected_detection": False},
@@ -142,6 +154,11 @@ def _matrix_program_source(program_id):
   except KeyError as error:
     raise ValueError(f"unknown generated selection program: {program_id}") from error
   source = source_path.read_text(encoding="utf-8")
+  record = NATIVE_PROGRAM_RECORDS.get(program_id)
+  if record is not None and hashlib.sha256(source.encode("utf-8")).hexdigest() != record[
+    "source_sha256"
+  ]:
+    raise ValueError(f"frozen native generated source hash mismatch: {program_id}")
   tensor_exact_f32._generated_region_program(source)
   return source
 

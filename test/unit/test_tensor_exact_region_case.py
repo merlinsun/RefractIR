@@ -27,22 +27,63 @@ SYMIR_SOLVE = _tool("REFRACTIR_SYMIR_SOLVE", "symirsolve")
 TOOLS_AVAILABLE = all(path.is_file() for path in (SYMIRI, SYMIRC, SYMIR_SOLVE))
 
 
+def generated_region_source_for_shape(rows, columns, iterations=2):
+  zeros = ", ".join(["0.0"] * (rows * columns))
+  return f"""\
+fun @kernel(%x: tensor [{rows}, {columns}] f32) : tensor [{rows}, {columns}] f32 {{
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [{rows}, {columns}] f32 = undef;
+  let mut %acc_y: tensor [{rows}, {columns}] f32 = {{{zeros}}};
+  let mut %t0: tensor [{rows}, {columns}] f32 = undef;
+  let mut %t1: tensor [{rows}, 1] f32 = undef;
+  let mut %t2: tensor [{rows}, {columns}] f32 = undef;
+  let mut %t3: tensor [{rows}, {columns}] f32 = undef;
+  let mut %next_x: tensor [{rows}, {columns}] f32 = undef;
+  let mut %next_y: tensor [{rows}, {columns}] f32 = undef;
+  let mut %out: tensor [{rows}, {columns}] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < {iterations}, ^body, ^exit;
+^body:
+  %t0 = tensor add %acc_x, %acc_y;
+  %t1 = tensor sum %t0, 1, keep;
+  %t2 = tensor broadcast %t1, [{rows}, {columns}];
+  %t3 = tensor add %t0, %t2;
+  %next_x = tensor add %acc_x, %t3;
+  %next_y = tensor add %acc_y, %t3;
+  %acc_x = %next_x;
+  %acc_y = %next_y;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}}
+"""
+
+
 class GeneratedRegionCaseTests(unittest.TestCase):
   def setUp(self):
     self.exact = importlib.import_module("test.lib.tensor_exact_f32")
     self.builder = importlib.import_module("test.lib.build_tensor_exact_region_case")
     self.source = generated_region_source()
+    self.shape = (2, 2)
+    self.values = (1, 2, 4, 8)
+    self.domain = (0, 8)
     self.input_bytes = struct.pack("<4f", 1, 2, 4, 8)
-    self.expected = self.exact.certify(self.source, self.input_bytes, (0, 8))[1]
+    self.expected = self.exact.certify(self.source, self.input_bytes, self.domain)[1]
 
   def _tools(self, command, **kwargs):
     if "--emit-model" in command:
       Path(command[command.index("--emit-model") + 1]).write_text(
-        json.dumps({"@kernel": {"%?x": [1, 2, 4, 8]}})
+        json.dumps({"@kernel": {"%?x": self.values}})
       )
     if "--output" in command:
       Path(command[command.index("--output") + 1]).write_text(
-        "fun @kernel() : tensor [2, 2] i32 { ret %out; }\n"
+        f"fun @kernel() : tensor {list(self.shape)} i32 {{ ret %out; }}\n"
       )
     if "--tensor-output" in command:
       Path(command[command.index("--tensor-output") + 1]).write_bytes(self.expected)
@@ -50,7 +91,24 @@ class GeneratedRegionCaseTests(unittest.TestCase):
       Path(command[command.index("-o") + 1]).write_text("# generated kernel\n")
     return subprocess.CompletedProcess(command, 0, "SAT\n", "")
 
-  def _build(self, root, side_effect=None):
+  def _build(
+    self,
+    root,
+    side_effect=None,
+    *,
+    source=None,
+    target=69,
+    domain=(0, 8),
+    values=(1, 2, 4, 8),
+    shape=(2, 2),
+  ):
+    if source is not None:
+      self.source = source
+    self.shape = shape
+    self.values = tuple(values)
+    self.domain = domain
+    self.input_bytes = struct.pack(f"<{len(self.values)}f", *self.values)
+    self.expected = self.exact.certify(self.source, self.input_bytes, domain)[1]
     helper = importlib.import_module("test.lib.build_tensor_exact_loop_case")
     with mock.patch.object(
       helper.subprocess, "run", side_effect=side_effect or self._tools
@@ -58,22 +116,53 @@ class GeneratedRegionCaseTests(unittest.TestCase):
       return self.builder.build_case(
         Path(root) / "case",
         source=self.source,
-        target=69,
+        target=target,
         symiri="symiri",
         symirc="symirc",
         solver="symirsolve",
+        domain=domain,
         timeout_s=0.1,
       )
 
   def _load(self, case):
     tensor_case = importlib.import_module("test.lib.tensor_case")
+    manifest = json.loads((case / "case.json").read_text())
+    input_shape = manifest["inputs"][0]["shape"]
+    output_shape = manifest["output"]["shape"]
     signature = {
       "entry": "kernel",
-      "inputs": [{"name": "x", "dtype": "f32", "shape": [2, 2], "byte_length": 16}],
-      "output": {"name": "return", "dtype": "f32", "shape": [2, 2], "byte_length": 16},
+      "inputs": [
+        {
+          "name": "x",
+          "dtype": "f32",
+          "shape": input_shape,
+          "byte_length": len(self.input_bytes),
+        }
+      ],
+      "output": {
+        "name": "return",
+        "dtype": "f32",
+        "shape": output_shape,
+        "byte_length": len(self.expected),
+      },
     }
     with mock.patch.object(tensor_case, "_describe", return_value=signature):
       return tensor_case.load_case(case)
+
+  def _build_and_load(self, *, source, shape, values, domain):
+    input_bytes = struct.pack(f"<{len(values)}f", *values)
+    expected = self.exact.certify(source, input_bytes, domain)[1]
+    target = int(struct.unpack(f"<{len(values)}f", expected)[0])
+    with tempfile.TemporaryDirectory() as root:
+      case = self._build(
+        root,
+        source=source,
+        target=target,
+        domain=domain,
+        values=values,
+        shape=shape,
+      )
+      return self._load(case), input_bytes, expected
 
   def _rewrite_file(self, case, name, data):
     path = case / name
@@ -98,6 +187,59 @@ class GeneratedRegionCaseTests(unittest.TestCase):
         loaded.manifest["reference"]["exactness"]["kind"],
         "bounded-region-add-sum-f32-v1",
       )
+
+  def test_exports_and_loads_an_eight_element_generated_region(self):
+    shape = (2, 4)
+    values = (1,) * 8
+    loaded, input_bytes, expected = self._build_and_load(
+      source=generated_region_source_for_shape(*shape),
+      shape=shape,
+      values=values,
+      domain=(0, 8),
+    )
+
+    self.assertEqual(loaded.inputs, input_bytes)
+    self.assertEqual(loaded.expected, expected)
+    self.assertEqual(loaded.manifest["output"]["shape"], [2, 4])
+
+  def test_exports_a_domain_with_positive_lower_bound(self):
+    values = (1, 1, 1, 1)
+    loaded, input_bytes, expected = self._build_and_load(
+      source=self.source, shape=(2, 2), values=values, domain=(1, 8)
+    )
+
+    self.assertEqual(loaded.inputs, input_bytes)
+    self.assertEqual(loaded.expected, expected)
+    self.assertEqual(
+      loaded.manifest["reference"]["exactness"]["input_domain"], [1, 8]
+    )
+
+  def test_exports_a_positive_subdomain_witness(self):
+    values = (3, 3, 3, 3)
+    loaded, input_bytes, expected = self._build_and_load(
+      source=self.source, shape=(2, 2), values=values, domain=(3, 8)
+    )
+
+    self.assertEqual(loaded.inputs, input_bytes)
+    self.assertEqual(loaded.expected, expected)
+
+  def test_exports_a_positive_singleton_domain(self):
+    values = (1, 1, 1, 1)
+    loaded, input_bytes, expected = self._build_and_load(
+      source=self.source, shape=(2, 2), values=values, domain=(1, 1)
+    )
+
+    self.assertEqual(loaded.inputs, input_bytes)
+    self.assertEqual(loaded.expected, expected)
+
+  def test_exports_an_upper_singleton_domain(self):
+    values = (8, 8, 8, 8)
+    loaded, input_bytes, expected = self._build_and_load(
+      source=self.source, shape=(2, 2), values=values, domain=(8, 8)
+    )
+
+    self.assertEqual(loaded.inputs, input_bytes)
+    self.assertEqual(loaded.expected, expected)
 
   def test_rejects_a_changed_complete_output_after_digest_refresh(self):
     with tempfile.TemporaryDirectory() as root:
@@ -188,6 +330,38 @@ class GeneratedRegionCaseTests(unittest.TestCase):
       self.assertEqual(loaded.manifest["comparison"]["mode"], "exact")
       self.assertEqual(loaded.expected, independently_expected)
       self.assertEqual(struct.unpack("<f", loaded.expected[:4])[0], 69.0)
+
+  @unittest.skipUnless(
+    TOOLS_AVAILABLE, "built symiri, symirc and symirsolve are required"
+  )
+  def test_native_solver_replays_larger_shape_with_positive_domain(self):
+    shape = (2, 4)
+    source = generated_region_source_for_shape(*shape)
+    values = (1,) * 8
+    domain = (1, 8)
+    input_bytes = struct.pack("<8f", *values)
+    _, anchor_expected = self.exact.certify(source, input_bytes, domain)
+    target = int(struct.unpack("<f", anchor_expected[:4])[0])
+
+    with tempfile.TemporaryDirectory() as root:
+      case = self.builder.build_case(
+        Path(root) / "case",
+        source=source,
+        target=target,
+        symiri=SYMIRI,
+        symirc=SYMIRC,
+        solver=SYMIR_SOLVE,
+        domain=domain,
+      )
+      loaded = importlib.import_module("test.lib.tensor_case").load_case(
+        case, symiri=SYMIRI
+      )
+
+    _, independently_expected = self.exact.certify(source, loaded.inputs, domain)
+    self.assertEqual(loaded.manifest["inputs"][0]["shape"], [2, 4])
+    self.assertEqual(loaded.manifest["reference"]["exactness"]["input_domain"], [1, 8])
+    self.assertEqual(loaded.expected, independently_expected)
+    self.assertEqual(struct.unpack("<f", loaded.expected[:4])[0], target)
 
 
 if __name__ == "__main__":

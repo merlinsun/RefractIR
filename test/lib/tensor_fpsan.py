@@ -6,12 +6,15 @@ import re
 import shutil
 import struct
 import subprocess
+import time
 from pathlib import Path
 
 from test.lib import tensor_exact_f32
 
 PAYLOAD_MASK = 0xFFFFFFFF
 KNOWN_INPUT_PAYLOADS = (0, 1, PAYLOAD_MASK)
+GENERATED_INPUT_MAX = 8
+GENERATED_OUTPUT_MAX = 1 << 24
 PINNED_TRITON_REVISION = "e2e356723ce35f46b5144373b145c55c4d712237"
 PINNED_FPSAN_SOURCE_SHA256 = {
   "python/triton/backends/nvidia/compiler.py": (
@@ -24,6 +27,15 @@ PINNED_FPSAN_SOURCE_SHA256 = {
     "04bc0482782501db8768c520e0afdab64538e1de521ec12c220f9214a2129f33"
   ),
 }
+_FPSAN_F32_SIGN_MASK = 0x80000000
+_FPSAN_F32_MAGNITUDE_MASK = 0x7FFFFFFF
+_FPSAN_F32_SHIFT = 23
+_FPSAN_F32_MUL_A = 0x00E3F789
+_FPSAN_F32_MUL_A_INVERSE = 0x6D2BAEB9
+_FPSAN_F32_MUL_B_POSITIVE = 0x0BEAC0C7
+_FPSAN_F32_MUL_B_NEGATIVE = 0x74153F39
+_FPSAN_F32_MUL_B_POSITIVE_INVERSE = 0x7B8000F7
+_FPSAN_F32_MUL_B_NEGATIVE_INVERSE = 0x047FFF09
 _WORD_ZERO = "#x00000000"
 _WORD_ONE = "#x00000001"
 _WORD_NEG_ONE = "#xFFFFFFFF"
@@ -380,12 +392,25 @@ def _payload_reduce(values, input_shape, output_shape, axis):
   return tuple(reduced)
 
 
-def evaluate_generated_payload_region(source, input_payloads):
-  """Evaluate an admitted generated loop as 32-bit FpSan payload arithmetic."""
+def _evaluate_generated_payload_region(
+  source, input_payloads, *, iteration_count=None, omitted_updates=()
+):
   shape, iterations, tensor_types, nodes, updates = (
     tensor_exact_f32._generated_region_program(source)
   )
   initial = _generated_payload_inputs(shape, input_payloads)
+  if iteration_count is None:
+    iteration_count = iterations
+  if (
+    type(iteration_count) is not int
+    or iteration_count < 0
+    or iteration_count > iterations
+  ):
+    raise ValueError("payload iteration count must be within the source loop bound")
+  omitted_updates = tuple(omitted_updates)
+  update_names = {state for state, _root in updates}
+  if any(name not in update_names for name in omitted_updates):
+    raise ValueError("payload mutant names an unknown loop-carried state")
   count = math.prod(shape)
   values = {
     "x": initial,
@@ -393,7 +418,7 @@ def evaluate_generated_payload_region(source, input_payloads):
     "acc_y": (0,) * count,
   }
 
-  for _ in range(iterations):
+  for _ in range(iteration_count):
     for destination, operation, operands, attribute in nodes:
       output_shape = tensor_types[destination]
       if operation == "add":
@@ -418,17 +443,53 @@ def evaluate_generated_payload_region(source, input_payloads):
       values[destination] = result
 
     for state, root in updates:
-      values[state] = values[root]
+      if state not in omitted_updates:
+        values[state] = values[root]
 
   left = tensor_exact_f32._broadcast_values(values["acc_x"], shape, shape)
   right = tensor_exact_f32._broadcast_values(values["acc_y"], shape, shape)
   return [add32(a, b) for a, b in zip(left, right)]
 
 
-def _generated_payload_smt(source):
+def evaluate_generated_payload_region(source, input_payloads):
+  """Evaluate an admitted generated loop as 32-bit FpSan payload arithmetic."""
+  return _evaluate_generated_payload_region(source, input_payloads)
+
+
+def evaluate_generated_payload_mutant(source, input_payloads, mutant):
+  """Evaluate one generated-loop omission used to calibrate witness quality."""
+  _shape, iterations, _types, _nodes, _updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  if mutant == "lost_iteration":
+    return _evaluate_generated_payload_region(
+      source, input_payloads, iteration_count=iterations - 1
+    )
+  if mutant == "lost_update_acc_y":
+    return _evaluate_generated_payload_region(
+      source, input_payloads, omitted_updates=("acc_y",)
+    )
+  raise ValueError(f"unknown generated-region calibration mutant: {mutant}")
+
+
+def _generated_payload_smt(
+  source, *, iteration_count=None, omitted_updates=(), prefix=""
+):
   shape, iterations, tensor_types, nodes, updates = (
     tensor_exact_f32._generated_region_program(source)
   )
+  if iteration_count is None:
+    iteration_count = iterations
+  if (
+    type(iteration_count) is not int
+    or iteration_count < 0
+    or iteration_count > iterations
+  ):
+    raise ValueError("payload iteration count must be within the source loop bound")
+  omitted_updates = tuple(omitted_updates)
+  update_names = {state for state, _root in updates}
+  if any(name not in update_names for name in omitted_updates):
+    raise ValueError("payload mutant names an unknown loop-carried state")
   count = math.prod(shape)
   variables = tuple(f"x{index}" for index in range(count))
   definitions = []
@@ -441,7 +502,7 @@ def _generated_payload_smt(source):
     "acc_x": list(variables),
     "acc_y": ["#x00000000"] * count,
   }
-  for visit in range(iterations):
+  for visit in range(iteration_count):
     for node_index, (destination, operation, operands, attribute) in enumerate(nodes):
       output_shape = tensor_types[destination]
       if operation == "add":
@@ -473,98 +534,303 @@ def _generated_payload_smt(source):
 
       names = []
       for element_index, expression in enumerate(expressions):
-        name = f"g_v{visit}_n{node_index}_e{element_index}"
+        name = f"{prefix}g_v{visit}_n{node_index}_e{element_index}"
         define(name, expression)
         names.append(name)
       values[destination] = names
 
     for state, root in updates:
-      values[state] = values[root]
+      if state not in omitted_updates:
+        values[state] = values[root]
 
-  output_names = tuple(f"output_{index}" for index in range(count))
+  output_names = tuple(f"{prefix}output_{index}" for index in range(count))
   for name, left, right in zip(output_names, values["acc_x"], values["acc_y"]):
     define(name, f"(bvadd {left} {right})")
   return shape, iterations, variables, output_names, definitions
 
 
+def _fpsan_unmix_payload_smt():
+  """SMT bit-vector inverse of the pinned Triton f32 payload mixer."""
+  return (
+    "(define-fun fpsan_unmix_payload ((payload (_ BitVec 32))) (_ BitVec 32)\n"
+    "  (let ((sign (bvand payload #x80000000)))\n"
+    "    (let ((negative (not (= sign #x00000000))))\n"
+    "      (let ((multiplier_inverse "
+    "(ite negative #x047FFF09 #x7B8000F7)))\n"
+    "        (let ((unshifted (bvand (bvmul "
+    "(bvand payload #x7FFFFFFF) multiplier_inverse) #x7FFFFFFF)))\n"
+    "          (let ((unmixed (bvxor unshifted "
+    "(bvlshr unshifted #x00000017))))\n"
+    "            (bvor (bvand (bvmul unmixed #x6D2BAEB9) "
+    "#x7FFFFFFF) sign)))))))\n"
+  )
+
+
 def build_generated_payload_query(source):
-  """Encode an admitted generated loop and fixed-point I/O in QF_BV."""
+  """Encode transportable loop I/O and mutation-sensitive witnesses in QF_BV."""
   shape, iterations, variables, output_names, definitions = _generated_payload_smt(
     source
   )
+  _, _, _, lost_iteration_names, lost_iteration_definitions = _generated_payload_smt(
+    source,
+    iteration_count=iterations - 1,
+    prefix="lost_iteration_",
+  )
+  _, _, _, lost_update_names, lost_update_definitions = _generated_payload_smt(
+    source,
+    omitted_updates=("acc_y",),
+    prefix="lost_update_acc_y_",
+  )
+  count = math.prod(shape)
+  input_transport_words = tuple(
+    unembed_generated_payload(value) for value in range(GENERATED_INPUT_MAX + 1)
+  )
+  bound_input = struct.pack(
+    f"<{count}f", *([float(GENERATED_INPUT_MAX)] * count)
+  )
+  tensor_exact_f32.certify(source, bound_input, (0, GENERATED_INPUT_MAX))
+
   lines = ["(set-logic QF_BV)", "(set-option :produce-models true)"]
+  lines.append(_fpsan_unmix_payload_smt())
   lines.extend(f"(declare-const {name} (_ BitVec 32))" for name in variables)
   for name in variables:
-    choices = " ".join(
-      f"(= {name} #x{payload:08X})" for payload in KNOWN_INPUT_PAYLOADS
-    )
-    lines.append(f"(assert (or {choices}))")
+    lines.append(f"(assert (bvule {name} #x{GENERATED_INPUT_MAX:08X}))")
   lines.extend(definitions)
-  for name in output_names:
-    choices = " ".join(
-      f"(= {name} #x{payload:08X})" for payload in KNOWN_INPUT_PAYLOADS
+  lines.extend(lost_iteration_definitions)
+  lines.extend(lost_update_definitions)
+  all_outputs = (*output_names, *lost_iteration_names, *lost_update_names)
+  lines.extend(
+    f"(assert (bvule {name} #x{GENERATED_OUTPUT_MAX:08X}))"
+    for name in all_outputs
+  )
+  lines.extend(
+    "(assert (not (= (bvand (fpsan_unmix_payload "
+    f"{name}) #x7F800000) #x7F800000)))"
+    for name in all_outputs
+  )
+  lines.append(
+    "(assert (or "
+    + " ".join(
+      f"(not (= {output} {input_name}))"
+      for output, input_name in zip(output_names, variables)
     )
-    lines.append(f"(assert (or {choices}))")
-  nonzero_inputs = " ".join(f"(not (= {name} #x00000000))" for name in variables)
-  lines.append(f"(assert (or {nonzero_inputs}))")
+    + "))"
+  )
+  for mutant_names in (lost_iteration_names, lost_update_names):
+    lines.append(
+      "(assert (or "
+      + " ".join(
+        f"(not (= {output} {mutant}))"
+        for output, mutant in zip(output_names, mutant_names)
+      )
+      + "))"
+    )
   lines.append("(check-sat)")
   requested = [*variables, *output_names]
-  lines.append("(get-value (" + " ".join(requested) + "))")
-  script = "\n".join(lines) + "\n"
+  check_script = "\n".join(lines) + "\n"
+  script = check_script + "(get-value (" + " ".join(requested) + "))\n"
   return {
     "shape": shape,
     "iterations": iterations,
     "variables": variables,
     "output_names": output_names,
+    "input_transport_words": input_transport_words,
+    "transport_contract": "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237",
+    "mutant_output_names": {
+      "lost_iteration": lost_iteration_names,
+      "lost_update_acc_y": lost_update_names,
+    },
+    "check_script": check_script,
     "script": script,
     "sha256": hashlib.sha256(script.encode("ascii")).hexdigest(),
   }
 
 
-def synthesize_generated_region(source):
-  """Solve one generated-region query and replay it with the host payload model."""
+def _solver_status(output):
+  for line in output.splitlines():
+    match = re.match(r"^\s*(sat|unsat|unknown)\b", line, re.IGNORECASE)
+    if match:
+      return match[1].upper()
+  return "ERROR"
+
+
+def _solver_outcome(status, query, command, phase, result=None, error=None):
+  output = getattr(result, "stdout", "") if result is not None else ""
+  stderr = getattr(result, "stderr", "") if result is not None else ""
+  if isinstance(output, bytes):
+    output = output.decode("utf-8", errors="replace")
+  if isinstance(stderr, bytes):
+    stderr = stderr.decode("utf-8", errors="replace")
+  return {
+    "status": status,
+    "solver": command[0],
+    "transport_contract": query["transport_contract"],
+    "query_sha256": query["sha256"],
+    "query_smt2": query["script"],
+    "shape": list(query["shape"]),
+    "iterations": query["iterations"],
+    "solver_outcome": {
+      "phase": phase,
+      "stdout": output,
+      "stderr": stderr,
+      "returncode": getattr(result, "returncode", None),
+      "error": str(error) if error is not None else None,
+    },
+  }
+
+
+def embed_generated_float_word(word):
+  """Apply the pinned Triton f32 payload mixer to one raw IEEE word."""
+  if type(word) is not int or not 0 <= word <= PAYLOAD_MASK:
+    raise ValueError("generated f32 transport word must be an unsigned 32-bit integer")
+  sign = word & _FPSAN_F32_SIGN_MASK
+  magnitude = word & _FPSAN_F32_MAGNITUDE_MASK
+  mixed = (magnitude * _FPSAN_F32_MUL_A) & _FPSAN_F32_MAGNITUDE_MASK
+  mixed ^= mixed >> _FPSAN_F32_SHIFT
+  multiplier = (
+    _FPSAN_F32_MUL_B_NEGATIVE if sign else _FPSAN_F32_MUL_B_POSITIVE
+  )
+  return ((mixed * multiplier) & _FPSAN_F32_MAGNITUDE_MASK) | sign
+
+
+def unembed_generated_payload(payload):
+  """Encode one bounded payload as a finite f32 word using pinned FpSan mixing."""
+  if type(payload) is not int or not 0 <= payload <= GENERATED_OUTPUT_MAX:
+    raise ValueError("generated payload is outside the bounded transport range")
+  sign = payload & _FPSAN_F32_SIGN_MASK
+  magnitude = payload & _FPSAN_F32_MAGNITUDE_MASK
+  multiplier_inverse = (
+    _FPSAN_F32_MUL_B_NEGATIVE_INVERSE
+    if sign
+    else _FPSAN_F32_MUL_B_POSITIVE_INVERSE
+  )
+  unshifted = (magnitude * multiplier_inverse) & _FPSAN_F32_MAGNITUDE_MASK
+  unmixed = unshifted
+  shift = _FPSAN_F32_SHIFT
+  while shift < 32:
+    unmixed ^= unshifted >> shift
+    shift *= 2
+  raw_word = (
+    (unmixed * _FPSAN_F32_MUL_A_INVERSE) & _FPSAN_F32_MAGNITUDE_MASK
+  ) | sign
+  if raw_word & 0x7F800000 == 0x7F800000:
+    raise ValueError("generated payload does not map to a finite f32 transport word")
+  return raw_word
+
+
+def synthesize_generated_region(source, *, timeout_s=30.0):
+  """Solve a bounded payload query and retain each solver terminal outcome."""
+  if (
+    isinstance(timeout_s, bool)
+    or not isinstance(timeout_s, (int, float))
+    or not math.isfinite(timeout_s)
+    or timeout_s <= 0
+  ):
+    raise ValueError("generated payload solver timeout must be positive and finite")
   query = build_generated_payload_query(source)
   command = _solver_command()
-  result = subprocess.run(
-    command, input=query["script"], text=True, capture_output=True, check=False
-  )
-  if result.returncode != 0:
-    raise RuntimeError(
-      f"{command[0]} failed ({result.returncode}): {result.stderr.strip()}"
+  deadline = time.monotonic() + timeout_s
+  try:
+    check_result = subprocess.run(
+      command,
+      input=query["check_script"],
+      text=True,
+      capture_output=True,
+      check=False,
+      timeout=timeout_s,
     )
+  except subprocess.TimeoutExpired as error:
+    return _solver_outcome("TIMEOUT", query, command, "check", error=error)
+  status = _solver_status(check_result.stdout)
+  if status in {"UNSAT", "UNKNOWN"}:
+    return _solver_outcome(status, query, command, "check", check_result)
+  if status != "SAT" or check_result.returncode != 0:
+    return _solver_outcome("ERROR", query, command, "check", check_result)
+
+  remaining_s = deadline - time.monotonic()
+  if remaining_s <= 0:
+    return _solver_outcome("TIMEOUT", query, command, "model")
+  try:
+    model_result = subprocess.run(
+      command,
+      input=query["script"],
+      text=True,
+      capture_output=True,
+      check=False,
+      timeout=remaining_s,
+    )
+  except subprocess.TimeoutExpired as error:
+    return _solver_outcome("TIMEOUT", query, command, "model", error=error)
+  model_status = _solver_status(model_result.stdout)
+  if model_status in {"UNSAT", "UNKNOWN"}:
+    return _solver_outcome(model_status, query, command, "model", model_result)
+  if model_status != "SAT" or model_result.returncode != 0:
+    return _solver_outcome("ERROR", query, command, "model", model_result)
+
   requested = [*query["variables"], *query["output_names"]]
-  model = parse_payload_model(result.stdout, requested)
+  model = parse_payload_model(model_result.stdout, requested)
   input_payloads = [model[name] for name in query["variables"]]
   output_payloads = [model[name] for name in query["output_names"]]
   replayed = evaluate_generated_payload_region(source, input_payloads)
   if output_payloads != replayed:
     raise AssertionError("SMT model outputs disagree with the host payload evaluator")
-  try:
-    input_words = [unembed_known_payload(value) for value in input_payloads]
-    output_words = [unembed_known_payload(value) for value in output_payloads]
-  except ValueError as error:
-    raise AssertionError(
-      "generated region witness cannot be transported through fixed f32 points"
-    ) from error
+  calibration_mutants = {}
+  for name in ("lost_iteration", "lost_update_acc_y"):
+    mutant_payloads = evaluate_generated_payload_mutant(source, input_payloads, name)
+    mismatch_lanes = compare_words(output_payloads, mutant_payloads)
+    if not mismatch_lanes:
+      raise AssertionError(f"generated payload witness missed {name} calibration")
+    calibration_mutants[name] = {
+      "status": "detected",
+      "candidate_payloads": mutant_payloads,
+      "candidate_float_bits": [
+        f"{unembed_generated_payload(value):08x}" for value in mutant_payloads
+      ],
+      "mismatch_lanes": mismatch_lanes,
+    }
   return {
+    "status": "SAT",
+    "solver": command[0],
+    "transport_contract": query["transport_contract"],
     "query_sha256": query["sha256"],
     "query_smt2": query["script"],
     "shape": list(query["shape"]),
     "iterations": query["iterations"],
     "input_payloads": dict(zip(query["variables"], input_payloads)),
     "output_payloads": output_payloads,
-    "input_float_words": input_words,
-    "output_float_words": output_words,
-    "input_float_bits": [f"{value:08x}" for value in input_words],
-    "output_float_bits": [f"{value:08x}" for value in output_words],
+    "input_float_words": [unembed_generated_payload(value) for value in input_payloads],
+    "output_float_words": [
+      unembed_generated_payload(value) for value in output_payloads
+    ],
+    "input_float_bits": [
+      f"{unembed_generated_payload(value):08x}" for value in input_payloads
+    ],
+    "output_float_bits": [
+      f"{unembed_generated_payload(value):08x}" for value in output_payloads
+    ],
+    "calibration_mutants": calibration_mutants,
   }
 
 
-def render_generated_region_triton_kernel(source):
+def render_generated_region_triton_kernel(
+  source, *, iteration_count=None, omitted_updates=()
+):
   """Emit a Triton kernel with the same dataflow and ordered updates as SIR."""
   shape, iterations, tensor_types, nodes, updates = (
     tensor_exact_f32._generated_region_program(source)
   )
+  if iteration_count is None:
+    iteration_count = iterations
+  if (
+    type(iteration_count) is not int
+    or iteration_count < 0
+    or iteration_count > iterations
+  ):
+    raise ValueError("generated Triton iteration count must fit the source loop bound")
+  omitted_updates = tuple(omitted_updates)
+  update_names = {state for state, _root in updates}
+  if any(name not in update_names for name in omitted_updates):
+    raise ValueError("generated Triton mutant names an unknown loop-carried state")
   if len(shape) != 2:
     raise ValueError("FpSan Triton lowering requires a rank-two generated region")
   rows, columns = shape
@@ -579,7 +845,7 @@ def render_generated_region_triton_kernel(source):
     f"    offsets = rows[:, None] * {columns} + columns[None, :]",
     "    acc_x = tl.load(input_ptr + offsets)",
     f"    acc_y = tl.full(({rows}, {columns}), 0.0, tl.float32)",
-    f"    for _ in tl.static_range({iterations}):",
+    f"    for _ in tl.static_range({iteration_count}):",
   ]
   names = {"acc_x": "acc_x", "acc_y": "acc_y"}
   for index, (destination, _operation, _operands, _attribute) in enumerate(nodes):
@@ -602,7 +868,8 @@ def render_generated_region_triton_kernel(source):
     lines.append(f"        {target} = {expression}")
 
   for state, root in updates:
-    lines.append(f"        {state} = {names[root]}")
+    if state not in omitted_updates:
+      lines.append(f"        {state} = {names[root]}")
   lines.extend(
     (
       "    output = acc_x + acc_y",

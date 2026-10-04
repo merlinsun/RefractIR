@@ -129,7 +129,9 @@ def _measure_region_kernel(kernel, args):
   }
 
 
-def _capture_region_compiler(compiled, name, ir_directory, source_lines):
+def _capture_region_compiler(
+  compiled, name, ir_directory, source_lines, *, expected_loop
+):
   assembly = getattr(compiled, "asm", {})
   ir_files = {}
   compiler_stages = {}
@@ -142,7 +144,9 @@ def _capture_region_compiler(compiled, name, ir_directory, source_lines):
       compiler_stages[stage] = content
   return {
     "ir_files": ir_files,
-    "observation": observe_compiler_ir(compiler_stages, source_lines=source_lines),
+    "observation": observe_compiler_ir(
+      compiler_stages, source_lines=source_lines, expected_loop=expected_loop
+    ),
     "num_warps": getattr(compiled, "n_warps", None),
     "registers_per_thread": getattr(compiled, "n_regs", None),
     "spill_bytes": getattr(compiled, "n_spills", None),
@@ -269,7 +273,11 @@ def run_program(
       "expected_output_bits": _word_hex(expected_bytes),
       "measurement": measurement,
       "compiler": _capture_region_compiler(
-        compiled, plan.name, ir_directory, generated.conversion_source_lines
+        compiled,
+        plan.name,
+        ir_directory,
+        generated.conversion_source_lines,
+        expected_loop=iterations > 0,
       ),
     }
 
@@ -306,6 +314,7 @@ def run_program(
     "calibration-add-one-output-mutant",
     ir_directory,
     mutant.conversion_source_lines,
+    expected_loop=iterations > 0,
   )
   calibration_compiler["measurement"] = mutant_measurement
   baseline_detected = cases[baseline_plan.name]["actual_output_bits"] != _word_hex(

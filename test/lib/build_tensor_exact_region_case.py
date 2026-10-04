@@ -91,10 +91,13 @@ def build_case(
     shape, iterations, _, _, _ = tensor_exact_f32._generated_region_program(source)
     if type(target) is not int:
       raise CaseBuildError("unsupported_region", "target must be an integer")
-    zero_input = struct.pack(f"<{math.prod(shape)}f", *([0.0] * math.prod(shape)))
-    # This input-independent proof is established before generating or solving
-    # the integer twin query.
-    tensor_exact_f32.certify(source, zero_input, domain)
+    preflight_value = float(domain[0])
+    preflight_input = struct.pack(
+      f"<{math.prod(shape)}f", *([preflight_value] * math.prod(shape))
+    )
+    # Bounds cover the declared domain; the concrete preflight must be a member
+    # of that domain because certification also checks the supplied input.
+    tensor_exact_f32.certify(source, preflight_input, domain)
     query = tensor_exact_f32.render_generated_region_query(source, domain, target)
     path = tensor_exact_f32.generated_region_path(iterations)
     source_path.write_text(source, encoding="utf-8")

@@ -3,10 +3,11 @@
 import ast
 import hashlib
 import importlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from types import SimpleNamespace
 from unittest import mock
 
@@ -205,14 +206,126 @@ class TensorFpSanModelTests(unittest.TestCase):
     self.assertIn("(bvadd", query["script"])
     self.assertNotIn("FloatingPoint", query["script"])
 
-  def test_generated_region_query_constrains_gpu_transport_to_fixed_points(self):
+  def test_generated_region_query_constrains_output_to_exact_integer_f32_range(
+    self,
+  ):
     query = self.fpsan().build_generated_payload_query(
       fpsan_generated_region_source(iterations=1)
     )
     for output_name in query["output_names"]:
-      self.assertIn(f"(= {output_name} #x00000000)", query["script"])
-      self.assertIn(f"(= {output_name} #x00000001)", query["script"])
-      self.assertIn(f"(= {output_name} #xFFFFFFFF)", query["script"])
+      self.assertIn(
+        f"(assert (bvule {output_name} #x01000000))", query["script"]
+      )
+
+  def test_generated_region_query_bounds_transport_and_requires_mutant_sensitivity(
+    self,
+  ):
+    query = self.fpsan().build_generated_payload_query(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertIn("(assert (bvule x0 #x00000008))", query["script"])
+    self.assertIn("(assert (bvule output_0 #x01000000))", query["script"])
+    self.assertIn("lost_iteration_output_0", query["script"])
+    self.assertIn("lost_update_acc_y_output_0", query["script"])
+    self.assertNotIn("(= output_0 #xFFFFFFFF)", query["script"])
+
+  def test_generated_payload_transport_preserves_the_pinned_fixed_points(self):
+    api = self.fpsan()
+    for payload in (0, 1):
+      word = api.unembed_generated_payload(payload)
+      self.assertEqual(api.embed_generated_float_word(word), payload)
+    self.assertEqual(api.unembed_generated_payload(1), 0x3F800000)
+
+  def test_generated_payload_unembedding_uses_the_pinned_bit_mixer(self):
+    api = self.fpsan()
+
+    word = api.unembed_generated_payload(2)
+
+    self.assertEqual(word, 0x2AAEB900)
+    self.assertNotEqual(word, 0x40000000)
+    self.assertEqual(api.embed_generated_float_word(word), 2)
+
+  def test_generated_payload_input_domain_roundtrips_through_f32_words(self):
+    api = self.fpsan()
+
+    words = [api.unembed_generated_payload(value) for value in range(9)]
+
+    self.assertEqual(len(set(words)), 9)
+    self.assertEqual(
+      [api.embed_generated_float_word(word) for word in words], list(range(9))
+    )
+
+  def test_generated_payload_transport_rejects_nonfinite_f32_preimages(self):
+    with self.assertRaisesRegex(ValueError, "finite f32"):
+      self.fpsan().unembed_generated_payload(45)
+
+  def test_generated_payload_query_excludes_nonfinite_transport_words(self):
+    query = self.fpsan().build_generated_payload_query(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertIn("(define-fun fpsan_unmix_payload", query["script"])
+    self.assertIn("#x7F800000", query["script"])
+    self.assertIn("lost_iteration_output_0", query["script"])
+    self.assertEqual(
+      query["transport_contract"],
+      "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237",
+    )
+
+  def test_generated_region_synthesis_finds_a_nontrivial_loop_witness(self):
+    witness = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2), timeout_s=10
+    )
+
+    self.assertEqual(witness["status"], "SAT")
+    inputs = [witness["input_payloads"][f"x{index}"] for index in range(4)]
+    self.assertNotEqual(witness["output_payloads"], inputs)
+    self.assertTrue(any(value > 1 for value in witness["output_payloads"]))
+    self.assertEqual(
+      {name: mutant["status"] for name, mutant in witness["calibration_mutants"].items()},
+      {"lost_iteration": "detected", "lost_update_acc_y": "detected"},
+    )
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["z3", "-in"])
+  def test_generated_region_synthesis_preserves_unsat_without_model_access(
+    self, _command, run
+  ):
+    run.return_value = CompletedProcess(["z3", "-in"], 0, "unsat\n", "")
+
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(result["status"], "UNSAT")
+    self.assertEqual(
+      result["transport_contract"],
+      "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237",
+    )
+    self.assertEqual(run.call_count, 1)
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["z3", "-in"])
+  def test_generated_region_synthesis_preserves_unknown(self, _command, run):
+    run.return_value = CompletedProcess(["z3", "-in"], 0, "unknown\n", "")
+
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(result["status"], "UNKNOWN")
+    self.assertEqual(run.call_count, 1)
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run", side_effect=TimeoutExpired(["z3"], 1))
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["z3", "-in"])
+  def test_generated_region_synthesis_preserves_timeout(self, _command, _run):
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2), timeout_s=1
+    )
+
+    self.assertEqual(result["status"], "TIMEOUT")
+    self.assertIsInstance(json.dumps(result), str)
 
   @mock.patch("test.lib.tensor_fpsan.subprocess.run")
   @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
@@ -221,20 +334,23 @@ class TensorFpSanModelTests(unittest.TestCase):
   ):
     words = {
       "x0": 1,
-      "x1": 0xFFFFFFFF,
-      "x2": 0xFFFFFFFF,
       "x3": 1,
-      "output_0": 1,
-      "output_1": 0xFFFFFFFF,
-      "output_2": 0xFFFFFFFF,
-      "output_3": 1,
+      "x1": 1,
+      "x2": 1,
+      "output_0": 25,
+      "output_1": 25,
+      "output_2": 25,
+      "output_3": 25,
     }
     model = (
       "sat\n("
       + " ".join(f"({name} #x{value:08X})" for name, value in words.items())
       + ")\n"
     )
-    run.return_value = CompletedProcess(["bitwuzla"], 0, model, "")
+    run.side_effect = [
+      CompletedProcess(["bitwuzla"], 0, "sat\n", ""),
+      CompletedProcess(["bitwuzla"], 0, model, ""),
+    ]
 
     witness = self.fpsan().synthesize_generated_region(
       fpsan_generated_region_source(iterations=2)
@@ -242,12 +358,14 @@ class TensorFpSanModelTests(unittest.TestCase):
 
     self.assertEqual(
       witness["input_payloads"],
-      {name: words[name] for name in ("x0", "x1", "x2", "x3")},
+      {name: 1 for name in ("x0", "x1", "x2", "x3")},
     )
-    self.assertEqual(witness["output_payloads"], [1, 0xFFFFFFFF, 0xFFFFFFFF, 1])
+    self.assertEqual(witness["status"], "SAT")
+    self.assertEqual(witness["output_payloads"], [25, 25, 25, 25])
     self.assertEqual(
-      witness["output_float_bits"], ["3f800000", "bf800000", "bf800000", "3f800000"]
+      witness["output_float_bits"], ["4be15800"] * 4
     )
+    self.assertEqual(run.call_count, 2)
     self.assertEqual(len(witness["query_sha256"]), 64)
 
   @mock.patch("test.lib.tensor_fpsan.subprocess.run")

@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -251,13 +251,23 @@ test-tensor-region: $(TENSOR_REGION_API) $(TARGET_INTERP)
 	  $(PY) -m unittest test.unit.test_tensor_region test.unit.test_tensor_region_integration
 
 TENSOR_GRAPH_REGION_API = $(BIN_DIR)/tensor_graph_region_api
+TENSOR_GRAPH_REGION_EXPORT = $(BIN_DIR)/tensor_graph_region_export
 
-$(TENSOR_GRAPH_REGION_API): test/unit/tensor_graph_region_api.cpp src/reify/tensor_graph_gen.cpp src/reify/tensor_region.cpp src/analysis/tensor.cpp src/analysis/type_utils.cpp src/analysis/cfgbuilder.cpp src/analysis/reducibility.cpp src/analysis/dominators.cpp src/analysis/loop_info.cpp src/frontend/diagnostics.cpp include/reify/tensor_graph_gen.hpp include/reify/tensor_region.hpp
+TENSOR_GRAPH_REGION_SRCS = src/reify/tensor_graph_gen.cpp src/reify/tensor_region.cpp src/analysis/tensor.cpp src/analysis/type_utils.cpp src/analysis/cfgbuilder.cpp src/analysis/reducibility.cpp src/analysis/dominators.cpp src/analysis/loop_info.cpp src/frontend/diagnostics.cpp
+
+$(TENSOR_GRAPH_REGION_API): test/unit/tensor_graph_region_api.cpp $(TENSOR_GRAPH_REGION_SRCS) include/reify/tensor_graph_gen.hpp include/reify/tensor_region.hpp
 	mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_graph_region_api.cpp src/reify/tensor_graph_gen.cpp src/reify/tensor_region.cpp src/analysis/tensor.cpp src/analysis/type_utils.cpp src/analysis/cfgbuilder.cpp src/analysis/reducibility.cpp src/analysis/dominators.cpp src/analysis/loop_info.cpp src/frontend/diagnostics.cpp
+	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_graph_region_api.cpp $(TENSOR_GRAPH_REGION_SRCS)
+
+$(TENSOR_GRAPH_REGION_EXPORT): test/unit/tensor_graph_region_export.cpp $(TENSOR_GRAPH_REGION_SRCS) include/reify/tensor_graph_gen.hpp include/reify/tensor_region.hpp
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_graph_region_export.cpp $(TENSOR_GRAPH_REGION_SRCS)
 
 test-tensor-graph-region: $(TENSOR_GRAPH_REGION_API)
 	REFRACTIR_TENSOR_GRAPH_REGION_API=$(TENSOR_GRAPH_REGION_API) $(PY) -m unittest test.unit.test_tensor_graph_region
+
+test-tensor-generated-corpus: $(BIN_DIR)/tensor_graph_region_export
+	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) $(PY) -m unittest test.unit.test_tensor_generated_region_corpus
 
 test-tensor-fpsan-model:
 	$(PY) -m unittest test.unit.test_tensor_fpsan_model
@@ -266,7 +276,7 @@ test-tensor-gluon-layouts:
 	$(PY) -m unittest test.unit.test_tensor_gluon_layouts
 
 test-tensor-gluon-lowering:
-	$(PY) -m unittest test.unit.test_tensor_gluon_lowering
+	$(PY) -m unittest test.unit.test_tensor_gluon_lowering test.unit.test_tensor_generated_region_runner
 
 test-tensor-compiler-observation:
 	$(PY) -m unittest test.unit.test_tensor_compiler_observation
@@ -474,7 +484,7 @@ test-tensor-graph-audit:
 
 # Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
 test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
-	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fixed-study test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fixed-study test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
 	  test-tensor-solver test-tensor-emit test-tensor-regressions \
 	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
 	  test-tensor-reducer test-tensor-property-pilot
@@ -489,7 +499,7 @@ test-tensor-evaluation:
 	$(PY) -m unittest test.unit.test_tensor_evaluation
 
 test-tensor-fixed-study:
-	$(PY) -m unittest test.unit.test_tensor_fixed_study test.unit.test_tensor_fixed_selection
+	$(PY) -m unittest test.unit.test_tensor_fixed_study test.unit.test_tensor_fixed_selection test.unit.test_tensor_generated_selection_study
 
 test-tensor-reducer:
 	$(PY) -m unittest test.unit.test_tensor_reducer

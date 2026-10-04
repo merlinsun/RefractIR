@@ -1,12 +1,13 @@
 """Contracts for paired studies over distinct generated loop regions."""
 
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from test.lib import tensor_exact_f32
+from test.lib import tensor_exact_f32, tensor_fpsan
 from test.tensor.gluon import run_selection_study
 
 PROGRAM_IDS = (
@@ -14,9 +15,62 @@ PROGRAM_IDS = (
   "column-reduction-v1",
   "two-axis-reduction-v1",
 )
+NATIVE_GENERATED_PROGRAM_IDS = (
+  "native-seed-7",
+  "native-seed-17",
+  "native-seed-29",
+)
 
 
 class GeneratedSelectionStudyTests(unittest.TestCase):
+  def test_native_generator_corpus_freezes_sources_and_generation_options(self):
+    manifest_path = run_selection_study.PROGRAM_DIR / "native-generated-corpus.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    self.assertEqual(manifest["schema"], "refractir.generated-region-corpus.v1")
+    self.assertEqual(
+      tuple(record["program_id"] for record in manifest["programs"]),
+      NATIVE_GENERATED_PROGRAM_IDS,
+    )
+    for record in manifest["programs"]:
+      source_path = run_selection_study.PROGRAM_DIR / record["source_file"]
+      source = source_path.read_text(encoding="utf-8")
+      self.assertEqual(record["source_sha256"], hashlib.sha256(source.encode()).hexdigest())
+      self.assertEqual(record["generation"]["seed"], int(record["program_id"].rsplit("-", 1)[1]))
+      self.assertEqual(record["generation"]["shape"], [2, 2])
+      self.assertEqual(record["generation"]["iterations"], 2)
+      tensor_exact_f32._generated_region_program(source)
+
+  def test_selection_catalog_admits_frozen_native_graph_sources(self):
+    sources = [
+      run_selection_study._matrix_program_source(program_id)
+      for program_id in NATIVE_GENERATED_PROGRAM_IDS
+    ]
+
+    self.assertEqual(len({hashlib.sha256(source.encode()).hexdigest() for source in sources}), 3)
+
+  def test_default_matrix_includes_all_frozen_native_graph_programs(self):
+    self.assertTrue(set(NATIVE_GENERATED_PROGRAM_IDS).issubset(run_selection_study.PROGRAM_SOURCES))
+    cells = run_selection_study._matrix_cell_specs(
+      program_ids=NATIVE_GENERATED_PROGRAM_IDS,
+      target_indices=((0, 0), (1, 1)),
+      seeds=(17, 29),
+      layout_seeds=(20261002, 20261003),
+    )
+
+    self.assertEqual(len(cells), 24)
+    self.assertEqual({cell["program_id"] for cell in cells}, set(NATIVE_GENERATED_PROGRAM_IDS))
+
+  def test_native_seed_payload_query_keeps_loop_mutant_calibrations(self):
+    source = run_selection_study._matrix_program_source("native-seed-7")
+
+    query = tensor_fpsan.build_generated_payload_query(source)
+
+    self.assertEqual(query["shape"], (2, 2))
+    self.assertEqual(query["iterations"], 2)
+    self.assertIn("lost_iteration_output_0", query["script"])
+    self.assertIn("lost_update_acc_y_output_0", query["script"])
+
   def test_program_catalog_contains_distinct_admitted_graphs(self):
     sources = [run_selection_study._matrix_program_source(name) for name in PROGRAM_IDS]
     metadata = [
