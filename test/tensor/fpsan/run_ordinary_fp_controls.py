@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import re
 import statistics
 import time
 from pathlib import Path
@@ -13,6 +14,12 @@ import triton
 import triton.language as tl
 from triton.language.extra.cuda import libdevice
 
+from test.lib.tensor_fp32_reference import (
+  fma_f32_rne_bits,
+  mul_add_separate_f32_bits,
+  mul_f32_rne_bits,
+  reduction_f32_rne_outcomes,
+)
 from test.lib.tensor_fpsan import (
   f32_fmod_bits,
   rounding_reassociation_bits,
@@ -34,6 +41,30 @@ def rounding_trees_kernel(a_ptr, b_ptr, c_ptr, output_ptr):
 
 
 @triton.jit
+def arithmetic_edge_kernel(
+  a_ptr,
+  b_ptr,
+  c_ptr,
+  product_ptr,
+  expression_ptr,
+):
+  offsets = tl.arange(0, 4)
+  a = tl.load(a_ptr + offsets)
+  b = tl.load(b_ptr + offsets)
+  c = tl.load(c_ptr + offsets)
+  product = a * b
+  tl.store(product_ptr + offsets, product)
+  tl.store(expression_ptr + offsets, a * b + c)
+
+
+@triton.jit
+def reduction_order_kernel(input_ptr, output_ptr):
+  offsets = tl.arange(0, 4)
+  values = tl.load(input_ptr + offsets, offsets < 3, other=0.0)
+  tl.store(output_ptr, tl.sum(values))
+
+
+@triton.jit
 def remainder_kernel(dividend_ptr, divisor_ptr, output_ptr):
   offsets = tl.arange(0, 2)
   dividend = tl.load(dividend_ptr + offsets)
@@ -43,6 +74,149 @@ def remainder_kernel(dividend_ptr, divisor_ptr, output_ptr):
 
 def _raw_words(tensor):
   return [value & 0xFFFFFFFF for value in tensor.view(torch.int32).cpu().tolist()]
+
+
+def _float_tensor_from_words(words):
+  return torch.tensor(words, dtype=torch.uint32, device="cuda").view(torch.float32)
+
+
+def _ptx_has_fma(ptx):
+  return re.search(r"(?m)^\s*fma(?:\.[a-z0-9]+)*\.f32\b", ptx) is not None
+
+
+def _ptx_has_ftz_arithmetic(ptx):
+  return (
+    re.search(r"(?m)^\s*(?:add|mul|fma)\.[a-z0-9.]*ftz[a-z0-9.]*\.f32\b", ptx)
+    is not None
+  )
+
+
+def _run_binary32_edge_cases(ir_directory):
+  input_words = {
+    "a": (0x3F800001, 0x00000001, 0x80000000, 0x3F800001),
+    "b": (0x3F7FFFFE, 0x40000000, 0x40000000, 0x3F7FFFFE),
+    "c": (0x00000000, 0x00000000, 0x80000000, 0xBF800000),
+  }
+  a, b, c = (_float_tensor_from_words(input_words[name]) for name in ("a", "b", "c"))
+  product_outputs = []
+  expression_outputs = []
+  compiled = {}
+  measurements = {}
+  for fusion_enabled in (False, True):
+    product_output = torch.empty((4,), dtype=torch.float32, device="cuda")
+    expression_output = torch.empty_like(product_output)
+    compiled[fusion_enabled], measurements[fusion_enabled] = _measure_launches(
+      lambda: arithmetic_edge_kernel[(1,)](
+        a,
+        b,
+        c,
+        product_output,
+        expression_output,
+        num_warps=1,
+        enable_fp_fusion=fusion_enabled,
+      )
+    )
+    product_outputs.append(_raw_words(product_output))
+    expression_outputs.append(_raw_words(expression_output))
+
+  expected_product = [
+    mul_f32_rne_bits(left, right)
+    for left, right in zip(input_words["a"], input_words["b"], strict=True)
+  ]
+  expected_separate = [
+    mul_add_separate_f32_bits(left, right, addend)
+    for left, right, addend in zip(
+      input_words["a"], input_words["b"], input_words["c"], strict=True
+    )
+  ]
+  expected_fused = [
+    fma_f32_rne_bits(left, right, addend)
+    for left, right, addend in zip(
+      input_words["a"], input_words["b"], input_words["c"], strict=True
+    )
+  ]
+  ptx_by_fusion = {
+    str(enabled).lower(): compiled[enabled].asm.get("ptx", "")
+    for enabled in (False, True)
+  }
+  fusion_observations = {
+    str(enabled).lower(): {
+      "requested": enabled,
+      "ptx_contains_fma_f32": _ptx_has_fma(ptx_by_fusion[str(enabled).lower()]),
+      "ptx_contains_ftz_arithmetic": _ptx_has_ftz_arithmetic(
+        ptx_by_fusion[str(enabled).lower()]
+      ),
+      "measurement": measurements[enabled],
+    }
+    for enabled in (False, True)
+  }
+
+  reduction_input_words = (0x3F800000, 0x33800000, 0xBF800000)
+  reduction_input = _float_tensor_from_words(reduction_input_words)
+  reduction_output = torch.empty((1,), dtype=torch.float32, device="cuda")
+  compiled_reduction, reduction_measurement = _measure_launches(
+    lambda: reduction_order_kernel[(1,)](
+      reduction_input, reduction_output, num_warps=1, enable_fp_fusion=False
+    )
+  )
+  reduction_actual = _raw_words(reduction_output)
+  reduction_allowed = reduction_f32_rne_outcomes(reduction_input_words)
+  reduction_ptx = compiled_reduction.asm.get("ptx", "")
+  ir_directory.mkdir(parents=True, exist_ok=True)
+  compiler_ir = {
+    "arithmetic_fusion_disabled": _save_ir(
+      compiled[False], "arithmetic-fusion-disabled", ir_directory
+    ),
+    "arithmetic_fusion_enabled": _save_ir(
+      compiled[True], "arithmetic-fusion-enabled", ir_directory
+    ),
+    "reduction_order_sensitive": _save_ir(
+      compiled_reduction, "reduction-order-sensitive", ir_directory
+    ),
+  }
+  return {
+    "cases": {
+      "binary32_multiply_rne_edges": _case(product_outputs[0], expected_product)
+      | {
+        "input_bits": {
+          key: [f"{word:08x}" for word in values] for key, values in input_words.items()
+        }
+      },
+      "binary32_subnormal_multiplication": _case([product_outputs[0][1]], [0x00000002])
+      | {"policy": "gradual underflow; arithmetic PTX must not use .ftz"},
+      "multiply_add_fusion_disabled": _case(expression_outputs[0], expected_separate),
+      "multiply_add_fusion_enabled": _case(expression_outputs[1], expected_fused),
+      "reduction_order_sensitive_sum": {
+        "status": "pass"
+        if len(reduction_actual) == 1 and reduction_actual[0] in reduction_allowed
+        else "candidate_mismatch",
+        "actual_bits": [f"{word:08x}" for word in reduction_actual],
+        "allowed_binary32_tree_bits": [
+          f"{word:08x}" for word in sorted(reduction_allowed)
+        ],
+        "input_bits": [f"{word:08x}" for word in reduction_input_words],
+        "comparison": "observed result must be one rounded binary32 tree over all inputs",
+        "measurement": reduction_measurement,
+      },
+    },
+    "contracts": {
+      "rounding": "binary32 round-to-nearest, ties-to-even",
+      "fusion": fusion_observations,
+      "subnormal": {
+        "policy": "gradual underflow for ordinary f32 arithmetic",
+        "minimum_subnormal_times_two_expected_bits": "00000002",
+        "observed_bits": f"{product_outputs[0][1]:08x}",
+        "ptx_ftz_arithmetic_present": any(
+          item["ptx_contains_ftz_arithmetic"] for item in fusion_observations.values()
+        ),
+      },
+      "reduction_order": {
+        "policy": "no single tree is assumed; every binary32 tree result is admitted",
+        "ptx_contains_ftz_arithmetic": _ptx_has_ftz_arithmetic(reduction_ptx),
+      },
+    },
+    "compiler_ir": compiler_ir,
+  }
 
 
 def _case(actual, expected):
@@ -115,7 +289,7 @@ def run(output_path, ir_directory):
   )
   actual_rounding = _raw_words(rounding_output)
   report = {
-    "contract": "ordinary-ieee-f32-controls-v1",
+    "contract": "ordinary-ieee-f32-controls-v2",
     "triton_version": triton.__version__,
     "triton_source_identity": source_identity,
     "torch_version": torch.__version__,
@@ -137,6 +311,10 @@ def run(output_path, ir_directory):
       )
     },
   }
+  edge_results = _run_binary32_edge_cases(ir_directory)
+  report["cases"].update(edge_results["cases"])
+  report["compiler_ir"].update(edge_results["compiler_ir"])
+  report["edge_contracts"] = edge_results["contracts"]
 
   dividends = torch.tensor([-0.0, 1.0e10], dtype=torch.float32, device="cuda")
   divisors = torch.tensor([3.0, 3.0], dtype=torch.float32, device="cuda")
@@ -166,6 +344,19 @@ def run(output_path, ir_directory):
   failed_cases = [
     name for name, result in report["cases"].items() if result["status"] != "pass"
   ]
+  fusion = report["edge_contracts"]["fusion"]
+  for enabled in (False, True):
+    key = str(enabled).lower()
+    observation = fusion[key]
+    expected_fma = enabled
+    if observation["ptx_contains_fma_f32"] != expected_fma:
+      failed_cases.append(f"fusion_contract_{key}")
+    if observation["ptx_contains_ftz_arithmetic"]:
+      failed_cases.append(f"subnormal_contract_fusion_{key}")
+  if report["edge_contracts"]["subnormal"]["observed_bits"] != "00000002":
+    failed_cases.append("subnormal_contract_result")
+  if report["edge_contracts"]["reduction_order"]["ptx_contains_ftz_arithmetic"]:
+    failed_cases.append("subnormal_contract_reduction")
   if failed_cases:
     raise AssertionError(
       "ordinary IEEE-f32 controls failed: " + ", ".join(sorted(failed_cases))

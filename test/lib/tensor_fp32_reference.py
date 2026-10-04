@@ -1,6 +1,7 @@
 """Independent exact-rational rounding helpers for elementary binary32 tests."""
 
 from fractions import Fraction
+from functools import lru_cache
 
 _SIGN_MASK = 1 << 31
 _EXPONENT_MASK = 0xFF
@@ -95,3 +96,68 @@ def add_f32_rne_bits(left_word, right_word):
       return _SIGN_MASK
     return 0
   return round_fraction_to_f32_bits(total)
+
+
+def mul_f32_rne_bits(left_word, right_word):
+  """Multiply two finite binary32 words, rounding the exact product once."""
+  left_word = _checked_word(left_word)
+  right_word = _checked_word(right_word)
+  sign = (left_word ^ right_word) & _SIGN_MASK
+  product = _word_fraction(left_word) * _word_fraction(right_word)
+  if product == 0:
+    return sign
+  return round_fraction_to_f32_bits(product)
+
+
+def fma_f32_rne_bits(left_word, right_word, addend_word):
+  """Evaluate a*b+c with one binary32 round-to-nearest-even step."""
+  left_word = _checked_word(left_word)
+  right_word = _checked_word(right_word)
+  addend_word = _checked_word(addend_word)
+  product = _word_fraction(left_word) * _word_fraction(right_word)
+  addend = _word_fraction(addend_word)
+  total = product + addend
+  if total == 0:
+    product_sign = (left_word ^ right_word) & _SIGN_MASK
+    addend_sign = addend_word & _SIGN_MASK
+    if product == 0 and product_sign == addend_sign == _SIGN_MASK:
+      return _SIGN_MASK
+    return 0
+  return round_fraction_to_f32_bits(total)
+
+
+def mul_add_separate_f32_bits(left_word, right_word, addend_word):
+  """Evaluate a*b+c with binary32 rounding after multiplication and addition."""
+  product_word = mul_f32_rne_bits(left_word, right_word)
+  return add_f32_rne_bits(product_word, addend_word)
+
+
+def reduction_f32_rne_outcomes(words):
+  """Return results of every binary tree over up to eight finite input words.
+
+  This deliberately models the legal arithmetic variability of an unordered
+  reduction without claiming that a GPU chooses one particular tree.
+  """
+  words = tuple(_checked_word(word) for word in words)
+  if not words or len(words) > 8:
+    raise ValueError("binary32 reduction oracle requires one to eight operands")
+
+  @lru_cache(maxsize=None)
+  def outcomes(mask):
+    if mask & (mask - 1) == 0:
+      index = mask.bit_length() - 1
+      return frozenset((words[index],))
+
+    result = set()
+    anchor = mask & -mask
+    left_mask = (mask - 1) & mask
+    while left_mask:
+      right_mask = mask ^ left_mask
+      if left_mask & anchor and right_mask:
+        for left_word in outcomes(left_mask):
+          for right_word in outcomes(right_mask):
+            result.add(add_f32_rne_bits(left_word, right_word))
+      left_mask = (left_mask - 1) & mask
+    return frozenset(result)
+
+  return outcomes((1 << len(words)) - 1)
