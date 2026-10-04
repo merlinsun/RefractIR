@@ -216,6 +216,21 @@ def _ordinary_generated_region_output_words(source, input_bytes):
   return list(struct.unpack(f"<{count}I", output_bytes))
 
 
+def _required_fpsan_payload_operations(source, iteration_count):
+  if type(iteration_count) is not int or iteration_count < 0:
+    raise ValueError("payload validation iteration count must be nonnegative")
+  if iteration_count == 0:
+    return ()
+  _, _, _, nodes, _ = tensor_exact_f32._generated_region_program(source)
+  required = {"add"}
+  for _, operation, _, _ in nodes:
+    if operation in {"add", "sum"}:
+      required.add("add")
+    elif operation == "mul":
+      required.add("mul")
+  return tuple(sorted(required))
+
+
 def _ordinary_generated_region_admission(source, input_bytes):
   """Admit finite nonnegative RNE arithmetic with unambiguous short reductions."""
   shape, _, tensor_types, nodes, _ = tensor_exact_f32._generated_region_program(source)
@@ -693,7 +708,10 @@ def _run_generated_region_case(
     "fpsan_output_words": fpsan_words,
   }
   result["payload_lowering"] = validate_fpsan_payload_lowering(
-    getattr(compiled, "asm", {}).get("llir", "")
+    getattr(compiled, "asm", {}).get("llir", ""),
+    required_payload_operations=_required_fpsan_payload_operations(
+      source, witness["iterations"]
+    ),
   )
   result["compiler_ir"] = fpsan_ir
   result["compiler_modes"] = {"fpsan": fpsan_ir}
@@ -848,7 +866,10 @@ def _run_generated_region_case(
       "expected_bits": [f"{value:08x}" for value in expected_mutant_words],
       "measurement": mutant_measurement,
       "payload_lowering": validate_fpsan_payload_lowering(
-        getattr(mutant_compiled, "asm", {}).get("llir", "")
+        getattr(mutant_compiled, "asm", {}).get("llir", ""),
+        required_payload_operations=_required_fpsan_payload_operations(
+          source, render_options.get("iteration_count", witness["iterations"])
+        ),
       ),
       "compiler_ir": mutant_ir,
     }

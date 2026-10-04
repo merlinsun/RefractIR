@@ -213,9 +213,7 @@ class TensorFpSanModelTests(unittest.TestCase):
       fpsan_generated_region_source(iterations=1)
     )
     for output_name in query["output_names"]:
-      self.assertIn(
-        f"(assert (bvule {output_name} #x01000000))", query["script"]
-      )
+      self.assertIn(f"(assert (bvule {output_name} #x01000000))", query["script"])
 
   def test_generated_region_query_bounds_transport_and_requires_mutant_sensitivity(
     self,
@@ -311,7 +309,10 @@ class TensorFpSanModelTests(unittest.TestCase):
     self.assertNotEqual(witness["output_payloads"], inputs)
     self.assertTrue(any(value > 1 for value in witness["output_payloads"]))
     self.assertEqual(
-      {name: mutant["status"] for name, mutant in witness["calibration_mutants"].items()},
+      {
+        name: mutant["status"]
+        for name, mutant in witness["calibration_mutants"].items()
+      },
       {"lost_iteration": "detected", "lost_update_acc_y": "detected"},
     )
 
@@ -384,7 +385,9 @@ class TensorFpSanModelTests(unittest.TestCase):
     self.assertEqual(result["status"], "UNKNOWN")
     self.assertEqual(run.call_count, 1)
 
-  @mock.patch("test.lib.tensor_fpsan.subprocess.run", side_effect=TimeoutExpired(["z3"], 1))
+  @mock.patch(
+    "test.lib.tensor_fpsan.subprocess.run", side_effect=TimeoutExpired(["z3"], 1)
+  )
   @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["z3", "-in"])
   def test_generated_region_synthesis_preserves_timeout(self, _command, _run):
     result = self.fpsan().synthesize_generated_region(
@@ -429,9 +432,7 @@ class TensorFpSanModelTests(unittest.TestCase):
     )
     self.assertEqual(witness["status"], "SAT")
     self.assertEqual(witness["output_payloads"], [25, 25, 25, 25])
-    self.assertEqual(
-      witness["output_float_bits"], ["4be15800"] * 4
-    )
+    self.assertEqual(witness["output_float_bits"], ["4be15800"] * 4)
     self.assertEqual(run.call_count, 2)
     self.assertEqual(len(witness["query_sha256"]), 64)
 
@@ -533,6 +534,45 @@ class TensorFpSanModelTests(unittest.TestCase):
     )
     self.assertEqual(result["status"], "pass")
     self.assertEqual(len(result["integer_operation_lines"]), 1)
+
+  def test_payload_lowering_accepts_dynamic_integer_multiplication(self):
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      "%product = mul i32 %left, %right",
+      required_payload_operations=("mul",),
+    )
+
+    self.assertEqual(result["status"], "pass")
+    self.assertEqual(result["payload_operation_counts"], {"mul": 1})
+
+  def test_payload_lowering_requires_dynamic_integer_multiplication(self):
+    with self.assertRaisesRegex(AssertionError, "integer payload multiplication"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        "%mixed = mul i32 %payload, 14940041",
+        required_payload_operations=("mul",),
+      )
+
+  def test_payload_lowering_requires_each_declared_operation_family(self):
+    with self.assertRaisesRegex(AssertionError, "integer payload addition"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        "%product = mul i32 %left, %right",
+        required_payload_operations=("add", "mul"),
+      )
+
+  def test_payload_lowering_allows_an_operation_free_zero_iteration_mutant(self):
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      "%mixed = mul i32 %payload, 14940041",
+      required_payload_operations=(),
+    )
+
+    self.assertEqual(result["status"], "pass")
+    self.assertEqual(result["payload_operation_counts"], {})
+
+  def test_payload_lowering_still_rejects_float_arithmetic_without_payload_ops(self):
+    with self.assertRaisesRegex(AssertionError, "floating-point arithmetic"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        "%value = fmul float %left, %right",
+        required_payload_operations=(),
+      )
 
   def test_payload_lowering_rejects_floating_add_even_with_integer_add(self):
     with self.assertRaisesRegex(AssertionError, "floating-point arithmetic"):

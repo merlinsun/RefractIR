@@ -217,16 +217,35 @@ def validate_instrumentation_sensitivity(instrumented, ordinary, ordinary_expect
   return {"status": "pass", "mismatch_lanes": mismatch_lanes}
 
 
-def validate_fpsan_payload_lowering(llvm_ir):
-  """Require integer payload addition and reject residual IEEE arithmetic."""
+def validate_fpsan_payload_lowering(llvm_ir, *, required_payload_operations=("add",)):
+  """Require requested integer payload operations and reject IEEE arithmetic."""
   if not isinstance(llvm_ir, str) or not llvm_ir.strip():
     raise ValueError("FpSan payload lowering requires non-empty LLVM IR")
+  if (
+    not isinstance(required_payload_operations, (tuple, list))
+    or any(
+      not isinstance(operation, str) or operation not in {"add", "mul"}
+      for operation in required_payload_operations
+    )
+    or len(set(required_payload_operations)) != len(required_payload_operations)
+  ):
+    raise ValueError("required payload operations must be unique add/mul names")
   lines = llvm_ir.splitlines()
-  integer_operations = [
+  integer_additions = [
     line.strip()
     for line in lines
     if re.search(
-      r"\badd\s+(?:i\d+|<\d+\s*x\s*i\d+>)|@llvm\.vector\.reduce\.add\b", line
+      r"\badd\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+|"
+      r"@llvm\.vector\.reduce\.add\b",
+      line,
+    )
+  ]
+  integer_multiplications = [
+    line.strip()
+    for line in lines
+    if re.search(
+      r"\bmul\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+",
+      line,
     )
   ]
   floating_operations = [
@@ -237,11 +256,26 @@ def validate_fpsan_payload_lowering(llvm_ir):
       "FpSan payload lowering retained floating-point arithmetic: "
       + "; ".join(floating_operations)
     )
-  if not integer_operations:
-    raise AssertionError("FpSan payload lowering has no integer payload addition")
+  payload_lines = {
+    "add": integer_additions,
+    "mul": integer_multiplications,
+  }
+  display_names = {"add": "addition", "mul": "multiplication"}
+  for operation in required_payload_operations:
+    if not payload_lines[operation]:
+      raise AssertionError(
+        f"FpSan payload lowering has no integer payload {display_names[operation]}"
+      )
+  integer_operations = sorted(set(integer_additions + integer_multiplications))
   return {
     "status": "pass",
     "integer_operation_lines": integer_operations,
+    "payload_operation_counts": {
+      operation: len(payload_lines[operation])
+      for operation in ("add", "mul")
+      if payload_lines[operation]
+    },
+    "required_payload_operations": list(required_payload_operations),
     "floating_operation_lines": floating_operations,
   }
 

@@ -104,6 +104,17 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertIn("v0 = v0_left * v0_right", gluon_source)
     self.assertIn("value_0 = acc_x * acc_x", fpsan_source)
 
+  def test_fpsan_lowering_requirements_follow_static_body_operations(self):
+    experiment = _load_fpsan_experiment()
+
+    self.assertEqual(
+      experiment._required_fpsan_payload_operations(MULTIPLY_REGION_SOURCE, 1),
+      ("add", "mul"),
+    )
+    self.assertEqual(
+      experiment._required_fpsan_payload_operations(MULTIPLY_REGION_SOURCE, 0), ()
+    )
+
   def test_ordinary_reference_uses_admitted_binary32_multiply(self):
     experiment = _load_fpsan_experiment()
     from test.lib.tensor_fp32_reference import add_f32_rne_bits, mul_f32_rne_bits
