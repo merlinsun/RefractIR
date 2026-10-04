@@ -28,7 +28,7 @@ namespace refractir {
     class Builder {
     public:
       Builder(const FunDecl &f, const CFG &cfg, const DomTree &dt, const LoopInfo &li) :
-          f_(f), cfg_(cfg), dt_(dt), li_(li) {
+          f_(f), cfg_(cfg), dt_(dt) {
         const std::size_t n = cfg.blocks.size();
         headerLoop_.assign(n, -1);
         loopMember_.assign(li.loops.size(), std::vector<char>(n, 0));
@@ -112,12 +112,9 @@ namespace refractir {
               } else {
                 if (!t.isConditional)
                   return doBranch(x, cfg_.indexOf.at(CFG::labelKey(t.dest)), ctx);
-                return make(
-                    ControlTree::If{
-                        x, doBranch(x, cfg_.indexOf.at(CFG::labelKey(t.thenLabel)), ctx),
-                        doBranch(x, cfg_.indexOf.at(CFG::labelKey(t.elseLabel)), ctx)
-                    }
-                );
+                return make(ControlTree::If{
+                    x, doBranch(x, cfg_.indexOf.at(CFG::labelKey(t.thenLabel)), ctx),
+                    doBranch(x, cfg_.indexOf.at(CFG::labelKey(t.elseLabel)), ctx)});
               }
             },
             f_.blocks[x].term
@@ -165,7 +162,6 @@ namespace refractir {
       const FunDecl &f_;
       const CFG &cfg_;
       const DomTree &dt_;
-      const LoopInfo &li_;
       std::vector<int> headerLoop_;
       std::vector<std::vector<char>> loopMember_;
       std::vector<int> fwdPreds_;
