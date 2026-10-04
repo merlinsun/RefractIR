@@ -237,7 +237,8 @@ def _generated_region_program(source):
       )
     expression = assignment[2]
     binary = re.fullmatch(
-      r"tensor add (%[A-Za-z_][A-Za-z_0-9.$-]*), (%[A-Za-z_][A-Za-z_0-9.$-]*)",
+      r"tensor (add|mul) (%[A-Za-z_][A-Za-z_0-9.$-]*), "
+      r"(%[A-Za-z_][A-Za-z_0-9.$-]*)",
       expression,
     )
     reduction = re.fullmatch(
@@ -247,8 +248,8 @@ def _generated_region_program(source):
       r"tensor broadcast (%[A-Za-z_][A-Za-z_0-9.$-]*), \[([^\]]+)\]", expression
     )
     if binary:
-      operands = (binary[1][1:], binary[2][1:])
-      node = (destination, "add", operands, None)
+      operands = (binary[2][1:], binary[3][1:])
+      node = (destination, binary[1], operands, None)
     elif reduction:
       operands = (reduction[1][1:],)
       node = (destination, "sum", operands, int(reduction[2]))
@@ -284,10 +285,10 @@ def _generated_region_program(source):
     if any(operand not in available for operand in operands):
       raise ValueError("generated region operations must be in dependency order")
     output_shape = tensor_types[destination]
-    if operation == "add":
+    if operation in {"add", "mul"}:
       inferred = _broadcast_shape(*(tensor_types[name] for name in operands))
       if inferred != output_shape:
-        raise ValueError("generated region add result has an invalid shape")
+        raise ValueError("generated region binary result has an invalid shape")
     elif operation == "sum":
       source_shape = tensor_types[operands[0]]
       axis = attribute if attribute >= 0 else attribute + len(source_shape)
@@ -592,6 +593,18 @@ def _certify_generated_region(source, input_bytes, domain):
       tuple(a + b for a, b in zip(upper_left, upper_right)),
     )
 
+  def multiply_values(left, right, output_shape):
+    broadcast_left = _broadcast_values(values[left], tensor_types[left], output_shape)
+    broadcast_right = _broadcast_values(
+      values[right], tensor_types[right], output_shape
+    )
+    upper_left = _broadcast_values(upper[left], tensor_types[left], output_shape)
+    upper_right = _broadcast_values(upper[right], tensor_types[right], output_shape)
+    return (
+      tuple(a * b for a, b in zip(broadcast_left, broadcast_right)),
+      tuple(a * b for a, b in zip(upper_left, upper_right)),
+    )
+
   def sum_values(source_name, axis, output_shape):
     source_shape = tensor_types[source_name]
     normalized_axis = axis if axis >= 0 else axis + len(source_shape)
@@ -615,6 +628,8 @@ def _certify_generated_region(source, input_bytes, domain):
       output_shape = tensor_types[destination]
       if operation == "add":
         actual, maxima = add_values(operands[0], operands[1], output_shape)
+      elif operation == "mul":
+        actual, maxima = multiply_values(operands[0], operands[1], output_shape)
       elif operation == "sum":
         actual, maxima = sum_values(operands[0], attribute, output_shape)
       else:
@@ -646,7 +661,7 @@ def _certify_generated_region(source, input_bytes, domain):
     "complete_output": True,
     "integer_exactness_bound": EXACT_BOUND,
     "input_domain": list(domain),
-    "allowed_operations": ["add", "sum", "broadcast"],
+    "allowed_operations": sorted({operation for _, operation, _, _ in nodes} | {"add"}),
     "state_update_order": [
       {"state": "%" + state, "value": "%" + root} for state, root in updates
     ],

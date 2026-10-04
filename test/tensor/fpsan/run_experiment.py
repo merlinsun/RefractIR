@@ -17,7 +17,7 @@ import torch
 import triton
 import triton.language as tl
 
-from test.lib import tensor_exact_f32, tensor_route_protocol
+from test.lib import tensor_exact_f32, tensor_fp32_reference, tensor_route_protocol
 from test.lib.tensor_fpsan import (
   compare_words,
   flatten_word_values,
@@ -135,8 +135,20 @@ def _round_f32_add(left, right):
   return result
 
 
+def _round_f32_mul(left, right):
+  if not math.isfinite(left) or not math.isfinite(right):
+    raise ValueError("ordinary generated reference requires finite f32 operands")
+  left_word = struct.unpack("<I", struct.pack("<f", left))[0]
+  right_word = struct.unpack("<I", struct.pack("<f", right))[0]
+  try:
+    result_word = tensor_fp32_reference.mul_f32_rne_bits(left_word, right_word)
+  except OverflowError as error:
+    raise ValueError("ordinary generated reference overflowed finite f32") from error
+  return struct.unpack("<f", struct.pack("<I", result_word))[0]
+
+
 def _ordinary_generated_region_output_words(source, input_bytes):
-  """Execute admitted add/sum/broadcast regions with one RNE f32 step per op."""
+  """Execute admitted add/mul/sum/broadcast regions with binary32 RNE."""
   shape, iterations, tensor_types, nodes, updates = (
     tensor_exact_f32._generated_region_program(source)
   )
@@ -165,6 +177,14 @@ def _ordinary_generated_region_output_words(source, input_bytes):
           values[operands[1]], tensor_types[operands[1]], output_shape
         )
         result = tuple(_round_f32_add(a, b) for a, b in zip(left, right))
+      elif operation == "mul":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        result = tuple(_round_f32_mul(a, b) for a, b in zip(left, right))
       elif operation == "sum":
         input_shape = tensor_types[operands[0]]
         axis = attribute if attribute >= 0 else attribute + len(input_shape)
@@ -197,7 +217,7 @@ def _ordinary_generated_region_output_words(source, input_bytes):
 
 
 def _ordinary_generated_region_admission(source, input_bytes):
-  """Admit only positive finite transports with unambiguous short reductions."""
+  """Admit finite nonnegative RNE arithmetic with unambiguous short reductions."""
   shape, _, tensor_types, nodes, _ = tensor_exact_f32._generated_region_program(source)
   count = math.prod(shape)
   if not isinstance(input_bytes, bytes) or len(input_bytes) != count * 4:
@@ -205,6 +225,9 @@ def _ordinary_generated_region_admission(source, input_bytes):
   input_words = struct.unpack(f"<{count}I", input_bytes)
   input_values = struct.unpack(f"<{count}f", input_bytes)
   reductions = []
+  operations = list(
+    dict.fromkeys([operation for _, operation, _, _ in nodes] + ["add"])
+  )
   for destination, operation, operands, attribute in nodes:
     if operation != "sum":
       continue
@@ -215,7 +238,8 @@ def _ordinary_generated_region_admission(source, input_bytes):
   max_width = max((item["width"] for item in reductions), default=0)
   result = {
     "status": "admitted",
-    "contract": "nonnegative-f32-reduction-width-at-most-2-v1",
+    "contract": ("nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v2"),
+    "operations": operations,
     "max_reduction_width": max_width,
     "reductions": reductions,
   }
@@ -234,6 +258,14 @@ def _ordinary_generated_region_admission(source, input_bytes):
         "has no target-independent bitwise RNE tree contract"
       ),
     )
+  if result["status"] == "admitted":
+    try:
+      _ordinary_generated_region_output_words(source, input_bytes)
+    except ValueError as error:
+      result.update(
+        status="unclassified",
+        reason=f"ordinary RNE reference is unavailable: {error}",
+      )
   return result
 
 
@@ -508,14 +540,18 @@ def _generated_region_corpus_sources(program_ids=None):
   manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
   if manifest.get("schema") != "refractir.generated-region-corpus.v1":
     raise ValueError(f"unsupported generated-region corpus: {manifest_path}")
+  records = [
+    *manifest["programs"],
+    *manifest.get("supplemental_programs", []),
+  ]
   requested_program_ids = None if program_ids is None else set(program_ids)
-  known_program_ids = {record["program_id"] for record in manifest["programs"]}
+  known_program_ids = {record["program_id"] for record in records}
   if requested_program_ids is not None:
     if not requested_program_ids or requested_program_ids - known_program_ids:
       unknown = sorted(requested_program_ids - known_program_ids)
       raise ValueError(f"unknown or empty generated program selection: {unknown}")
   sources = []
-  for record in manifest["programs"]:
+  for record in records:
     if (
       requested_program_ids is not None
       and record["program_id"] not in requested_program_ids
@@ -531,7 +567,7 @@ def _generated_region_corpus_sources(program_ids=None):
         "program_id": record["program_id"],
         "source_path": source_path,
         "source_sha256": source_hash,
-        "generation": record["generation"],
+        "generation": record.get("generation"),
       }
     )
   return sources
@@ -1223,7 +1259,9 @@ def _run_experiment(
         "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237"
       ),
       "ordinary_reference_contract": {
-        "admission": "nonnegative-f32-reduction-width-at-most-2-v1",
+        "admission": (
+          "nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v2"
+        ),
         "excluded_case_policy": (
           "run and retain actual/reference words as unclassified diagnostic evidence"
         ),

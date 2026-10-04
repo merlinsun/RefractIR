@@ -429,6 +429,14 @@ def _evaluate_generated_payload_region(
           values[operands[1]], tensor_types[operands[1]], output_shape
         )
         result = tuple(add32(a, b) for a, b in zip(left, right))
+      elif operation == "mul":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        result = tuple((a * b) & PAYLOAD_MASK for a, b in zip(left, right))
       elif operation == "sum":
         result = _payload_reduce(
           values[operands[0]],
@@ -513,6 +521,14 @@ def _generated_payload_smt(
           values[operands[1]], tensor_types[operands[1]], output_shape
         )
         expressions = [f"(bvadd {a} {b})" for a, b in zip(left, right)]
+      elif operation == "mul":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        expressions = [f"(bvmul {a} {b})" for a, b in zip(left, right)]
       elif operation == "sum":
         input_shape = tensor_types[operands[0]]
         axis = attribute if attribute >= 0 else attribute + len(input_shape)
@@ -605,9 +621,7 @@ def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
   input_transport_words = tuple(
     unembed_generated_payload(value) for value in range(GENERATED_INPUT_MAX + 1)
   )
-  bound_input = struct.pack(
-    f"<{count}f", *([float(GENERATED_INPUT_MAX)] * count)
-  )
+  bound_input = struct.pack(f"<{count}f", *([float(GENERATED_INPUT_MAX)] * count))
   tensor_exact_f32.certify(source, bound_input, (0, GENERATED_INPUT_MAX))
 
   lines = ["(set-logic QF_BV)", "(set-option :produce-models true)"]
@@ -620,12 +634,10 @@ def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
   lines.extend(lost_update_definitions)
   all_outputs = (*output_names, *lost_iteration_names, *lost_update_names)
   lines.extend(
-    f"(assert (bvule {name} #x{GENERATED_OUTPUT_MAX:08X}))"
-    for name in all_outputs
+    f"(assert (bvule {name} #x{GENERATED_OUTPUT_MAX:08X}))" for name in all_outputs
   )
   lines.extend(
-    "(assert (not (= (bvand (fpsan_unmix_payload "
-    f"{name}) #x7F800000) #x7F800000)))"
+    f"(assert (not (= (bvand (fpsan_unmix_payload {name}) #x7F800000) #x7F800000)))"
     for name in all_outputs
   )
   lines.append(
@@ -711,9 +723,7 @@ def embed_generated_float_word(word):
   magnitude = word & _FPSAN_F32_MAGNITUDE_MASK
   mixed = (magnitude * _FPSAN_F32_MUL_A) & _FPSAN_F32_MAGNITUDE_MASK
   mixed ^= mixed >> _FPSAN_F32_SHIFT
-  multiplier = (
-    _FPSAN_F32_MUL_B_NEGATIVE if sign else _FPSAN_F32_MUL_B_POSITIVE
-  )
+  multiplier = _FPSAN_F32_MUL_B_NEGATIVE if sign else _FPSAN_F32_MUL_B_POSITIVE
   return ((mixed * multiplier) & _FPSAN_F32_MAGNITUDE_MASK) | sign
 
 
@@ -724,9 +734,7 @@ def unembed_generated_payload(payload):
   sign = payload & _FPSAN_F32_SIGN_MASK
   magnitude = payload & _FPSAN_F32_MAGNITUDE_MASK
   multiplier_inverse = (
-    _FPSAN_F32_MUL_B_NEGATIVE_INVERSE
-    if sign
-    else _FPSAN_F32_MUL_B_POSITIVE_INVERSE
+    _FPSAN_F32_MUL_B_NEGATIVE_INVERSE if sign else _FPSAN_F32_MUL_B_POSITIVE_INVERSE
   )
   unshifted = (magnitude * multiplier_inverse) & _FPSAN_F32_MAGNITUDE_MASK
   unmixed = unshifted
@@ -734,9 +742,7 @@ def unembed_generated_payload(payload):
   while shift < 32:
     unmixed ^= unshifted >> shift
     shift *= 2
-  raw_word = (
-    (unmixed * _FPSAN_F32_MUL_A_INVERSE) & _FPSAN_F32_MAGNITUDE_MASK
-  ) | sign
+  raw_word = ((unmixed * _FPSAN_F32_MUL_A_INVERSE) & _FPSAN_F32_MAGNITUDE_MASK) | sign
   if raw_word & 0x7F800000 == 0x7F800000:
     raise ValueError("generated payload does not map to a finite f32 transport word")
   return raw_word
@@ -921,6 +927,9 @@ def render_generated_region_triton_kernel(
     if operation == "add":
       left, right = (names[name] for name in operands)
       expression = f"{left} + {right}"
+    elif operation == "mul":
+      left, right = (names[name] for name in operands)
+      expression = f"{left} * {right}"
     elif operation == "sum":
       axis = attribute if attribute >= 0 else attribute + len(shape)
       operand = names[operands[0]]

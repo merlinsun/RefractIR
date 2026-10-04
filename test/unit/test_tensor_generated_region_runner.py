@@ -13,6 +13,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_PATH = ROOT / "test/tensor/gluon/run_generated_region.py"
+MULTIPLY_REGION_SOURCE = (
+  ROOT / "test/tensor/gluon/programs/elementwise-multiply-region-v1.sir"
+).read_text(encoding="utf-8")
 
 
 def _load_runner():
@@ -52,6 +55,93 @@ def _load_fpsan_experiment():
 
 
 class GeneratedRegionRunnerTests(unittest.TestCase):
+  def test_region_parser_admits_elementwise_multiplication(self):
+    from test.lib import tensor_exact_f32
+
+    _shape, iterations, _types, nodes, updates = (
+      tensor_exact_f32._generated_region_program(MULTIPLY_REGION_SOURCE)
+    )
+
+    self.assertEqual(iterations, 1)
+    self.assertEqual(nodes[0], ("squares", "mul", ("acc_x", "acc_x"), None))
+    self.assertEqual(updates, [("acc_x", "next_x"), ("acc_y", "next_y")])
+
+  def test_exact_certificate_bounds_multiplication_and_full_output(self):
+    from test.lib import tensor_exact_f32
+
+    input_bytes = struct.pack("<4f", 1, 2, 3, 4)
+    proof, output_bytes = tensor_exact_f32.certify(
+      MULTIPLY_REGION_SOURCE, input_bytes, (0, 8)
+    )
+
+    self.assertEqual(struct.unpack("<4f", output_bytes), (7, 11, 37, 45))
+    square_bound = next(
+      item for item in proof["bounds"] if item["destination"] == "%squares"
+    )
+    self.assertEqual(square_bound["operation"], "mul")
+    self.assertEqual(square_bound["max_value"], 64)
+    self.assertIn("mul", proof["allowed_operations"])
+
+  def test_payload_evaluator_and_query_model_tensor_multiplication(self):
+    from test.lib import tensor_fpsan
+
+    payloads = (1, 2, 3, 4)
+    query = tensor_fpsan.build_generated_payload_query(MULTIPLY_REGION_SOURCE)
+    output = tensor_fpsan.evaluate_generated_payload_region(
+      MULTIPLY_REGION_SOURCE, payloads
+    )
+
+    self.assertIn("(bvmul x0 x0)", query["script"])
+    self.assertEqual(output, [7, 11, 37, 45])
+
+  def test_gluon_and_fpsan_lowerers_emit_multiplication(self):
+    from test.lib.tensor_fpsan import render_generated_region_triton_kernel
+    from test.lib.tensor_gluon_lowering import render_gluon_kernel
+
+    gluon_source = render_gluon_kernel(MULTIPLY_REGION_SOURCE).source
+    fpsan_source = render_generated_region_triton_kernel(MULTIPLY_REGION_SOURCE)
+
+    self.assertIn("v0 = v0_left * v0_right", gluon_source)
+    self.assertIn("value_0 = acc_x * acc_x", fpsan_source)
+
+  def test_ordinary_reference_uses_admitted_binary32_multiply(self):
+    experiment = _load_fpsan_experiment()
+    from test.lib.tensor_fp32_reference import add_f32_rne_bits, mul_f32_rne_bits
+
+    words = (0x3F800001, 0x3F800002, 0x40000001, 0x40400001)
+    input_bytes = struct.pack("<4I", *words)
+    admission = experiment._ordinary_generated_region_admission(
+      MULTIPLY_REGION_SOURCE, input_bytes
+    )
+    squares = [mul_f32_rne_bits(word, word) for word in words]
+    row_sums = [
+      add_f32_rne_bits(squares[index], squares[index + 1]) for index in (0, 2)
+    ]
+    expected = []
+    for index, word in enumerate(words):
+      row_sum = row_sums[index // 2]
+      next_x = add_f32_rne_bits(word, row_sum)
+      expected.append(add_f32_rne_bits(next_x, squares[index]))
+
+    actual = experiment._ordinary_generated_region_output_words(
+      MULTIPLY_REGION_SOURCE, input_bytes
+    )
+
+    self.assertEqual(admission["status"], "admitted")
+    self.assertIn("mul", admission["operations"])
+    self.assertEqual(actual, expected)
+
+  def test_ordinary_admission_excludes_binary32_multiplication_overflow(self):
+    experiment = _load_fpsan_experiment()
+    input_bytes = struct.pack("<4I", *([0x7F7FFFFF] * 4))
+
+    admission = experiment._ordinary_generated_region_admission(
+      MULTIPLY_REGION_SOURCE, input_bytes
+    )
+
+    self.assertEqual(admission["status"], "unclassified")
+    self.assertIn("overflowed finite f32", admission["reason"])
+
   def capture(self, ttir, ttgir):
     runner = _load_runner()
     with tempfile.TemporaryDirectory() as temporary:
@@ -111,6 +201,7 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
         "native-seed-3-shape-4x2-iterations-4",
         "native-seed-6-shape-2x4-iterations-2",
         "native-seed-2-shape-8x8-iterations-2",
+        "authored-elementwise-multiply-region-v1",
       ],
     )
     for source in sources:
@@ -242,7 +333,8 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(admission["status"], "admitted")
     self.assertEqual(admission["max_reduction_width"], 2)
     self.assertEqual(
-      admission["contract"], "nonnegative-f32-reduction-width-at-most-2-v1"
+      admission["contract"],
+      "nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v2",
     )
 
   def test_ordinary_reference_excludes_reductions_with_four_terms(self):

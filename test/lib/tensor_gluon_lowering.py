@@ -162,19 +162,21 @@ def render_gluon_kernel(source):
       left_layout = _shape_layout(left_shape, shape, "compute_layout")
       right_layout = _shape_layout(right_shape, shape, "compute_layout")
       target_layout = _shape_layout(result_shape, shape, "compute_layout")
+      operation_name = "mul" if operation == "mul" else "add"
       emit(
         f"        {left} = gl.convert_layout({left}, {left_layout})",
-        conversion=f"region_add_{index}_left_layout",
+        conversion=f"region_{operation_name}_{index}_left_layout",
       )
       emit(
         f"        {right} = gl.convert_layout({right}, {right_layout})",
-        conversion=f"region_add_{index}_right_layout",
+        conversion=f"region_{operation_name}_{index}_right_layout",
       )
       emit(f"        {value}_left, {value}_right = gl.broadcast({left}, {right})")
-      emit(f"        {value} = {value}_left + {value}_right")
+      operator = "*" if operation == "mul" else "+"
+      emit(f"        {value} = {value}_left {operator} {value}_right")
       emit(
         f"        {value} = gl.convert_layout({value}, {target_layout})",
-        conversion=f"region_add_{index}_result_layout",
+        conversion=f"region_{operation_name}_{index}_result_layout",
       )
 
   for state, root in updates:
