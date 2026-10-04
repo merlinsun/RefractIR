@@ -188,6 +188,8 @@ namespace refractir {
     Variant v;
     SourceSpan span;
 
+    Type() = default;
+
     Type(Variant value, SourceSpan sourceSpan) : v(std::move(value)), span(std::move(sourceSpan)) {}
   };
 

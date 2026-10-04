@@ -29,12 +29,13 @@ def _compiler_command():
 
 class AstTypeConstructionTests(unittest.TestCase):
   def assert_variant_compiles(self, name, initializer, index):
+    arguments = "" if initializer is None else f"{initializer}, SourceSpan{{}}"
     source = (
       '#include "ast/ast.hpp"\n'
       "#include <memory>\n"
       "using namespace refractir;\n"
       "int main() {\n"
-      f"  auto value = std::make_shared<Type>({initializer}, SourceSpan{{}});\n"
+      f"  auto value = std::make_shared<Type>({arguments});\n"
       f"  return value->v.index() == {index} ? 0 : 1;\n"
       "}\n"
     )
@@ -66,6 +67,9 @@ class AstTypeConstructionTests(unittest.TestCase):
 
   def test_integer_variant_construction_compiles(self):
     self.assert_variant_compiles(*TYPE_VARIANTS[0])
+
+  def test_default_type_construction_compiles(self):
+    self.assert_variant_compiles("default", None, 0)
 
   def test_float_variant_construction_compiles(self):
     self.assert_variant_compiles(*TYPE_VARIANTS[1])
