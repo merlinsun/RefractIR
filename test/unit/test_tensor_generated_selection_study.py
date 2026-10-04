@@ -185,6 +185,51 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
     self.assertEqual({call.kwargs["target"] for call in run.call_args_list}, {37, 61})
     self.assertTrue(all(call.kwargs["program_source"] for call in run.call_args_list))
 
+  def test_matrix_runner_can_hold_one_target_fixed_across_programs(self):
+    def fake_run(output_dir, **kwargs):
+      return {
+        "ledger": {
+          "fixed": {
+            "program_id": kwargs["program_id"],
+            "program_sha256": hashlib.sha256(
+              kwargs["program_source"].encode()
+            ).hexdigest(),
+          },
+          "trials": [{"property_id": f"target-{kwargs['target']}"}],
+        },
+        "summary": {"status": "complete", "cell": Path(output_dir).name},
+      }
+
+    with tempfile.TemporaryDirectory() as temporary:
+      output = Path(temporary) / "matrix"
+      with mock.patch.object(run_selection_study, "run", side_effect=fake_run) as run:
+        matrix = run_selection_study.run_matrix(
+          output,
+          solver="symirsolve",
+          program_ids=NATIVE_GENERATED_PROGRAM_IDS,
+          target_indices=((0, 0),),
+          seeds=(17,),
+          layout_seeds=(20261002,),
+          target=1268,
+          budget_s=1.0,
+        )
+
+    self.assertEqual(matrix["status"], "complete")
+    self.assertEqual(matrix["protocol"]["property_target"], 1268)
+    self.assertEqual(matrix["protocol"]["route"], "exact-f32")
+    self.assertEqual(
+      matrix["protocol"]["semantic_contract"],
+      "generated-multi-output-region-f32-exact-loop-v1",
+    )
+    self.assertEqual(
+      matrix["protocol"]["property_contract"],
+      "numeric output element equals an integer-valued target under the exact-f32 model",
+    )
+    self.assertIn("finite f32", matrix["protocol"]["input_transport"])
+    self.assertEqual(matrix["protocol"]["solver_timeout_s"], 60.0)
+    self.assertEqual({call.kwargs["target"] for call in run.call_args_list}, {1268})
+    self.assertEqual({cell["target"] for cell in matrix["cells"]}, {1268})
+
 
 if __name__ == "__main__":
   unittest.main()

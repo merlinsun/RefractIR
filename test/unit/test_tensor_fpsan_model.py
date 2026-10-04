@@ -230,6 +230,34 @@ class TensorFpSanModelTests(unittest.TestCase):
     self.assertIn("lost_update_acc_y_output_0", query["script"])
     self.assertNotIn("(= output_0 #xFFFFFFFF)", query["script"])
 
+  def test_generated_region_query_can_require_a_specific_output_payload(self):
+    query = self.fpsan().build_generated_payload_query(
+      fpsan_generated_region_source(iterations=2),
+      target=1268,
+      target_index=(0, 0),
+    )
+
+    self.assertEqual(
+      query["property"],
+      {"kind": "output-payload-equals", "target": 1268, "index": [0, 0]},
+    )
+    self.assertIn("(assert (= output_0 #x000004F4))", query["script"])
+
+  def test_generated_region_query_rejects_target_outside_output_shape(self):
+    with self.assertRaisesRegex(ValueError, "outside the output shape"):
+      self.fpsan().build_generated_payload_query(
+        fpsan_generated_region_source(iterations=2),
+        target=1268,
+        target_index=(2, 0),
+      )
+
+  def test_generated_region_query_rejects_payload_above_bounded_output_range(self):
+    with self.assertRaisesRegex(ValueError, "outside the bounded range"):
+      self.fpsan().build_generated_payload_query(
+        fpsan_generated_region_source(iterations=2),
+        target=16_777_217,
+      )
+
   def test_generated_payload_transport_preserves_the_pinned_fixed_points(self):
     api = self.fpsan()
     for payload in (0, 1):
@@ -287,6 +315,27 @@ class TensorFpSanModelTests(unittest.TestCase):
       {"lost_iteration": "detected", "lost_update_acc_y": "detected"},
     )
 
+  def test_generated_region_synthesis_satisfies_a_fixed_output_payload(self):
+    source_path = Path(__file__).parents[1] / "tensor/gluon/programs/native-seed-7.sir"
+    witness = self.fpsan().synthesize_generated_region(
+      source_path.read_text(encoding="utf-8"),
+      target=1268,
+      target_index=(0, 0),
+      timeout_s=10,
+    )
+
+    self.assertEqual(witness["status"], "SAT")
+    self.assertEqual(witness["property"]["target"], 1268)
+    self.assertEqual(witness["property"]["index"], [0, 0])
+    self.assertEqual(witness["output_payloads"][0], 1268)
+    self.assertEqual(
+      {
+        name: mutant["status"]
+        for name, mutant in witness["calibration_mutants"].items()
+      },
+      {"lost_iteration": "detected", "lost_update_acc_y": "detected"},
+    )
+
   @mock.patch("test.lib.tensor_fpsan.subprocess.run")
   @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["z3", "-in"])
   def test_generated_region_synthesis_preserves_unsat_without_model_access(
@@ -303,6 +352,24 @@ class TensorFpSanModelTests(unittest.TestCase):
       result["transport_contract"],
       "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237",
     )
+    self.assertEqual(run.call_count, 1)
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["z3", "-in"])
+  def test_generated_region_synthesis_retains_unsat_for_a_fixed_property(
+    self, _command, run
+  ):
+    run.return_value = CompletedProcess(["z3", "-in"], 0, "unsat\n", "")
+
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2),
+      target=16_777_216,
+      target_index=(0, 0),
+    )
+
+    self.assertEqual(result["status"], "UNSAT")
+    self.assertEqual(result["property"]["target"], 16_777_216)
+    self.assertEqual(result["property"]["index"], [0, 0])
     self.assertEqual(run.call_count, 1)
 
   @mock.patch("test.lib.tensor_fpsan.subprocess.run")

@@ -566,11 +566,31 @@ def _fpsan_unmix_payload_smt():
   )
 
 
-def build_generated_payload_query(source):
+def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
   """Encode transportable loop I/O and mutation-sensitive witnesses in QF_BV."""
   shape, iterations, variables, output_names, definitions = _generated_payload_smt(
     source
   )
+  property_spec = None
+  if target is not None:
+    if type(target) is not int or not 0 <= target <= GENERATED_OUTPUT_MAX:
+      raise ValueError("generated output payload target is outside the bounded range")
+    if (
+      not isinstance(target_index, (tuple, list))
+      or len(target_index) != len(shape)
+      or any(
+        type(value) is not int or not 0 <= value < shape[axis]
+        for axis, value in enumerate(target_index)
+      )
+    ):
+      raise ValueError("generated output target index is outside the output shape")
+    target_index = tuple(target_index)
+    flat_index = tensor_exact_f32._flat_index(target_index, shape)
+    property_spec = {
+      "kind": "output-payload-equals",
+      "target": target,
+      "index": list(target_index),
+    }
   _, _, _, lost_iteration_names, lost_iteration_definitions = _generated_payload_smt(
     source,
     iteration_count=iterations - 1,
@@ -625,6 +645,8 @@ def build_generated_payload_query(source):
       )
       + "))"
     )
+  if property_spec is not None:
+    lines.append(f"(assert (= {output_names[flat_index]} #x{target:08X}))")
   lines.append("(check-sat)")
   requested = [*variables, *output_names]
   check_script = "\n".join(lines) + "\n"
@@ -640,6 +662,7 @@ def build_generated_payload_query(source):
       "lost_iteration": lost_iteration_names,
       "lost_update_acc_y": lost_update_names,
     },
+    "property": property_spec,
     "check_script": check_script,
     "script": script,
     "sha256": hashlib.sha256(script.encode("ascii")).hexdigest(),
@@ -669,6 +692,7 @@ def _solver_outcome(status, query, command, phase, result=None, error=None):
     "query_smt2": query["script"],
     "shape": list(query["shape"]),
     "iterations": query["iterations"],
+    "property": query["property"],
     "solver_outcome": {
       "phase": phase,
       "stdout": output,
@@ -718,7 +742,9 @@ def unembed_generated_payload(payload):
   return raw_word
 
 
-def synthesize_generated_region(source, *, timeout_s=30.0):
+def synthesize_generated_region(
+  source, *, target=None, target_index=(0, 0), timeout_s=30.0
+):
   """Solve a bounded payload query and retain each solver terminal outcome."""
   if (
     isinstance(timeout_s, bool)
@@ -727,9 +753,28 @@ def synthesize_generated_region(source, *, timeout_s=30.0):
     or timeout_s <= 0
   ):
     raise ValueError("generated payload solver timeout must be positive and finite")
-  query = build_generated_payload_query(source)
-  command = _solver_command()
+  started = time.perf_counter()
   deadline = time.monotonic() + timeout_s
+  query_started = time.perf_counter()
+  query = build_generated_payload_query(
+    source, target=target, target_index=target_index
+  )
+  costs = {
+    "query_build_s": time.perf_counter() - query_started,
+    "solver_check_s": 0.0,
+    "solver_model_s": 0.0,
+    "host_validation_s": 0.0,
+  }
+
+  def finish(result):
+    result["cost_s"] = {**costs, "total_s": time.perf_counter() - started}
+    return result
+
+  command = _solver_command()
+  remaining_s = deadline - time.monotonic()
+  if remaining_s <= 0:
+    return finish(_solver_outcome("TIMEOUT", query, command, "check"))
+  check_started = time.perf_counter()
   try:
     check_result = subprocess.run(
       command,
@@ -737,19 +782,22 @@ def synthesize_generated_region(source, *, timeout_s=30.0):
       text=True,
       capture_output=True,
       check=False,
-      timeout=timeout_s,
+      timeout=remaining_s,
     )
   except subprocess.TimeoutExpired as error:
-    return _solver_outcome("TIMEOUT", query, command, "check", error=error)
+    costs["solver_check_s"] = time.perf_counter() - check_started
+    return finish(_solver_outcome("TIMEOUT", query, command, "check", error=error))
+  costs["solver_check_s"] = time.perf_counter() - check_started
   status = _solver_status(check_result.stdout)
   if status in {"UNSAT", "UNKNOWN"}:
-    return _solver_outcome(status, query, command, "check", check_result)
+    return finish(_solver_outcome(status, query, command, "check", check_result))
   if status != "SAT" or check_result.returncode != 0:
-    return _solver_outcome("ERROR", query, command, "check", check_result)
+    return finish(_solver_outcome("ERROR", query, command, "check", check_result))
 
   remaining_s = deadline - time.monotonic()
   if remaining_s <= 0:
-    return _solver_outcome("TIMEOUT", query, command, "model")
+    return finish(_solver_outcome("TIMEOUT", query, command, "model"))
+  model_started = time.perf_counter()
   try:
     model_result = subprocess.run(
       command,
@@ -760,13 +808,16 @@ def synthesize_generated_region(source, *, timeout_s=30.0):
       timeout=remaining_s,
     )
   except subprocess.TimeoutExpired as error:
-    return _solver_outcome("TIMEOUT", query, command, "model", error=error)
+    costs["solver_model_s"] = time.perf_counter() - model_started
+    return finish(_solver_outcome("TIMEOUT", query, command, "model", error=error))
+  costs["solver_model_s"] = time.perf_counter() - model_started
   model_status = _solver_status(model_result.stdout)
   if model_status in {"UNSAT", "UNKNOWN"}:
-    return _solver_outcome(model_status, query, command, "model", model_result)
+    return finish(_solver_outcome(model_status, query, command, "model", model_result))
   if model_status != "SAT" or model_result.returncode != 0:
-    return _solver_outcome("ERROR", query, command, "model", model_result)
+    return finish(_solver_outcome("ERROR", query, command, "model", model_result))
 
+  validation_started = time.perf_counter()
   requested = [*query["variables"], *query["output_names"]]
   model = parse_payload_model(model_result.stdout, requested)
   input_payloads = [model[name] for name in query["variables"]]
@@ -788,28 +839,42 @@ def synthesize_generated_region(source, *, timeout_s=30.0):
       ],
       "mismatch_lanes": mismatch_lanes,
     }
-  return {
-    "status": "SAT",
-    "solver": command[0],
-    "transport_contract": query["transport_contract"],
-    "query_sha256": query["sha256"],
-    "query_smt2": query["script"],
-    "shape": list(query["shape"]),
-    "iterations": query["iterations"],
-    "input_payloads": dict(zip(query["variables"], input_payloads)),
-    "output_payloads": output_payloads,
-    "input_float_words": [unembed_generated_payload(value) for value in input_payloads],
-    "output_float_words": [
-      unembed_generated_payload(value) for value in output_payloads
-    ],
-    "input_float_bits": [
-      f"{unembed_generated_payload(value):08x}" for value in input_payloads
-    ],
-    "output_float_bits": [
-      f"{unembed_generated_payload(value):08x}" for value in output_payloads
-    ],
-    "calibration_mutants": calibration_mutants,
-  }
+  if query["property"] is not None:
+    target = query["property"]["target"]
+    index = query["property"]["index"]
+    flat_index = tensor_exact_f32._flat_index(index, query["shape"])
+    if output_payloads[flat_index] != target:
+      raise AssertionError(
+        "generated payload witness violates its fixed output property"
+      )
+  costs["host_validation_s"] = time.perf_counter() - validation_started
+  return finish(
+    {
+      "status": "SAT",
+      "solver": command[0],
+      "transport_contract": query["transport_contract"],
+      "query_sha256": query["sha256"],
+      "query_smt2": query["script"],
+      "shape": list(query["shape"]),
+      "iterations": query["iterations"],
+      "property": query["property"],
+      "input_payloads": dict(zip(query["variables"], input_payloads)),
+      "output_payloads": output_payloads,
+      "input_float_words": [
+        unembed_generated_payload(value) for value in input_payloads
+      ],
+      "output_float_words": [
+        unembed_generated_payload(value) for value in output_payloads
+      ],
+      "input_float_bits": [
+        f"{unembed_generated_payload(value):08x}" for value in input_payloads
+      ],
+      "output_float_bits": [
+        f"{unembed_generated_payload(value):08x}" for value in output_payloads
+      ],
+      "calibration_mutants": calibration_mutants,
+    }
+  )
 
 
 def render_generated_region_triton_kernel(

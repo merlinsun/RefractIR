@@ -892,6 +892,7 @@ def run_matrix(
   layout_seeds=(LAYOUT_SEED, LAYOUT_SEED + 1),
   proposal_budget=1000,
   budget_s=DEFAULT_BUDGET_S,
+  target=None,
 ):
   """Run matched random/solver pairs over a fixed program/property/layout matrix."""
   cells = _matrix_cell_specs(
@@ -910,13 +911,21 @@ def run_matrix(
     "schema": "refractir.tensor-selection-matrix.v1",
     "status": "in_progress",
     "protocol": {
+      "route": ROUTE,
+      "semantic_contract": "generated-multi-output-region-f32-exact-loop-v1",
+      "property_contract": (
+        "numeric output element equals an integer-valued target under the exact-f32 model"
+      ),
+      "input_transport": "logical integers in [0,8] materialized as finite f32 values",
       "input_domain": list(DOMAIN),
       "anchor_input_values": list(MATRIX_INPUT_VALUES),
       "program_ids": list(program_ids),
       "target_indices": [list(index) for index in target_indices],
+      "property_target": target,
       "seeds": list(seeds),
       "layout_seeds": list(layout_seeds),
       "proposal_budget": proposal_budget,
+      "solver_timeout_s": SOLVER_TIMEOUT_S,
       "budget_s_per_policy": budget_s,
       "pairing": "random and solver share one frozen program, property, seed and layout seed",
     },
@@ -927,15 +936,18 @@ def run_matrix(
   for cell in cells:
     source = _matrix_program_source(cell["program_id"])
     shape, iterations, _, _, _ = tensor_exact_f32._generated_region_program(source)
-    anchor_bytes = struct.pack(f"<{len(MATRIX_INPUT_VALUES)}f", *MATRIX_INPUT_VALUES)
-    _, anchor_output = tensor_exact_f32.certify(source, anchor_bytes, DOMAIN)
     index = tuple(cell["target_index"])
-    target_value = struct.unpack(f"<{len(anchor_output) // 4}f", anchor_output)[
-      index[0] * shape[1] + index[1]
-    ]
-    if not target_value.is_integer():
-      raise ValueError("matrix anchor must produce integer-valued properties")
-    target = int(target_value)
+    if target is None:
+      anchor_bytes = struct.pack(f"<{len(MATRIX_INPUT_VALUES)}f", *MATRIX_INPUT_VALUES)
+      _, anchor_output = tensor_exact_f32.certify(source, anchor_bytes, DOMAIN)
+      target_value = struct.unpack(f"<{len(anchor_output) // 4}f", anchor_output)[
+        index[0] * shape[1] + index[1]
+      ]
+      if not target_value.is_integer():
+        raise ValueError("matrix anchor must produce integer-valued properties")
+      cell_target = int(target_value)
+    else:
+      cell_target = target
     cell_report = run(
       output_dir / cell["cell_id"],
       solver=solver,
@@ -943,7 +955,7 @@ def run_matrix(
       proposal_budget=proposal_budget,
       budget_s=budget_s,
       iterations=iterations,
-      target=target,
+      target=cell_target,
       target_index=index,
       layout_seed=cell["layout_seed"],
       program_source=source,
@@ -952,7 +964,7 @@ def run_matrix(
     matrix["cells"].append(
       {
         **cell,
-        "target": target,
+        "target": cell_target,
         "program_id": cell_report["ledger"]["fixed"]["program_id"],
         "program_sha256": cell_report["ledger"]["fixed"]["program_sha256"],
         "property_id": cell_report["ledger"]["trials"][0]["property_id"],
@@ -978,6 +990,12 @@ def main(argv=None):
   parser.add_argument("--program-ids", default=",".join(PROGRAM_SOURCES))
   parser.add_argument("--target-indices", default="0,0;1,1")
   parser.add_argument("--layout-seeds", default=f"{LAYOUT_SEED},{LAYOUT_SEED + 1}")
+  parser.add_argument(
+    "--target",
+    type=int,
+    default=None,
+    help="hold this output value fixed across matrix cells instead of deriving it from anchors",
+  )
   args = parser.parse_args(argv)
   if args.matrix:
     try:
@@ -999,6 +1017,7 @@ def main(argv=None):
       layout_seeds=layout_seeds,
       proposal_budget=args.proposal_budget,
       budget_s=args.budget_s,
+      target=args.target,
     )
   else:
     report = run(
@@ -1007,6 +1026,7 @@ def main(argv=None):
       seed=args.seed,
       proposal_budget=args.proposal_budget,
       budget_s=args.budget_s,
+      target=TARGET if args.target is None else args.target,
     )
     report = report["summary"]
   print(json.dumps(report, sort_keys=True))

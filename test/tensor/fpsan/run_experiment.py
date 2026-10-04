@@ -214,7 +214,15 @@ def _generated_region_corpus_sources():
   return sources
 
 
-def _run_generated_region_case(ir_directory, source_path=None):
+def _run_generated_region_case(
+  ir_directory,
+  source_path=None,
+  *,
+  target=None,
+  target_index=(0, 0),
+  timeout_s=30.0,
+):
+  case_started = time.perf_counter()
   ir_directory = Path(ir_directory)
   ir_directory.mkdir(parents=True, exist_ok=True)
   source_path = (
@@ -223,10 +231,18 @@ def _run_generated_region_case(ir_directory, source_path=None):
     else Path(source_path)
   )
   source = source_path.read_text(encoding="utf-8")
-  witness = synthesize_generated_region(source)
+  witness = synthesize_generated_region(
+    source,
+    target=target,
+    target_index=target_index,
+    timeout_s=timeout_s,
+  )
   if witness["status"] != "SAT":
     return {
       "status": witness["status"],
+      "elapsed_s": time.perf_counter() - case_started,
+      "property": witness.get("property"),
+      "cost_s": witness.get("cost_s"),
       "transport_contract": witness.get("transport_contract"),
       "solver": witness.get("solver"),
       "query_sha256": witness.get("query_sha256"),
@@ -261,6 +277,8 @@ def _run_generated_region_case(ir_directory, source_path=None):
     "output_float_bits": witness["output_float_bits"],
     "calibration_mutants": witness["calibration_mutants"],
   }
+  result["smt_witness"]["property"] = witness["property"]
+  result["smt_witness"]["cost_s"] = witness["cost_s"]
   result["payload_lowering"] = validate_fpsan_payload_lowering(
     getattr(compiled, "asm", {}).get("llir", "")
   )
@@ -342,6 +360,7 @@ def _run_generated_region_case(ir_directory, source_path=None):
         mutant_compiled, f"generated_region_{mutant_name}", ir_directory
       ),
     }
+  result["elapsed_s"] = time.perf_counter() - case_started
   return result
 
 
@@ -520,7 +539,14 @@ def _run_instrumentation_sensitivity(ir_directory):
   }
 
 
-def run(output_path, ir_directory):
+def run(
+  output_path,
+  ir_directory,
+  *,
+  generated_target=None,
+  generated_target_index=(0, 0),
+  generated_timeout_s=30.0,
+):
   if triton.__version__ != TRITON_VERSION:
     raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
   source_identity = verify_installed_fpsan_source(triton)
@@ -568,7 +594,11 @@ def run(output_path, ir_directory):
   for record in generated_region_corpus:
     case_ir_directory = ir_directory / "generated_regions" / record["program_id"]
     result = _run_generated_region_case(
-      case_ir_directory, source_path=record["source_path"]
+      case_ir_directory,
+      source_path=record["source_path"],
+      target=generated_target,
+      target_index=generated_target_index,
+      timeout_s=generated_timeout_s,
     )
     result["program_id"] = record["program_id"]
     generated_region_results[record["program_id"]] = result
@@ -579,6 +609,31 @@ def run(output_path, ir_directory):
     "torch_version": torch.__version__,
     "instrumentation_mode": triton.knobs.compilation.instrumentation_mode,
     "device_name": device_name,
+    "generated_region_protocol": {
+      "program_ids": [record["program_id"] for record in generated_region_corpus],
+      "logical_input_domain": [0, 8],
+      "semantic_contract": "generated-region-qf-bv-payload-ring-v1",
+      "property_contract": "instrumented payload output element equals an integer payload",
+      "input_transport": (
+        "payload integers in [0,8] map through the pinned finite-f32 mixer"
+      ),
+      "property": None
+      if generated_target is None
+      else {
+        "kind": "output-payload-equals",
+        "target": generated_target,
+        "index": list(generated_target_index),
+      },
+      "selection_budget_s_per_program": generated_timeout_s,
+      "gpu_launch_protocol": {
+        "warmup_launches": WARMUP_LAUNCHES,
+        "measured_launches_per_kernel": MEASURED_LAUNCHES,
+      },
+      "selection_policy": "SMT payload model with mutation-sensitive loop constraints",
+      "transport_contract": (
+        "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237"
+      ),
+    },
     "compute_capability": list(torch.cuda.get_device_capability()),
     "bitvector_laws": "unsat for negated QF_BV identities",
     "bitvector_kernel_equations": equation_proofs,
@@ -770,8 +825,23 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("--output", default="fpsan-experiment.json")
   parser.add_argument("--ir-dir", default="fpsan-ir")
+  parser.add_argument("--generated-target", type=int, default=None)
+  parser.add_argument("--generated-target-index", default="0,0")
+  parser.add_argument("--generated-timeout-s", type=float, default=30.0)
   args = parser.parse_args()
-  report = run(args.output, Path(args.ir_dir))
+  try:
+    generated_target_index = tuple(
+      int(value.strip()) for value in args.generated_target_index.split(",")
+    )
+  except ValueError as error:
+    parser.error(f"invalid generated target index: {error}")
+  report = run(
+    args.output,
+    Path(args.ir_dir),
+    generated_target=args.generated_target,
+    generated_target_index=generated_target_index,
+    generated_timeout_s=args.generated_timeout_s,
+  )
   print(json.dumps(report, indent=2, sort_keys=True))
 
 
