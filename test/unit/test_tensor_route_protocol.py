@@ -10,12 +10,25 @@ def _matching_reports():
   program_id = "native-seed-7"
   source_sha256 = "a" * 64
   policy = {
+    "attempts": 1,
     "admitted": 1,
+    "admission_rate": 1.0,
     "gpu_executions": 1,
+    "useful_executions": 1,
     "mismatches": 0,
     "refused": 0,
     "timeouts": 0,
     "unsat": 0,
+    "cost_s": {"compilation_s": 4.0, "gpu_execution_s": 0.02},
+    "end_to_end_cost_per_useful_execution_s": 5.0,
+    "calibration": {"sensitivity": 1.0, "specificity": 1.0},
+    "compiler": {
+      "compilations": 6,
+      "retained_loop_compilations": 5,
+      "effective_layout_conversions": 12,
+      "ptx_warp_shuffles": 8,
+      "ptx_shared_memory_transfers": 2,
+    },
   }
   fpsan = {
     "generated_region_protocol": {
@@ -33,6 +46,31 @@ def _matching_reports():
         program_id: {
           "status": "pass",
           "region_source": {"sha256": source_sha256},
+          "selection": {
+            "status": "SAT",
+            "cost_s": {"solver_check_s": 0.25},
+          },
+          "measurement": {"median_gpu_event_ms_per_launch": 0.04},
+          "ordinary_reference": {
+            "status": "pass",
+            "admission": {"status": "admitted"},
+            "measurement": {"median_gpu_event_ms_per_launch": 0.03},
+          },
+          "calibration_mutants": {
+            "lost_iteration": {"status": "detected"},
+            "lost_update_acc_y": {"status": "detected"},
+          },
+          "measurement_accounting": {
+            "useful_compilations": 2,
+            "calibration_compilations": 2,
+            "useful_executions": 2,
+            "calibration_executions": 2,
+          },
+          "compiler_ir": {
+            "layout_conversion_operations_in_ttgir": 3,
+            "warp_shuffle_operations_in_ptx": 1,
+            "shared_memory_transfers_in_ptx": 0,
+          },
         }
       }
     },
@@ -154,6 +192,79 @@ class TensorRouteProtocolTests(unittest.TestCase):
       comparison["routes"]["exact"]["semantic_contract"],
     )
     self.assertIn("raw input words differ", comparison["interpretation_limit"])
+
+  def test_route_metrics_report_selection_and_gpu_costs_separately(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    fpsan, exact = _matching_reports()
+
+    metrics = protocol.compare_route_reports(fpsan, exact)["programs"][0][
+      "route_metrics"
+    ]
+
+    self.assertEqual(metrics["fpsan"]["selection_status"], "SAT")
+    self.assertEqual(metrics["fpsan"]["selection_cost_s"]["solver_check_s"], 0.25)
+    self.assertEqual(
+      metrics["exact"]["policies"]["random"]["cost_s"]["compilation_s"], 4.0
+    )
+
+  def test_route_metrics_retain_calibration_sensitivity_and_mutants(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    fpsan, exact = _matching_reports()
+
+    metrics = protocol.compare_route_reports(fpsan, exact)["programs"][0][
+      "route_metrics"
+    ]
+
+    self.assertEqual(
+      metrics["exact"]["policies"]["solver"]["calibration"]["sensitivity"], 1.0
+    )
+    self.assertEqual(metrics["fpsan"]["calibration_mutants_detected"], 2)
+
+  def test_route_metrics_retain_observed_compiler_transformations(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    fpsan, exact = _matching_reports()
+
+    metrics = protocol.compare_route_reports(fpsan, exact)["programs"][0][
+      "route_metrics"
+    ]
+
+    self.assertEqual(
+      metrics["exact"]["policies"]["random"]["compiler"][
+        "effective_layout_conversions"
+      ],
+      12,
+    )
+    self.assertEqual(metrics["fpsan"]["compiler"]["warp_shuffles"], 1)
+
+  def test_route_metrics_separate_useful_from_calibration_work(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    fpsan, exact = _matching_reports()
+
+    metrics = protocol.compare_route_reports(fpsan, exact)["programs"][0][
+      "route_metrics"
+    ]
+
+    self.assertEqual(
+      metrics["fpsan"]["measurement_accounting"]["useful_compilations"], 2
+    )
+    self.assertEqual(
+      metrics["fpsan"]["measurement_accounting"]["calibration_compilations"], 2
+    )
+    exact_accounting = metrics["exact"]["policies"]["random"]["measurement_accounting"]
+    self.assertEqual(exact_accounting["useful_compilations"], 5)
+    self.assertEqual(exact_accounting["calibration_compilations"], 1)
+
+  def test_route_comparison_records_budgets_without_merging_them(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    fpsan, exact = _matching_reports()
+    fpsan["generated_region_protocol"]["selection_budget_s_per_program"] = 60
+    exact["protocol"]["budget_s_per_policy"] = 120
+
+    comparison = protocol.compare_route_reports(fpsan, exact)
+
+    self.assertEqual(comparison["routes"]["fpsan"]["budget_s_per_program"], 60)
+    self.assertEqual(comparison["routes"]["exact"]["budget_s_per_policy"], 120)
+    self.assertFalse(comparison["semantic_equivalence_claim"])
 
 
 if __name__ == "__main__":

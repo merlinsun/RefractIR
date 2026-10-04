@@ -76,16 +76,7 @@ def measurement_accounting(
 
 
 def _admitted_exact_cell(cell):
-  routes = cell.get("summary", {}).get("routes", {})
-  exact_route = next(
-    (
-      record
-      for route_id, record in routes.items()
-      if route_id.startswith("exact-f32:")
-      and record.get("property_id", cell.get("property_id")) == cell.get("property_id")
-    ),
-    {},
-  )
+  exact_route = _exact_route_record(cell)
   policies = exact_route.get("policies", {})
   return all(
     isinstance(policies.get(name), dict)
@@ -97,6 +88,101 @@ def _admitted_exact_cell(cell):
     and policies[name].get("unsat", 0) == 0
     for name in ("random", "solver")
   )
+
+
+def _exact_route_record(cell):
+  routes = cell.get("summary", {}).get("routes", {})
+  return next(
+    (
+      record
+      for route_id, record in routes.items()
+      if route_id.startswith("exact-f32:")
+      and record.get("property_id", cell.get("property_id")) == cell.get("property_id")
+    ),
+    {},
+  )
+
+
+def _fpsan_route_metrics(entry):
+  if not entry:
+    return None
+  mutants = entry.get("calibration_mutants", {})
+  ordinary = entry.get("ordinary_reference", {})
+  compiler = entry.get("compiler_ir", {})
+  return {
+    "selection_status": entry.get("selection", {}).get("status"),
+    "selection_cost_s": entry.get("selection", {}).get("cost_s"),
+    "measurement_accounting": entry.get("measurement_accounting"),
+    "fpsan_gpu_measurement": entry.get("measurement"),
+    "ordinary_reference": {
+      "status": ordinary.get("status"),
+      "admission": ordinary.get("admission"),
+      "measurement": ordinary.get("measurement"),
+    },
+    "calibration_mutants_detected": sum(
+      record.get("status") == "detected" for record in mutants.values()
+    ),
+    "calibration_mutant_count": len(mutants),
+    "compiler": {
+      "layout_conversions": compiler.get("layout_conversion_operations_in_ttgir"),
+      "warp_shuffles": compiler.get("warp_shuffle_operations_in_ptx"),
+      "shared_memory_transfers": compiler.get("shared_memory_transfers_in_ptx"),
+    },
+  }
+
+
+def _exact_route_metrics(cell, exact_protocol):
+  route = _exact_route_record(cell)
+  policies = route.get("policies", {})
+  result = {}
+  for name in ("random", "solver"):
+    policy = policies.get(name, {})
+    compiler = policy.get("compiler", {})
+    result[name] = {
+      "attempts": policy.get("attempts"),
+      "admitted": policy.get("admitted"),
+      "admission_rate": policy.get("admission_rate"),
+      "gpu_executions": policy.get("gpu_executions"),
+      "useful_executions": policy.get("useful_executions"),
+      "mismatches": policy.get("mismatches"),
+      "refused": policy.get("refused"),
+      "timeouts": policy.get("timeouts"),
+      "unsat": policy.get("unsat"),
+      "cost_s": policy.get("cost_s"),
+      "end_to_end_cost_per_useful_execution_s": policy.get(
+        "end_to_end_cost_per_useful_execution_s"
+      ),
+      "stage_accounted_cost_per_useful_execution_s": policy.get(
+        "stage_accounted_cost_per_useful_execution_s"
+      ),
+      "calibration": policy.get("calibration"),
+      "compiler": {
+        key: compiler.get(key)
+        for key in (
+          "compilations",
+          "retained_loop_compilations",
+          "unrolled_or_removed_loop_compilations",
+          "effective_layout_conversions",
+          "ptx_warp_shuffles",
+          "ptx_shared_memory_transfers",
+          "duplicate_expression_groups",
+          "duplicate_operations",
+        )
+      },
+      "measurement_accounting": measurement_accounting(
+        useful_compilations=5,
+        calibration_compilations=1,
+        useful_executions=5,
+        calibration_executions=1,
+      ),
+      "measurement_accounting_source": (
+        "five generated layouts and one add-one-output calibration kernel"
+      ),
+    }
+  return {
+    "budget_s_per_policy": exact_protocol.get("budget_s_per_policy"),
+    "policies": result,
+  }
 
 
 def compare_route_reports(fpsan_report, exact_matrix):
@@ -118,10 +204,12 @@ def compare_route_reports(fpsan_report, exact_matrix):
       "fpsan": {
         "semantic_contract": fpsan_protocol.get("semantic_contract"),
         "input_transport": fpsan_protocol.get("input_transport"),
+        "budget_s_per_program": fpsan_protocol.get("selection_budget_s_per_program"),
       },
       "exact": {
         "semantic_contract": exact_protocol.get("semantic_contract"),
         "input_transport": exact_protocol.get("input_transport"),
+        "budget_s_per_policy": exact_protocol.get("budget_s_per_policy"),
       },
     },
     "comparison_key": {
@@ -168,6 +256,10 @@ def compare_route_reports(fpsan_report, exact_matrix):
       "target_index": cell.get("target_index"),
       "fpsan_status": fpsan.get("status"),
       "exact_pair_admitted_and_executed": _admitted_exact_cell(cell),
+      "route_metrics": {
+        "fpsan": _fpsan_route_metrics(fpsan),
+        "exact": _exact_route_metrics(cell, exact_protocol),
+      },
       "exclusions": exclusions,
       "status": "common-admitted" if not exclusions else "excluded",
     }
