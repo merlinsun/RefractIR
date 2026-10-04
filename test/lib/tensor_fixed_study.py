@@ -24,7 +24,14 @@ def output_element(output_bytes, shape, index):
   return values[offset]
 
 
-def _validate_contract(domain, target, target_index):
+def _source_shape(source):
+  try:
+    return tensor_exact_f32._generated_region_program(source)[0]
+  except ValueError:
+    return tensor_exact_f32._recognize(source)[0]
+
+
+def _validate_contract(domain, target, target_index, shape=(2, 2)):
   if (
     not isinstance(domain, (tuple, list))
     or len(domain) != 2
@@ -37,26 +44,30 @@ def _validate_contract(domain, target, target_index):
     raise ValueError("target must be a finite numeric value")
   if not math.isfinite(target):
     raise ValueError("target must be a finite numeric value")
-  if (
+  if shape is not None and (
     not isinstance(target_index, (tuple, list))
-    or len(target_index) != 2
-    or any(type(value) is not int or not 0 <= value < 2 for value in target_index)
+    or len(target_index) != len(shape)
+    or any(
+      type(value) is not int or not 0 <= value < shape[axis]
+      for axis, value in enumerate(target_index)
+    )
   ):
-    raise ValueError("target_index must identify an element of the 2x2 output")
+    raise ValueError("target_index must identify an element of the output shape")
 
 
-def _certify_values(values, source, domain, target, target_index):
+def _certify_values(values, source, domain, target, target_index, shape):
+  count = math.prod(shape)
   if (
     not isinstance(values, (tuple, list))
-    or len(values) != 4
+    or len(values) != count
     or any(
       type(value) is not int or not domain[0] <= value <= domain[1] for value in values
     )
   ):
-    raise ValueError("witness must contain four integers in the frozen domain")
-  input_bytes = struct.pack("<4f", *values)
+    raise ValueError("witness input must match the output shape and frozen domain")
+  input_bytes = struct.pack(f"<{count}f", *values)
   proof, output_bytes = tensor_exact_f32.certify(source, input_bytes, domain)
-  observed = output_element(output_bytes, (2, 2), target_index)
+  observed = output_element(output_bytes, shape, target_index)
   target_bytes = struct.pack("<f", float(target))
   if struct.pack("<f", observed) != target_bytes:
     raise ValueError(
@@ -82,12 +93,13 @@ def validate_solver_model(
   symbol="%?x",
 ):
   """Extract one i32 model witness and replay the full exact-f32 output."""
-  _validate_contract(domain, target, target_index)
+  shape = _source_shape(source)
+  _validate_contract(domain, target, target_index, shape)
   try:
     values = model[entry][symbol]
   except (KeyError, TypeError) as error:
     raise ValueError("solver model has no input witness") from error
-  return _certify_values(values, source, domain, target, target_index)
+  return _certify_values(values, source, domain, target, target_index, shape)
 
 
 def select_random_witness(
@@ -101,7 +113,7 @@ def select_random_witness(
   deadline=None,
 ):
   """Sample one common-domain input policy and check every proposal independently."""
-  _validate_contract(domain, target, target_index)
+  _validate_contract(domain, target, target_index, shape=None)
   if type(seed) is not int or seed < 0:
     raise ValueError("seed must be a nonnegative integer")
   if type(proposal_budget) is not int or proposal_budget <= 0:
@@ -114,9 +126,29 @@ def select_random_witness(
     raise ValueError("deadline must be a finite monotonic timestamp")
   generator = random.Random(seed)
   started = time.perf_counter()
+  if deadline is not None and started >= deadline:
+    return {
+      "values": None,
+      "input_bytes": None,
+      "output_bytes": None,
+      "proof": None,
+      "status": "timeout",
+      "proposal_count": 0,
+      "generation_s": 0.0,
+      "reference_validation_s": 0.0,
+      "selection_s": 0.0,
+      "elapsed_s": 0.0,
+      "seed": seed,
+      "proposal_budget": proposal_budget,
+      "input_domain": list(domain),
+      "property": {"target": target, "index": list(target_index)},
+    }
+  shape = _source_shape(source)
+  _validate_contract(domain, target, target_index, shape)
   generation_s = 0.0
   reference_validation_s = 0.0
   last_values = None
+  count = math.prod(shape)
   proposal_count = 0
   status = None
   for _ in range(proposal_budget):
@@ -125,11 +157,11 @@ def select_random_witness(
       break
     proposal_count += 1
     generation_started = time.perf_counter()
-    values = tuple(generator.randint(domain[0], domain[1]) for _ in range(4))
+    values = tuple(generator.randint(domain[0], domain[1]) for _ in range(count))
     generation_s += time.perf_counter() - generation_started
     reference_started = time.perf_counter()
     proof, output_bytes = tensor_exact_f32.certify(
-      source, struct.pack("<4f", *values), domain
+      source, struct.pack(f"<{count}f", *values), domain
     )
     reference_validation_s += time.perf_counter() - reference_started
     last_values = values
@@ -137,12 +169,12 @@ def select_random_witness(
       status = "timeout"
       break
     if struct.pack(
-      "<f", output_element(output_bytes, (2, 2), target_index)
+      "<f", output_element(output_bytes, shape, target_index)
     ) == struct.pack("<f", float(target)):
       status = "accepted"
       result = {
         "values": values,
-        "input_bytes": struct.pack("<4f", *values),
+        "input_bytes": struct.pack(f"<{count}f", *values),
         "output_bytes": output_bytes,
         "proof": proof,
       }

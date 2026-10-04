@@ -66,6 +66,72 @@
       "program_id": "native-seed-29",
       "source_file": "native-seed-29.sir",
       "source_sha256": "e0b62484fb191cd1c294c974f89214236994c6a73706fa08ece79d7fe2624e77"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 3,
+        "profile": "v2",
+        "seed": 0,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      "program_id": "native-seed-0-shape-2x4-iterations-3",
+      "source_file": "native-seed-0-shape-2x4-iterations-3.sir",
+      "source_sha256": "cf88fef5f450b33154ad43065f7f8df5b2a188906065d65a56440264c1e36c3b"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 4,
+        "profile": "v2",
+        "seed": 3,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      "program_id": "native-seed-3-shape-4x2-iterations-4",
+      "source_file": "native-seed-3-shape-4x2-iterations-4.sir",
+      "source_sha256": "f17039aa0fb86f5b5cae097acac9caf3e7f79642b15a6c65effe9f508e23027c"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 2,
+        "profile": "v2",
+        "seed": 6,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      "program_id": "native-seed-6-shape-2x4-iterations-2",
+      "source_file": "native-seed-6-shape-2x4-iterations-2.sir",
+      "source_sha256": "77ab1b7ad5cfefbd41e7cdb65e068cdb8aecc639676e3eabc8ed7e6eab5b0e8a"
     }
   ],
   "schema": "refractir.generated-region-corpus.v1"

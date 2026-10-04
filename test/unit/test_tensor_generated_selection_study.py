@@ -19,6 +19,9 @@ NATIVE_GENERATED_PROGRAM_IDS = (
   "native-seed-7",
   "native-seed-17",
   "native-seed-29",
+  "native-seed-0-shape-2x4-iterations-3",
+  "native-seed-3-shape-4x2-iterations-4",
+  "native-seed-6-shape-2x4-iterations-2",
 )
 
 
@@ -35,10 +38,12 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
     for record in manifest["programs"]:
       source_path = run_selection_study.PROGRAM_DIR / record["source_file"]
       source = source_path.read_text(encoding="utf-8")
-      self.assertEqual(record["source_sha256"], hashlib.sha256(source.encode()).hexdigest())
-      self.assertEqual(record["generation"]["seed"], int(record["program_id"].rsplit("-", 1)[1]))
-      self.assertEqual(record["generation"]["shape"], [2, 2])
-      self.assertEqual(record["generation"]["iterations"], 2)
+      self.assertEqual(
+        record["source_sha256"], hashlib.sha256(source.encode()).hexdigest()
+      )
+      self.assertIn(f"seed-{record['generation']['seed']}", record["program_id"])
+      self.assertEqual(len(record["generation"]["shape"]), 2)
+      self.assertGreaterEqual(record["generation"]["iterations"], 1)
       tensor_exact_f32._generated_region_program(source)
 
   def test_selection_catalog_admits_frozen_native_graph_sources(self):
@@ -47,10 +52,14 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
       for program_id in NATIVE_GENERATED_PROGRAM_IDS
     ]
 
-    self.assertEqual(len({hashlib.sha256(source.encode()).hexdigest() for source in sources}), 3)
+    self.assertEqual(
+      len({hashlib.sha256(source.encode()).hexdigest() for source in sources}), 6
+    )
 
   def test_default_matrix_includes_all_frozen_native_graph_programs(self):
-    self.assertTrue(set(NATIVE_GENERATED_PROGRAM_IDS).issubset(run_selection_study.PROGRAM_SOURCES))
+    self.assertTrue(
+      set(NATIVE_GENERATED_PROGRAM_IDS).issubset(run_selection_study.PROGRAM_SOURCES)
+    )
     cells = run_selection_study._matrix_cell_specs(
       program_ids=NATIVE_GENERATED_PROGRAM_IDS,
       target_indices=((0, 0), (1, 1)),
@@ -58,8 +67,21 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
       layout_seeds=(20261002, 20261003),
     )
 
-    self.assertEqual(len(cells), 24)
-    self.assertEqual({cell["program_id"] for cell in cells}, set(NATIVE_GENERATED_PROGRAM_IDS))
+    self.assertEqual(len(cells), 48)
+    self.assertEqual(
+      {cell["program_id"] for cell in cells}, set(NATIVE_GENERATED_PROGRAM_IDS)
+    )
+
+  def test_matrix_accepts_an_index_in_an_expanded_program_shape(self):
+    cells = run_selection_study._matrix_cell_specs(
+      program_ids=("native-seed-0-shape-2x4-iterations-3",),
+      target_indices=((1, 3),),
+      seeds=(7,),
+      layout_seeds=(20261002,),
+    )
+
+    self.assertEqual(len(cells), 1)
+    self.assertEqual(cells[0]["target_index"], (1, 3))
 
   def test_native_seed_payload_query_keeps_loop_mutant_calibrations(self):
     source = run_selection_study._matrix_program_source("native-seed-7")

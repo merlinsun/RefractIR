@@ -103,7 +103,14 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
 
     self.assertEqual(
       [source["program_id"] for source in sources],
-      ["native-seed-7", "native-seed-17", "native-seed-29"],
+      [
+        "native-seed-7",
+        "native-seed-17",
+        "native-seed-29",
+        "native-seed-0-shape-2x4-iterations-3",
+        "native-seed-3-shape-4x2-iterations-4",
+        "native-seed-6-shape-2x4-iterations-2",
+      ],
     )
     for source in sources:
       text = source["source_path"].read_text(encoding="utf-8")
@@ -418,6 +425,23 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertIsNone(comparison["reference_words"])
     self.assertEqual(comparison["actual_words"], [0, 0, 0, 0])
     self.assertIn("reference unavailable", comparison["admission"]["reason"])
+
+  def test_expanded_four_term_reduction_retains_unclassified_gpu_words(self):
+    experiment = _load_fpsan_experiment()
+    source = (
+      ROOT / "test/tensor/gluon/programs/" / "native-seed-6-shape-2x4-iterations-2.sir"
+    ).read_text(encoding="utf-8")
+    input_bytes = struct.pack("<8f", *([1.0] * 8))
+    actual_words = [0x3F800000] * 8
+
+    comparison = experiment._ordinary_generated_region_comparison(
+      source, input_bytes, actual_words
+    )
+
+    self.assertEqual(comparison["status"], "unclassified")
+    self.assertEqual(comparison["admission"]["max_reduction_width"], 4)
+    self.assertEqual(comparison["actual_words"], actual_words)
+    self.assertEqual(len(comparison["reference_words"]), 8)
 
 
 if __name__ == "__main__":

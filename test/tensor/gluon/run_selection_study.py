@@ -155,9 +155,10 @@ def _matrix_program_source(program_id):
     raise ValueError(f"unknown generated selection program: {program_id}") from error
   source = source_path.read_text(encoding="utf-8")
   record = NATIVE_PROGRAM_RECORDS.get(program_id)
-  if record is not None and hashlib.sha256(source.encode("utf-8")).hexdigest() != record[
-    "source_sha256"
-  ]:
+  if (
+    record is not None
+    and hashlib.sha256(source.encode("utf-8")).hexdigest() != record["source_sha256"]
+  ):
     raise ValueError(f"frozen native generated source hash mismatch: {program_id}")
   tensor_exact_f32._generated_region_program(source)
   return source
@@ -180,12 +181,24 @@ def _matrix_cell_specs(*, program_ids, target_indices, seeds, layout_seeds):
     for program_id in axes["program_ids"]
   ) or len(set(axes["program_ids"])) != len(axes["program_ids"]):
     raise ValueError("matrix program ids must be known and unique")
+  program_shapes = {
+    program_id: tensor_exact_f32._generated_region_program(
+      _matrix_program_source(program_id)
+    )[0]
+    for program_id in axes["program_ids"]
+  }
   if any(
-    len(index) != 2
-    or any(type(value) is not int or not 0 <= value < 2 for value in index)
+    len(index) != len(shape)
+    or any(
+      type(value) is not int or not 0 <= value < shape[axis]
+      for axis, value in enumerate(index)
+    )
     for index in axes["target_indices"]
+    for shape in program_shapes.values()
   ) or len(set(axes["target_indices"])) != len(axes["target_indices"]):
-    raise ValueError("matrix target indices must be unique elements of the 2x2 output")
+    raise ValueError(
+      "matrix target indices must fit every selected program output shape"
+    )
   for name in ("seeds", "layout_seeds"):
     if any(type(value) is not int or value < 0 for value in axes[name]) or len(
       set(axes[name])
@@ -703,12 +716,20 @@ def run(
     raise ValueError("iterations must be in [1,8]")
   if type(target) is not int:
     raise ValueError("target must be an integer")
+  shape = (2, 2)
+  if program_source is not None:
+    if not isinstance(program_source, str):
+      raise ValueError("program_source must be generated SIR text")
+    shape = tensor_exact_f32._generated_region_program(program_source)[0]
   if (
     not isinstance(target_index, (tuple, list))
-    or len(target_index) != 2
-    or any(type(value) is not int or not 0 <= value < 2 for value in target_index)
+    or len(target_index) != len(shape)
+    or any(
+      type(value) is not int or not 0 <= value < shape[axis]
+      for axis, value in enumerate(target_index)
+    )
   ):
-    raise ValueError("target_index must identify an element of the 2x2 output")
+    raise ValueError("target_index must identify an element of the output shape")
   if type(layout_seed) is not int or layout_seed < 0:
     raise ValueError("layout_seed must be a nonnegative integer")
   target_index = tuple(target_index)
@@ -938,7 +959,11 @@ def run_matrix(
     shape, iterations, _, _, _ = tensor_exact_f32._generated_region_program(source)
     index = tuple(cell["target_index"])
     if target is None:
-      anchor_bytes = struct.pack(f"<{len(MATRIX_INPUT_VALUES)}f", *MATRIX_INPUT_VALUES)
+      anchor_values = tuple(
+        MATRIX_INPUT_VALUES[index % len(MATRIX_INPUT_VALUES)]
+        for index in range(math.prod(shape))
+      )
+      anchor_bytes = struct.pack(f"<{len(anchor_values)}f", *anchor_values)
       _, anchor_output = tensor_exact_f32.certify(source, anchor_bytes, DOMAIN)
       target_value = struct.unpack(f"<{len(anchor_output) // 4}f", anchor_output)[
         index[0] * shape[1] + index[1]
