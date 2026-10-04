@@ -8,6 +8,7 @@ import importlib.util
 import json
 import math
 import os
+import statistics
 import struct
 import sys
 import time
@@ -17,7 +18,7 @@ from pathlib import Path
 import torch
 import triton
 
-from test.lib import tensor_case, tensor_exact_f32
+from test.lib import tensor_case, tensor_exact_f32, tensor_route_protocol
 from test.lib.tensor_compiler_observation import (
   observe_compiler_ir,
   observe_pass_dumps,
@@ -29,8 +30,8 @@ from test.lib.tensor_gluon_lowering import (
 )
 
 TRITON_VERSION = "3.8.0"
-WARMUP_LAUNCHES = 3
-MEASURED_LAUNCHES = 30
+WARMUP_LAUNCHES = tensor_route_protocol.WARMUP_LAUNCHES
+MEASURED_LAUNCHES = tensor_route_protocol.MEASURED_LAUNCHES
 
 
 def _word_hex(data):
@@ -113,17 +114,23 @@ def _measure_region_kernel(kernel, args):
   for _ in range(WARMUP_LAUNCHES):
     kernel[(1,)](*args, num_warps=1, enable_fp_fusion=False)
   torch.cuda.synchronize()
-  start = torch.cuda.Event(enable_timing=True)
-  end = torch.cuda.Event(enable_timing=True)
-  start.record()
-  for _ in range(MEASURED_LAUNCHES):
-    kernel[(1,)](*args, num_warps=1, enable_fp_fusion=False)
-  end.record()
-  torch.cuda.synchronize()
-  median_event_ms = start.elapsed_time(end) / MEASURED_LAUNCHES
+  launches_per_batch = MEASURED_LAUNCHES // tensor_route_protocol.MEASUREMENT_BATCHES
+  samples_ms = []
+  for _ in range(tensor_route_protocol.MEASUREMENT_BATCHES):
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(launches_per_batch):
+      kernel[(1,)](*args, num_warps=1, enable_fp_fusion=False)
+    end.record()
+    torch.cuda.synchronize()
+    samples_ms.append(start.elapsed_time(end) / launches_per_batch)
+  median_event_ms = statistics.median(samples_ms)
   return compiled, {
     "warmup_launches": WARMUP_LAUNCHES,
     "measured_launches": MEASURED_LAUNCHES,
+    "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+    "launches_per_batch": launches_per_batch,
     "first_launch_wall_s_including_compilation": compilation_wall_s,
     "median_gpu_event_ms_per_launch": median_event_ms,
   }
@@ -363,6 +370,14 @@ def run_program(
       "enable_fp_fusion": False,
       "warmup_launches_per_layout": WARMUP_LAUNCHES,
       "measured_launches_per_layout": MEASURED_LAUNCHES,
+      "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+      "cache": tensor_route_protocol.cache_record_from_environment(),
+      "measurement_accounting": tensor_route_protocol.measurement_accounting(
+        useful_compilations=len(cases),
+        calibration_compilations=1,
+        useful_executions=len(cases),
+        calibration_executions=1,
+      ),
       "comparison": "same exact SIR, selected input, domain, and property across layouts",
     },
     "cases": cases,
@@ -474,23 +489,27 @@ def run(case_directory, output_path, ir_directory, *, symiri=None):
       enable_fp_fusion=False,
     )
   torch.cuda.synchronize()
-  start_event = torch.cuda.Event(enable_timing=True)
-  end_event = torch.cuda.Event(enable_timing=True)
-  start_event.record()
-  for _ in range(MEASURED_LAUNCHES):
-    kernel[(1,)](
-      input_tensor,
-      output_tensor,
-      gluon_compute_layout,
-      gluon_compute_layout,
-      gluon_reduction_layout,
-      gluon_compute_layout,
-      num_warps=1,
-      enable_fp_fusion=False,
-    )
-  end_event.record()
-  torch.cuda.synchronize()
-  median_event_ms = start_event.elapsed_time(end_event) / MEASURED_LAUNCHES
+  launches_per_batch = MEASURED_LAUNCHES // tensor_route_protocol.MEASUREMENT_BATCHES
+  samples_ms = []
+  for _ in range(tensor_route_protocol.MEASUREMENT_BATCHES):
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
+    for _ in range(launches_per_batch):
+      kernel[(1,)](
+        input_tensor,
+        output_tensor,
+        gluon_compute_layout,
+        gluon_compute_layout,
+        gluon_reduction_layout,
+        gluon_compute_layout,
+        num_warps=1,
+        enable_fp_fusion=False,
+      )
+    end_event.record()
+    torch.cuda.synchronize()
+    samples_ms.append(start_event.elapsed_time(end_event) / launches_per_batch)
+  median_event_ms = statistics.median(samples_ms)
 
   assembly = getattr(compiled, "asm", {})
   ir_files = {}
@@ -549,6 +568,8 @@ def run(case_directory, output_path, ir_directory, *, symiri=None):
       "enable_fp_fusion": False,
       "warmup_launches": WARMUP_LAUNCHES,
       "measured_launches": MEASURED_LAUNCHES,
+      "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+      "launches_per_batch": launches_per_batch,
       "first_launch_wall_s_including_compilation": compilation_wall_s,
       "mean_gpu_event_ms_per_launch": median_event_ms,
     },

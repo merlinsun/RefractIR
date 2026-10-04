@@ -16,6 +16,7 @@ from test.lib import (
   tensor_evaluation,
   tensor_exact_f32,
   tensor_fixed_study,
+  tensor_route_protocol,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -591,18 +592,21 @@ def _run_gpu_policy(
   gpu_report_path = arm_dir / "gluon.json"
   ir_dir = arm_dir / "ir"
   cache_dir = arm_dir / "triton-cache"
-  cache_dir.mkdir(parents=True, exist_ok=True)
-  cache_empty_at_start = not any(cache_dir.iterdir())
-  trial["cache"] = {
-    "path": str(cache_dir),
-    "empty_at_start": cache_empty_at_start,
-  }
+  try:
+    cache_record = tensor_route_protocol.prepare_fresh_cache(cache_dir)
+  except ValueError as error:
+    trial["execution_status"] = "execution_failure"
+    trial["selection_record"]["execution_error"] = str(error)
+    trial["elapsed_s"] = time.perf_counter() - started
+    return
+  trial["cache"] = cache_record
   env = os.environ.copy()
   existing_pythonpath = env.get("PYTHONPATH", "")
   env["PYTHONPATH"] = os.pathsep.join(
     item for item in (str(ROOT), existing_pythonpath) if item
   )
   env["TRITON_CACHE_DIR"] = str(cache_dir)
+  env["REFRACTIR_CACHE_EMPTY_AT_START"] = "1"
   command = _gpu_child_command(
     gpu_report_path,
     ir_dir,
@@ -885,6 +889,18 @@ def run(
       "property": {"target": target, "index": list(target_index)},
       "layout_seed": layout_seed,
       "cache_isolation": "fresh TRITON_CACHE_DIR per policy arm",
+      "gpu_launch_protocol": {
+        "warmup_launches": tensor_route_protocol.WARMUP_LAUNCHES,
+        "measured_launches": tensor_route_protocol.MEASURED_LAUNCHES,
+        "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+        "num_warps": tensor_route_protocol.NUM_WARPS,
+        "enable_fp_fusion": tensor_route_protocol.ENABLE_FP_FUSION,
+      },
+      "artifact_capture": [
+        "complete GPU output bits",
+        "TTIR/TTGIR/LLIR/PTX/SASS when available",
+        "MLIR pass snapshots",
+      ],
       "calibration_control_contract": CALIBRATION_CONTROL_CONTRACT,
     },
     "fixed": {
@@ -949,6 +965,26 @@ def run_matrix(
       "solver_timeout_s": SOLVER_TIMEOUT_S,
       "budget_s_per_policy": budget_s,
       "pairing": "random and solver share one frozen program, property, seed and layout seed",
+      "cache_isolation": "fresh empty cache per random/solver policy arm",
+      "gpu_launch_protocol": {
+        "warmup_launches": tensor_route_protocol.WARMUP_LAUNCHES,
+        "measured_launches": tensor_route_protocol.MEASURED_LAUNCHES,
+        "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+        "num_warps": tensor_route_protocol.NUM_WARPS,
+        "enable_fp_fusion": tensor_route_protocol.ENABLE_FP_FUSION,
+      },
+      "layout_protocol": (
+        "same five blocked/slice layouts generated from each fixed layout seed"
+      ),
+      "artifact_capture": [
+        "complete GPU output bits",
+        "TTIR/TTGIR/LLIR/PTX/SASS when available",
+        "MLIR pass snapshots",
+      ],
+      "route_comparison_limit": (
+        "the exact numeric-f32 contract and FpSan payload-ring contract remain "
+        "distinct and are compared only on matching source/property identifiers"
+      ),
     },
     "cells": [],
   }

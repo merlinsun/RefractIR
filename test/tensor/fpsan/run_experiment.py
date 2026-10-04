@@ -17,7 +17,7 @@ import torch
 import triton
 import triton.language as tl
 
-from test.lib import tensor_exact_f32
+from test.lib import tensor_exact_f32, tensor_route_protocol
 from test.lib.tensor_fpsan import (
   compare_words,
   flatten_word_values,
@@ -32,8 +32,8 @@ from test.lib.tensor_fpsan import (
 )
 
 TRITON_VERSION = "3.8.0"
-WARMUP_LAUNCHES = 3
-MEASURED_LAUNCHES = 30
+WARMUP_LAUNCHES = tensor_route_protocol.WARMUP_LAUNCHES
+MEASURED_LAUNCHES = tensor_route_protocol.MEASURED_LAUNCHES
 
 
 @triton.jit
@@ -402,6 +402,13 @@ def _run_generated_region_case_record(
       checkpoint=checkpoint,
     )
     entry.update(result)
+    if result.get("status") == "pass":
+      entry["measurement_accounting"] = tensor_route_protocol.measurement_accounting(
+        useful_compilations=2,
+        calibration_compilations=2,
+        useful_executions=2,
+        calibration_executions=2,
+      )
     entry.setdefault("status", "ERROR")
     entry["stage"] = "complete"
   except Exception as error:
@@ -493,14 +500,25 @@ def _run_generated_region_corpus(
   return programs
 
 
-def _generated_region_corpus_sources():
+def _generated_region_corpus_sources(program_ids=None):
   program_dir = Path(__file__).resolve().parents[1] / "gluon" / "programs"
   manifest_path = program_dir / "native-generated-corpus.json"
   manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
   if manifest.get("schema") != "refractir.generated-region-corpus.v1":
     raise ValueError(f"unsupported generated-region corpus: {manifest_path}")
+  requested_program_ids = None if program_ids is None else set(program_ids)
+  known_program_ids = {record["program_id"] for record in manifest["programs"]}
+  if requested_program_ids is not None:
+    if not requested_program_ids or requested_program_ids - known_program_ids:
+      unknown = sorted(requested_program_ids - known_program_ids)
+      raise ValueError(f"unknown or empty generated program selection: {unknown}")
   sources = []
   for record in manifest["programs"]:
+    if (
+      requested_program_ids is not None
+      and record["program_id"] not in requested_program_ids
+    ):
+      continue
     source_path = program_dir / record["source_file"]
     source = source_path.read_text(encoding="utf-8")
     source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
@@ -717,7 +735,12 @@ def _run_generated_region_case(
     mutant_output = torch.empty(shape, dtype=torch.float32, device="cuda")
     mutant_kernel = mutant_namespace["fpsan_generated_region"]
     mutant_compiled, mutant_measurement = _measure_launches(
-      lambda: mutant_kernel[(1,)](inputs, mutant_output, num_warps=1)
+      lambda: mutant_kernel[(1,)](
+        inputs,
+        mutant_output,
+        num_warps=tensor_route_protocol.NUM_WARPS,
+        enable_fp_fusion=tensor_route_protocol.ENABLE_FP_FUSION,
+      )
     )
     actual_mutant_words = _raw_words(mutant_output)
     mutant_ir = _capture_ir(
@@ -766,7 +789,12 @@ def _run_generated_kernel_mode(kernel, inputs, shape, instrumentation_mode):
   try:
     triton.knobs.compilation.instrumentation_mode = instrumentation_mode
     compiled, measurement = _measure_launches(
-      lambda: kernel[(1,)](inputs, output, num_warps=1)
+      lambda: kernel[(1,)](
+        inputs,
+        output,
+        num_warps=tensor_route_protocol.NUM_WARPS,
+        enable_fp_fusion=tensor_route_protocol.ENABLE_FP_FUSION,
+      )
     )
     torch.cuda.synchronize()
   finally:
@@ -828,8 +856,8 @@ def _measure_launches(launch):
   torch.cuda.synchronize()
 
   samples_ms = []
-  launches_per_sample = MEASURED_LAUNCHES // 3
-  for _ in range(3):
+  launches_per_sample = MEASURED_LAUNCHES // tensor_route_protocol.MEASUREMENT_BATCHES
+  for _ in range(tensor_route_protocol.MEASUREMENT_BATCHES):
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     start.record()
@@ -841,6 +869,8 @@ def _measure_launches(launch):
   return compiled, {
     "warmup_launches": WARMUP_LAUNCHES,
     "measured_launches": MEASURED_LAUNCHES,
+    "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+    "launches_per_batch": launches_per_sample,
     "first_launch_wall_s_including_compilation": first_launch_wall_s,
     "median_gpu_event_ms_per_launch": statistics.median(samples_ms),
   }
@@ -934,13 +964,15 @@ def _run_instrumentation_sensitivity(ir_directory):
   }
 
 
-def run(
+def _run_experiment(
   output_path,
   ir_directory,
   *,
   generated_target=None,
   generated_target_index=(0, 0),
   generated_timeout_s=30.0,
+  generated_program_ids=None,
+  cache_record,
 ):
   output_path = Path(output_path)
   ir_directory = Path(ir_directory)
@@ -985,7 +1017,7 @@ def run(
     witnesses["broadcast_and_add_zero"]["input_float_words"]
   )
   output = torch.empty((1,), dtype=torch.float32, device="cuda")
-  generated_region_corpus = _generated_region_corpus_sources()
+  generated_region_corpus = _generated_region_corpus_sources(generated_program_ids)
   requested_property = (
     None
     if generated_target is None
@@ -1022,6 +1054,9 @@ def run(
       "gpu_launch_protocol": {
         "warmup_launches": WARMUP_LAUNCHES,
         "measured_launches_per_kernel": MEASURED_LAUNCHES,
+        "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+        "num_warps": tensor_route_protocol.NUM_WARPS,
+        "enable_fp_fusion": tensor_route_protocol.ENABLE_FP_FUSION,
       },
       "selection_policy": "SMT payload model with mutation-sensitive loop constraints",
       "transport_contract": (
@@ -1040,9 +1075,12 @@ def run(
     "measurement_protocol": {
       "warmup_launches_per_case": WARMUP_LAUNCHES,
       "measured_launches_per_case": MEASURED_LAUNCHES,
-      "num_warps": 1,
+      "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
+      "num_warps": tensor_route_protocol.NUM_WARPS,
+      "enable_fp_fusion": tensor_route_protocol.ENABLE_FP_FUSION,
       "selection": "fixed documented embeddings; no payload-dependent control flow",
     },
+    "cache": cache_record,
     "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     "cases": {},
     "smt_witnesses": witnesses,
@@ -1083,6 +1121,27 @@ def run(
   )
   generated_region_result = report["generated_region"]
   generated_region_results = report["generated_regions"]["programs"]
+  completed_accounting = [
+    entry["measurement_accounting"]
+    for entry in generated_region_results.values()
+    if "measurement_accounting" in entry
+  ]
+  report["generated_regions"]["measurement_accounting"] = (
+    tensor_route_protocol.measurement_accounting(
+      useful_compilations=sum(
+        record["useful_compilations"] for record in completed_accounting
+      ),
+      calibration_compilations=sum(
+        record["calibration_compilations"] for record in completed_accounting
+      ),
+      useful_executions=sum(
+        record["useful_executions"] for record in completed_accounting
+      ),
+      calibration_executions=sum(
+        record["calibration_executions"] for record in completed_accounting
+      ),
+    )
+  )
   report["status"] = "running"
   report["stage"] = "fixed_payload_kernel_cases"
   _write_report_checkpoint(output_path, report)
@@ -1247,6 +1306,40 @@ def run(
   return report
 
 
+def run(
+  output_path,
+  ir_directory,
+  *,
+  generated_target=None,
+  generated_target_index=(0, 0),
+  generated_timeout_s=30.0,
+  generated_program_ids=None,
+  cache_dir=None,
+):
+  ir_directory = Path(ir_directory)
+  cache_path = (
+    Path(cache_dir) if cache_dir is not None else ir_directory / "triton-cache"
+  )
+  cache_record = tensor_route_protocol.prepare_fresh_cache(cache_path)
+  previous_cache = os.environ.get("TRITON_CACHE_DIR")
+  os.environ["TRITON_CACHE_DIR"] = cache_record["path"]
+  try:
+    return _run_experiment(
+      output_path,
+      ir_directory,
+      generated_target=generated_target,
+      generated_target_index=generated_target_index,
+      generated_timeout_s=generated_timeout_s,
+      generated_program_ids=generated_program_ids,
+      cache_record=cache_record,
+    )
+  finally:
+    if previous_cache is None:
+      os.environ.pop("TRITON_CACHE_DIR", None)
+    else:
+      os.environ["TRITON_CACHE_DIR"] = previous_cache
+
+
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("--output", default="fpsan-experiment.json")
@@ -1254,6 +1347,8 @@ def main():
   parser.add_argument("--generated-target", type=int, default=None)
   parser.add_argument("--generated-target-index", default="0,0")
   parser.add_argument("--generated-timeout-s", type=float, default=30.0)
+  parser.add_argument("--generated-program-ids", default=None)
+  parser.add_argument("--cache-dir", default=None)
   args = parser.parse_args()
   try:
     generated_target_index = tuple(
@@ -1267,6 +1362,16 @@ def main():
     generated_target=args.generated_target,
     generated_target_index=generated_target_index,
     generated_timeout_s=args.generated_timeout_s,
+    generated_program_ids=(
+      None
+      if args.generated_program_ids is None
+      else tuple(
+        value.strip()
+        for value in args.generated_program_ids.split(",")
+        if value.strip()
+      )
+    ),
+    cache_dir=args.cache_dir,
   )
   print(json.dumps(report, indent=2, sort_keys=True))
   if report.get("status") != "pass":
