@@ -402,6 +402,7 @@ clean:
 # test runner in test/lib because they need to assert on the binary's
 # stdout / sidecar files / output directory layout.
 test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
+	$(PY) -m unittest test.unit.test_unused_name_clang_portability
 	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
 	$(PY) -m test.unit.run_structured_c_tests ./$(TARGET_COMPILER)
 	$(PY) -m test.unit.run_structured_wasm_tests ./$(TARGET_COMPILER)

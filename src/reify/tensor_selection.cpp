@@ -504,7 +504,7 @@ namespace refractir::reify {
         // parent's deadline is what stops it.
         const std::uint32_t backendTimer =
             solver::backendReportsTerminationReason() ? backendMs : 0;
-        const auto factory = [backendTimer](
+        const auto factory = [backendTimer = backendTimer](
                                  const SymbolicExecutor::Config &config
                              ) -> std::unique_ptr<smt::ISolver> {
           SymbolicExecutor::Config bounded = config;

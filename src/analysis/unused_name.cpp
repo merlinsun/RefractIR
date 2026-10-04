@@ -1,4 +1,5 @@
 #include "analysis/unused_name.hpp"
+#include <functional>
 #include <unordered_set>
 
 namespace refractir {
@@ -17,9 +18,12 @@ namespace refractir {
       }
     };
 
-    // Shared atom visitor — walks all names referenced by any atom variant.
-    // `recurseExpr` handles embedded expressions (SelectAtom cond / maskExpr).
-    auto collectAtom = [&](const Atom &a, auto &recurseExpr) {
+    // The atom and expression visitors are mutually recursive through
+    // SelectAtom and CallAtom. Give each visitor a stable callable type so
+    // compilers do not need to instantiate a generic lambda through itself.
+    std::function<void(const Expr &)> collectExpr;
+    std::function<void(const Atom &)> collectAtom;
+    collectAtom = [&](const Atom &a) {
       std::visit(
           [&](auto &&arg) {
             using T = std::decay_t<decltype(arg)>;
@@ -29,10 +33,10 @@ namespace refractir {
               collectLValue(arg.rval);
             } else if constexpr (std::is_same_v<T, SelectAtom>) {
               if (arg.cond) {
-                recurseExpr(arg.cond->lhs, recurseExpr);
-                recurseExpr(arg.cond->rhs, recurseExpr);
+                collectExpr(arg.cond->lhs);
+                collectExpr(arg.cond->rhs);
               } else if (arg.maskExpr) {
-                recurseExpr(*arg.maskExpr, recurseExpr);
+                collectExpr(*arg.maskExpr);
               }
               auto handleSv = [&](const SelectVal &sv) {
                 if (auto rv = std::get_if<RValue>(&sv))
@@ -91,7 +95,7 @@ namespace refractir {
               // Walk each argument expression so locals/params
               // referenced inside `call @f(args...)` are marked used.
               for (const auto &ap: arg.args)
-                recurseExpr(*ap, recurseExpr);
+                collectExpr(*ap);
             } else if constexpr (std::is_same_v<T, TensorAtom>) {
               for (const auto &operand: arg.operands) {
                 if (const auto id = std::get_if<LocalOrSymId>(&operand))
@@ -103,10 +107,10 @@ namespace refractir {
       );
     };
 
-    auto collectExpr = [&](const Expr &e, auto &self) -> void {
-      collectAtom(e.first, self);
+    collectExpr = [&](const Expr &e) {
+      collectAtom(e.first);
       for (const auto &t: e.rest)
-        collectAtom(t.atom, self);
+        collectAtom(t.atom);
     };
 
     std::function<void(const InitVal &)> collectInitVal = [&](const InitVal &iv) {
@@ -124,7 +128,7 @@ namespace refractir {
           break;
         case InitVal::Kind::Atom:
           if (auto &atomPtr = std::get<AtomPtr>(iv.value))
-            collectAtom(*atomPtr, collectExpr);
+            collectAtom(*atomPtr);
           break;
         default:
           break;
@@ -141,17 +145,17 @@ namespace refractir {
             [&](auto &&arg) {
               using T = std::decay_t<decltype(arg)>;
               if constexpr (std::is_same_v<T, AssignInstr>) {
-                collectExpr(arg.rhs, collectExpr);
+                collectExpr(arg.rhs);
                 collectLValue(arg.lhs);
               } else if constexpr (std::is_same_v<T, AssumeInstr>) {
-                collectExpr(arg.cond.lhs, collectExpr);
-                collectExpr(arg.cond.rhs, collectExpr);
+                collectExpr(arg.cond.lhs);
+                collectExpr(arg.cond.rhs);
               } else if constexpr (std::is_same_v<T, RequireInstr>) {
-                collectExpr(arg.cond.lhs, collectExpr);
-                collectExpr(arg.cond.rhs, collectExpr);
+                collectExpr(arg.cond.lhs);
+                collectExpr(arg.cond.rhs);
               } else if constexpr (std::is_same_v<T, StoreInstr>) {
-                collectExpr(arg.ptr, collectExpr);
-                collectExpr(arg.val, collectExpr);
+                collectExpr(arg.ptr);
+                collectExpr(arg.val);
               }
             },
             ins
@@ -162,12 +166,12 @@ namespace refractir {
             using T = std::decay_t<decltype(t)>;
             if constexpr (std::is_same_v<T, BrTerm>) {
               if (t.isConditional && t.cond) {
-                collectExpr(t.cond->lhs, collectExpr);
-                collectExpr(t.cond->rhs, collectExpr);
+                collectExpr(t.cond->lhs);
+                collectExpr(t.cond->rhs);
               }
             } else if constexpr (std::is_same_v<T, RetTerm>) {
               if (t.value)
-                collectExpr(*t.value, collectExpr);
+                collectExpr(*t.value);
             }
           },
           b.term

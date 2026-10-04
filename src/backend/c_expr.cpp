@@ -93,7 +93,7 @@ namespace refractir {
       // with RefractIR spec which aligns float % with integer % (truncate-toward-zero).
       // Detect float operand via coef type; for a literal coef, the rval
       // pins f32 vs f64 (operands share a type in RefractIR).
-      auto floatKindOf = [this](const TypePtr &t) -> FloatType::Kind * {
+      auto floatKindOf = [](const TypePtr &t) -> FloatType::Kind * {
         if (!t)
           return nullptr;
         if (auto ft = std::get_if<FloatType>(&t->v))

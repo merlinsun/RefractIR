@@ -28,8 +28,13 @@ def _compiler_command():
 
 
 class AstTypeConstructionTests(unittest.TestCase):
-  def assert_variant_compiles(self, name, initializer, index):
-    arguments = "" if initializer is None else f"{initializer}, SourceSpan{{}}"
+  def assert_variant_compiles(self, name, initializer, index, with_span=True):
+    if initializer is None:
+      arguments = ""
+    elif with_span:
+      arguments = f"{initializer}, SourceSpan{{}}"
+    else:
+      arguments = initializer
     source = (
       '#include "ast/ast.hpp"\n'
       "#include <memory>\n"
@@ -88,6 +93,27 @@ class AstTypeConstructionTests(unittest.TestCase):
 
   def test_tensor_variant_construction_compiles(self):
     self.assert_variant_compiles(*TYPE_VARIANTS[6])
+
+  def test_integer_variant_without_wrapper_span_compiles(self):
+    self.assert_variant_compiles(*TYPE_VARIANTS[0], with_span=False)
+
+  def test_float_variant_without_wrapper_span_compiles(self):
+    self.assert_variant_compiles(*TYPE_VARIANTS[1], with_span=False)
+
+  def test_struct_variant_without_wrapper_span_compiles(self):
+    self.assert_variant_compiles(*TYPE_VARIANTS[2], with_span=False)
+
+  def test_array_variant_without_wrapper_span_compiles(self):
+    self.assert_variant_compiles(*TYPE_VARIANTS[3], with_span=False)
+
+  def test_pointer_variant_without_wrapper_span_compiles(self):
+    self.assert_variant_compiles(*TYPE_VARIANTS[4], with_span=False)
+
+  def test_vector_variant_without_wrapper_span_compiles(self):
+    self.assert_variant_compiles(*TYPE_VARIANTS[5], with_span=False)
+
+  def test_tensor_variant_without_wrapper_span_compiles(self):
+    self.assert_variant_compiles(*TYPE_VARIANTS[6], with_span=False)
 
 
 if __name__ == "__main__":
