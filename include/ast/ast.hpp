@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <variant>
 #include <vector>
 #include "ast/tensor.hpp"
@@ -187,6 +188,7 @@ namespace refractir {
     Variant v;
     SourceSpan span;
 
+    Type(Variant value, SourceSpan sourceSpan) : v(std::move(value)), span(std::move(sourceSpan)) {}
   };
 
   // ---------------------------
