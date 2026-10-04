@@ -2,6 +2,7 @@
 
 import unittest
 
+from test.lib import tensor_gluon
 from test.lib.tensor_gluon import BlockedLayoutPlan, generate_layout_plans
 from test.lib.tensor_gluon_lowering import reduction_blocked_layout
 
@@ -104,6 +105,91 @@ class TensorGluonLayoutTests(unittest.TestCase):
     self.assertEqual(layout.threads_per_warp, (1, 32))
     self.assertEqual(layout.warps_per_cta, (1, 1))
     self.assertEqual(layout.order, (1, 0))
+
+
+class RequiredLayoutSelectionTests(unittest.TestCase):
+  @staticmethod
+  def _physical_key(layout):
+    return (
+      layout.size_per_thread,
+      layout.threads_per_warp,
+      layout.warps_per_cta,
+      layout.order,
+    )
+
+  def test_seed_zero_keeps_required_and_sampled_layouts_physically_unique(self):
+    required = reduction_blocked_layout((2, 2), {0, 1}, num_warps=1)
+    sampled = generate_layout_plans((2, 2), num_warps=1, seed=0, count=5)
+
+    selected = tensor_gluon.select_distinct_layouts(
+      required, sampled, shape=(2, 2), num_warps=1, count=5
+    )
+
+    physical_layouts = {self._physical_key(layout) for layout in selected}
+    self.assertEqual(len(selected), 5)
+    self.assertEqual(len(physical_layouts), 5)
+    self.assertEqual(selected[0], required)
+
+  def test_overlapping_sample_is_replaced_without_losing_required_layout(self):
+    required = reduction_blocked_layout((2, 2), {0, 1}, num_warps=1)
+    sampled = generate_layout_plans((2, 2), num_warps=1, seed=0, count=5)
+    self.assertIn(self._physical_key(required), map(self._physical_key, sampled))
+
+    selected = tensor_gluon.select_distinct_layouts(
+      required, sampled, shape=(2, 2), num_warps=1, count=5
+    )
+
+    self.assertEqual(selected[0].name, "reduction-blocked-1-warps")
+    self.assertEqual(
+      len({self._physical_key(layout) for layout in selected}), len(selected)
+    )
+
+  def test_nonoverlapping_sample_trims_back_to_the_requested_count(self):
+    required = reduction_blocked_layout((2, 2), {0, 1}, num_warps=1)
+    all_plans = generate_layout_plans((2, 2), num_warps=1, seed=0, count=48)
+    required_key = self._physical_key(required)
+    sampled = [plan for plan in all_plans if self._physical_key(plan) != required_key][
+      :5
+    ]
+
+    selected = tensor_gluon.select_distinct_layouts(
+      required, sampled, shape=(2, 2), num_warps=1, count=5
+    )
+
+    self.assertEqual(len(selected), 5)
+    self.assertEqual(
+      len({self._physical_key(layout) for layout in selected}), len(selected)
+    )
+
+  def test_selection_near_available_layout_limit_remains_unique(self):
+    required = reduction_blocked_layout((2, 2), {0, 1}, num_warps=1)
+    sampled = generate_layout_plans((2, 2), num_warps=1, seed=0, count=48)
+
+    selected = tensor_gluon.select_distinct_layouts(
+      required, sampled, shape=(2, 2), num_warps=1, count=47
+    )
+
+    self.assertEqual(len(selected), 47)
+    self.assertEqual(
+      len({self._physical_key(layout) for layout in selected}), len(selected)
+    )
+
+  def test_count_one_returns_only_the_required_layout(self):
+    required = reduction_blocked_layout((2, 2), {0, 1}, num_warps=1)
+
+    selected = tensor_gluon.select_distinct_layouts(
+      required, (), shape=(2, 2), num_warps=1, count=1
+    )
+
+    self.assertEqual(selected, [required])
+
+  def test_selection_rejects_an_insufficient_distinct_sample(self):
+    required = reduction_blocked_layout((2, 2), {0, 1}, num_warps=1)
+
+    with self.assertRaisesRegex(ValueError, "contain only 1"):
+      tensor_gluon.select_distinct_layouts(
+        required, (), shape=(2, 2), num_warps=1, count=2
+      )
 
 
 if __name__ == "__main__":

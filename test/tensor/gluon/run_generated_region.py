@@ -23,7 +23,11 @@ from test.lib.tensor_compiler_observation import (
   observe_compiler_ir,
   observe_pass_dumps,
 )
-from test.lib.tensor_gluon import BlockedLayoutPlan, generate_layout_plans
+from test.lib.tensor_gluon import (
+  BlockedLayoutPlan,
+  generate_layout_plans,
+  select_distinct_layouts,
+)
 from test.lib.tensor_gluon_lowering import (
   cross_lane_threads_per_warp,
   reduction_blocked_layout,
@@ -248,16 +252,23 @@ def run_program(
     shape, reduction_axes, num_warps=num_warps
   )
   reduction_layout.validate(shape, num_warps=num_warps)
-  plans = [reduction_layout]
-  if layout_count > 1:
-    plans.extend(
-      generate_layout_plans(
-        shape,
-        num_warps=num_warps,
-        seed=layout_seed,
-        count=layout_count - 1,
-      )
+  sampled_plans = (
+    generate_layout_plans(
+      shape,
+      num_warps=num_warps,
+      seed=layout_seed,
+      count=layout_count,
     )
+    if layout_count > 1
+    else ()
+  )
+  plans = select_distinct_layouts(
+    reduction_layout,
+    sampled_plans,
+    shape=shape,
+    num_warps=num_warps,
+    count=layout_count,
+  )
   generated = render_gluon_kernel(source)
   kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
   cases = {}

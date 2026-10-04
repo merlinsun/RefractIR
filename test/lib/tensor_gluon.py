@@ -120,3 +120,41 @@ def generate_layout_plans(shape, *, num_warps, seed, count):
 
   random.Random(seed).shuffle(candidates)
   return candidates[:count]
+
+
+def select_distinct_layouts(required, sampled, *, shape, num_warps, count):
+  """Keep a required plan and fill the sample by physical layout identity."""
+  if type(count) is not int or count <= 0:
+    raise ValueError("count must be a positive integer")
+  required.validate(shape, num_warps=num_warps)
+  selected = [required]
+  seen = {
+    (
+      required.size_per_thread,
+      required.threads_per_warp,
+      required.warps_per_cta,
+      required.order,
+    )
+  }
+  if count == 1:
+    return selected
+
+  for plan in sampled:
+    plan.validate(shape, num_warps=num_warps)
+    key = (
+      plan.size_per_thread,
+      plan.threads_per_warp,
+      plan.warps_per_cta,
+      plan.order,
+    )
+    if key in seen:
+      continue
+    seen.add(key)
+    selected.append(plan)
+    if len(selected) == count:
+      return selected
+
+  raise ValueError(
+    f"requested {count} distinct layouts, but the required layout and sample "
+    f"contain only {len(selected)}"
+  )
