@@ -34,6 +34,8 @@ from test.lib.tensor_fpsan import (
 TRITON_VERSION = "3.8.0"
 WARMUP_LAUNCHES = tensor_route_protocol.WARMUP_LAUNCHES
 MEASURED_LAUNCHES = tensor_route_protocol.MEASURED_LAUNCHES
+MEASUREMENT_BATCHES = tensor_route_protocol.MEASUREMENT_BATCHES
+PAIRED_OVERHEAD_BLOCKS = MEASUREMENT_BATCHES * 2
 
 
 @triton.jit
@@ -628,12 +630,13 @@ def _run_generated_region_case(
   # The source is rendered only from the admitted region parsed by the host model.
   kernel_source_path = ir_directory / "generated_region_kernel.py"
   kernel_source = render_generated_region_triton_kernel(source)
+  kernel_source_sha256 = hashlib.sha256(kernel_source.encode("utf-8")).hexdigest()
   kernel_source_path.write_text(kernel_source, encoding="utf-8")
   namespace = {}
   exec(compile(kernel_source, str(kernel_source_path), "exec"), namespace)
   kernel = namespace["fpsan_generated_region"]
   note("fpsan_execution", input_float_words=witness["input_float_words"])
-  output, compiled, measurement = _run_generated_kernel_mode(
+  output, compiled, fpsan_launch, fpsan_compile_wall_s = _compile_generated_kernel_mode(
     kernel, inputs, shape, "fpsan"
   )
   fpsan_words = _raw_words(output)
@@ -642,7 +645,7 @@ def _run_generated_region_case(
     "fpsan_output_captured",
     fpsan_output_words=fpsan_words,
     fpsan_expected_words=witness["output_float_words"],
-    fpsan_measurement=measurement,
+    fpsan_first_launch_wall_s_including_compilation=fpsan_compile_wall_s,
     fpsan_compiler_ir=fpsan_ir,
   )
   fpsan_result = _expect_words(
@@ -650,7 +653,6 @@ def _run_generated_region_case(
   )
   result = {
     **fpsan_result,
-    "measurement": measurement,
     "smt_witness": smt_witness,
     "fpsan_output_words": fpsan_words,
   }
@@ -682,8 +684,8 @@ def _run_generated_region_case(
     ordinary_reference_admission=ordinary_admission,
     ordinary_reference_words=ordinary_expected_words,
   )
-  ordinary_output, ordinary_compiled, ordinary_measurement = _run_generated_kernel_mode(
-    kernel, inputs, shape, ""
+  ordinary_output, ordinary_compiled, ordinary_launch, ordinary_compile_wall_s = (
+    _compile_generated_kernel_mode(kernel, inputs, shape, "")
   )
   ordinary_words = _raw_words(ordinary_output)
   ordinary_ir = _capture_ir(
@@ -696,15 +698,51 @@ def _run_generated_region_case(
     admission=ordinary_admission,
     reference_words=ordinary_expected_words,
   )
-  ordinary_comparison["measurement"] = ordinary_measurement
   ordinary_comparison["compiler_ir"] = ordinary_ir
+  paired_measurements, paired_overhead = _measure_paired_generated_modes(
+    {"fpsan": fpsan_launch, "ordinary": ordinary_launch}
+  )
+  paired_protocol = {
+    "kernel_source_sha256": kernel_source_sha256,
+    "loop_form": "tl.static_range from the same rendered kernel source",
+    "layout_policy": (
+      "Triton-selected layout from the same source, input shape, num_warps and fusion setting"
+    ),
+    "input_float_words_sha256": hashlib.sha256(input_bytes).hexdigest(),
+    "selection_timeout_s_per_source": timeout_s,
+    "measurement_scope": (
+      "GPU event time only; synthesis and first-launch compilation are excluded "
+      "and reported separately"
+    ),
+    "mode_contracts": {
+      "fpsan": "pinned FpSan payload-ring oracle",
+      "ordinary": "independent binary32 RNE reference where admitted",
+    },
+  }
+  fpsan_measurement = {
+    **paired_measurements["fpsan"],
+    "first_launch_wall_s_including_compilation": fpsan_compile_wall_s,
+  }
+  ordinary_measurement = {
+    **paired_measurements["ordinary"],
+    "first_launch_wall_s_including_compilation": ordinary_compile_wall_s,
+  }
+  ordinary_comparison["measurement"] = ordinary_measurement
   note(
     "ordinary_output_captured",
     ordinary_reference=ordinary_comparison,
     ordinary_compiler_ir=ordinary_ir,
   )
+  note(
+    "paired_runtime_measured",
+    fpsan_measurement=fpsan_measurement,
+    ordinary_measurement=ordinary_measurement,
+    paired_overhead={**paired_overhead, "protocol": paired_protocol},
+  )
+  result["measurement"] = fpsan_measurement
   result["compiler_modes"]["ordinary"] = ordinary_ir
   result["ordinary_reference"] = ordinary_comparison
+  result["paired_overhead"] = {**paired_overhead, "protocol": paired_protocol}
   if ordinary_comparison["status"] == "FAIL":
     result["status"] = "FAIL"
     result["failure"] = {
@@ -783,23 +821,131 @@ def _run_generated_region_case(
   return result
 
 
-def _run_generated_kernel_mode(kernel, inputs, shape, instrumentation_mode):
+def _compile_generated_kernel_mode(kernel, inputs, shape, instrumentation_mode):
   output = torch.empty(shape, dtype=torch.float32, device="cuda")
-  previous_mode = triton.knobs.compilation.instrumentation_mode
-  try:
-    triton.knobs.compilation.instrumentation_mode = instrumentation_mode
-    compiled, measurement = _measure_launches(
-      lambda: kernel[(1,)](
+
+  def launch():
+    previous_mode = triton.knobs.compilation.instrumentation_mode
+    try:
+      triton.knobs.compilation.instrumentation_mode = instrumentation_mode
+      return kernel[(1,)](
         inputs,
         output,
         num_warps=tensor_route_protocol.NUM_WARPS,
         enable_fp_fusion=tensor_route_protocol.ENABLE_FP_FUSION,
       )
+    finally:
+      triton.knobs.compilation.instrumentation_mode = previous_mode
+
+  started = time.perf_counter()
+  compiled = launch()
+  torch.cuda.synchronize()
+  compilation_wall_s = time.perf_counter() - started
+  return output, compiled, launch, compilation_wall_s
+
+
+def _paired_measurement_order(block_index):
+  if type(block_index) is not int or block_index < 0:
+    raise ValueError("paired measurement block index must be a nonnegative integer")
+  if block_index % 2 == 0:
+    return ("fpsan", "ordinary")
+  return ("ordinary", "fpsan")
+
+
+def _summarize_paired_overhead(blocks):
+  if not isinstance(blocks, (list, tuple)) or not blocks:
+    raise ValueError("paired overhead blocks must be a nonempty sequence")
+
+  ordinary_ms = []
+  fpsan_ms = []
+  paired_ratios = []
+  order_counts = {"fpsan_outer": 0, "ordinary_outer": 0}
+  for index, block in enumerate(blocks):
+    if not isinstance(block, dict):
+      raise ValueError("paired overhead block must be a mapping")
+    order = block.get("order")
+    if not isinstance(order, (list, tuple)) or tuple(
+      order
+    ) != _paired_measurement_order(index):
+      raise ValueError("paired overhead blocks require counterbalanced mode order")
+    values = {}
+    for mode in ("ordinary", "fpsan"):
+      value = block.get(f"{mode}_ms")
+      if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        raise ValueError("paired overhead latencies must be finite positive numbers")
+      values[mode] = float(value)
+    ordinary_ms.append(values["ordinary"])
+    fpsan_ms.append(values["fpsan"])
+    paired_ratios.append(values["fpsan"] / values["ordinary"])
+    order_counts["fpsan_outer" if order[0] == "fpsan" else "ordinary_outer"] += 1
+
+  ratio_median = statistics.median(paired_ratios)
+  return {
+    "block_count": len(blocks),
+    "ordinary_median_ms": statistics.median(ordinary_ms),
+    "fpsan_median_ms": statistics.median(fpsan_ms),
+    "paired_ratio_median": ratio_median,
+    "paired_overhead_median_percent": (ratio_median - 1.0) * 100.0,
+    "paired_ratio_range": [min(paired_ratios), max(paired_ratios)],
+    "order_counts": order_counts,
+    "interpretation_limit": (
+      "descriptive per-source GPU-event comparison; the small paired sample "
+      "does not establish statistical significance or general sanitizer overhead"
+    ),
+  }
+
+
+def _measure_paired_generated_modes(launchers):
+  if not isinstance(launchers, dict) or set(launchers) != {"fpsan", "ordinary"}:
+    raise ValueError("paired mode launchers must contain fpsan and ordinary")
+  if MEASURED_LAUNCHES % PAIRED_OVERHEAD_BLOCKS != 0:
+    raise RuntimeError(
+      "paired measurements must divide evenly into counterbalanced blocks"
     )
-    torch.cuda.synchronize()
-  finally:
-    triton.knobs.compilation.instrumentation_mode = previous_mode
-  return output, compiled, measurement
+
+  for warmup in range(WARMUP_LAUNCHES):
+    order = ("fpsan", "ordinary") if warmup % 2 == 0 else ("ordinary", "fpsan")
+    for mode in order:
+      launchers[mode]()
+  torch.cuda.synchronize()
+
+  launches_per_subsample = MEASURED_LAUNCHES // PAIRED_OVERHEAD_BLOCKS
+  blocks = []
+  for block_index in range(PAIRED_OVERHEAD_BLOCKS):
+    order = _paired_measurement_order(block_index)
+    samples = {}
+    for mode in order:
+      start_event = torch.cuda.Event(enable_timing=True)
+      end_event = torch.cuda.Event(enable_timing=True)
+      start_event.record()
+      for _ in range(launches_per_subsample):
+        launchers[mode]()
+      end_event.record()
+      torch.cuda.synchronize()
+      samples[mode] = start_event.elapsed_time(end_event) / launches_per_subsample
+    blocks.append(
+      {
+        "order": list(order),
+        "fpsan_ms": samples["fpsan"],
+        "ordinary_ms": samples["ordinary"],
+      }
+    )
+
+  summary = _summarize_paired_overhead(blocks)
+  measurements = {
+    mode: {
+      "warmup_launches": WARMUP_LAUNCHES,
+      "measured_launches": MEASURED_LAUNCHES,
+      "measurement_batches": MEASUREMENT_BATCHES,
+      "launches_per_batch": MEASURED_LAUNCHES // MEASUREMENT_BATCHES,
+      "paired_measurement_blocks": PAIRED_OVERHEAD_BLOCKS,
+      "paired_blocks_per_batch": PAIRED_OVERHEAD_BLOCKS // MEASUREMENT_BATCHES,
+      "launches_per_subsample": launches_per_subsample,
+      "median_gpu_event_ms_per_launch": summary[f"{mode}_median_ms"],
+    }
+    for mode in ("fpsan", "ordinary")
+  }
+  return measurements, {**summary, "blocks": blocks}
 
 
 def _compare_generated_compiler_modes(fpsan_ir, ordinary_ir):
@@ -1057,6 +1203,20 @@ def _run_experiment(
         "measurement_batches": tensor_route_protocol.MEASUREMENT_BATCHES,
         "num_warps": tensor_route_protocol.NUM_WARPS,
         "enable_fp_fusion": tensor_route_protocol.ENABLE_FP_FUSION,
+      },
+      "paired_overhead_protocol": {
+        "comparison": "ordinary and FpSan compile the same rendered Triton kernel per source",
+        "loop_form": "tl.static_range",
+        "layout_policy": "Triton-selected from that same source and fixed launch configuration",
+        "input_pairing": "same raw f32 solver witness for both modes per source",
+        "selection_budget_s_per_source": generated_timeout_s,
+        "measured_launches_per_mode": MEASURED_LAUNCHES,
+        "measurement_batches": MEASUREMENT_BATCHES,
+        "paired_measurement_blocks": PAIRED_OVERHEAD_BLOCKS,
+        "paired_blocks_per_batch": PAIRED_OVERHEAD_BLOCKS // MEASUREMENT_BATCHES,
+        "within_batch_order": "alternating FpSan-first and ordinary-first pairs",
+        "timing_scope": "GPU event time; excludes selection and compilation",
+        "compilation_wall_time": "recorded separately per mode",
       },
       "selection_policy": "SMT payload model with mutation-sensitive loop constraints",
       "transport_contract": (

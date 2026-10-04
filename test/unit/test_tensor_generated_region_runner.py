@@ -443,6 +443,81 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(comparison["actual_words"], actual_words)
     self.assertEqual(len(comparison["reference_words"]), 8)
 
+  def test_paired_overhead_schedule_alternates_first_mode(self):
+    experiment = _load_fpsan_experiment()
+
+    orders = [list(experiment._paired_measurement_order(index)) for index in range(4)]
+
+    self.assertEqual(
+      orders,
+      [
+        ["fpsan", "ordinary"],
+        ["ordinary", "fpsan"],
+        ["fpsan", "ordinary"],
+        ["ordinary", "fpsan"],
+      ],
+    )
+
+  def test_paired_overhead_summary_requires_measurement_blocks(self):
+    experiment = _load_fpsan_experiment()
+
+    with self.assertRaisesRegex(ValueError, "nonempty"):
+      experiment._summarize_paired_overhead([])
+
+  def test_paired_overhead_summary_requires_counterbalanced_pair_order(self):
+    experiment = _load_fpsan_experiment()
+    block = {
+      "order": ["fpsan", "ordinary", "fpsan"],
+      "fpsan_ms": 0.03,
+      "ordinary_ms": 0.02,
+    }
+
+    with self.assertRaisesRegex(ValueError, "counterbalanced"):
+      experiment._summarize_paired_overhead([block])
+
+  def test_paired_overhead_summary_rejects_invalid_latencies(self):
+    experiment = _load_fpsan_experiment()
+    order = ["fpsan", "ordinary"]
+    for mode, value in (("fpsan_ms", 0.0), ("ordinary_ms", float("nan"))):
+      with self.subTest(mode=mode, value=value):
+        block = {
+          "order": order,
+          "fpsan_ms": 0.03,
+          "ordinary_ms": 0.02,
+          mode: value,
+        }
+        with self.assertRaisesRegex(ValueError, "finite positive"):
+          experiment._summarize_paired_overhead([block])
+
+  def test_paired_overhead_uses_the_median_of_within_block_ratios(self):
+    experiment = _load_fpsan_experiment()
+    blocks = [
+      {
+        "order": ["fpsan", "ordinary"],
+        "fpsan_ms": 2.0,
+        "ordinary_ms": 1.0,
+      },
+      {
+        "order": ["ordinary", "fpsan"],
+        "fpsan_ms": 4.0,
+        "ordinary_ms": 2.0,
+      },
+      {
+        "order": ["fpsan", "ordinary"],
+        "fpsan_ms": 3.0,
+        "ordinary_ms": 1.0,
+      },
+    ]
+
+    summary = experiment._summarize_paired_overhead(blocks)
+
+    self.assertEqual(summary["block_count"], 3)
+    self.assertEqual(summary["ordinary_median_ms"], 1.0)
+    self.assertEqual(summary["fpsan_median_ms"], 3.0)
+    self.assertEqual(summary["paired_ratio_median"], 2.0)
+    self.assertEqual(summary["paired_overhead_median_percent"], 100.0)
+    self.assertEqual(summary["paired_ratio_range"], [2.0, 3.0])
+
 
 if __name__ == "__main__":
   unittest.main()
