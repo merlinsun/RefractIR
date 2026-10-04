@@ -1,5 +1,6 @@
 """Fixed-domain study accounting for selection and compiler evidence."""
 
+import hashlib
 import json
 import struct
 import tempfile
@@ -692,7 +693,7 @@ class TensorSelectionMatrixTests(unittest.TestCase):
 
   def test_matrix_specs_expand_program_property_seed_and_layout_axes(self):
     cells = run_selection_study._matrix_cell_specs(
-      iterations=(1, 2),
+      program_ids=("row-reduction-v1", "column-reduction-v1"),
       target_indices=((0, 0), (1, 1)),
       seeds=(17, 29),
       layout_seeds=(20261002, 20261003),
@@ -701,8 +702,12 @@ class TensorSelectionMatrixTests(unittest.TestCase):
     self.assertEqual(len(cells), 16)
     self.assertEqual(len({cell["cell_id"] for cell in cells}), 16)
     self.assertEqual(
-      {(cell["iterations"], tuple(cell["target_index"])) for cell in cells},
-      {(iteration, index) for iteration in (1, 2) for index in ((0, 0), (1, 1))},
+      {(cell["program_id"], tuple(cell["target_index"])) for cell in cells},
+      {
+        (program_id, index)
+        for program_id in ("row-reduction-v1", "column-reduction-v1")
+        for index in ((0, 0), (1, 1))
+      },
     )
 
   def test_gpu_child_command_records_program_property_and_layout(self):
@@ -726,7 +731,12 @@ class TensorSelectionMatrixTests(unittest.TestCase):
     def fake_run(output_dir, **kwargs):
       return {
         "ledger": {
-          "fixed": {"program_id": f"program-{kwargs['iterations']}"},
+          "fixed": {
+            "program_id": kwargs["program_id"],
+            "program_sha256": hashlib.sha256(
+              kwargs["program_source"].encode()
+            ).hexdigest(),
+          },
           "trials": [
             {"property_id": f"output-{kwargs['target_index']}-{kwargs['target']}"}
           ],
@@ -740,7 +750,7 @@ class TensorSelectionMatrixTests(unittest.TestCase):
         matrix = run_selection_study.run_matrix(
           output,
           solver="symirsolve",
-          iterations=(1, 2),
+          program_ids=("row-reduction-v1", "column-reduction-v1"),
           target_indices=((0, 0),),
           seeds=(17,),
           layout_seeds=(20261002,),
@@ -748,14 +758,14 @@ class TensorSelectionMatrixTests(unittest.TestCase):
         )
 
       self.assertEqual(matrix["status"], "complete")
-      self.assertEqual([cell["target"] for cell in matrix["cells"]], [9, 63])
+      self.assertEqual([cell["target"] for cell in matrix["cells"]], [37, 61])
       self.assertEqual(run.call_count, 2)
       self.assertTrue((output / "matrix.json").is_file())
 
   def test_matrix_specs_reject_duplicate_seed_axes(self):
     with self.assertRaisesRegex(ValueError, "seeds must be unique"):
       run_selection_study._matrix_cell_specs(
-        iterations=(1,),
+        program_ids=("row-reduction-v1",),
         target_indices=((0, 0),),
         seeds=(17, 17),
         layout_seeds=(20261002,),

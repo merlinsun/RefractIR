@@ -344,7 +344,7 @@ def generated_region_path(iterations):
   )
 
 
-def render_generated_region_query(source, domain, target):
+def render_generated_region_query(source, domain, target, *, target_index=(0, 0)):
   """Build the i32 SMT twin only after the f32 region has been admitted."""
   shape, iterations, _, _, _ = _generated_region_program(source)
   if (
@@ -356,6 +356,15 @@ def render_generated_region_query(source, domain, target):
     raise ValueError("exact domain requires nonnegative bounded integers")
   if type(target) is not int:
     raise ValueError("generated region target must be an integer")
+  if (
+    not isinstance(target_index, (tuple, list))
+    or len(target_index) != len(shape)
+    or any(
+      type(value) is not int or not 0 <= value < shape[axis]
+      for axis, value in enumerate(target_index)
+    )
+  ):
+    raise ValueError("generated region target index is outside the output shape")
   shape_text = ", ".join(str(value) for value in shape)
   signature = re.compile(
     r"(?m)^fun @kernel\(%x: tensor \[[^\]]+\] f32\) : "
@@ -383,9 +392,10 @@ def render_generated_region_query(source, domain, target):
   query = query.replace(
     "^entry:\n", "  let mut %__exact_selected: i32 = undef;\n^entry:\n", 1
   )
+  target_coordinates = ", ".join(str(value) for value in target_index)
   query = query.replace(
     "  ret %out;",
-    "  %__exact_selected = tensor extract %out, [0, 0];\n"
+    f"  %__exact_selected = tensor extract %out, [{target_coordinates}];\n"
     f"  require %__exact_selected == {target};\n  ret %out;",
     1,
   )
@@ -773,7 +783,9 @@ def validate_selection(
   except (KeyError, TypeError) as error:
     raise ValueError("solver selection artifact is missing") from error
   if generated:
-    expected_query = render_generated_region_query(source, domain, target["value"])
+    expected_query = render_generated_region_query(
+      source, domain, target["value"], target_index=target["index"]
+    )
   else:
     from test.lib.build_tensor_exact_loop_case import render_query
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare random and SMT inputs on one exact composed loop and V100 layouts."""
+"""Compare random and SMT inputs on exact generated regions and V100 layouts."""
 
 import argparse
 import hashlib
@@ -35,6 +35,12 @@ LAYOUT_SEED = 20261002
 MATRIX_INPUT_VALUES = (1, 2, 4, 8)
 DEFAULT_BUDGET_S = 120.0
 SOLVER_TIMEOUT_S = 60.0
+PROGRAM_DIR = Path(__file__).with_name("programs")
+PROGRAM_SOURCES = {
+  "row-reduction-v1": PROGRAM_DIR / "row-reduction-v1.sir",
+  "column-reduction-v1": PROGRAM_DIR / "column-reduction-v1.sir",
+  "two-axis-reduction-v1": PROGRAM_DIR / "two-axis-reduction-v1.sir",
+}
 CALIBRATION_CONTROL_CONTRACT = [
   {"control_id": "correct-layout-baseline", "expected_detection": False},
   {"control_id": "add-one-output-mutant", "expected_detection": True},
@@ -88,8 +94,12 @@ def _trial_record(policy, seed, budget_s):
   }
 
 
-def render_selection_query(*, iterations, target, target_index):
+def render_selection_query(*, iterations, target, target_index, source=None):
   """Render the integer twin for a selected loop and full-output element."""
+  if source is not None:
+    return tensor_exact_f32.render_generated_region_query(
+      source, DOMAIN, target, target_index=target_index
+    )
   if type(iterations) is not int or not 1 <= iterations <= 8:
     raise ValueError("iterations must be in [1,8]")
   if type(target) is not int:
@@ -126,10 +136,20 @@ def _exact_loop_path(iterations):
   )
 
 
-def _matrix_cell_specs(*, iterations, target_indices, seeds, layout_seeds):
+def _matrix_program_source(program_id):
+  try:
+    source_path = PROGRAM_SOURCES[program_id]
+  except KeyError as error:
+    raise ValueError(f"unknown generated selection program: {program_id}") from error
+  source = source_path.read_text(encoding="utf-8")
+  tensor_exact_f32._generated_region_program(source)
+  return source
+
+
+def _matrix_cell_specs(*, program_ids, target_indices, seeds, layout_seeds):
   try:
     axes = {
-      "iterations": tuple(iterations),
+      "program_ids": tuple(program_ids),
       "target_indices": tuple(tuple(index) for index in target_indices),
       "seeds": tuple(seeds),
       "layout_seeds": tuple(layout_seeds),
@@ -139,9 +159,10 @@ def _matrix_cell_specs(*, iterations, target_indices, seeds, layout_seeds):
   if any(not values for values in axes.values()):
     raise ValueError("selection matrix axes must not be empty")
   if any(
-    type(value) is not int or not 1 <= value <= 8 for value in axes["iterations"]
-  ) or len(set(axes["iterations"])) != len(axes["iterations"]):
-    raise ValueError("matrix iterations must be unique integers in [1,8]")
+    not isinstance(program_id, str) or program_id not in PROGRAM_SOURCES
+    for program_id in axes["program_ids"]
+  ) or len(set(axes["program_ids"])) != len(axes["program_ids"]):
+    raise ValueError("matrix program ids must be known and unique")
   if any(
     len(index) != 2
     or any(type(value) is not int or not 0 <= value < 2 for value in index)
@@ -158,15 +179,14 @@ def _matrix_cell_specs(*, iterations, target_indices, seeds, layout_seeds):
   return [
     {
       "cell_id": (
-        f"iter-{iteration}-output-{index[0]}-{index[1]}-"
-        f"seed-{seed}-layout-{layout_seed}"
+        f"{program_id}-output-{index[0]}-{index[1]}-seed-{seed}-layout-{layout_seed}"
       ),
-      "iterations": iteration,
+      "program_id": program_id,
       "target_index": index,
       "seed": seed,
       "layout_seed": layout_seed,
     }
-    for iteration in axes["iterations"]
+    for program_id in axes["program_ids"]
     for index in axes["target_indices"]
     for seed in axes["seeds"]
     for layout_seed in axes["layout_seeds"]
@@ -182,7 +202,30 @@ def _gpu_child_command(
   target,
   target_index,
   layout_seed,
+  program_source=None,
 ):
+  if program_source is not None:
+    return [
+      sys.executable,
+      "-m",
+      "test.tensor.gluon.run_generated_region",
+      "--program",
+      str(program_source),
+      "--output",
+      str(gpu_report_path),
+      "--ir-dir",
+      str(ir_dir),
+      "--input-values",
+      ",".join(str(value) for value in input_values),
+      "--domain",
+      f"{DOMAIN[0]},{DOMAIN[1]}",
+      "--target",
+      str(target),
+      "--target-index",
+      f"{target_index[0]},{target_index[1]}",
+      "--layout-seed",
+      str(layout_seed),
+    ]
   return [
     sys.executable,
     "-m",
@@ -359,6 +402,7 @@ def _solve_selection(
   iterations,
   target,
   target_index,
+  generated_region=False,
 ):
   trial = _trial_record("solver", seed, budget_s)
   arm_dir = output_dir / "solver"
@@ -366,7 +410,10 @@ def _solve_selection(
   started = time.perf_counter()
   generation_started = time.perf_counter()
   query = render_selection_query(
-    iterations=iterations, target=target, target_index=target_index
+    iterations=iterations,
+    target=target,
+    target_index=target_index,
+    source=source if generated_region else None,
   )
   query_path = arm_dir / "selection-query.sir"
   solved_path = arm_dir / "selection.solved.sir"
@@ -499,6 +546,7 @@ def _run_gpu_policy(
   target=TARGET,
   target_index=TARGET_INDEX,
   layout_seed=LAYOUT_SEED,
+  program_source_path=None,
 ):
   if trial["admission_status"] != "admitted":
     return
@@ -533,6 +581,7 @@ def _run_gpu_policy(
     target=target,
     target_index=target_index,
     layout_seed=layout_seed,
+    program_source=program_source_path,
   )
   remaining = budget_s - (time.perf_counter() - started)
   if remaining <= 0:
@@ -624,6 +673,8 @@ def run(
   target=TARGET,
   target_index=TARGET_INDEX,
   layout_seed=LAYOUT_SEED,
+  program_source=None,
+  program_id=None,
 ):
   output_dir = Path(output_dir).resolve()
   output_dir.mkdir(parents=True, exist_ok=False)
@@ -652,7 +703,25 @@ def run(
   ):
     raise ValueError("budget_s must be a finite positive number")
   budget_s = float(budget_s)
-  source = tensor_exact_f32.render_program(iterations=iterations)
+  generated_region = program_source is not None
+  if generated_region:
+    if not isinstance(program_source, str):
+      raise ValueError("program_source must be generated SIR text")
+    source = program_source
+    _, source_iterations, _, _, _ = tensor_exact_f32._generated_region_program(source)
+    if source_iterations != iterations:
+      raise ValueError("program iteration count differs from the matrix cell")
+    if not isinstance(program_id, str) or program_id not in PROGRAM_SOURCES:
+      raise ValueError("generated program requires a known program id")
+    semantic_contract = "generated-multi-output-region-f32-exact-loop-v1"
+  else:
+    source = tensor_exact_f32.render_program(iterations=iterations)
+    program_id = (
+      PROGRAM_ID
+      if iterations == ITERATIONS
+      else f"authored-2x2-two-state-loop-iterations-{iterations}-v1"
+    )
+    semantic_contract = SEMANTIC_CONTRACT
   trials = []
 
   random_started = time.perf_counter()
@@ -716,6 +785,7 @@ def run(
       target=target,
       target_index=target_index,
       layout_seed=layout_seed,
+      program_source_path=random_dir / "program.sir" if generated_region else None,
     )
   trials.append(random_trial)
 
@@ -729,6 +799,7 @@ def run(
     iterations=iterations,
     target=target,
     target_index=target_index,
+    generated_region=generated_region,
   )
   if solver_witness is not None:
     _run_gpu_policy(
@@ -741,14 +812,12 @@ def run(
       target=target,
       target_index=target_index,
       layout_seed=layout_seed,
+      program_source_path=output_dir / "solver" / "program.sir"
+      if generated_region
+      else None,
     )
   trials.append(solver_trial)
 
-  program_id = (
-    PROGRAM_ID
-    if iterations == ITERATIONS
-    else f"authored-2x2-two-state-loop-iterations-{iterations}-v1"
-  )
   property_id = f"output-element-{target_index[0]}-{target_index[1]}-equals-{target}"
   compiler_settings_id = (
     "triton-3.8.0-v100-num-warps-1-fp-fusion-off-layout-seed-"
@@ -759,6 +828,7 @@ def run(
     trial.update(
       {
         "program_id": program_id,
+        "semantic_contract": semantic_contract,
         "property_id": property_id,
         "compiler_settings_id": compiler_settings_id,
         "trial": trial_id,
@@ -772,6 +842,8 @@ def run(
       "random_proposal_budget": proposal_budget,
       "solver_timeout_s": SOLVER_TIMEOUT_S,
       "iterations": iterations,
+      "program_id": program_id,
+      "semantic_contract": semantic_contract,
       "property": {"target": target, "index": list(target_index)},
       "layout_seed": layout_seed,
       "cache_isolation": "fresh TRITON_CACHE_DIR per policy arm",
@@ -797,7 +869,7 @@ def run_matrix(
   output_dir,
   *,
   solver,
-  iterations=(1, 2),
+  program_ids=tuple(PROGRAM_SOURCES),
   target_indices=((0, 0), (1, 1)),
   seeds=(17, 29),
   layout_seeds=(LAYOUT_SEED, LAYOUT_SEED + 1),
@@ -806,12 +878,12 @@ def run_matrix(
 ):
   """Run matched random/solver pairs over a fixed program/property/layout matrix."""
   cells = _matrix_cell_specs(
-    iterations=iterations,
+    program_ids=program_ids,
     target_indices=target_indices,
     seeds=seeds,
     layout_seeds=layout_seeds,
   )
-  iterations = tuple(iterations)
+  program_ids = tuple(program_ids)
   target_indices = tuple(tuple(index) for index in target_indices)
   seeds = tuple(seeds)
   layout_seeds = tuple(layout_seeds)
@@ -823,7 +895,7 @@ def run_matrix(
     "protocol": {
       "input_domain": list(DOMAIN),
       "anchor_input_values": list(MATRIX_INPUT_VALUES),
-      "iterations": list(iterations),
+      "program_ids": list(program_ids),
       "target_indices": [list(index) for index in target_indices],
       "seeds": list(seeds),
       "layout_seeds": list(layout_seeds),
@@ -836,11 +908,14 @@ def run_matrix(
   matrix_path = output_dir / "matrix.json"
   _write_json(matrix_path, matrix)
   for cell in cells:
-    source = tensor_exact_f32.render_program(iterations=cell["iterations"])
-    anchor_bytes = struct.pack("<4f", *MATRIX_INPUT_VALUES)
+    source = _matrix_program_source(cell["program_id"])
+    shape, iterations, _, _, _ = tensor_exact_f32._generated_region_program(source)
+    anchor_bytes = struct.pack(f"<{len(MATRIX_INPUT_VALUES)}f", *MATRIX_INPUT_VALUES)
     _, anchor_output = tensor_exact_f32.certify(source, anchor_bytes, DOMAIN)
     index = tuple(cell["target_index"])
-    target_value = struct.unpack("<4f", anchor_output)[index[0] * 2 + index[1]]
+    target_value = struct.unpack(f"<{len(anchor_output) // 4}f", anchor_output)[
+      index[0] * shape[1] + index[1]
+    ]
     if not target_value.is_integer():
       raise ValueError("matrix anchor must produce integer-valued properties")
     target = int(target_value)
@@ -850,16 +925,19 @@ def run_matrix(
       seed=cell["seed"],
       proposal_budget=proposal_budget,
       budget_s=budget_s,
-      iterations=cell["iterations"],
+      iterations=iterations,
       target=target,
       target_index=index,
       layout_seed=cell["layout_seed"],
+      program_source=source,
+      program_id=cell["program_id"],
     )
     matrix["cells"].append(
       {
         **cell,
         "target": target,
         "program_id": cell_report["ledger"]["fixed"]["program_id"],
+        "program_sha256": cell_report["ledger"]["fixed"]["program_sha256"],
         "property_id": cell_report["ledger"]["trials"][0]["property_id"],
         "study_path": str(Path(cell["cell_id"]) / "study.json"),
         "summary": cell_report["summary"],
@@ -880,13 +958,13 @@ def main(argv=None):
   parser.add_argument("--budget-s", type=float, default=DEFAULT_BUDGET_S)
   parser.add_argument("--matrix", action="store_true")
   parser.add_argument("--seeds", default="17,29")
-  parser.add_argument("--iterations", default="1,2")
+  parser.add_argument("--program-ids", default=",".join(PROGRAM_SOURCES))
   parser.add_argument("--target-indices", default="0,0;1,1")
   parser.add_argument("--layout-seeds", default=f"{LAYOUT_SEED},{LAYOUT_SEED + 1}")
   args = parser.parse_args(argv)
   if args.matrix:
     try:
-      iterations = tuple(int(value.strip()) for value in args.iterations.split(","))
+      program_ids = tuple(value.strip() for value in args.program_ids.split(","))
       seeds = tuple(int(value.strip()) for value in args.seeds.split(","))
       layout_seeds = tuple(int(value.strip()) for value in args.layout_seeds.split(","))
       target_indices = tuple(
@@ -898,7 +976,7 @@ def main(argv=None):
     report = run_matrix(
       args.output_dir,
       solver=args.symirsolve,
-      iterations=iterations,
+      program_ids=program_ids,
       target_indices=target_indices,
       seeds=seeds,
       layout_seeds=layout_seeds,
