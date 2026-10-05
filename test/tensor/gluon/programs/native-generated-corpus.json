@@ -165,7 +165,7 @@
     {
       "program_id": "authored-elementwise-subtraction-region-v1",
       "source_file": "elementwise-subtraction-region-v1.sir",
-      "source_sha256": "6bc223f7f3cde17fa807468fe57e0f7dc8d070087b8d2d1ef2cf7f36c492374c"
+      "source_sha256": "16cd84de25f127cb6175822023adc188fb51cffc3473ba22febf926d08a29cff"
     },
     {
       "program_id": "authored-orthogonal-reductions-region-v1",

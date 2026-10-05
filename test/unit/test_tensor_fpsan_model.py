@@ -544,6 +544,45 @@ class TensorFpSanModelTests(unittest.TestCase):
     self.assertEqual(result["status"], "pass")
     self.assertEqual(result["payload_operation_counts"], {"mul": 1})
 
+  def test_payload_lowering_recognizes_ttgir_addition_and_subtraction(self):
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      "%sum = arith.addi %left, %right : tensor<16xi32>\n"
+      "%difference = arith.subi %sum, %left : tensor<16xi32>",
+      stage="ttgir",
+      required_payload_operations=("add", "sub"),
+    )
+
+    self.assertEqual(result["ir_stage"], "ttgir")
+    self.assertEqual(result["payload_operation_counts"], {"add": 1, "sub": 1})
+
+  def test_payload_lowering_recognizes_ttgir_multiplication(self):
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      "%product = arith.muli %left, %right : tensor<16xi32>",
+      stage="ttgir",
+      required_payload_operations=("mul",),
+    )
+
+    self.assertEqual(result["payload_operation_counts"], {"mul": 1})
+
+  def test_payload_lowering_rejects_float_arithmetic_in_ttgir(self):
+    with self.assertRaisesRegex(AssertionError, "floating-point arithmetic"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        "%sum = arith.addi %left, %right : tensor<16xi32>\n"
+        "%difference = arith.subf %sum, %left : tensor<16xf32>",
+        stage="ttgir",
+        required_payload_operations=("add",),
+      )
+
+  def test_payload_lowering_allows_llvm_optimization_to_remove_subtraction(self):
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      "%sum = add <4 x i32> %left, %right",
+      stage="llvm",
+      required_payload_operations=(),
+    )
+
+    self.assertEqual(result["ir_stage"], "llvm")
+    self.assertNotIn("sub", result["payload_operation_counts"])
+
   def test_payload_lowering_requires_dynamic_integer_multiplication(self):
     with self.assertRaisesRegex(AssertionError, "integer payload multiplication"):
       self.fpsan().validate_fpsan_payload_lowering(

@@ -734,8 +734,8 @@ def _run_generated_region_case(
     "smt_witness": smt_witness,
     "fpsan_output_words": fpsan_words,
   }
-  result["payload_lowering"] = validate_fpsan_payload_lowering(
-    getattr(compiled, "asm", {}).get("llir", ""),
+  result["payload_lowering"] = _validate_generated_region_payload_lowering(
+    compiled,
     required_payload_operations=_required_fpsan_payload_operations(
       source, witness["iterations"]
     ),
@@ -892,8 +892,8 @@ def _run_generated_region_case(
       "actual_bits": [f"{value:08x}" for value in actual_mutant_words],
       "expected_bits": [f"{value:08x}" for value in expected_mutant_words],
       "measurement": mutant_measurement,
-      "payload_lowering": validate_fpsan_payload_lowering(
-        getattr(mutant_compiled, "asm", {}).get("llir", ""),
+      "payload_lowering": _validate_generated_region_payload_lowering(
+        mutant_compiled,
         required_payload_operations=_required_fpsan_payload_operations(
           source, render_options.get("iteration_count", witness["iterations"])
         ),
@@ -903,6 +903,25 @@ def _run_generated_region_case(
   result["elapsed_s"] = time.perf_counter() - case_started
   note("complete")
   return result
+
+
+def _validate_generated_region_payload_lowering(
+  compiled, *, required_payload_operations
+):
+  """Check FpSan integerization in TTGIR and the final LLVM float guard."""
+  assembly = getattr(compiled, "asm", {})
+  return {
+    "ttgir": validate_fpsan_payload_lowering(
+      assembly.get("ttgir", ""),
+      stage="ttgir",
+      required_payload_operations=required_payload_operations,
+    ),
+    "llir": validate_fpsan_payload_lowering(
+      assembly.get("llir", ""),
+      stage="llvm",
+      required_payload_operations=(),
+    ),
+  }
 
 
 def _compile_generated_kernel_mode(kernel, inputs, shape, instrumentation_mode):

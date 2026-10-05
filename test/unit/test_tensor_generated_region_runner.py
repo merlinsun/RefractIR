@@ -66,7 +66,8 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     )
 
     self.assertEqual(iterations, 1)
-    self.assertEqual(nodes[0], ("difference", "sub", ("acc_x", "acc_y"), None))
+    self.assertEqual(nodes[0], ("twice", "add", ("acc_x", "acc_x"), None))
+    self.assertEqual(nodes[1], ("difference", "sub", ("twice", "acc_x"), None))
     self.assertEqual(updates, [("acc_x", "next_x"), ("acc_y", "next_y")])
 
   def test_exact_certificate_bounds_subtraction_and_complete_output(self):
@@ -96,8 +97,8 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
       SUBTRACTION_REGION_SOURCE, payloads
     )
 
-    self.assertIn("(bvsub x0 #x00000000)", query["script"])
-    self.assertIn("(bvuge x0 #x00000000)", query["script"])
+    self.assertIn("(bvsub g_v0_n0_e0 x0)", query["script"])
+    self.assertIn("(assert (bvuge g_v0_n0_e0 x0))", query["script"])
     self.assertEqual(query["script"].count("(assert (bvuge "), 512)
     self.assertEqual(output, [3 * value for value in payloads])
 
@@ -118,13 +119,33 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     )
     experiment = _load_fpsan_experiment()
 
-    self.assertIn("v0 = v0_left - v0_right", gluon_source)
-    self.assertIn("value_0 = acc_x - acc_y", fpsan_source)
+    self.assertIn("v1 = v1_left - v1_right", gluon_source)
+    self.assertIn("value_0 = acc_x + acc_x", fpsan_source)
+    self.assertIn("value_1 = value_0 - acc_x", fpsan_source)
     self.assertIn("sub", validation["required_payload_operations"])
     self.assertEqual(
       experiment._required_fpsan_payload_operations(SUBTRACTION_REGION_SOURCE, 1),
       ("add", "sub"),
     )
+
+  def test_fpsan_payload_contract_checks_ttgir_and_final_llvm(self):
+    experiment = _load_fpsan_experiment()
+    compiled = SimpleNamespace(
+      asm={
+        "ttgir": (
+          "%twice = arith.addi %value, %value : tensor<16xi32>\n"
+          "%difference = arith.subi %twice, %value : tensor<16xi32>"
+        ),
+        "llir": "%sum = add <4 x i32> %left, %right",
+      }
+    )
+
+    result = experiment._validate_generated_region_payload_lowering(
+      compiled, required_payload_operations=("add", "sub")
+    )
+
+    self.assertEqual(result["ttgir"]["payload_operation_counts"], {"add": 1, "sub": 1})
+    self.assertEqual(result["llir"]["floating_operation_lines"], [])
 
   def test_ordinary_reference_admits_binary32_subtraction_region(self):
     experiment = _load_fpsan_experiment()
@@ -153,7 +174,7 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     from test.lib.tensor_fp32_reference import sub_f32_rne_bits
 
     underflow_source = SUBTRACTION_REGION_SOURCE.replace(
-      "tensor sub %acc_x, %acc_y", "tensor sub %acc_y, %acc_x"
+      "tensor sub %twice, %acc_x", "tensor sub %acc_x, %twice"
     )
     zero_bytes = struct.pack("<256f", *([0.0] * 256))
     with self.assertRaisesRegex(ValueError, "negative exact value"):
@@ -170,6 +191,80 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(sub_f32_rne_bits(0x3F800000, 0x3F800000), 0)
     self.assertEqual(sub_f32_rne_bits(0x3F800000, 0x33000000), 0x3F800000)
     self.assertEqual(sub_f32_rne_bits(0x3F800000, 0x33800000), 0x3F7FFFFF)
+
+  def test_subtraction_graph_uses_a_computed_left_operand(self):
+    from test.lib import tensor_exact_f32
+
+    _shape, _iterations, _types, nodes, _updates = (
+      tensor_exact_f32._generated_region_program(SUBTRACTION_REGION_SOURCE)
+    )
+
+    self.assertEqual(nodes[0], ("twice", "add", ("acc_x", "acc_x"), None))
+    self.assertEqual(nodes[1], ("difference", "sub", ("twice", "acc_x"), None))
+
+  def test_exact_certificate_bounds_the_nonzero_subtraction(self):
+    from test.lib import tensor_exact_f32
+
+    inputs = tuple(float(index % 9) for index in range(256))
+    proof, output = tensor_exact_f32.certify(
+      SUBTRACTION_REGION_SOURCE, struct.pack("<256f", *inputs), (0, 8)
+    )
+    bounds = {item["destination"]: item for item in proof["bounds"]}
+
+    self.assertEqual(bounds["%twice"]["max_value"], 16)
+    self.assertEqual(bounds["%difference"]["min_value"], 0)
+    self.assertEqual(bounds["%difference"]["max_value"], 8)
+    self.assertEqual(
+      struct.unpack("<256f", output), tuple(3.0 * value for value in inputs)
+    )
+
+  def test_payload_query_subtracts_a_computed_payload(self):
+    from test.lib import tensor_fpsan
+
+    query = tensor_fpsan.build_generated_payload_query(SUBTRACTION_REGION_SOURCE)
+
+    self.assertIn("(bvsub g_v0_n0_e0 x0)", query["script"])
+    self.assertIn("(assert (bvuge g_v0_n0_e0 x0))", query["script"])
+
+  def test_payload_replay_detects_replacing_active_subtraction_with_addition(self):
+    from test.lib import tensor_fpsan
+
+    values = (1,) * 256
+    source_with_add = SUBTRACTION_REGION_SOURCE.replace(
+      "tensor sub %twice, %acc_x", "tensor add %twice, %acc_x"
+    )
+    expected = tensor_fpsan.evaluate_generated_payload_region(
+      SUBTRACTION_REGION_SOURCE, values
+    )
+    changed = tensor_fpsan.evaluate_generated_payload_region(source_with_add, values)
+
+    self.assertEqual(expected, [3] * 256)
+    self.assertEqual(changed, [5] * 256)
+
+  def test_compiler_sources_retain_the_active_subtraction(self):
+    from test.lib.tensor_fpsan import render_generated_region_triton_kernel
+    from test.lib.tensor_gluon_lowering import render_gluon_kernel
+
+    fpsan_source = render_generated_region_triton_kernel(SUBTRACTION_REGION_SOURCE)
+    gluon_source = render_gluon_kernel(SUBTRACTION_REGION_SOURCE).source
+
+    self.assertIn("value_1 = value_0 - acc_x", fpsan_source)
+    self.assertIn("v1 = v1_left - v1_right", gluon_source)
+
+  def test_affine_subtraction_accepts_zero_boundary_and_refuses_reverse(self):
+    from test.lib import tensor_exact_f32
+
+    zero_input = struct.pack("<256f", *([0.0] * 256))
+    _proof, output = tensor_exact_f32.certify(
+      SUBTRACTION_REGION_SOURCE, zero_input, (0, 8)
+    )
+    reversed_subtraction = SUBTRACTION_REGION_SOURCE.replace(
+      "tensor sub %twice, %acc_x", "tensor sub %acc_x, %twice"
+    )
+
+    self.assertEqual(output, zero_input)
+    with self.assertRaisesRegex(ValueError, "negative exact value"):
+      tensor_exact_f32.certify(reversed_subtraction, zero_input, (0, 8))
 
   def test_orthogonal_reductions_feed_distinct_loop_state_roots(self):
     from test.lib import tensor_exact_f32

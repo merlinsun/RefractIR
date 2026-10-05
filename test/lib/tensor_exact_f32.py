@@ -550,11 +550,48 @@ def _certify_generated_region(source, input_bytes, domain):
     "acc_x": (domain[0],) * count,
     "acc_y": (0,) * count,
   }
+  zero_form = (0,) * (count + 1)
+  input_forms = tuple(
+    tuple(1 if input_index == element_index else 0 for input_index in range(count))
+    + (0,)
+    for element_index in range(count)
+  )
+  affine = {
+    "x": input_forms,
+    "acc_x": input_forms,
+    "acc_y": (zero_form,) * count,
+  }
   bounds = []
 
   def record(
-    destination, operation, actual, minima, maxima, block, visit, *, partial=False
+    destination,
+    operation,
+    actual,
+    minima,
+    maxima,
+    block,
+    visit,
+    *,
+    partial=False,
+    forms=None,
   ):
+    if forms is not None:
+      minima = []
+      maxima = []
+      for form in forms:
+        minimum = form[-1]
+        maximum = form[-1]
+        for coefficient in form[:-1]:
+          if coefficient >= 0:
+            minimum += coefficient * domain[0]
+            maximum += coefficient * domain[1]
+          else:
+            minimum += coefficient * domain[1]
+            maximum += coefficient * domain[0]
+        minima.append(minimum)
+        maxima.append(maximum)
+      minima = tuple(minima)
+      maxima = tuple(maxima)
     if (
       len(actual) != len(minima)
       or len(actual) != len(maxima)
@@ -577,6 +614,7 @@ def _certify_generated_region(source, input_bytes, domain):
     values[destination] = actual
     lower[destination] = minima
     upper[destination] = maxima
+    affine[destination] = forms
     evidence = {
       "block": block,
       "visit": visit,
@@ -590,9 +628,25 @@ def _certify_generated_region(source, input_bytes, domain):
       evidence["max_partial_sum"] = maximum
     bounds.append(evidence)
 
-  record("x", "input", values["x"], lower["x"], upper["x"], "^entry", 0)
   record(
-    "acc_x", "input-copy", values["acc_x"], lower["acc_x"], upper["acc_x"], "^entry", 0
+    "x",
+    "input",
+    values["x"],
+    lower["x"],
+    upper["x"],
+    "^entry",
+    0,
+    forms=input_forms,
+  )
+  record(
+    "acc_x",
+    "input-copy",
+    values["acc_x"],
+    lower["acc_x"],
+    upper["acc_x"],
+    "^entry",
+    0,
+    forms=input_forms,
   )
   record(
     "acc_y",
@@ -602,6 +656,7 @@ def _certify_generated_region(source, input_bytes, domain):
     upper["acc_y"],
     "^entry",
     0,
+    forms=(zero_form,) * count,
   )
 
   def add_values(left, right, output_shape):
@@ -622,6 +677,37 @@ def _certify_generated_region(source, input_bytes, domain):
       ),
       tuple(a + b for a, b in zip(upper_left, upper_right)),
     )
+
+  def affine_binary(left, right, output_shape, *, subtract=False):
+    left_forms = affine[left]
+    right_forms = affine[right]
+    if left_forms is None or right_forms is None:
+      return None
+    left_forms = _broadcast_values(left_forms, tensor_types[left], output_shape)
+    right_forms = _broadcast_values(right_forms, tensor_types[right], output_shape)
+    sign = -1 if subtract else 1
+    return tuple(
+      tuple(a + sign * b for a, b in zip(left_form, right_form))
+      for left_form, right_form in zip(left_forms, right_forms)
+    )
+
+  def affine_sum(source_name, axis, output_shape):
+    forms = affine[source_name]
+    if forms is None:
+      return None
+    source_shape = tensor_types[source_name]
+    normalized_axis = axis if axis >= 0 else axis + len(source_shape)
+    summed_forms = []
+    for destination_coordinates in _coordinates(output_shape):
+      total = [0] * (count + 1)
+      for axis_coordinate in range(source_shape[normalized_axis]):
+        source_coordinates = list(destination_coordinates)
+        source_coordinates[normalized_axis] = axis_coordinate
+        source_index = _flat_index(source_coordinates, source_shape)
+        for index, coefficient in enumerate(forms[source_index]):
+          total[index] += coefficient
+      summed_forms.append(tuple(total))
+    return tuple(summed_forms)
 
   def multiply_values(left, right, output_shape):
     broadcast_left = _broadcast_values(values[left], tensor_types[left], output_shape)
@@ -663,8 +749,10 @@ def _certify_generated_region(source, input_bytes, domain):
   for visit in range(1, iterations + 1):
     for destination, operation, operands, attribute in nodes:
       output_shape = tensor_types[destination]
+      forms = None
       if operation == "add":
         actual, minima, maxima = add_values(operands[0], operands[1], output_shape)
+        forms = affine_binary(operands[0], operands[1], output_shape)
       elif operation == "sub":
         left_name, right_name = operands
         actual_left = _broadcast_values(
@@ -688,10 +776,12 @@ def _certify_generated_region(source, input_bytes, domain):
         actual = tuple(a - b for a, b in zip(actual_left, actual_right))
         minima = tuple(a - b for a, b in zip(lower_left, upper_right))
         maxima = tuple(a - b for a, b in zip(upper_left, lower_right))
+        forms = affine_binary(left_name, right_name, output_shape, subtract=True)
       elif operation == "mul":
         actual, minima, maxima = multiply_values(operands[0], operands[1], output_shape)
       elif operation == "sum":
         actual, minima, maxima = sum_values(operands[0], attribute, output_shape)
+        forms = affine_sum(operands[0], attribute, output_shape)
       else:
         actual = _broadcast_values(
           values[operands[0]], tensor_types[operands[0]], output_shape
@@ -702,6 +792,10 @@ def _certify_generated_region(source, input_bytes, domain):
         maxima = _broadcast_values(
           upper[operands[0]], tensor_types[operands[0]], output_shape
         )
+        if affine[operands[0]] is not None:
+          forms = _broadcast_values(
+            affine[operands[0]], tensor_types[operands[0]], output_shape
+          )
       record(
         destination,
         operation,
@@ -711,22 +805,43 @@ def _certify_generated_region(source, input_bytes, domain):
         "^body",
         visit,
         partial=operation == "sum",
+        forms=forms,
       )
 
     # RefractIR writes mutable locals in source order. A later update may read
     # a loop-carried value that an earlier update has already changed.
     for state, root in updates:
       record(
-        state, "state-update", values[root], lower[root], upper[root], "^body", visit
+        state,
+        "state-update",
+        values[root],
+        lower[root],
+        upper[root],
+        "^body",
+        visit,
+        forms=affine[root],
       )
 
   output, output_lower, output_upper = add_values("acc_x", "acc_y", shape)
-  record("out", "add", output, output_lower, output_upper, "^exit", 0)
+  record(
+    "out",
+    "add",
+    output,
+    output_lower,
+    output_upper,
+    "^exit",
+    0,
+    forms=affine_binary("acc_x", "acc_y", shape),
+  )
   proof = {
     "kind": REGION_KIND,
     "complete_output": True,
     "integer_exactness_bound": EXACT_BOUND,
     "input_domain": list(domain),
+    "bound_method": (
+      "per-lane affine forms for add, sub, sum and broadcast; "
+      "conservative interval fallback for multiply"
+    ),
     "allowed_operations": sorted({operation for _, operation, _, _ in nodes} | {"add"}),
     "state_update_order": [
       {"state": "%" + state, "value": "%" + root} for state, root in updates

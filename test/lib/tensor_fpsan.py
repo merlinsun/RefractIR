@@ -217,10 +217,14 @@ def validate_instrumentation_sensitivity(instrumented, ordinary, ordinary_expect
   return {"status": "pass", "mismatch_lanes": mismatch_lanes}
 
 
-def validate_fpsan_payload_lowering(llvm_ir, *, required_payload_operations=("add",)):
+def validate_fpsan_payload_lowering(
+  ir, *, stage="llvm", required_payload_operations=("add",)
+):
   """Require requested integer payload operations and reject IEEE arithmetic."""
-  if not isinstance(llvm_ir, str) or not llvm_ir.strip():
-    raise ValueError("FpSan payload lowering requires non-empty LLVM IR")
+  if stage not in {"llvm", "ttgir"}:
+    raise ValueError("FpSan payload lowering stage must be llvm or ttgir")
+  if not isinstance(ir, str) or not ir.strip():
+    raise ValueError(f"FpSan payload lowering requires non-empty {stage.upper()} IR")
   if (
     not isinstance(required_payload_operations, (tuple, list))
     or any(
@@ -230,45 +234,56 @@ def validate_fpsan_payload_lowering(llvm_ir, *, required_payload_operations=("ad
     or len(set(required_payload_operations)) != len(required_payload_operations)
   ):
     raise ValueError("required payload operations must be unique add/sub/mul names")
-  lines = llvm_ir.splitlines()
-  integer_additions = [
-    line.strip()
-    for line in lines
-    if re.search(
-      r"\badd\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+|"
-      r"@llvm\.vector\.reduce\.add\b",
-      line,
-    )
-  ]
-  integer_multiplications = [
-    line.strip()
-    for line in lines
-    if re.search(
-      r"\bmul\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+",
-      line,
-    )
-  ]
-  integer_subtractions = [
-    line.strip()
-    for line in lines
-    if re.search(
-      r"\bsub\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+",
-      line,
-    )
-  ]
-  floating_operations = [
-    line.strip() for line in lines if re.search(r"\bf(?:add|sub|mul|div|rem)\b", line)
-  ]
+  lines = ir.splitlines()
+  if stage == "ttgir":
+    operation_names = {"add": "addi", "sub": "subi", "mul": "muli"}
+    payload_lines = {
+      name: [
+        line.strip() for line in lines if re.search(rf"\barith\.{ir_name}\b", line)
+      ]
+      for name, ir_name in operation_names.items()
+    }
+    floating_operations = [
+      line.strip()
+      for line in lines
+      if re.search(r"\barith\.(?:addf|subf|mulf|divf|remf)\b", line)
+    ]
+  else:
+    payload_lines = {
+      "add": [
+        line.strip()
+        for line in lines
+        if re.search(
+          r"\badd\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+|"
+          r"@llvm\.vector\.reduce\.add\b",
+          line,
+        )
+      ],
+      "sub": [
+        line.strip()
+        for line in lines
+        if re.search(
+          r"\bsub\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+",
+          line,
+        )
+      ],
+      "mul": [
+        line.strip()
+        for line in lines
+        if re.search(
+          r"\bmul\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+",
+          line,
+        )
+      ],
+    }
+    floating_operations = [
+      line.strip() for line in lines if re.search(r"\bf(?:add|sub|mul|div|rem)\b", line)
+    ]
   if floating_operations:
     raise AssertionError(
       "FpSan payload lowering retained floating-point arithmetic: "
       + "; ".join(floating_operations)
     )
-  payload_lines = {
-    "add": integer_additions,
-    "sub": integer_subtractions,
-    "mul": integer_multiplications,
-  }
   display_names = {
     "add": "addition",
     "sub": "subtraction",
@@ -279,11 +294,10 @@ def validate_fpsan_payload_lowering(llvm_ir, *, required_payload_operations=("ad
       raise AssertionError(
         f"FpSan payload lowering has no integer payload {display_names[operation]}"
       )
-  integer_operations = sorted(
-    set(integer_additions + integer_subtractions + integer_multiplications)
-  )
+  integer_operations = sorted(set(sum(payload_lines.values(), [])))
   return {
     "status": "pass",
+    "ir_stage": stage,
     "integer_operation_lines": integer_operations,
     "payload_operation_counts": {
       operation: len(payload_lines[operation])
