@@ -19,6 +19,7 @@ from test.lib.tensor_fp32_reference import (
   mul_add_separate_f32_bits,
   mul_f32_rne_bits,
   reduction_f32_rne_outcomes,
+  sub_f32_rne_bits,
 )
 from test.lib.tensor_fpsan import (
   f32_fmod_bits,
@@ -72,6 +73,14 @@ def remainder_kernel(dividend_ptr, divisor_ptr, output_ptr):
   tl.store(output_ptr + offsets, libdevice.fmod(dividend, divisor))
 
 
+@triton.jit
+def subtraction_edge_kernel(left_ptr, right_ptr, output_ptr):
+  offsets = tl.arange(0, 8)
+  left = tl.load(left_ptr + offsets)
+  right = tl.load(right_ptr + offsets)
+  tl.store(output_ptr + offsets, left - right)
+
+
 def _raw_words(tensor):
   return [value & 0xFFFFFFFF for value in tensor.view(torch.int32).cpu().tolist()]
 
@@ -86,9 +95,28 @@ def _ptx_has_fma(ptx):
 
 def _ptx_has_ftz_arithmetic(ptx):
   return (
-    re.search(r"(?m)^\s*(?:add|mul|fma)\.[a-z0-9.]*ftz[a-z0-9.]*\.f32\b", ptx)
+    re.search(r"(?m)^\s*(?:add|sub|mul|fma)\.[a-z0-9.]*ftz[a-z0-9.]*\.f32\b", ptx)
     is not None
   )
+
+
+def _binary32_subtraction_reference(left_words, right_words):
+  if (
+    not isinstance(left_words, (tuple, list))
+    or not isinstance(right_words, (tuple, list))
+    or not left_words
+    or len(left_words) != len(right_words)
+  ):
+    raise ValueError("subtraction operands must have the same nonzero length")
+  if any(
+    type(word) is not int or not 0 <= word <= 0xFFFFFFFF
+    for word in (*left_words, *right_words)
+  ):
+    raise ValueError("subtraction operands must be unsigned binary32 words")
+  return [
+    sub_f32_rne_bits(left, right)
+    for left, right in zip(left_words, right_words, strict=True)
+  ]
 
 
 def _run_binary32_edge_cases(ir_directory):
@@ -151,6 +179,46 @@ def _run_binary32_edge_cases(ir_directory):
     for enabled in (False, True)
   }
 
+  subtraction_input_words = {
+    "left": (
+      0x3F800000,
+      0x3F800001,
+      0x80000000,
+      0x00000001,
+      0x00000000,
+      0,
+      0,
+      0,
+    ),
+    "right": (
+      0x33000000,
+      0xB3800000,
+      0x00000000,
+      0x00000000,
+      0x80000000,
+      0,
+      0,
+      0,
+    ),
+  }
+  subtraction_left = _float_tensor_from_words(subtraction_input_words["left"])
+  subtraction_right = _float_tensor_from_words(subtraction_input_words["right"])
+  subtraction_output = torch.empty((8,), dtype=torch.float32, device="cuda")
+  compiled_subtraction, subtraction_measurement = _measure_launches(
+    lambda: subtraction_edge_kernel[(1,)](
+      subtraction_left,
+      subtraction_right,
+      subtraction_output,
+      num_warps=1,
+      enable_fp_fusion=False,
+    )
+  )
+  subtraction_actual = _raw_words(subtraction_output)
+  subtraction_expected = _binary32_subtraction_reference(
+    subtraction_input_words["left"], subtraction_input_words["right"]
+  )
+  subtraction_ptx = compiled_subtraction.asm.get("ptx", "")
+
   reduction_input_words = (0x3F800000, 0x33800000, 0xBF800000)
   reduction_input = _float_tensor_from_words(reduction_input_words)
   reduction_output = torch.empty((1,), dtype=torch.float32, device="cuda")
@@ -173,6 +241,9 @@ def _run_binary32_edge_cases(ir_directory):
     "reduction_order_sensitive": _save_ir(
       compiled_reduction, "reduction-order-sensitive", ir_directory
     ),
+    "binary32_subtraction_rne_edges": _save_ir(
+      compiled_subtraction, "subtraction-rne-edges", ir_directory
+    ),
   }
   return {
     "cases": {
@@ -181,6 +252,14 @@ def _run_binary32_edge_cases(ir_directory):
         "input_bits": {
           key: [f"{word:08x}" for word in values] for key, values in input_words.items()
         }
+      },
+      "binary32_subtraction_rne_edges": _case(subtraction_actual, subtraction_expected)
+      | {
+        "input_bits": {
+          key: [f"{word:08x}" for word in values]
+          for key, values in subtraction_input_words.items()
+        },
+        "measurement": subtraction_measurement,
       },
       "binary32_subnormal_multiplication": _case([product_outputs[0][1]], [0x00000002])
       | {"policy": "gradual underflow; arithmetic PTX must not use .ftz"},
@@ -213,6 +292,10 @@ def _run_binary32_edge_cases(ir_directory):
       "reduction_order": {
         "policy": "no single tree is assumed; every binary32 tree result is admitted",
         "ptx_contains_ftz_arithmetic": _ptx_has_ftz_arithmetic(reduction_ptx),
+      },
+      "subtraction": {
+        "policy": "binary32 RNE, IEEE signed zero, and gradual underflow",
+        "ptx_contains_ftz_arithmetic": _ptx_has_ftz_arithmetic(subtraction_ptx),
       },
     },
     "compiler_ir": compiler_ir,
@@ -289,7 +372,7 @@ def run(output_path, ir_directory):
   )
   actual_rounding = _raw_words(rounding_output)
   report = {
-    "contract": "ordinary-ieee-f32-controls-v2",
+    "contract": "ordinary-ieee-f32-controls-v3",
     "triton_version": triton.__version__,
     "triton_source_identity": source_identity,
     "torch_version": torch.__version__,
@@ -357,6 +440,8 @@ def run(output_path, ir_directory):
     failed_cases.append("subnormal_contract_result")
   if report["edge_contracts"]["reduction_order"]["ptx_contains_ftz_arithmetic"]:
     failed_cases.append("subnormal_contract_reduction")
+  if report["edge_contracts"]["subtraction"]["ptx_contains_ftz_arithmetic"]:
+    failed_cases.append("subtraction_contract_ftz")
   if failed_cases:
     raise AssertionError(
       "ordinary IEEE-f32 controls failed: " + ", ".join(sorted(failed_cases))

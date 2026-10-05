@@ -282,7 +282,7 @@ test-tensor-compiler-observation:
 	$(PY) -m unittest test.unit.test_tensor_compiler_observation
 
 test-tensor-fp-contracts:
-	REFRACTIR_TEST_CXX="$(CXX)" $(PY) -m unittest test.unit.test_ast_type_construction test.unit.test_tensor_fp32_reference test.unit.test_tensor_fp32_edge_contract test.unit.test_tensor_route_protocol
+	REFRACTIR_TEST_CXX="$(CXX)" $(PY) -m unittest test.unit.test_ast_type_construction test.unit.test_tensor_fp32_reference test.unit.test_tensor_fp32_edge_contract test.unit.test_tensor_ordinary_fp_controls test.unit.test_tensor_route_protocol
 
 test-triton-fp-controls:
 	mkdir -p $(BUILD_DIR)/fpsan/ordinary-ir
