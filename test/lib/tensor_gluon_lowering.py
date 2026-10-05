@@ -124,14 +124,15 @@ def render_gluon_kernel(source):
     result_shape = tensor_types[destination]
     if operation == "sum":
       operand = value_names[operands[0]]
+      reduction_input = f"{operand}_reduction_input_{index}"
       axis = attribute if attribute >= 0 else attribute + len(shape)
       emit(
-        f"        {operand} = gl.convert_layout({operand}, reduction_layout)",
+        f"        {reduction_input} = gl.convert_layout({operand}, reduction_layout)",
         conversion=f"region_sum_{index}_to_reduction",
       )
       emit(
         f"        {value} = gl.convert_layout("
-        f"gl.expand_dims(gl.sum({operand}, axis={axis}), {axis}), compute_layout)",
+        f"gl.expand_dims(gl.sum({reduction_input}, axis={axis}), {axis}), compute_layout)",
         conversion=f"region_sum_{index}_result_layout",
       )
     elif operation == "broadcast":

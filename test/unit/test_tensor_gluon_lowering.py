@@ -2,6 +2,7 @@
 
 import ast
 import unittest
+from pathlib import Path
 
 from test.lib.tensor_gluon_lowering import (
   cross_lane_threads_per_warp,
@@ -12,6 +13,11 @@ from test.unit.test_tensor_exact_composed import (
   generated_sequential_region_source,
 )
 
+ORTHOGONAL_PROGRAM_PATH = (
+  Path(__file__).resolve().parents[1]
+  / "tensor/gluon/programs/orthogonal-reductions-region-v1.sir"
+)
+
 
 class TensorGluonLoweringTests(unittest.TestCase):
   def test_rendered_kernel_contains_the_shared_region_operations(self):
@@ -20,7 +26,9 @@ class TensorGluonLoweringTests(unittest.TestCase):
     self.assertEqual(generated.shape, (2, 2))
     self.assertEqual(generated.iterations, 2)
     self.assertIn("v0 =", generated.source)
-    self.assertIn("gl.expand_dims(gl.sum(v0, axis=1)", generated.source)
+    self.assertIn(
+      "gl.expand_dims(gl.sum(v0_reduction_input_1, axis=1)", generated.source
+    )
     self.assertIn("v2, _ = gl.broadcast", generated.source)
     self.assertIn("v3 =", generated.source)
     self.assertIn("for _ in range(2):", generated.source)
@@ -36,9 +44,10 @@ class TensorGluonLoweringTests(unittest.TestCase):
   def test_rendered_kernel_places_reduction_and_broadcast_axes(self):
     generated = render_gluon_kernel(generated_region_source(axis=0, iterations=1))
 
-    self.assertIn("gl.sum(v0, axis=0)", generated.source)
+    self.assertIn("gl.sum(v0_reduction_input_1, axis=0)", generated.source)
     self.assertIn(
-      "gl.expand_dims(gl.sum(v0, axis=0), 0), compute_layout", generated.source
+      "gl.expand_dims(gl.sum(v0_reduction_input_1, axis=0), 0), compute_layout",
+      generated.source,
     )
     self.assertIn("gl.convert_layout(v1, compute_layout)", generated.source)
     self.assertIn("gl.broadcast(v1, acc_x)", generated.source)
@@ -64,13 +73,67 @@ class TensorGluonLoweringTests(unittest.TestCase):
 
     generated = render_gluon_kernel(source)
 
-    self.assertIn("gl.sum(v0, axis=1)", generated.source)
+    self.assertIn("gl.sum(v0_reduction_input_1, axis=1)", generated.source)
 
   def test_selects_warp_lanes_along_a_nontrivial_reduction_axis(self):
     self.assertEqual(cross_lane_threads_per_warp((2, 2), (0, 1)), (1, 32))
     self.assertEqual(cross_lane_threads_per_warp((2, 2), (0,)), (32, 1))
     with self.assertRaisesRegex(ValueError, "no nontrivial reduction axis"):
       cross_lane_threads_per_warp((1, 1), (0, 1))
+
+  def test_reduction_uses_a_temporary_layout_view(self):
+    generated = render_gluon_kernel(generated_region_source())
+
+    self.assertIn(
+      "v0_reduction_input_1 = gl.convert_layout(v0, reduction_layout)",
+      generated.source,
+    )
+    self.assertIn("gl.sum(v0_reduction_input_1, axis=1)", generated.source)
+
+  def test_reduction_conversion_does_not_reassign_the_graph_value(self):
+    generated = render_gluon_kernel(generated_region_source())
+
+    self.assertNotIn("v0 = gl.convert_layout(v0, reduction_layout)", generated.source)
+
+  def test_orthogonal_reductions_create_independent_input_views(self):
+    source = ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
+    generated = render_gluon_kernel(source)
+
+    self.assertIn(
+      "acc_x_reduction_input_0 = gl.convert_layout(acc_x, reduction_layout)",
+      generated.source,
+    )
+    self.assertIn(
+      "acc_x_reduction_input_2 = gl.convert_layout(acc_x, reduction_layout)",
+      generated.source,
+    )
+    self.assertIn("gl.sum(acc_x_reduction_input_0, axis=1)", generated.source)
+    self.assertIn("gl.sum(acc_x_reduction_input_2, axis=0)", generated.source)
+
+  def test_orthogonal_reductions_preserve_compute_layout_for_broadcast(self):
+    source = ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
+    generated = render_gluon_kernel(source)
+
+    self.assertNotIn(
+      "acc_x = gl.convert_layout(acc_x, reduction_layout)", generated.source
+    )
+    self.assertIn("v1, _ = gl.broadcast(v0, acc_x)", generated.source)
+    self.assertIn("v3, _ = gl.broadcast(v2, acc_x)", generated.source)
+
+  def test_reduction_conversion_source_map_keeps_each_operation_identity(self):
+    source = ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
+    generated = render_gluon_kernel(source)
+
+    mapped_lines = [
+      generated.source.splitlines()[line_number - 1]
+      for line_number, conversion in generated.conversion_source_lines.items()
+      if conversion.endswith("_to_reduction")
+    ]
+
+    self.assertEqual(len(mapped_lines), 2)
+    self.assertTrue(
+      all("_reduction_input_" in line for line in mapped_lines), mapped_lines
+    )
 
 
 if __name__ == "__main__":
