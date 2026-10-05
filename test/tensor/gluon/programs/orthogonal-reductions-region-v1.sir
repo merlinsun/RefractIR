@@ -1,0 +1,32 @@
+fun @kernel(%x: tensor [8, 8] f32) : tensor [8, 8] f32 {
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [8, 8] f32 = undef;
+  let mut %acc_y: tensor [8, 8] f32 = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  let mut %out: tensor [8, 8] f32 = undef;
+  let mut %row_sum: tensor [8, 1] f32 = undef;
+  let mut %row_broadcast: tensor [8, 8] f32 = undef;
+  let mut %column_sum: tensor [1, 8] f32 = undef;
+  let mut %column_broadcast: tensor [8, 8] f32 = undef;
+  let mut %next_x: tensor [8, 8] f32 = undef;
+  let mut %next_y: tensor [8, 8] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < 1, ^body, ^exit;
+^body:
+  %row_sum = tensor sum %acc_x, 1, keep;
+  %row_broadcast = tensor broadcast %row_sum, [8, 8];
+  %column_sum = tensor sum %acc_x, 0, keep;
+  %column_broadcast = tensor broadcast %column_sum, [8, 8];
+  %next_x = tensor add %acc_x, %row_broadcast;
+  %next_y = tensor add %acc_y, %column_broadcast;
+  %acc_x = %next_x;
+  %acc_y = %next_y;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}

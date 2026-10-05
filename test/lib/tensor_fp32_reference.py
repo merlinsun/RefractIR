@@ -98,6 +98,20 @@ def add_f32_rne_bits(left_word, right_word):
   return round_fraction_to_f32_bits(total)
 
 
+def sub_f32_rne_bits(left_word, right_word):
+  """Subtract two finite binary32 words, rounding the exact difference once."""
+  left_word = _checked_word(left_word)
+  right_word = _checked_word(right_word)
+  left = _word_fraction(left_word)
+  right = _word_fraction(right_word)
+  difference = left - right
+  if difference == 0:
+    if left_word == _SIGN_MASK and right_word == 0:
+      return _SIGN_MASK
+    return 0
+  return round_fraction_to_f32_bits(difference)
+
+
 def mul_f32_rne_bits(left_word, right_word):
   """Multiply two finite binary32 words, rounding the exact product once."""
   left_word = _checked_word(left_word)

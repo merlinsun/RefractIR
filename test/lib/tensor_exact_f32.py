@@ -237,7 +237,7 @@ def _generated_region_program(source):
       )
     expression = assignment[2]
     binary = re.fullmatch(
-      r"tensor (add|mul) (%[A-Za-z_][A-Za-z_0-9.$-]*), "
+      r"tensor (add|sub|mul) (%[A-Za-z_][A-Za-z_0-9.$-]*), "
       r"(%[A-Za-z_][A-Za-z_0-9.$-]*)",
       expression,
     )
@@ -285,7 +285,7 @@ def _generated_region_program(source):
     if any(operand not in available for operand in operands):
       raise ValueError("generated region operations must be in dependency order")
     output_shape = tensor_types[destination]
-    if operation in {"add", "mul"}:
+    if operation in {"add", "sub", "mul"}:
       inferred = _broadcast_shape(*(tensor_types[name] for name in operands))
       if inferred != output_shape:
         raise ValueError("generated region binary result has an invalid shape")
@@ -545,19 +545,37 @@ def _certify_generated_region(source, input_bytes, domain):
     "acc_x": (domain[1],) * count,
     "acc_y": (0,) * count,
   }
+  lower = {
+    "x": (domain[0],) * count,
+    "acc_x": (domain[0],) * count,
+    "acc_y": (0,) * count,
+  }
   bounds = []
 
-  def record(destination, operation, actual, maxima, block, visit, *, partial=False):
-    if len(actual) != len(maxima) or len(actual) != math.prod(
-      tensor_types[destination]
+  def record(
+    destination, operation, actual, minima, maxima, block, visit, *, partial=False
+  ):
+    if (
+      len(actual) != len(minima)
+      or len(actual) != len(maxima)
+      or len(actual) != math.prod(tensor_types[destination])
     ):
       raise ValueError("generated region evaluator produced a malformed tensor")
+    minimum = min(minima)
     maximum = max(maxima)
+    if minimum < 0:
+      raise ValueError("generated region may produce a negative exact value")
     if maximum > EXACT_BOUND:
       raise ValueError(
         "materialized value or reduction partial sum exceeds exact range"
       )
+    if any(
+      not minimum <= value <= maximum
+      for value, minimum, maximum in zip(actual, minima, maxima)
+    ):
+      raise ValueError("generated region evaluator escaped its certified bounds")
     values[destination] = actual
+    lower[destination] = minima
     upper[destination] = maxima
     evidence = {
       "block": block,
@@ -566,16 +584,21 @@ def _certify_generated_region(source, input_bytes, domain):
       "operation": operation,
       "max_value": maximum,
     }
+    if operation == "sub":
+      evidence["min_value"] = minimum
     if partial:
       evidence["max_partial_sum"] = maximum
     bounds.append(evidence)
 
-  record("x", "input", values["x"], upper["x"], "^entry", 0)
-  record("acc_x", "input-copy", values["acc_x"], upper["acc_x"], "^entry", 0)
+  record("x", "input", values["x"], lower["x"], upper["x"], "^entry", 0)
+  record(
+    "acc_x", "input-copy", values["acc_x"], lower["acc_x"], upper["acc_x"], "^entry", 0
+  )
   record(
     "acc_y",
     "positive-zero",
     values["acc_y"],
+    lower["acc_y"],
     upper["acc_y"],
     "^entry",
     0,
@@ -590,6 +613,13 @@ def _certify_generated_region(source, input_bytes, domain):
     upper_right = _broadcast_values(upper[right], tensor_types[right], output_shape)
     return (
       tuple(a + b for a, b in zip(broadcast_left, broadcast_right)),
+      tuple(
+        a + b
+        for a, b in zip(
+          _broadcast_values(lower[left], tensor_types[left], output_shape),
+          _broadcast_values(lower[right], tensor_types[right], output_shape),
+        )
+      ),
       tuple(a + b for a, b in zip(upper_left, upper_right)),
     )
 
@@ -600,8 +630,11 @@ def _certify_generated_region(source, input_bytes, domain):
     )
     upper_left = _broadcast_values(upper[left], tensor_types[left], output_shape)
     upper_right = _broadcast_values(upper[right], tensor_types[right], output_shape)
+    lower_left = _broadcast_values(lower[left], tensor_types[left], output_shape)
+    lower_right = _broadcast_values(lower[right], tensor_types[right], output_shape)
     return (
       tuple(a * b for a, b in zip(broadcast_left, broadcast_right)),
+      tuple(a * b for a, b in zip(lower_left, lower_right)),
       tuple(a * b for a, b in zip(upper_left, upper_right)),
     )
 
@@ -609,32 +642,62 @@ def _certify_generated_region(source, input_bytes, domain):
     source_shape = tensor_types[source_name]
     normalized_axis = axis if axis >= 0 else axis + len(source_shape)
     actual_results = []
+    lower_results = []
     upper_results = []
     for destination_coordinates in _coordinates(output_shape):
       actual_total = 0
+      lower_total = 0
       upper_total = 0
       for axis_coordinate in range(source_shape[normalized_axis]):
         source_coordinates = list(destination_coordinates)
         source_coordinates[normalized_axis] = axis_coordinate
         source_index = _flat_index(source_coordinates, source_shape)
         actual_total += values[source_name][source_index]
+        lower_total += lower[source_name][source_index]
         upper_total += upper[source_name][source_index]
       actual_results.append(actual_total)
+      lower_results.append(lower_total)
       upper_results.append(upper_total)
-    return tuple(actual_results), tuple(upper_results)
+    return tuple(actual_results), tuple(lower_results), tuple(upper_results)
 
   for visit in range(1, iterations + 1):
     for destination, operation, operands, attribute in nodes:
       output_shape = tensor_types[destination]
       if operation == "add":
-        actual, maxima = add_values(operands[0], operands[1], output_shape)
+        actual, minima, maxima = add_values(operands[0], operands[1], output_shape)
+      elif operation == "sub":
+        left_name, right_name = operands
+        actual_left = _broadcast_values(
+          values[left_name], tensor_types[left_name], output_shape
+        )
+        actual_right = _broadcast_values(
+          values[right_name], tensor_types[right_name], output_shape
+        )
+        lower_left = _broadcast_values(
+          lower[left_name], tensor_types[left_name], output_shape
+        )
+        upper_left = _broadcast_values(
+          upper[left_name], tensor_types[left_name], output_shape
+        )
+        lower_right = _broadcast_values(
+          lower[right_name], tensor_types[right_name], output_shape
+        )
+        upper_right = _broadcast_values(
+          upper[right_name], tensor_types[right_name], output_shape
+        )
+        actual = tuple(a - b for a, b in zip(actual_left, actual_right))
+        minima = tuple(a - b for a, b in zip(lower_left, upper_right))
+        maxima = tuple(a - b for a, b in zip(upper_left, lower_right))
       elif operation == "mul":
-        actual, maxima = multiply_values(operands[0], operands[1], output_shape)
+        actual, minima, maxima = multiply_values(operands[0], operands[1], output_shape)
       elif operation == "sum":
-        actual, maxima = sum_values(operands[0], attribute, output_shape)
+        actual, minima, maxima = sum_values(operands[0], attribute, output_shape)
       else:
         actual = _broadcast_values(
           values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        minima = _broadcast_values(
+          lower[operands[0]], tensor_types[operands[0]], output_shape
         )
         maxima = _broadcast_values(
           upper[operands[0]], tensor_types[operands[0]], output_shape
@@ -643,6 +706,7 @@ def _certify_generated_region(source, input_bytes, domain):
         destination,
         operation,
         actual,
+        minima,
         maxima,
         "^body",
         visit,
@@ -652,10 +716,12 @@ def _certify_generated_region(source, input_bytes, domain):
     # RefractIR writes mutable locals in source order. A later update may read
     # a loop-carried value that an earlier update has already changed.
     for state, root in updates:
-      record(state, "state-update", values[root], upper[root], "^body", visit)
+      record(
+        state, "state-update", values[root], lower[root], upper[root], "^body", visit
+      )
 
-  output, output_upper = add_values("acc_x", "acc_y", shape)
-  record("out", "add", output, output_upper, "^exit", 0)
+  output, output_lower, output_upper = add_values("acc_x", "acc_y", shape)
+  record("out", "add", output, output_lower, output_upper, "^exit", 0)
   proof = {
     "kind": REGION_KIND,
     "complete_output": True,

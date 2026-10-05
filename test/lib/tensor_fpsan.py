@@ -224,12 +224,12 @@ def validate_fpsan_payload_lowering(llvm_ir, *, required_payload_operations=("ad
   if (
     not isinstance(required_payload_operations, (tuple, list))
     or any(
-      not isinstance(operation, str) or operation not in {"add", "mul"}
+      not isinstance(operation, str) or operation not in {"add", "sub", "mul"}
       for operation in required_payload_operations
     )
     or len(set(required_payload_operations)) != len(required_payload_operations)
   ):
-    raise ValueError("required payload operations must be unique add/mul names")
+    raise ValueError("required payload operations must be unique add/sub/mul names")
   lines = llvm_ir.splitlines()
   integer_additions = [
     line.strip()
@@ -248,6 +248,14 @@ def validate_fpsan_payload_lowering(llvm_ir, *, required_payload_operations=("ad
       line,
     )
   ]
+  integer_subtractions = [
+    line.strip()
+    for line in lines
+    if re.search(
+      r"\bsub\s+(?:i\d+|<\d+\s*x\s*i\d+>)\s+%[-a-zA-Z$._0-9]+,\s*%[-a-zA-Z$._0-9]+",
+      line,
+    )
+  ]
   floating_operations = [
     line.strip() for line in lines if re.search(r"\bf(?:add|sub|mul|div|rem)\b", line)
   ]
@@ -258,21 +266,28 @@ def validate_fpsan_payload_lowering(llvm_ir, *, required_payload_operations=("ad
     )
   payload_lines = {
     "add": integer_additions,
+    "sub": integer_subtractions,
     "mul": integer_multiplications,
   }
-  display_names = {"add": "addition", "mul": "multiplication"}
+  display_names = {
+    "add": "addition",
+    "sub": "subtraction",
+    "mul": "multiplication",
+  }
   for operation in required_payload_operations:
     if not payload_lines[operation]:
       raise AssertionError(
         f"FpSan payload lowering has no integer payload {display_names[operation]}"
       )
-  integer_operations = sorted(set(integer_additions + integer_multiplications))
+  integer_operations = sorted(
+    set(integer_additions + integer_subtractions + integer_multiplications)
+  )
   return {
     "status": "pass",
     "integer_operation_lines": integer_operations,
     "payload_operation_counts": {
       operation: len(payload_lines[operation])
-      for operation in ("add", "mul")
+      for operation in ("add", "sub", "mul")
       if payload_lines[operation]
     },
     "required_payload_operations": list(required_payload_operations),
@@ -463,6 +478,14 @@ def _evaluate_generated_payload_region(
           values[operands[1]], tensor_types[operands[1]], output_shape
         )
         result = tuple(add32(a, b) for a, b in zip(left, right))
+      elif operation == "sub":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        result = tuple(sub32(a, b) for a, b in zip(left, right))
       elif operation == "mul":
         left = tensor_exact_f32._broadcast_values(
           values[operands[0]], tensor_types[operands[0]], output_shape
@@ -555,6 +578,15 @@ def _generated_payload_smt(
           values[operands[1]], tensor_types[operands[1]], output_shape
         )
         expressions = [f"(bvadd {a} {b})" for a, b in zip(left, right)]
+      elif operation == "sub":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        expressions = [f"(bvsub {a} {b})" for a, b in zip(left, right)]
+        definitions.extend(f"(assert (bvuge {a} {b}))" for a, b in zip(left, right))
       elif operation == "mul":
         left = tensor_exact_f32._broadcast_values(
           values[operands[0]], tensor_types[operands[0]], output_shape
@@ -961,6 +993,9 @@ def render_generated_region_triton_kernel(
     if operation == "add":
       left, right = (names[name] for name in operands)
       expression = f"{left} + {right}"
+    elif operation == "sub":
+      left, right = (names[name] for name in operands)
+      expression = f"{left} - {right}"
     elif operation == "mul":
       left, right = (names[name] for name in operands)
       expression = f"{left} * {right}"

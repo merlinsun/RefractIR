@@ -208,7 +208,7 @@ class GeneratedRegionExactTests(unittest.TestCase):
 
   def test_rejects_operations_outside_the_generated_subset(self):
     unsupported = self.source.replace(
-      "%t3 = tensor add %t0, %t2;", "%t3 = tensor sub %t0, %t2;"
+      "%t3 = tensor add %t0, %t2;", "%t3 = tensor div %t0, %t2;"
     )
     with self.assertRaisesRegex(ValueError, "unsupported tensor operation"):
       self.api.certify(unsupported, self.input_bytes, (0, 8))

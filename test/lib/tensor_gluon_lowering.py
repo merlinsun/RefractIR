@@ -162,7 +162,7 @@ def render_gluon_kernel(source):
       left_layout = _shape_layout(left_shape, shape, "compute_layout")
       right_layout = _shape_layout(right_shape, shape, "compute_layout")
       target_layout = _shape_layout(result_shape, shape, "compute_layout")
-      operation_name = "mul" if operation == "mul" else "add"
+      operation_name = operation
       emit(
         f"        {left} = gl.convert_layout({left}, {left_layout})",
         conversion=f"region_{operation_name}_{index}_left_layout",
@@ -172,7 +172,7 @@ def render_gluon_kernel(source):
         conversion=f"region_{operation_name}_{index}_right_layout",
       )
       emit(f"        {value}_left, {value}_right = gl.broadcast({left}, {right})")
-      operator = "*" if operation == "mul" else "+"
+      operator = {"add": "+", "sub": "-", "mul": "*"}[operation]
       emit(f"        {value} = {value}_left {operator} {value}_right")
       emit(
         f"        {value} = gl.convert_layout({value}, {target_layout})",

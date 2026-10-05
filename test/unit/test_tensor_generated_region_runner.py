@@ -16,6 +16,9 @@ RUNNER_PATH = ROOT / "test/tensor/gluon/run_generated_region.py"
 MULTIPLY_REGION_SOURCE = (
   ROOT / "test/tensor/gluon/programs/elementwise-multiply-region-v1.sir"
 ).read_text(encoding="utf-8")
+SUBTRACTION_REGION_SOURCE = (
+  ROOT / "test/tensor/gluon/programs/elementwise-subtraction-region-v1.sir"
+).read_text(encoding="utf-8")
 
 
 def _load_runner():
@@ -55,6 +58,147 @@ def _load_fpsan_experiment():
 
 
 class GeneratedRegionRunnerTests(unittest.TestCase):
+  def test_region_parser_admits_elementwise_subtraction(self):
+    from test.lib import tensor_exact_f32
+
+    _shape, iterations, _types, nodes, updates = (
+      tensor_exact_f32._generated_region_program(SUBTRACTION_REGION_SOURCE)
+    )
+
+    self.assertEqual(iterations, 1)
+    self.assertEqual(nodes[0], ("difference", "sub", ("acc_x", "acc_y"), None))
+    self.assertEqual(updates, [("acc_x", "next_x"), ("acc_y", "next_y")])
+
+  def test_exact_certificate_bounds_subtraction_and_complete_output(self):
+    from test.lib import tensor_exact_f32
+
+    values = tuple(index % 9 for index in range(256))
+    proof, output_bytes = tensor_exact_f32.certify(
+      SUBTRACTION_REGION_SOURCE, struct.pack("<256f", *values), (0, 8)
+    )
+
+    self.assertEqual(
+      struct.unpack("<256f", output_bytes), tuple(3.0 * value for value in values)
+    )
+    difference_bound = next(
+      item for item in proof["bounds"] if item["destination"] == "%difference"
+    )
+    self.assertEqual(difference_bound["min_value"], 0)
+    self.assertEqual(difference_bound["max_value"], 8)
+    self.assertIn("sub", proof["allowed_operations"])
+
+  def test_payload_evaluator_and_query_model_tensor_subtraction(self):
+    from test.lib import tensor_fpsan
+
+    payloads = tuple(index % 9 for index in range(256))
+    query = tensor_fpsan.build_generated_payload_query(SUBTRACTION_REGION_SOURCE)
+    output = tensor_fpsan.evaluate_generated_payload_region(
+      SUBTRACTION_REGION_SOURCE, payloads
+    )
+
+    self.assertIn("(bvsub x0 #x00000000)", query["script"])
+    self.assertIn("(bvuge x0 #x00000000)", query["script"])
+    self.assertEqual(query["script"].count("(assert (bvuge "), 512)
+    self.assertEqual(output, [3 * value for value in payloads])
+
+  def test_gluon_and_fpsan_lowerers_emit_subtraction(self):
+    from test.lib.tensor_fpsan import (
+      render_generated_region_triton_kernel,
+      validate_fpsan_payload_lowering,
+    )
+    from test.lib.tensor_gluon_lowering import render_gluon_kernel
+
+    gluon_source = render_gluon_kernel(SUBTRACTION_REGION_SOURCE).source
+    fpsan_source = render_generated_region_triton_kernel(SUBTRACTION_REGION_SOURCE)
+    validation = validate_fpsan_payload_lowering(
+      "define i32 @kernel(i32 %left, i32 %right) {\n"
+      "  %difference = sub i32 %left, %right\n"
+      "  ret i32 %difference\n}\n",
+      required_payload_operations=("sub",),
+    )
+    experiment = _load_fpsan_experiment()
+
+    self.assertIn("v0 = v0_left - v0_right", gluon_source)
+    self.assertIn("value_0 = acc_x - acc_y", fpsan_source)
+    self.assertIn("sub", validation["required_payload_operations"])
+    self.assertEqual(
+      experiment._required_fpsan_payload_operations(SUBTRACTION_REGION_SOURCE, 1),
+      ("add", "sub"),
+    )
+
+  def test_ordinary_reference_admits_binary32_subtraction_region(self):
+    experiment = _load_fpsan_experiment()
+    from test.lib.tensor_fp32_reference import sub_f32_rne_bits
+
+    values = tuple(index % 9 for index in range(256))
+    input_bytes = struct.pack("<256f", *values)
+    admission = experiment._ordinary_generated_region_admission(
+      SUBTRACTION_REGION_SOURCE, input_bytes
+    )
+    actual = experiment._ordinary_generated_region_output_words(
+      SUBTRACTION_REGION_SOURCE, input_bytes
+    )
+    self.assertEqual(sub_f32_rne_bits(0x3F800000, 0x3F800000), 0)
+
+    self.assertEqual(admission["status"], "admitted")
+    self.assertIn("sub", admission["operations"])
+    self.assertEqual(
+      actual,
+      [struct.unpack("<I", struct.pack("<f", 3.0 * value))[0] for value in values],
+    )
+
+  def test_subtraction_rejects_domain_underflow_and_preserves_signed_zero(self):
+    experiment = _load_fpsan_experiment()
+    from test.lib import tensor_exact_f32
+    from test.lib.tensor_fp32_reference import sub_f32_rne_bits
+
+    underflow_source = SUBTRACTION_REGION_SOURCE.replace(
+      "tensor sub %acc_x, %acc_y", "tensor sub %acc_y, %acc_x"
+    )
+    zero_bytes = struct.pack("<256f", *([0.0] * 256))
+    with self.assertRaisesRegex(ValueError, "negative exact value"):
+      tensor_exact_f32.certify(underflow_source, zero_bytes, (0, 8))
+
+    positive_bytes = struct.pack("<256f", *([1.0] * 256))
+    admission = experiment._ordinary_generated_region_admission(
+      underflow_source, positive_bytes
+    )
+
+    self.assertEqual(admission["status"], "unclassified")
+    self.assertIn("negative value", admission["reason"])
+    self.assertEqual(sub_f32_rne_bits(0x80000000, 0), 0x80000000)
+    self.assertEqual(sub_f32_rne_bits(0x3F800000, 0x3F800000), 0)
+    self.assertEqual(sub_f32_rne_bits(0x3F800000, 0x33000000), 0x3F800000)
+    self.assertEqual(sub_f32_rne_bits(0x3F800000, 0x33800000), 0x3F7FFFFF)
+
+  def test_orthogonal_reductions_feed_distinct_loop_state_roots(self):
+    from test.lib import tensor_exact_f32
+
+    source = (
+      ROOT / "test/tensor/gluon/programs/orthogonal-reductions-region-v1.sir"
+    ).read_text(encoding="utf-8")
+    values = tuple(index % 9 for index in range(64))
+    _shape, iterations, _types, nodes, updates = (
+      tensor_exact_f32._generated_region_program(source)
+    )
+    _proof, output_bytes = tensor_exact_f32.certify(
+      source, struct.pack("<64f", *values), (0, 8)
+    )
+    row_totals = [sum(values[row * 8 : (row + 1) * 8]) for row in range(8)]
+    column_totals = [
+      sum(values[row * 8 + column] for row in range(8)) for column in range(8)
+    ]
+    expected = tuple(
+      values[row * 8 + column] + row_totals[row] + column_totals[column]
+      for row in range(8)
+      for column in range(8)
+    )
+
+    self.assertEqual(iterations, 1)
+    self.assertEqual([node[3] for node in nodes if node[1] == "sum"], [1, 0])
+    self.assertEqual(updates, [("acc_x", "next_x"), ("acc_y", "next_y")])
+    self.assertEqual(struct.unpack("<64f", output_bytes), tuple(map(float, expected)))
+
   def test_region_parser_admits_elementwise_multiplication(self):
     from test.lib import tensor_exact_f32
 
@@ -213,6 +357,8 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
         "native-seed-6-shape-2x4-iterations-2",
         "native-seed-2-shape-8x8-iterations-2",
         "authored-elementwise-multiply-region-v1",
+        "authored-elementwise-subtraction-region-v1",
+        "authored-orthogonal-reductions-region-v1",
       ],
     )
     for source in sources:
@@ -345,7 +491,7 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(admission["max_reduction_width"], 2)
     self.assertEqual(
       admission["contract"],
-      "nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v2",
+      "nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v3",
     )
 
   def test_ordinary_reference_excludes_reductions_with_four_terms(self):

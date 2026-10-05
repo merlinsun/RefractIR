@@ -147,8 +147,20 @@ def _round_f32_mul(left, right):
   return struct.unpack("<f", struct.pack("<I", result_word))[0]
 
 
+def _round_f32_sub(left, right):
+  if not math.isfinite(left) or not math.isfinite(right):
+    raise ValueError("ordinary generated reference requires finite f32 operands")
+  left_word = struct.unpack("<I", struct.pack("<f", left))[0]
+  right_word = struct.unpack("<I", struct.pack("<f", right))[0]
+  try:
+    result_word = tensor_fp32_reference.sub_f32_rne_bits(left_word, right_word)
+  except OverflowError as error:
+    raise ValueError("ordinary generated reference overflowed finite f32") from error
+  return struct.unpack("<f", struct.pack("<I", result_word))[0]
+
+
 def _ordinary_generated_region_output_words(source, input_bytes):
-  """Execute admitted add/mul/sum/broadcast regions with binary32 RNE."""
+  """Execute admitted add/sub/mul/sum/broadcast regions with binary32 RNE."""
   shape, iterations, tensor_types, nodes, updates = (
     tensor_exact_f32._generated_region_program(source)
   )
@@ -177,6 +189,19 @@ def _ordinary_generated_region_output_words(source, input_bytes):
           values[operands[1]], tensor_types[operands[1]], output_shape
         )
         result = tuple(_round_f32_add(a, b) for a, b in zip(left, right))
+      elif operation == "sub":
+        left = tensor_exact_f32._broadcast_values(
+          values[operands[0]], tensor_types[operands[0]], output_shape
+        )
+        right = tensor_exact_f32._broadcast_values(
+          values[operands[1]], tensor_types[operands[1]], output_shape
+        )
+        result = tuple(_round_f32_sub(a, b) for a, b in zip(left, right))
+        result_words = struct.unpack(
+          f"<{len(result)}I", struct.pack(f"<{len(result)}f", *result)
+        )
+        if any(word & 0x80000000 for word in result_words):
+          raise ValueError("ordinary RNE subtraction produced a negative value")
       elif operation == "mul":
         left = tensor_exact_f32._broadcast_values(
           values[operands[0]], tensor_types[operands[0]], output_shape
@@ -226,6 +251,8 @@ def _required_fpsan_payload_operations(source, iteration_count):
   for _, operation, _, _ in nodes:
     if operation in {"add", "sum"}:
       required.add("add")
+    elif operation == "sub":
+      required.add("sub")
     elif operation == "mul":
       required.add("mul")
   return tuple(sorted(required))
@@ -253,7 +280,7 @@ def _ordinary_generated_region_admission(source, input_bytes):
   max_width = max((item["width"] for item in reductions), default=0)
   result = {
     "status": "admitted",
-    "contract": ("nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v2"),
+    "contract": ("nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v3"),
     "operations": operations,
     "max_reduction_width": max_width,
     "reductions": reductions,
@@ -1281,7 +1308,7 @@ def _run_experiment(
       ),
       "ordinary_reference_contract": {
         "admission": (
-          "nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v2"
+          "nonnegative-finite-binary32-rne-ops-reduction-width-at-most-2-v3"
         ),
         "excluded_case_policy": (
           "run and retain actual/reference words as unclassified diagnostic evidence"

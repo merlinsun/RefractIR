@@ -161,6 +161,16 @@
       "program_id": "authored-elementwise-multiply-region-v1",
       "source_file": "elementwise-multiply-region-v1.sir",
       "source_sha256": "2682f40423ad33e5b6ed5aa91471440968010df25f6154ae4efe74866698420f"
+    },
+    {
+      "program_id": "authored-elementwise-subtraction-region-v1",
+      "source_file": "elementwise-subtraction-region-v1.sir",
+      "source_sha256": "6bc223f7f3cde17fa807468fe57e0f7dc8d070087b8d2d1ef2cf7f36c492374c"
+    },
+    {
+      "program_id": "authored-orthogonal-reductions-region-v1",
+      "source_file": "orthogonal-reductions-region-v1.sir",
+      "source_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336"
     }
   ],
   "schema": "refractir.generated-region-corpus.v1"
