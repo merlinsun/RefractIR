@@ -21,6 +21,8 @@ from test.lib import tensor_exact_f32, tensor_fp32_reference, tensor_route_proto
 from test.lib.tensor_fpsan import (
   compare_words,
   flatten_word_values,
+  generated_region_payload_operation_lines,
+  generated_region_payload_operations,
   prove_payload_kernel_equations,
   prove_payload_laws,
   render_generated_region_triton_kernel,
@@ -241,21 +243,27 @@ def _ordinary_generated_region_output_words(source, input_bytes):
   return list(struct.unpack(f"<{count}I", output_bytes))
 
 
-def _required_fpsan_payload_operations(source, iteration_count):
+def _required_fpsan_payload_operations(source, iteration_count, *, omitted_updates=()):
   if type(iteration_count) is not int or iteration_count < 0:
     raise ValueError("payload validation iteration count must be nonnegative")
-  if iteration_count == 0:
-    return ()
-  _, _, _, nodes, _ = tensor_exact_f32._generated_region_program(source)
-  required = {"add"}
-  for _, operation, _, _ in nodes:
-    if operation in {"add", "sum"}:
-      required.add("add")
-    elif operation == "sub":
-      required.add("sub")
-    elif operation == "mul":
-      required.add("mul")
-  return tuple(sorted(required))
+  return generated_region_payload_operations(
+    source,
+    iteration_count=iteration_count,
+    omitted_updates=omitted_updates,
+  )
+
+
+def _payload_operation_transition(
+  source_operations, live_operations, observed_operations
+):
+  source_operations = set(source_operations)
+  live_operations = set(live_operations)
+  observed_operations = set(observed_operations)
+  return {
+    "live_payload_operations": sorted(live_operations),
+    "eliminated_payload_operations": sorted(source_operations - live_operations),
+    "unobserved_live_payload_operations": sorted(live_operations - observed_operations),
+  }
 
 
 def _ordinary_generated_region_admission(source, input_bytes):
@@ -739,6 +747,10 @@ def _run_generated_region_case(
     required_payload_operations=_required_fpsan_payload_operations(
       source, witness["iterations"]
     ),
+    payload_source_lines=generated_region_payload_operation_lines(
+      source, iteration_count=witness["iterations"]
+    ),
+    payload_source_path=kernel_source_path,
   )
   result["compiler_ir"] = fpsan_ir
   result["compiler_modes"] = {"fpsan": fpsan_ir}
@@ -836,12 +848,28 @@ def _run_generated_region_case(
   )
   result["region_source"] = source_identity
   result["calibration_mutants"] = {}
+  source_payload_operations = set(
+    _required_fpsan_payload_operations(source, witness["iterations"])
+  )
   for mutant_name, render_options in (
     ("lost_iteration", {"iteration_count": witness["iterations"] - 1}),
     ("lost_update_acc_y", {"omitted_updates": ("acc_y",)}),
   ):
     note(f"{mutant_name}_execution")
     mutant_kernel_source = render_generated_region_triton_kernel(
+      source, **render_options
+    )
+    mutant_iteration_count = render_options.get(
+      "iteration_count", witness["iterations"]
+    )
+    mutant_payload_operations = set(
+      _required_fpsan_payload_operations(
+        source,
+        mutant_iteration_count,
+        omitted_updates=render_options.get("omitted_updates", ()),
+      )
+    )
+    mutant_payload_source_lines = generated_region_payload_operation_lines(
       source, **render_options
     )
     mutant_source_path = ir_directory / f"generated_region_{mutant_name}.py"
@@ -886,18 +914,28 @@ def _run_generated_region_case(
     mismatch_lanes = compare_words(actual_mutant_words, witness["output_float_words"])
     if not mismatch_lanes:
       raise AssertionError(f"generated-region {mutant_name} mutant was not detected")
+    mutant_payload_lowering = _validate_generated_region_payload_lowering(
+      mutant_compiled,
+      required_payload_operations=(),
+      payload_source_lines=mutant_payload_source_lines,
+      payload_source_path=mutant_source_path,
+    )
+    observed_payload_operations = set(
+      mutant_payload_lowering["ttgir"]["payload_operation_counts"]
+    )
+    operation_transition = _payload_operation_transition(
+      source_payload_operations,
+      mutant_payload_operations,
+      observed_payload_operations,
+    )
     result["calibration_mutants"][mutant_name] = {
       "status": "detected",
       "mismatch_lanes": mismatch_lanes,
       "actual_bits": [f"{value:08x}" for value in actual_mutant_words],
       "expected_bits": [f"{value:08x}" for value in expected_mutant_words],
       "measurement": mutant_measurement,
-      "payload_lowering": _validate_generated_region_payload_lowering(
-        mutant_compiled,
-        required_payload_operations=_required_fpsan_payload_operations(
-          source, render_options.get("iteration_count", witness["iterations"])
-        ),
-      ),
+      **operation_transition,
+      "payload_lowering": mutant_payload_lowering,
       "compiler_ir": mutant_ir,
     }
   result["elapsed_s"] = time.perf_counter() - case_started
@@ -906,7 +944,11 @@ def _run_generated_region_case(
 
 
 def _validate_generated_region_payload_lowering(
-  compiled, *, required_payload_operations
+  compiled,
+  *,
+  required_payload_operations,
+  payload_source_lines=None,
+  payload_source_path=None,
 ):
   """Check FpSan integerization in TTGIR and the final LLVM float guard."""
   assembly = getattr(compiled, "asm", {})
@@ -915,6 +957,8 @@ def _validate_generated_region_payload_lowering(
       assembly.get("ttgir", ""),
       stage="ttgir",
       required_payload_operations=required_payload_operations,
+      payload_source_lines=payload_source_lines,
+      payload_source_path=payload_source_path,
     ),
     "llir": validate_fpsan_payload_lowering(
       assembly.get("llir", ""),

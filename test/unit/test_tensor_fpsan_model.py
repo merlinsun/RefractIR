@@ -546,10 +546,13 @@ class TensorFpSanModelTests(unittest.TestCase):
 
   def test_payload_lowering_recognizes_ttgir_addition_and_subtraction(self):
     result = self.fpsan().validate_fpsan_payload_lowering(
-      "%sum = arith.addi %left, %right : tensor<16xi32>\n"
-      "%difference = arith.subi %sum, %left : tensor<16xi32>",
+      '#loc1 = loc("generated_region_kernel.py":10:1)\n'
+      '#loc2 = loc("generated_region_kernel.py":11:1)\n'
+      "%sum = arith.addi %left, %right : tensor<16xi32> loc(#loc1)\n"
+      "%difference = arith.subi %sum, %left : tensor<16xi32> loc(#loc2)",
       stage="ttgir",
       required_payload_operations=("add", "sub"),
+      payload_source_lines={10: ("add",), 11: ("sub",)},
     )
 
     self.assertEqual(result["ir_stage"], "ttgir")
@@ -557,20 +560,89 @@ class TensorFpSanModelTests(unittest.TestCase):
 
   def test_payload_lowering_recognizes_ttgir_multiplication(self):
     result = self.fpsan().validate_fpsan_payload_lowering(
-      "%product = arith.muli %left, %right : tensor<16xi32>",
+      '#loc1 = loc("generated_region_kernel.py":12:1)\n'
+      "%product = arith.muli %left, %right : tensor<16xi32> loc(#loc1)",
       stage="ttgir",
       required_payload_operations=("mul",),
+      payload_source_lines={12: ("mul",)},
     )
 
     self.assertEqual(result["payload_operation_counts"], {"mul": 1})
 
+  def test_payload_lowering_does_not_certify_address_multiplication(self):
+    ir = (
+      '#loc8 = loc("generated_region_kernel.py":8:15)\n'
+      "%offsets_2 = arith.muli %offsets_1, %cst : tensor<2x1xi32> loc(#loc8)"
+    )
+
+    with self.assertRaisesRegex(AssertionError, "integer payload multiplication"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        ir,
+        stage="ttgir",
+        required_payload_operations=("mul",),
+        payload_source_lines={12: ("mul",)},
+      )
+
+  def test_payload_lowering_attributes_only_generated_payload_source_lines(self):
+    ir = (
+      '#loc8 = loc("generated_region_kernel.py":8:15)\n'
+      '#loc12 = loc("generated_region_kernel.py":12:19)\n'
+      "%offsets_2 = arith.muli %offsets_1, %cst : tensor<2x1xi32> loc(#loc8)\n"
+      "%value_0 = arith.addi %left, %right : tensor<2x2xi32> loc(#loc12)"
+    )
+
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      ir,
+      stage="ttgir",
+      required_payload_operations=("add",),
+      payload_source_lines={12: ("add",)},
+    )
+
+    self.assertEqual(result["payload_operation_counts"], {"add": 1})
+    self.assertEqual(len(result["non_payload_integer_operation_lines"]), 1)
+    self.assertIn("arith.muli", result["non_payload_integer_operation_lines"][0])
+
+  def test_payload_lowering_ignores_unlocated_ttgir_integer_arithmetic(self):
+    with self.assertRaisesRegex(AssertionError, "integer payload addition"):
+      self.fpsan().validate_fpsan_payload_lowering(
+        "%sum = arith.addi %left, %right : tensor<16xi32>",
+        stage="ttgir",
+        required_payload_operations=("add",),
+        payload_source_lines={12: ("add",)},
+      )
+
+  def test_payload_lowering_resolves_reduction_callsite_and_source_path(self):
+    ir = (
+      "#loc1 = loc(unknown)\n"
+      '#loc2 = loc("/build/generated_region_kernel.py":13:27)\n'
+      '#loc3 = loc("value_1_reduced"(#loc2))\n'
+      "#loc4 = loc(callsite(#loc1 at #loc3))\n"
+      '#loc5 = loc("/build/triton_standard.py":13:27)\n'
+      "%payload_sum = arith.addi %left, %right : i32 loc(#loc4)\n"
+      "%unrelated_sum = arith.addi %a, %b : i32 loc(#loc5)"
+    )
+
+    result = self.fpsan().validate_fpsan_payload_lowering(
+      ir,
+      stage="ttgir",
+      required_payload_operations=("add",),
+      payload_source_lines={13: ("add",)},
+      payload_source_path="/build/generated_region_kernel.py",
+    )
+
+    self.assertEqual(result["payload_operation_counts"], {"add": 1})
+    self.assertEqual(len(result["non_payload_integer_operation_lines"]), 1)
+
   def test_payload_lowering_rejects_float_arithmetic_in_ttgir(self):
     with self.assertRaisesRegex(AssertionError, "floating-point arithmetic"):
       self.fpsan().validate_fpsan_payload_lowering(
-        "%sum = arith.addi %left, %right : tensor<16xi32>\n"
-        "%difference = arith.subf %sum, %left : tensor<16xf32>",
+        '#loc1 = loc("generated_region_kernel.py":10:1)\n'
+        '#loc2 = loc("generated_region_kernel.py":11:1)\n'
+        "%sum = arith.addi %left, %right : tensor<16xi32> loc(#loc1)\n"
+        "%difference = arith.subf %sum, %left : tensor<16xf32> loc(#loc2)",
         stage="ttgir",
         required_payload_operations=("add",),
+        payload_source_lines={10: ("add",)},
       )
 
   def test_payload_lowering_allows_llvm_optimization_to_remove_subtraction(self):

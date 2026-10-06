@@ -19,6 +19,39 @@ MULTIPLY_REGION_SOURCE = (
 SUBTRACTION_REGION_SOURCE = (
   ROOT / "test/tensor/gluon/programs/elementwise-subtraction-region-v1.sir"
 ).read_text(encoding="utf-8")
+STATE_ONLY_SUBTRACTION_SOURCE = """fun @kernel(%x: tensor [2, 2] f32) : tensor [2, 2] f32 {
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [2, 2] f32 = undef;
+  let mut %acc_y: tensor [2, 2] f32 = {0.0, 0.0, 0.0, 0.0};
+  let mut %out: tensor [2, 2] f32 = undef;
+  let mut %twice: tensor [2, 2] f32 = undef;
+  let mut %squares: tensor [2, 2] f32 = undef;
+  let mut %row_sum: tensor [2, 1] f32 = undef;
+  let mut %row_broadcast: tensor [2, 2] f32 = undef;
+  let mut %next_x: tensor [2, 2] f32 = undef;
+  let mut %next_y: tensor [2, 2] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < 1, ^body, ^exit;
+^body:
+  %twice = tensor add %acc_x, %acc_x;
+  %squares = tensor sub %twice, %acc_x;
+  %row_sum = tensor sum %squares, 1, keep;
+  %row_broadcast = tensor broadcast %row_sum, [2, 2];
+  %next_x = tensor add %acc_x, %acc_y;
+  %next_y = tensor add %acc_y, %row_broadcast;
+  %acc_x = %next_x;
+  %acc_y = %next_y;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}
+"""
 
 
 def _load_runner():
@@ -133,15 +166,19 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     compiled = SimpleNamespace(
       asm={
         "ttgir": (
-          "%twice = arith.addi %value, %value : tensor<16xi32>\n"
-          "%difference = arith.subi %twice, %value : tensor<16xi32>"
+          '#loc1 = loc("generated_region_kernel.py":10:1)\n'
+          '#loc2 = loc("generated_region_kernel.py":11:1)\n'
+          "%twice = arith.addi %value, %value : tensor<16xi32> loc(#loc1)\n"
+          "%difference = arith.subi %twice, %value : tensor<16xi32> loc(#loc2)"
         ),
         "llir": "%sum = add <4 x i32> %left, %right",
       }
     )
 
     result = experiment._validate_generated_region_payload_lowering(
-      compiled, required_payload_operations=("add", "sub")
+      compiled,
+      required_payload_operations=("add", "sub"),
+      payload_source_lines={10: ("add",), 11: ("sub",)},
     )
 
     self.assertEqual(result["ttgir"]["payload_operation_counts"], {"add": 1, "sub": 1})
@@ -353,6 +390,54 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(
       experiment._required_fpsan_payload_operations(MULTIPLY_REGION_SOURCE, 0), ()
     )
+
+  def test_fpsan_mutant_requirements_follow_live_state_updates(self):
+    experiment = _load_fpsan_experiment()
+
+    operations = experiment._required_fpsan_payload_operations(
+      STATE_ONLY_SUBTRACTION_SOURCE, 1, omitted_updates=("acc_y",)
+    )
+
+    self.assertEqual(operations, ("add",))
+    self.assertNotIn("sub", operations)
+
+  def test_lost_update_payload_contract_accepts_legally_eliminated_subtraction(self):
+    experiment = _load_fpsan_experiment()
+    from test.lib import tensor_fpsan
+
+    live_operations = experiment._required_fpsan_payload_operations(
+      STATE_ONLY_SUBTRACTION_SOURCE, 1, omitted_updates=("acc_y",)
+    )
+    payload_source_lines = tensor_fpsan.generated_region_payload_operation_lines(
+      STATE_ONLY_SUBTRACTION_SOURCE, omitted_updates=("acc_y",)
+    )
+    compiled = SimpleNamespace(
+      asm={
+        "ttgir": (
+          '#loc1 = loc("generated_region_kernel.py":8:15)\n'
+          "%offsets = arith.muli %offsets_1, %cst : tensor<2x1xi32> loc(#loc1)"
+        ),
+        "llir": "ret void",
+      }
+    )
+
+    result = experiment._validate_generated_region_payload_lowering(
+      compiled,
+      required_payload_operations=(),
+      payload_source_lines=payload_source_lines,
+    )
+    transition = experiment._payload_operation_transition(
+      experiment._required_fpsan_payload_operations(STATE_ONLY_SUBTRACTION_SOURCE, 1),
+      live_operations,
+      result["ttgir"]["payload_operation_counts"],
+    )
+
+    self.assertEqual(live_operations, ("add",))
+    self.assertEqual(result["ttgir"]["required_payload_operations"], [])
+    self.assertEqual(result["ttgir"]["payload_operation_counts"], {})
+    self.assertNotIn("sub", result["ttgir"]["payload_operation_counts"])
+    self.assertEqual(transition["eliminated_payload_operations"], ["sub"])
+    self.assertEqual(transition["unobserved_live_payload_operations"], ["add"])
 
   def test_ordinary_reference_uses_admitted_binary32_multiply(self):
     experiment = _load_fpsan_experiment()

@@ -217,8 +217,65 @@ def validate_instrumentation_sensitivity(instrumented, ordinary, ordinary_expect
   return {"status": "pass", "mismatch_lanes": mismatch_lanes}
 
 
+def _ttgir_location_definitions(lines):
+  definitions = {}
+  for line in lines:
+    match = re.match(r"\s*(#loc\d*)\s*=\s*loc\((.*)\)\s*$", line)
+    if match is not None:
+      definitions[match[1]] = match[2]
+  return definitions
+
+
+def _ttgir_source_sites(line, definitions, active=()):
+  sites = {
+    (match[1], int(match[2])) for match in re.finditer(r'"([^"]+)":(\d+):\d+', line)
+  }
+  for reference in re.findall(r"#loc\d*\b", line):
+    if reference in active or reference not in definitions:
+      continue
+    definition = definitions[reference]
+    sites.update(
+      (match[1], int(match[2]))
+      for match in re.finditer(r'"([^"]+)":(\d+):\d+', definition)
+    )
+    sites.update(_ttgir_source_sites(definition, definitions, (*active, reference)))
+  return sites
+
+
+def _normalize_payload_source_lines(payload_source_lines):
+  if payload_source_lines is None:
+    return {}
+  if not isinstance(payload_source_lines, dict):
+    raise ValueError(
+      "TTGIR payload source lines must map positive line numbers to families"
+    )
+  normalized = {}
+  for line_number, families in payload_source_lines.items():
+    if type(line_number) is not int or line_number <= 0:
+      raise ValueError("TTGIR payload source line numbers must be positive integers")
+    if isinstance(families, str):
+      families = (families,)
+    if (
+      not isinstance(families, (tuple, list, set, frozenset))
+      or not families
+      or any(
+        not isinstance(family, str) or family not in {"add", "sub", "mul"}
+        for family in families
+      )
+      or len(set(families)) != len(families)
+    ):
+      raise ValueError("TTGIR payload source families must be unique add/sub/mul names")
+    normalized[line_number] = frozenset(families)
+  return normalized
+
+
 def validate_fpsan_payload_lowering(
-  ir, *, stage="llvm", required_payload_operations=("add",)
+  ir,
+  *,
+  stage="llvm",
+  required_payload_operations=("add",),
+  payload_source_lines=None,
+  payload_source_path=None,
 ):
   """Require requested integer payload operations and reject IEEE arithmetic."""
   if stage not in {"llvm", "ttgir"}:
@@ -235,14 +292,39 @@ def validate_fpsan_payload_lowering(
   ):
     raise ValueError("required payload operations must be unique add/sub/mul names")
   lines = ir.splitlines()
+  non_payload_lines = []
   if stage == "ttgir":
+    source_lines = _normalize_payload_source_lines(payload_source_lines)
+    source_path = (
+      Path(payload_source_path).resolve() if payload_source_path is not None else None
+    )
+    definitions = _ttgir_location_definitions(lines)
     operation_names = {"add": "addi", "sub": "subi", "mul": "muli"}
-    payload_lines = {
-      name: [
-        line.strip() for line in lines if re.search(rf"\barith\.{ir_name}\b", line)
-      ]
-      for name, ir_name in operation_names.items()
-    }
+    payload_lines = {name: [] for name in operation_names}
+    non_payload_lines = []
+    for line in lines:
+      family = next(
+        (
+          name
+          for name, ir_name in operation_names.items()
+          if re.search(rf"\barith\.{ir_name}\b", line)
+        ),
+        None,
+      )
+      if family is None:
+        continue
+      source_sites = _ttgir_source_sites(line, definitions)
+      if source_path is not None:
+        source_sites = {
+          site for site in source_sites if Path(site[0]).resolve() == source_path
+        }
+      attributed_families = set()
+      for _source_path_name, line_number in source_sites:
+        attributed_families.update(source_lines.get(line_number, ()))
+      if family in attributed_families:
+        payload_lines[family].append(line.strip())
+      else:
+        non_payload_lines.append(line.strip())
     floating_operations = [
       line.strip()
       for line in lines
@@ -306,6 +388,20 @@ def validate_fpsan_payload_lowering(
     },
     "required_payload_operations": list(required_payload_operations),
     "floating_operation_lines": floating_operations,
+    "non_payload_integer_operation_lines": sorted(set(non_payload_lines)),
+    "non_payload_integer_operation_counts": {
+      operation: sum(
+        bool(re.search(rf"\barith\.{operation_names[operation]}\b", line))
+        for line in non_payload_lines
+      )
+      for operation in operation_names
+      if any(
+        re.search(rf"\barith\.{operation_names[operation]}\b", line)
+        for line in non_payload_lines
+      )
+    }
+    if stage == "ttgir"
+    else {},
   }
 
 
@@ -963,10 +1059,7 @@ def synthesize_generated_region(
   )
 
 
-def render_generated_region_triton_kernel(
-  source, *, iteration_count=None, omitted_updates=()
-):
-  """Emit a Triton kernel with the same dataflow and ordered updates as SIR."""
+def _generated_region_lowering_inputs(source, iteration_count, omitted_updates):
   shape, iterations, tensor_types, nodes, updates = (
     tensor_exact_f32._generated_region_program(source)
   )
@@ -984,7 +1077,69 @@ def render_generated_region_triton_kernel(
     raise ValueError("generated Triton mutant names an unknown loop-carried state")
   if len(shape) != 2:
     raise ValueError("FpSan Triton lowering requires a rank-two generated region")
+  return shape, iteration_count, tensor_types, nodes, updates, omitted_updates
+
+
+def _generated_region_live_nodes(nodes, updates, iteration_count, omitted_updates):
+  """Return body nodes that can affect the final state after the selected updates."""
+  definitions = {destination: operands for destination, _, operands, _ in nodes}
+  update_roots = dict(updates)
+  live_states = set(update_roots)
+  live_nodes = set()
+  for _ in range(iteration_count):
+    prior_states = set()
+    visited_nodes = set()
+    for state in live_states:
+      if state in omitted_updates or state not in update_roots:
+        prior_states.add(state)
+        continue
+      pending = [update_roots[state]]
+      while pending:
+        value = pending.pop()
+        if value not in definitions:
+          prior_states.add(value)
+          continue
+        if value in visited_nodes:
+          continue
+        visited_nodes.add(value)
+        live_nodes.add(value)
+        pending.extend(definitions[value])
+    live_states = prior_states
+  return live_nodes
+
+
+def generated_region_payload_operations(
+  source, *, iteration_count=None, omitted_updates=()
+):
+  """List payload arithmetic families in the live generated loop body."""
+  lowering = _generated_region_lowering_inputs(source, iteration_count, omitted_updates)
+  _shape, iteration_count, _types, nodes, updates, omitted_updates = lowering
+  live_nodes = _generated_region_live_nodes(
+    nodes, updates, iteration_count, omitted_updates
+  )
+  family_for_operation = {"add": "add", "sub": "sub", "mul": "mul", "sum": "add"}
+  return tuple(
+    sorted(
+      {
+        family_for_operation[operation]
+        for destination, operation, _operands, _attribute in nodes
+        if destination in live_nodes and operation in family_for_operation
+      }
+    )
+  )
+
+
+def _render_generated_region_triton_kernel(
+  source, *, iteration_count=None, omitted_updates=()
+):
+  """Render source and line attribution for live payload operations."""
+  lowering = _generated_region_lowering_inputs(source, iteration_count, omitted_updates)
+  shape, iteration_count, tensor_types, nodes, updates, omitted_updates = lowering
+  live_nodes = _generated_region_live_nodes(
+    nodes, updates, iteration_count, omitted_updates
+  )
   rows, columns = shape
+  source_lines = {}
   lines = [
     "import triton",
     "import triton.language as tl",
@@ -1004,36 +1159,68 @@ def render_generated_region_triton_kernel(
 
   for destination, operation, operands, attribute in nodes:
     target = names[destination]
+    payload_family = None
+    payload_line = None
     if operation == "add":
       left, right = (names[name] for name in operands)
       expression = f"{left} + {right}"
+      payload_family = "add"
     elif operation == "sub":
       left, right = (names[name] for name in operands)
       expression = f"{left} - {right}"
+      payload_family = "sub"
     elif operation == "mul":
       left, right = (names[name] for name in operands)
       expression = f"{left} * {right}"
+      payload_family = "mul"
     elif operation == "sum":
       axis = attribute if attribute >= 0 else attribute + len(shape)
       operand = names[operands[0]]
+      payload_line = len(lines) + 1
       lines.append(f"        {target}_reduced = tl.sum({operand}, axis={axis})")
       expression = f"tl.expand_dims({target}_reduced, {axis})"
+      payload_family = "add"
     else:
       operand = names[operands[0]]
       target_shape = tensor_types[destination]
       expression = f"tl.broadcast_to({operand}, {target_shape!r})"
+    operation_line = len(lines) + 1
     lines.append(f"        {target} = {expression}")
+    if destination in live_nodes and payload_family is not None:
+      source_lines[payload_line or operation_line] = (payload_family,)
 
   for state, root in updates:
     if state not in omitted_updates:
       lines.append(f"        {state} = {names[root]}")
+  output_line = len(lines) + 1
   lines.extend(
     (
       "    output = acc_x + acc_y",
       "    tl.store(output_ptr + offsets, output)",
     )
   )
-  return "\n".join(lines) + "\n"
+  source_lines[output_line] = ("add",)
+  return "\n".join(lines) + "\n", source_lines
+
+
+def generated_region_payload_operation_lines(
+  source, *, iteration_count=None, omitted_updates=()
+):
+  """Map generated Triton source lines to live FpSan payload operation families."""
+  _rendered, source_lines = _render_generated_region_triton_kernel(
+    source, iteration_count=iteration_count, omitted_updates=omitted_updates
+  )
+  return source_lines
+
+
+def render_generated_region_triton_kernel(
+  source, *, iteration_count=None, omitted_updates=()
+):
+  """Emit a Triton kernel with the same dataflow and ordered updates as SIR."""
+  rendered, _source_lines = _render_generated_region_triton_kernel(
+    source, iteration_count=iteration_count, omitted_updates=omitted_updates
+  )
+  return rendered
 
 
 def build_payload_query(case_name):
