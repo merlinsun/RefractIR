@@ -510,10 +510,7 @@ class TensorFpSanModelTests(unittest.TestCase):
       + " ".join(f"({name} #x{value:08X})" for name, value in words.items())
       + ")\n"
     )
-    run.side_effect = [
-      CompletedProcess(["bitwuzla"], 0, "sat\n", ""),
-      CompletedProcess(["bitwuzla"], 0, model, ""),
-    ]
+    run.return_value = CompletedProcess(["bitwuzla"], 0, model, "")
 
     witness = self.fpsan().synthesize_generated_region(
       fpsan_generated_region_source(iterations=2)
@@ -529,8 +526,93 @@ class TensorFpSanModelTests(unittest.TestCase):
       witness["output_float_bits"],
       ["4be15800", "4be15800", "7244a300", "5d735c00"],
     )
-    self.assertEqual(run.call_count, 2)
+    self.assertEqual(run.call_count, 1)
     self.assertEqual(len(witness["query_sha256"]), 64)
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
+  def test_generated_region_synthesis_uses_one_solver_session(self, _command, run):
+    words = {
+      "x0": 1,
+      "x1": 1,
+      "x2": 2,
+      "x3": 3,
+      "output_0": 25,
+      "output_1": 25,
+      "output_2": 62,
+      "output_3": 63,
+    }
+    model = (
+      "sat\n("
+      + " ".join(f"({name} #x{value:08X})" for name, value in words.items())
+      + ")\n"
+    )
+    run.return_value = CompletedProcess(["bitwuzla"], 0, model, "")
+
+    witness = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(witness["status"], "SAT")
+    self.assertEqual(run.call_count, 1)
+    self.assertIn("(check-sat)", run.call_args.kwargs["input"])
+    self.assertIn("(get-value (x0 x1 x2 x3 output_0", run.call_args.kwargs["input"])
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
+  def test_generated_region_synthesis_accounts_for_solver_session(self, _command, run):
+    run.return_value = CompletedProcess(["bitwuzla"], 1, "unsat\n(error)\n", "")
+
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(result["status"], "UNSAT")
+    self.assertGreaterEqual(result["cost_s"]["solver_session_s"], 0.0)
+    self.assertEqual(result["cost_s"]["solver_invocations"], 1)
+
+  @mock.patch(
+    "test.lib.tensor_fpsan.subprocess.run", side_effect=TimeoutExpired(["bitwuzla"], 1)
+  )
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
+  def test_generated_region_synthesis_reports_session_timeout(self, _command, _run):
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2), timeout_s=1
+    )
+
+    self.assertEqual(result["status"], "TIMEOUT")
+    self.assertEqual(result["solver_outcome"]["phase"], "session")
+    self.assertIn("solver_session_s", result["cost_s"])
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
+  def test_generated_region_synthesis_classifies_missing_model(self, _command, run):
+    run.return_value = CompletedProcess(["bitwuzla"], 0, "sat\n", "")
+
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(result["status"], "ERROR")
+    self.assertEqual(result["solver_outcome"]["phase"], "model")
+    self.assertIn("missing or added", result["solver_outcome"]["error"])
+
+  @mock.patch("test.lib.tensor_fpsan.subprocess.run")
+  @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])
+  def test_generated_region_synthesis_handles_unsat_model_diagnostic(
+    self, _command, run
+  ):
+    run.return_value = CompletedProcess(
+      ["bitwuzla"], 1, 'unsat\n(error "model unavailable")\n', ""
+    )
+
+    result = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(result["status"], "UNSAT")
+    self.assertEqual(run.call_count, 1)
+    self.assertIn("(get-value", run.call_args.kwargs["input"])
 
   @mock.patch("test.lib.tensor_fpsan.subprocess.run")
   @mock.patch("test.lib.tensor_fpsan._solver_command", return_value=["bitwuzla"])

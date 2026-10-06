@@ -885,6 +885,11 @@ def _solver_status(output):
 def _solver_outcome(status, query, command, phase, result=None, error=None):
   output = getattr(result, "stdout", "") if result is not None else ""
   stderr = getattr(result, "stderr", "") if result is not None else ""
+  if result is None and error is not None:
+    output = getattr(error, "stdout", None)
+    if output is None:
+      output = getattr(error, "output", "")
+    stderr = getattr(error, "stderr", "")
   if isinstance(output, bytes):
     output = output.decode("utf-8", errors="replace")
   if isinstance(stderr, bytes):
@@ -960,8 +965,8 @@ def synthesize_generated_region(
   )
   costs = {
     "query_build_s": time.perf_counter() - query_started,
-    "solver_check_s": 0.0,
-    "solver_model_s": 0.0,
+    "solver_session_s": 0.0,
+    "solver_invocations": 0,
     "host_validation_s": 0.0,
   }
 
@@ -972,33 +977,10 @@ def synthesize_generated_region(
   command = _solver_command()
   remaining_s = deadline - time.monotonic()
   if remaining_s <= 0:
-    return finish(_solver_outcome("TIMEOUT", query, command, "check"))
-  check_started = time.perf_counter()
+    return finish(_solver_outcome("TIMEOUT", query, command, "session"))
+  solver_started = time.perf_counter()
   try:
-    check_result = subprocess.run(
-      command,
-      input=query["check_script"],
-      text=True,
-      capture_output=True,
-      check=False,
-      timeout=remaining_s,
-    )
-  except subprocess.TimeoutExpired as error:
-    costs["solver_check_s"] = time.perf_counter() - check_started
-    return finish(_solver_outcome("TIMEOUT", query, command, "check", error=error))
-  costs["solver_check_s"] = time.perf_counter() - check_started
-  status = _solver_status(check_result.stdout)
-  if status in {"UNSAT", "UNKNOWN"}:
-    return finish(_solver_outcome(status, query, command, "check", check_result))
-  if status != "SAT" or check_result.returncode != 0:
-    return finish(_solver_outcome("ERROR", query, command, "check", check_result))
-
-  remaining_s = deadline - time.monotonic()
-  if remaining_s <= 0:
-    return finish(_solver_outcome("TIMEOUT", query, command, "model"))
-  model_started = time.perf_counter()
-  try:
-    model_result = subprocess.run(
+    solver_result = subprocess.run(
       command,
       input=query["script"],
       text=True,
@@ -1007,18 +989,25 @@ def synthesize_generated_region(
       timeout=remaining_s,
     )
   except subprocess.TimeoutExpired as error:
-    costs["solver_model_s"] = time.perf_counter() - model_started
-    return finish(_solver_outcome("TIMEOUT", query, command, "model", error=error))
-  costs["solver_model_s"] = time.perf_counter() - model_started
-  model_status = _solver_status(model_result.stdout)
-  if model_status in {"UNSAT", "UNKNOWN"}:
-    return finish(_solver_outcome(model_status, query, command, "model", model_result))
-  if model_status != "SAT" or model_result.returncode != 0:
-    return finish(_solver_outcome("ERROR", query, command, "model", model_result))
+    costs["solver_session_s"] = time.perf_counter() - solver_started
+    costs["solver_invocations"] = 1
+    return finish(_solver_outcome("TIMEOUT", query, command, "session", error=error))
+  costs["solver_session_s"] = time.perf_counter() - solver_started
+  costs["solver_invocations"] = 1
+  status = _solver_status(solver_result.stdout)
+  if status in {"UNSAT", "UNKNOWN"}:
+    return finish(_solver_outcome(status, query, command, "session", solver_result))
+  if status != "SAT" or solver_result.returncode != 0:
+    return finish(_solver_outcome("ERROR", query, command, "session", solver_result))
 
   validation_started = time.perf_counter()
   requested = [*query["variables"], *query["output_names"]]
-  model = parse_payload_model(model_result.stdout, requested)
+  try:
+    model = parse_payload_model(solver_result.stdout, requested)
+  except (TypeError, ValueError) as error:
+    return finish(
+      _solver_outcome("ERROR", query, command, "model", solver_result, error)
+    )
   input_payloads = [model[name] for name in query["variables"]]
   output_payloads = [model[name] for name in query["output_names"]]
   replayed = evaluate_generated_payload_region(source, input_payloads)

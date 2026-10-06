@@ -48,7 +48,7 @@ def _matching_reports():
           "region_source": {"sha256": source_sha256},
           "selection": {
             "status": "SAT",
-            "cost_s": {"solver_check_s": 0.25},
+            "cost_s": {"solver_session_s": 0.25, "solver_invocations": 1},
           },
           "measurement": {"median_gpu_event_ms_per_launch": 0.04},
           "ordinary_reference": {
@@ -235,7 +235,7 @@ class TensorRouteProtocolTests(unittest.TestCase):
     ]
 
     self.assertEqual(metrics["fpsan"]["selection_status"], "SAT")
-    self.assertEqual(metrics["fpsan"]["selection_cost_s"]["solver_check_s"], 0.25)
+    self.assertEqual(metrics["fpsan"]["selection_cost_s"]["solver_session_s"], 0.25)
     self.assertEqual(
       metrics["exact"]["policies"]["random"]["cost_s"]["compilation_s"], 4.0
     )
