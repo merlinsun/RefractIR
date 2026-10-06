@@ -34,6 +34,35 @@ def fpsan_generated_region_source(iterations=2):
   )
 
 
+SINGLE_LANE_REGION_SOURCE = """fun @kernel(%x: tensor [1, 1] f32) : tensor [1, 1] f32 {
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [1, 1] f32 = undef;
+  let mut %acc_y: tensor [1, 1] f32 = {0.0};
+  let mut %value: tensor [1, 1] f32 = undef;
+  let mut %next_x: tensor [1, 1] f32 = undef;
+  let mut %next_y: tensor [1, 1] f32 = undef;
+  let mut %out: tensor [1, 1] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < 1, ^body, ^exit;
+^body:
+  %value = tensor add %acc_x, %acc_y;
+  %next_x = tensor add %acc_x, %value;
+  %next_y = tensor add %acc_y, %value;
+  %acc_x = %next_x;
+  %acc_y = %next_y;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}
+"""
+
+
 class TensorFpSanModelTests(unittest.TestCase):
   def fpsan(self):
     return importlib.import_module("test.lib.tensor_fpsan")
@@ -228,6 +257,58 @@ class TensorFpSanModelTests(unittest.TestCase):
     self.assertIn("lost_update_acc_y_output_0", query["script"])
     self.assertNotIn("(= output_0 #xFFFFFFFF)", query["script"])
 
+  def test_generated_region_query_requires_nonuniform_input_payloads(self):
+    query = self.fpsan().build_generated_payload_query(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertIn(
+      "(assert (or (not (= x0 x1)) (not (= x1 x2))",
+      query["script"],
+    )
+
+  def test_generated_region_query_requires_lane_rotation_sensitivity(self):
+    query = self.fpsan().build_generated_payload_query(
+      fpsan_generated_region_source(iterations=2)
+    )
+
+    self.assertEqual(
+      query["mutant_output_names"]["lane_permutation"],
+      ("output_1", "output_2", "output_3", "output_0"),
+    )
+    self.assertIn(
+      "(assert (or (not (= output_0 output_1)) (not (= output_1 output_2))",
+      query["script"],
+    )
+
+  def test_lane_permutation_mutant_rotates_complete_payload_output(self):
+    api = self.fpsan()
+    source = fpsan_generated_region_source(iterations=1)
+    expected = api.evaluate_generated_payload_region(source, [1, 2, 3, 4])
+
+    actual = api.evaluate_generated_payload_mutant(
+      source, [1, 2, 3, 4], "lane_permutation"
+    )
+
+    self.assertEqual(actual, expected[1:] + expected[:1])
+
+  def test_generated_region_synthesis_finds_a_lane_sensitive_witness(self):
+    witness = self.fpsan().synthesize_generated_region(
+      fpsan_generated_region_source(iterations=2), timeout_s=10
+    )
+    inputs = list(witness["input_payloads"].values())
+
+    self.assertEqual(witness["status"], "SAT")
+    self.assertGreater(len(set(inputs)), 1)
+    self.assertEqual(
+      witness["input_diversity"]["distinct_payload_count"], len(set(inputs))
+    )
+    self.assertEqual(witness["input_diversity"]["lane_count"], len(inputs))
+    self.assertGreater(len(set(witness["output_payloads"])), 1)
+    self.assertEqual(
+      witness["calibration_mutants"]["lane_permutation"]["status"], "detected"
+    )
+
   def test_generated_region_query_can_require_a_specific_output_payload(self):
     query = self.fpsan().build_generated_payload_query(
       fpsan_generated_region_source(iterations=2),
@@ -255,6 +336,10 @@ class TensorFpSanModelTests(unittest.TestCase):
         fpsan_generated_region_source(iterations=2),
         target=16_777_217,
       )
+
+  def test_generated_region_query_rejects_a_single_lane_rotation_domain(self):
+    with self.assertRaisesRegex(ValueError, "at least two output lanes"):
+      self.fpsan().build_generated_payload_query(SINGLE_LANE_REGION_SOURCE)
 
   def test_generated_payload_transport_preserves_the_pinned_fixed_points(self):
     api = self.fpsan()
@@ -313,7 +398,11 @@ class TensorFpSanModelTests(unittest.TestCase):
         name: mutant["status"]
         for name, mutant in witness["calibration_mutants"].items()
       },
-      {"lost_iteration": "detected", "lost_update_acc_y": "detected"},
+      {
+        "lost_iteration": "detected",
+        "lost_update_acc_y": "detected",
+        "lane_permutation": "detected",
+      },
     )
 
   def test_generated_region_synthesis_satisfies_a_fixed_output_payload(self):
@@ -334,7 +423,11 @@ class TensorFpSanModelTests(unittest.TestCase):
         name: mutant["status"]
         for name, mutant in witness["calibration_mutants"].items()
       },
-      {"lost_iteration": "detected", "lost_update_acc_y": "detected"},
+      {
+        "lost_iteration": "detected",
+        "lost_update_acc_y": "detected",
+        "lane_permutation": "detected",
+      },
     )
 
   @mock.patch("test.lib.tensor_fpsan.subprocess.run")
@@ -404,13 +497,13 @@ class TensorFpSanModelTests(unittest.TestCase):
   ):
     words = {
       "x0": 1,
-      "x3": 1,
       "x1": 1,
-      "x2": 1,
+      "x2": 2,
+      "x3": 3,
       "output_0": 25,
       "output_1": 25,
-      "output_2": 25,
-      "output_3": 25,
+      "output_2": 62,
+      "output_3": 63,
     }
     model = (
       "sat\n("
@@ -428,11 +521,14 @@ class TensorFpSanModelTests(unittest.TestCase):
 
     self.assertEqual(
       witness["input_payloads"],
-      {name: 1 for name in ("x0", "x1", "x2", "x3")},
+      {"x0": 1, "x1": 1, "x2": 2, "x3": 3},
     )
     self.assertEqual(witness["status"], "SAT")
-    self.assertEqual(witness["output_payloads"], [25, 25, 25, 25])
-    self.assertEqual(witness["output_float_bits"], ["4be15800"] * 4)
+    self.assertEqual(witness["output_payloads"], [25, 25, 62, 63])
+    self.assertEqual(
+      witness["output_float_bits"],
+      ["4be15800", "4be15800", "7244a300", "5d735c00"],
+    )
     self.assertEqual(run.call_count, 2)
     self.assertEqual(len(witness["query_sha256"]), 64)
 
@@ -473,6 +569,15 @@ class TensorFpSanModelTests(unittest.TestCase):
     self.assertIn("tl.sum(", source)
     self.assertIn("tl.broadcast_to(", source)
     self.assertIn("tl.store(output_ptr + offsets, output)", source)
+
+  def test_generated_region_triton_kernel_emits_lane_rotation(self):
+    source = self.fpsan().render_generated_region_triton_kernel(
+      fpsan_generated_region_source(iterations=2), lane_permutation=True
+    )
+
+    ast.parse(source)
+    self.assertIn("tl.gather(flat_output, permuted_lanes, axis=0)", source)
+    self.assertIn("permuted_lanes = (lanes + 1) % 4", source)
 
   def test_runtime_synthesis_records_models_and_exact_input_words(self):
     witness = self.fpsan().synthesize_payload_case("add_tree")

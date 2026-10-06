@@ -632,7 +632,7 @@ def evaluate_generated_payload_region(source, input_payloads):
 
 
 def evaluate_generated_payload_mutant(source, input_payloads, mutant):
-  """Evaluate one generated-loop omission used to calibrate witness quality."""
+  """Evaluate one generated-region mutation used to calibrate witness quality."""
   _shape, iterations, _types, _nodes, _updates = (
     tensor_exact_f32._generated_region_program(source)
   )
@@ -644,6 +644,9 @@ def evaluate_generated_payload_mutant(source, input_payloads, mutant):
     return _evaluate_generated_payload_region(
       source, input_payloads, omitted_updates=("acc_y",)
     )
+  if mutant == "lane_permutation":
+    output = _evaluate_generated_payload_region(source, input_payloads)
+    return output[1:] + output[:1]
   raise ValueError(f"unknown generated-region calibration mutant: {mutant}")
 
 
@@ -759,10 +762,13 @@ def _fpsan_unmix_payload_smt():
 
 
 def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
-  """Encode transportable loop I/O and mutation-sensitive witnesses in QF_BV."""
+  """Encode transportable region I/O and mutation-sensitive witnesses in QF_BV."""
   shape, iterations, variables, output_names, definitions = _generated_payload_smt(
     source
   )
+  count = math.prod(shape)
+  if count < 2:
+    raise ValueError("lane permutation sensitivity requires at least two output lanes")
   property_spec = None
   if target is not None:
     if type(target) is not int or not 0 <= target <= GENERATED_OUTPUT_MAX:
@@ -793,7 +799,7 @@ def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
     omitted_updates=("acc_y",),
     prefix="lost_update_acc_y_",
   )
-  count = math.prod(shape)
+  lane_permutation_names = (*output_names[1:], output_names[0])
   input_transport_words = tuple(
     unembed_generated_payload(value) for value in range(GENERATED_INPUT_MAX + 1)
   )
@@ -816,6 +822,12 @@ def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
     f"(assert (not (= (bvand (fpsan_unmix_payload {name}) #x7F800000) #x7F800000)))"
     for name in all_outputs
   )
+  adjacent_inputs = tuple(zip(variables, (*variables[1:], variables[0])))
+  lines.append(
+    "(assert (or "
+    + " ".join(f"(not (= {left} {right}))" for left, right in adjacent_inputs)
+    + "))"
+  )
   lines.append(
     "(assert (or "
     + " ".join(
@@ -824,7 +836,11 @@ def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
     )
     + "))"
   )
-  for mutant_names in (lost_iteration_names, lost_update_names):
+  for mutant_names in (
+    lost_iteration_names,
+    lost_update_names,
+    lane_permutation_names,
+  ):
     lines.append(
       "(assert (or "
       + " ".join(
@@ -849,6 +865,7 @@ def build_generated_payload_query(source, *, target=None, target_index=(0, 0)):
     "mutant_output_names": {
       "lost_iteration": lost_iteration_names,
       "lost_update_acc_y": lost_update_names,
+      "lane_permutation": lane_permutation_names,
     },
     "property": property_spec,
     "check_script": check_script,
@@ -1008,7 +1025,7 @@ def synthesize_generated_region(
   if output_payloads != replayed:
     raise AssertionError("SMT model outputs disagree with the host payload evaluator")
   calibration_mutants = {}
-  for name in ("lost_iteration", "lost_update_acc_y"):
+  for name in ("lost_iteration", "lost_update_acc_y", "lane_permutation"):
     mutant_payloads = evaluate_generated_payload_mutant(source, input_payloads, name)
     mismatch_lanes = compare_words(output_payloads, mutant_payloads)
     if not mismatch_lanes:
@@ -1054,6 +1071,10 @@ def synthesize_generated_region(
       "output_float_bits": [
         f"{unembed_generated_payload(value):08x}" for value in output_payloads
       ],
+      "input_diversity": {
+        "distinct_payload_count": len(set(input_payloads)),
+        "lane_count": len(input_payloads),
+      },
       "calibration_mutants": calibration_mutants,
     }
   )
@@ -1130,11 +1151,16 @@ def generated_region_payload_operations(
 
 
 def _render_generated_region_triton_kernel(
-  source, *, iteration_count=None, omitted_updates=()
+  source, *, iteration_count=None, omitted_updates=(), lane_permutation=False
 ):
   """Render source and line attribution for live payload operations."""
+  if type(lane_permutation) is not bool:
+    raise ValueError("generated Triton lane permutation flag must be boolean")
   lowering = _generated_region_lowering_inputs(source, iteration_count, omitted_updates)
   shape, iteration_count, tensor_types, nodes, updates, omitted_updates = lowering
+  count = math.prod(shape)
+  if lane_permutation and count < 2:
+    raise ValueError("lane permutation sensitivity requires at least two output lanes")
   live_nodes = _generated_region_live_nodes(
     nodes, updates, iteration_count, omitted_updates
   )
@@ -1193,32 +1219,46 @@ def _render_generated_region_triton_kernel(
     if state not in omitted_updates:
       lines.append(f"        {state} = {names[root]}")
   output_line = len(lines) + 1
-  lines.extend(
-    (
-      "    output = acc_x + acc_y",
-      "    tl.store(output_ptr + offsets, output)",
-    )
-  )
+  lines.append("    output = acc_x + acc_y")
   source_lines[output_line] = ("add",)
+  if lane_permutation:
+    lines.extend(
+      (
+        f"    flat_output = tl.reshape(output, ({count},))",
+        f"    lanes = tl.arange(0, {count})",
+        f"    permuted_lanes = (lanes + 1) % {count}",
+        "    output = tl.reshape(",
+        "        tl.gather(flat_output, permuted_lanes, axis=0),",
+        f"        ({rows}, {columns}),",
+        "    )",
+      )
+    )
+  lines.append("    tl.store(output_ptr + offsets, output)")
   return "\n".join(lines) + "\n", source_lines
 
 
 def generated_region_payload_operation_lines(
-  source, *, iteration_count=None, omitted_updates=()
+  source, *, iteration_count=None, omitted_updates=(), lane_permutation=False
 ):
   """Map generated Triton source lines to live FpSan payload operation families."""
   _rendered, source_lines = _render_generated_region_triton_kernel(
-    source, iteration_count=iteration_count, omitted_updates=omitted_updates
+    source,
+    iteration_count=iteration_count,
+    omitted_updates=omitted_updates,
+    lane_permutation=lane_permutation,
   )
   return source_lines
 
 
 def render_generated_region_triton_kernel(
-  source, *, iteration_count=None, omitted_updates=()
+  source, *, iteration_count=None, omitted_updates=(), lane_permutation=False
 ):
   """Emit a Triton kernel with the same dataflow and ordered updates as SIR."""
   rendered, _source_lines = _render_generated_region_triton_kernel(
-    source, iteration_count=iteration_count, omitted_updates=omitted_updates
+    source,
+    iteration_count=iteration_count,
+    omitted_updates=omitted_updates,
+    lane_permutation=lane_permutation,
   )
   return rendered
 

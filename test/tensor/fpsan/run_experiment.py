@@ -702,6 +702,7 @@ def _run_generated_region_case(
     "query_sha256": witness["query_sha256"],
     "input_payloads": witness["input_payloads"],
     "output_payloads": witness["output_payloads"],
+    "input_diversity": witness["input_diversity"],
     "input_float_words": witness["input_float_words"],
     "output_float_words": witness["output_float_words"],
     "input_float_bits": witness["input_float_bits"],
@@ -854,6 +855,7 @@ def _run_generated_region_case(
   for mutant_name, render_options in (
     ("lost_iteration", {"iteration_count": witness["iterations"] - 1}),
     ("lost_update_acc_y", {"omitted_updates": ("acc_y",)}),
+    ("lane_permutation", {"lane_permutation": True}),
   ):
     note(f"{mutant_name}_execution")
     mutant_kernel_source = render_generated_region_triton_kernel(
@@ -1365,7 +1367,10 @@ def _run_experiment(
         "timing_scope": "GPU event time; excludes selection and compilation",
         "compilation_wall_time": "recorded separately per mode",
       },
-      "selection_policy": "SMT payload model with mutation-sensitive loop constraints",
+      "selection_policy": (
+        "SMT payload model with nonuniform-input, loop-mutation, and "
+        "lane-permutation sensitivity constraints"
+      ),
       "transport_contract": (
         "triton-fpsan-f32-mixer-e2e356723ce35f46b5144373b145c55c4d712237"
       ),

@@ -274,7 +274,8 @@ class GeneratedRegionCorpusTests(unittest.TestCase):
     self.assertEqual(witness["shape"], [2, 2])
     self.assertEqual(witness["iterations"], 2)
     self.assertEqual(
-      set(witness["calibration_mutants"]), {"lost_iteration", "lost_update_acc_y"}
+      set(witness["calibration_mutants"]),
+      {"lost_iteration", "lost_update_acc_y", "lane_permutation"},
     )
     self.assertTrue(
       all(
