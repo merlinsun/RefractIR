@@ -185,6 +185,112 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(result["ttgir"]["payload_operation_counts"], {"add": 1, "sub": 1})
     self.assertEqual(result["llir"]["floating_operation_lines"], [])
 
+  def test_fpsan_case_checkpoint_preserves_completed_work_before_later_failure(self):
+    experiment = _load_fpsan_experiment()
+    measurement = {"warmup_launches": 3, "measured_launches": 30}
+    compiler = {"files": {"ttgir": "compiler.ttgir"}}
+    output_record = {
+      "status": "output_captured",
+      "actual_words": [1, 2, 3, 4],
+      "expected_words": [4, 3, 2, 1],
+      "measurement": measurement,
+      "compiler_ir": compiler,
+    }
+
+    def fail_during_second_control(
+      _case_directory,
+      *,
+      source_path,
+      target,
+      target_index,
+      timeout_s,
+      checkpoint,
+    ):
+      del source_path, target, target_index, timeout_s
+      for name in ("fpsan", "ordinary"):
+        checkpoint(
+          f"{name}_running",
+          work_variant_updates={name: {"status": "running"}},
+        )
+        checkpoint(
+          f"{name}_complete",
+          work_variant_updates={
+            name: {
+              "status": "complete",
+              "compiler": compiler,
+              "execution_observed": True,
+              "measurement": measurement,
+            }
+          },
+        )
+      checkpoint(
+        "lost_iteration_running",
+        work_variant_updates={"lost_iteration": {"status": "running"}},
+      )
+      checkpoint(
+        "lost_iteration_captured",
+        work_variant_updates={
+          "lost_iteration": {
+            "status": "complete",
+            "compiler": compiler,
+            "execution_observed": True,
+            "measurement": measurement,
+          }
+        },
+        calibration_mutant_update={
+          "name": "lost_iteration",
+          "record": output_record,
+        },
+      )
+      checkpoint(
+        "lost_update_running",
+        work_variant_updates={"lost_update_acc_y": {"status": "running"}},
+      )
+      raise RuntimeError("synthetic later-control failure")
+
+    with tempfile.TemporaryDirectory() as temporary:
+      root = Path(temporary)
+      source_path = root / "source.sir"
+      source_path.write_text("fixture", encoding="utf-8")
+      entry = {}
+      report = {"generated_regions": {"programs": {"case": entry}}}
+      with mock.patch.object(
+        experiment,
+        "_run_generated_region_case",
+        side_effect=fail_during_second_control,
+      ):
+        result = experiment._run_generated_region_case_record(
+          report,
+          root / "report.json",
+          root / "case",
+          entry,
+          source_path=source_path,
+          target=1268,
+          target_index=(0, 0),
+          timeout_s=1.0,
+        )
+
+    accounting = result["measurement_accounting"]
+    self.assertEqual(result["status"], "ERROR")
+    self.assertEqual(accounting["status"], "partial")
+    self.assertEqual(
+      accounting["variant_counts"], {"useful": 2, "calibration": 1, "total": 3}
+    )
+    self.assertEqual(accounting["observed"]["total_compilations"], 3)
+    self.assertEqual(accounting["observed"]["total_executions"], 3)
+    self.assertEqual(accounting["observed"]["total_warmup_launches"], 9)
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 90)
+    self.assertIsNone(accounting["total"]["total_compilations"])
+    self.assertEqual(
+      result["work_variants"]["lost_iteration"]["calibration_result"]["actual_words"],
+      [1, 2, 3, 4],
+    )
+    self.assertEqual(
+      result["calibration_mutants"]["lost_iteration"]["expected_words"],
+      [4, 3, 2, 1],
+    )
+    self.assertEqual(result["work_variants"]["lost_update_acc_y"]["status"], "running")
+
   def test_ordinary_reference_admits_binary32_subtraction_region(self):
     experiment = _load_fpsan_experiment()
     from test.lib.tensor_fp32_reference import sub_f32_rne_bits

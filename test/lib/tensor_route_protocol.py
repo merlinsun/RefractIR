@@ -23,6 +23,13 @@ _WORK_SPLIT_FIELDS = (
   "useful_measured_launches",
   "calibration_measured_launches",
 )
+GENERATED_REGION_EXECUTION_PLAN = (
+  ("useful", "fpsan"),
+  ("useful", "ordinary"),
+  ("calibration", "lost_iteration"),
+  ("calibration", "lost_update_acc_y"),
+  ("calibration", "lane_permutation"),
+)
 
 
 def prepare_fresh_cache(path):
@@ -135,6 +142,140 @@ def no_gpu_work_accounting():
 def unknown_gpu_work_accounting():
   """Represent attempted GPU work for which no usable report was retained."""
   return _work_accounting("unknown", {name: 0 for name in _WORK_SPLIT_FIELDS})
+
+
+def generated_region_work_accounting(
+  variant_records, *, execution_plan=GENERATED_REGION_EXECUTION_PLAN
+):
+  """Derive generated-region work from completed and in-progress variants."""
+  if not isinstance(variant_records, dict):
+    raise ValueError("generated-region variant records must be a mapping")
+  if not isinstance(execution_plan, (tuple, list)) or not execution_plan:
+    raise ValueError("generated-region execution plan must be nonempty")
+
+  planned = []
+  for item in execution_plan:
+    if (
+      not isinstance(item, (tuple, list))
+      or len(item) != 2
+      or item[0] not in {"useful", "calibration"}
+      or not isinstance(item[1], str)
+      or not item[1]
+    ):
+      raise ValueError("generated-region execution plan has an invalid variant")
+    planned.append((item[0], item[1]))
+  names = [name for _, name in planned]
+  if len(set(names)) != len(names):
+    raise ValueError("generated-region execution plan repeats a variant")
+  unexpected = set(variant_records) - set(names)
+  if unexpected:
+    raise ValueError(f"unplanned generated-region variants: {sorted(unexpected)}")
+
+  counts = {name: 0 for name in _WORK_SPLIT_FIELDS}
+  completed = {"useful": 0, "calibration": 0}
+  completed_names = []
+  attempted = False
+  all_complete = True
+  for group, name in planned:
+    record = variant_records.get(name)
+    if record is None:
+      all_complete = False
+      continue
+    if not isinstance(record, dict):
+      raise ValueError(f"generated-region variant {name} must be a mapping")
+    state = record.get("status")
+    if state not in {"not_started", "running", "complete", "failed", "unknown"}:
+      raise ValueError(f"generated-region variant {name} has an invalid status")
+    if state in {"running", "failed", "unknown"}:
+      attempted = True
+    if state != "complete":
+      all_complete = False
+
+    prefix = "useful" if group == "useful" else "calibration"
+    compiler = record.get("compiler")
+    compiler_observed = isinstance(compiler, dict) and bool(compiler)
+    execution_observed = record.get("execution_observed") is True
+    measurement = record.get("measurement")
+    measurement_valid = isinstance(measurement, dict) and all(
+      type(measurement.get(field)) is int and measurement[field] >= 0
+      for field in ("warmup_launches", "measured_launches")
+    )
+    if compiler_observed:
+      counts[f"{prefix}_compilations"] += 1
+    if execution_observed:
+      counts[f"{prefix}_executions"] += 1
+    if measurement_valid:
+      counts[f"{prefix}_warmup_launches"] += measurement["warmup_launches"]
+      counts[f"{prefix}_measured_launches"] += measurement["measured_launches"]
+    if state == "not_started" and (
+      compiler_observed or execution_observed or measurement_valid
+    ):
+      raise ValueError(
+        f"not-started generated-region variant {name} contains work evidence"
+      )
+
+    record_complete = (
+      state == "complete"
+      and compiler_observed
+      and execution_observed
+      and measurement_valid
+    )
+    if record_complete:
+      completed[prefix] += 1
+      completed_names.append(name)
+    else:
+      all_complete = False
+      if state == "complete":
+        attempted = True
+
+  if all_complete:
+    status = "complete"
+  elif not attempted and not completed_names:
+    status = "not_started"
+  elif completed_names:
+    status = "partial"
+  else:
+    status = "unknown"
+
+  result = _work_accounting(status, counts)
+  result["expected_variant_counts"] = {
+    "useful": sum(group == "useful" for group, _ in planned),
+    "calibration": sum(group == "calibration" for group, _ in planned),
+    "total": len(planned),
+  }
+  result["variant_counts"] = {
+    **completed,
+    "total": sum(completed.values()),
+  }
+  result["completed_variants"] = completed_names
+  result["execution_plan"] = [{"group": group, "name": name} for group, name in planned]
+  return result
+
+
+def checkpoint_generated_region_variants(
+  variant_records, updates, *, execution_plan=GENERATED_REGION_EXECUTION_PLAN
+):
+  """Merge one checkpoint without replacing earlier completed variant records."""
+  if not isinstance(variant_records, dict) or not isinstance(updates, dict):
+    raise ValueError("generated-region checkpoint records must be mappings")
+  plan = generated_region_work_accounting(
+    variant_records, execution_plan=execution_plan
+  )["execution_plan"]
+  planned_names = {item["name"] for item in plan}
+  unexpected = (set(variant_records) | set(updates)) - planned_names
+  if unexpected:
+    raise ValueError(f"unplanned generated-region variants: {sorted(unexpected)}")
+
+  updated_records = dict(variant_records)
+  for name, update in updates.items():
+    if not isinstance(update, dict):
+      raise ValueError(f"generated-region checkpoint for {name} must be a mapping")
+    previous = updated_records.get(name, {"status": "not_started"})
+    if previous.get("status") == "complete":
+      raise ValueError(f"completed GPU variant cannot be replaced: {name}")
+    updated_records[name] = {**previous, **update}
+  generated_region_work_accounting(updated_records, execution_plan=execution_plan)
+  return updated_records
 
 
 def gpu_report_work_accounting(report):
@@ -258,6 +399,38 @@ def aggregate_gpu_work_accounting(records):
   else:
     status = "not_started"
   return _work_accounting(status, counts, trial_status_counts=status_counts)
+
+
+def aggregate_generated_region_work_accounting(records):
+  """Sum generated-region work and variant counts across source records."""
+  records = list(records)
+  result = aggregate_gpu_work_accounting(records)
+  expected_variants = {"useful": 0, "calibration": 0}
+  completed_variants = {"useful": 0, "calibration": 0}
+  for index, record in enumerate(records):
+    for field, totals in (
+      ("expected_variant_counts", expected_variants),
+      ("variant_counts", completed_variants),
+    ):
+      values = record.get(field)
+      if not isinstance(values, dict) or any(
+        type(values.get(group)) is not int or values[group] < 0
+        for group in ("useful", "calibration")
+      ):
+        raise ValueError(f"generated-region record {index} has invalid {field}")
+      totals["useful"] += values["useful"]
+      totals["calibration"] += values["calibration"]
+
+  result["source_count"] = len(records)
+  result["expected_variant_counts"] = {
+    **expected_variants,
+    "total": sum(expected_variants.values()),
+  }
+  result["variant_counts"] = {
+    **completed_variants,
+    "total": sum(completed_variants.values()),
+  }
+  return result
 
 
 def _admitted_exact_cell(cell):

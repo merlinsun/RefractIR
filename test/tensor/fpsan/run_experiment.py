@@ -506,10 +506,47 @@ def _run_generated_region_case_record(
     },
   )
   entry.update(status="running", stage="start", elapsed_s=0.0, artifacts=[])
+  entry["work_variants"] = {
+    name: {"status": "not_started"}
+    for _, name in tensor_route_protocol.GENERATED_REGION_EXECUTION_PLAN
+  }
+  entry["measurement_accounting"] = (
+    tensor_route_protocol.generated_region_work_accounting(entry["work_variants"])
+  )
   _refresh_report_status(report)
   _write_report_checkpoint(output_path, report)
 
   def checkpoint(stage, **fields):
+    variant_updates = fields.pop("work_variant_updates", {})
+    calibration_update = fields.pop("calibration_mutant_update", None)
+    if calibration_update is not None:
+      if (
+        not isinstance(calibration_update, dict)
+        or not isinstance(calibration_update.get("name"), str)
+        or not isinstance(calibration_update.get("record"), dict)
+      ):
+        raise ValueError("calibration mutant checkpoint is malformed")
+      name = calibration_update["name"]
+      if entry["work_variants"].get(name, {}).get("status") != "complete":
+        variant_updates.setdefault(name, {})["calibration_result"] = calibration_update[
+          "record"
+        ]
+    for name, update in variant_updates.items():
+      if not isinstance(update, dict):
+        raise ValueError(f"GPU variant checkpoint for {name} must be a mapping")
+    if variant_updates:
+      entry["work_variants"] = (
+        tensor_route_protocol.checkpoint_generated_region_variants(
+          entry["work_variants"], variant_updates
+        )
+      )
+      entry["measurement_accounting"] = (
+        tensor_route_protocol.generated_region_work_accounting(entry["work_variants"])
+      )
+    if calibration_update is not None:
+      entry.setdefault("calibration_mutants", {})[calibration_update["name"]] = (
+        calibration_update["record"]
+      )
     entry["stage"] = stage
     entry.update(fields)
     entry["elapsed_s"] = time.perf_counter() - started
@@ -530,13 +567,9 @@ def _run_generated_region_case_record(
       checkpoint=checkpoint,
     )
     entry.update(result)
-    if result.get("status") == "pass":
-      entry["measurement_accounting"] = tensor_route_protocol.measurement_accounting(
-        useful_compilations=2,
-        calibration_compilations=2,
-        useful_executions=2,
-        calibration_executions=2,
-      )
+    entry["measurement_accounting"] = (
+      tensor_route_protocol.generated_region_work_accounting(entry["work_variants"])
+    )
     entry.setdefault("status", "ERROR")
     entry["stage"] = "complete"
   except Exception as error:
@@ -766,7 +799,11 @@ def _run_generated_region_case(
   namespace = {}
   exec(compile(kernel_source, str(kernel_source_path), "exec"), namespace)
   kernel = namespace["fpsan_generated_region"]
-  note("fpsan_execution", input_float_words=witness["input_float_words"])
+  note(
+    "fpsan_execution",
+    input_float_words=witness["input_float_words"],
+    work_variant_updates={"fpsan": {"status": "running"}},
+  )
   output, compiled, fpsan_launch, fpsan_compile_wall_s = _compile_generated_kernel_mode(
     kernel, inputs, shape, "fpsan"
   )
@@ -778,6 +815,13 @@ def _run_generated_region_case(
     fpsan_expected_words=witness["output_float_words"],
     fpsan_first_launch_wall_s_including_compilation=fpsan_compile_wall_s,
     fpsan_compiler_ir=fpsan_ir,
+    work_variant_updates={
+      "fpsan": {
+        "status": "running",
+        "compiler": fpsan_ir,
+        "execution_observed": True,
+      }
+    },
   )
   fpsan_result = _expect_words(
     "generated_region", output, witness["output_float_words"]
@@ -821,6 +865,7 @@ def _run_generated_region_case(
     "ordinary_execution",
     ordinary_reference_admission=ordinary_admission,
     ordinary_reference_words=ordinary_expected_words,
+    work_variant_updates={"ordinary": {"status": "running"}},
   )
   ordinary_output, ordinary_compiled, ordinary_launch, ordinary_compile_wall_s = (
     _compile_generated_kernel_mode(kernel, inputs, shape, "")
@@ -876,6 +921,20 @@ def _run_generated_region_case(
     fpsan_measurement=fpsan_measurement,
     ordinary_measurement=ordinary_measurement,
     paired_overhead={**paired_overhead, "protocol": paired_protocol},
+    work_variant_updates={
+      "fpsan": {
+        "status": "complete",
+        "compiler": fpsan_ir,
+        "execution_observed": True,
+        "measurement": fpsan_measurement,
+      },
+      "ordinary": {
+        "status": "complete",
+        "compiler": ordinary_ir,
+        "execution_observed": True,
+        "measurement": ordinary_measurement,
+      },
+    },
   )
   result["measurement"] = fpsan_measurement
   result["compiler_modes"]["ordinary"] = ordinary_ir
@@ -896,12 +955,21 @@ def _run_generated_region_case(
   source_payload_operations = set(
     _required_fpsan_payload_operations(source, witness["iterations"])
   )
-  for mutant_name, render_options in (
-    ("lost_iteration", {"iteration_count": witness["iterations"] - 1}),
-    ("lost_update_acc_y", {"omitted_updates": ("acc_y",)}),
-    ("lane_permutation", {"lane_permutation": True}),
-  ):
-    note(f"{mutant_name}_execution")
+  for group, mutant_name in tensor_route_protocol.GENERATED_REGION_EXECUTION_PLAN:
+    if group != "calibration":
+      continue
+    if mutant_name == "lost_iteration":
+      render_options = {"iteration_count": witness["iterations"] - 1}
+    elif mutant_name == "lost_update_acc_y":
+      render_options = {"omitted_updates": ("acc_y",)}
+    elif mutant_name == "lane_permutation":
+      render_options = {"lane_permutation": True}
+    else:
+      raise ValueError(f"no generated-region calibration renderer for {mutant_name}")
+    note(
+      f"{mutant_name}_execution",
+      work_variant_updates={mutant_name: {"status": "running"}},
+    )
     mutant_kernel_source = render_generated_region_triton_kernel(
       source, **render_options
     )
@@ -945,12 +1013,23 @@ def _run_generated_region_case(
     ]
     note(
       f"{mutant_name}_output_captured",
-      last_mutant={
+      calibration_mutant_update={
         "name": mutant_name,
-        "actual_words": actual_mutant_words,
-        "expected_words": expected_mutant_words,
-        "measurement": mutant_measurement,
-        "compiler_ir": mutant_ir,
+        "record": {
+          "status": "output_captured",
+          "actual_words": actual_mutant_words,
+          "expected_words": expected_mutant_words,
+          "measurement": mutant_measurement,
+          "compiler_ir": mutant_ir,
+        },
+      },
+      work_variant_updates={
+        mutant_name: {
+          "status": "complete",
+          "compiler": mutant_ir,
+          "execution_observed": True,
+          "measurement": mutant_measurement,
+        }
       },
     )
     if actual_mutant_words != expected_mutant_words:
@@ -984,6 +1063,13 @@ def _run_generated_region_case(
       "payload_lowering": mutant_payload_lowering,
       "compiler_ir": mutant_ir,
     }
+    note(
+      f"{mutant_name}_validated",
+      calibration_mutant_update={
+        "name": mutant_name,
+        "record": result["calibration_mutants"][mutant_name],
+      },
+    )
   result["elapsed_s"] = time.perf_counter() - case_started
   note("complete")
   return result
@@ -1479,25 +1565,9 @@ def _run_experiment(
   )
   generated_region_result = report["generated_region"]
   generated_region_results = report["generated_regions"]["programs"]
-  completed_accounting = [
-    entry["measurement_accounting"]
-    for entry in generated_region_results.values()
-    if "measurement_accounting" in entry
-  ]
   report["generated_regions"]["measurement_accounting"] = (
-    tensor_route_protocol.measurement_accounting(
-      useful_compilations=sum(
-        record["useful_compilations"] for record in completed_accounting
-      ),
-      calibration_compilations=sum(
-        record["calibration_compilations"] for record in completed_accounting
-      ),
-      useful_executions=sum(
-        record["useful_executions"] for record in completed_accounting
-      ),
-      calibration_executions=sum(
-        record["calibration_executions"] for record in completed_accounting
-      ),
+    tensor_route_protocol.aggregate_generated_region_work_accounting(
+      entry["measurement_accounting"] for entry in generated_region_results.values()
     )
   )
   report["status"] = "running"

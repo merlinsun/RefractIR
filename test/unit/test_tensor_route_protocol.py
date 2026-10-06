@@ -136,6 +136,18 @@ def _gpu_report(*, cases=None, expected_layout_count=2, calibration=True):
   }
 
 
+def _generated_variant_records(names):
+  return {
+    name: {
+      "status": "complete",
+      "compiler": {"variant": name},
+      "execution_observed": True,
+      "measurement": {"warmup_launches": 3, "measured_launches": 30},
+    }
+    for name in names
+  }
+
+
 class TensorRouteProtocolTests(unittest.TestCase):
   def test_cache_policy_creates_only_a_fresh_empty_directory(self):
     protocol = importlib.import_module("test.lib.tensor_route_protocol")
@@ -357,6 +369,144 @@ class TensorRouteProtocolTests(unittest.TestCase):
     self.assertEqual(comparison["routes"]["fpsan"]["budget_s_per_program"], 60)
     self.assertEqual(comparison["routes"]["exact"]["budget_s_per_policy"], 120)
     self.assertFalse(comparison["semantic_equivalence_claim"])
+
+  def test_generated_region_work_counts_two_modes_and_three_controls(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    records = _generated_variant_records(
+      (
+        "fpsan",
+        "ordinary",
+        "lost_iteration",
+        "lost_update_acc_y",
+        "lane_permutation",
+      )
+    )
+    records["ordinary"]["admission"] = "unclassified"
+
+    accounting = protocol.generated_region_work_accounting(records)
+
+    self.assertEqual(accounting["status"], "complete")
+    self.assertEqual(
+      accounting["variant_counts"], {"useful": 2, "calibration": 3, "total": 5}
+    )
+    self.assertEqual(accounting["observed"]["total_compilations"], 5)
+    self.assertEqual(accounting["observed"]["total_executions"], 5)
+    self.assertEqual(accounting["observed"]["total_warmup_launches"], 15)
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 150)
+
+  def test_generated_region_work_scales_when_execution_plan_adds_control(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    plan = (
+      *protocol.GENERATED_REGION_EXECUTION_PLAN,
+      ("calibration", "extra_control"),
+    )
+    records = _generated_variant_records(name for _, name in plan)
+
+    accounting = protocol.generated_region_work_accounting(records, execution_plan=plan)
+
+    self.assertEqual(accounting["status"], "complete")
+    self.assertEqual(
+      accounting["variant_counts"], {"useful": 2, "calibration": 4, "total": 6}
+    )
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 180)
+
+  def test_unsat_before_gpu_keeps_execution_plan_not_started(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+
+    accounting = protocol.generated_region_work_accounting({})
+
+    self.assertEqual(accounting["status"], "not_started")
+    self.assertEqual(
+      accounting["variant_counts"], {"useful": 0, "calibration": 0, "total": 0}
+    )
+    self.assertEqual(accounting["observed"]["total_compilations"], 0)
+    self.assertEqual(accounting["observed"]["total_executions"], 0)
+    self.assertEqual(accounting["observed"]["total_warmup_launches"], 0)
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 0)
+
+  def test_generated_region_partial_work_preserves_completed_variants(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    records = {}
+    for name in ("fpsan", "ordinary", "lost_iteration", "lost_update_acc_y"):
+      variant_record = _generated_variant_records((name,))[name]
+      if name.startswith("lost_"):
+        variant_record["calibration_result"] = {
+          "actual_words": [1, 2, 3, 4],
+          "expected_words": [4, 3, 2, 1],
+        }
+      records = protocol.checkpoint_generated_region_variants(
+        records, {name: variant_record}
+      )
+    records = protocol.checkpoint_generated_region_variants(
+      records, {"lane_permutation": {"status": "running"}}
+    )
+
+    accounting = protocol.generated_region_work_accounting(records)
+
+    self.assertEqual(accounting["status"], "partial")
+    self.assertEqual(accounting["variant_counts"]["total"], 4)
+    self.assertEqual(accounting["observed"]["total_compilations"], 4)
+    self.assertEqual(accounting["observed"]["total_executions"], 4)
+    self.assertEqual(accounting["observed"]["total_warmup_launches"], 12)
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 120)
+    self.assertIsNone(accounting["total"]["total_compilations"])
+    self.assertIsNone(accounting["total"]["total_measured_launches"])
+    self.assertEqual(
+      records["lost_iteration"]["calibration_result"]["actual_words"],
+      [1, 2, 3, 4],
+    )
+    self.assertEqual(
+      records["lost_update_acc_y"]["calibration_result"]["expected_words"],
+      [4, 3, 2, 1],
+    )
+
+  def test_generated_region_attempt_without_completion_is_unknown(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+
+    accounting = protocol.generated_region_work_accounting(
+      {"fpsan": {"status": "running"}}
+    )
+
+    self.assertEqual(accounting["status"], "unknown")
+    self.assertEqual(accounting["variant_counts"]["total"], 0)
+    self.assertEqual(accounting["observed"]["total_compilations"], 0)
+    self.assertEqual(accounting["observed"]["total_executions"], 0)
+    self.assertIsNone(accounting["total"]["total_compilations"])
+    self.assertIsNone(accounting["total"]["total_measured_launches"])
+
+  def test_generated_region_accounting_reads_historical_two_control_plan(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    historical_plan = protocol.GENERATED_REGION_EXECUTION_PLAN[:-1]
+    records = _generated_variant_records(name for _, name in historical_plan)
+
+    accounting = protocol.generated_region_work_accounting(
+      records, execution_plan=historical_plan
+    )
+
+    self.assertEqual(accounting["status"], "complete")
+    self.assertEqual(
+      accounting["variant_counts"], {"useful": 2, "calibration": 2, "total": 4}
+    )
+    self.assertEqual(accounting["observed"]["total_measured_launches"], 120)
+
+  def test_generated_region_accounting_aggregates_per_source_records(self):
+    protocol = importlib.import_module("test.lib.tensor_route_protocol")
+    names = [name for _, name in protocol.GENERATED_REGION_EXECUTION_PLAN]
+    per_source = [
+      protocol.generated_region_work_accounting(_generated_variant_records(names))
+      for _ in range(2)
+    ]
+
+    aggregate = protocol.aggregate_generated_region_work_accounting(per_source)
+
+    self.assertEqual(aggregate["status"], "complete")
+    self.assertEqual(
+      aggregate["variant_counts"], {"useful": 4, "calibration": 6, "total": 10}
+    )
+    self.assertEqual(aggregate["observed"]["total_compilations"], 10)
+    self.assertEqual(aggregate["observed"]["total_executions"], 10)
+    self.assertEqual(aggregate["observed"]["total_warmup_launches"], 30)
+    self.assertEqual(aggregate["observed"]["total_measured_launches"], 300)
 
 
 if __name__ == "__main__":
