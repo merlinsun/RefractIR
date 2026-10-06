@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import math
 import struct
 import sys
 import tempfile
@@ -536,6 +537,10 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
         "native-seed-3-shape-4x2-iterations-4",
         "native-seed-6-shape-2x4-iterations-2",
         "native-seed-2-shape-8x8-iterations-2",
+        "native-subtraction-seed-0-shape-2x4-iterations-3",
+        "native-subtraction-seed-3-shape-4x2-iterations-4",
+        "native-multiplication-seed-6-shape-2x4-iterations-1",
+        "native-mixed-seed-17-shape-2x2-iterations-1",
         "authored-elementwise-multiply-region-v1",
         "authored-elementwise-subtraction-region-v1",
         "authored-orthogonal-reductions-region-v1",
@@ -637,22 +642,25 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
 
     self.assertEqual(len(words), 4)
 
-  def _wide_counterexample(self):
+  def _wide_counterexample(self, width=4):
     from test.lib import tensor_fpsan
 
     source = (ROOT / "test/tensor/gluon/programs/native-seed-7.sir").read_text(
       encoding="utf-8"
     )
-    source = source.replace("tensor [2, 2]", "tensor [2, 4]")
-    source = source.replace("tensor [1, 2]", "tensor [1, 4]")
-    source = source.replace("[2, 2];", "[2, 4];")
-    source = source.replace(
-      "{0.0, 0.0, 0.0, 0.0}",
-      "{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}",
+    source = source.replace("tensor [2, 2]", f"tensor [2, {width}]")
+    source = source.replace("tensor [1, 2]", f"tensor [1, {width}]")
+    source = source.replace("[2, 2];", f"[2, {width}];")
+    element_count = 2 * width
+    zero_values = ", ".join("0.0" for _ in range(element_count))
+    source = source.replace("{0.0, 0.0, 0.0, 0.0}", "{" + zero_values + "}")
+    payloads = (
+      (3, 3, 4, 2, 2, 8, 3, 0)
+      if width == 4
+      else tuple(index % 9 for index in range(element_count))
     )
-    payloads = (3, 3, 4, 2, 2, 8, 3, 0)
     input_words = [tensor_fpsan.unembed_generated_payload(value) for value in payloads]
-    return source, struct.pack("<8I", *input_words)
+    return source, struct.pack(f"<{element_count}I", *input_words)
 
   def test_ordinary_reference_admits_nonnegative_two_term_reductions(self):
     experiment = _load_fpsan_experiment()
@@ -683,6 +691,112 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(admission["status"], "unclassified")
     self.assertEqual(admission["max_reduction_width"], 4)
     self.assertIn("reduction width 4", admission["reason"])
+
+  def test_ordinary_reference_admits_exact_integer_four_term_reductions(self):
+    experiment = _load_fpsan_experiment()
+    source, _input_bytes = self._wide_counterexample()
+    input_bytes = struct.pack("<8f", 1.0, 2.0, 3.0, 4.0, 4.0, 3.0, 2.0, 1.0)
+
+    admission = experiment._ordinary_generated_region_admission(source, input_bytes)
+
+    self.assertEqual(admission["status"], "admitted")
+    self.assertEqual(admission["max_reduction_width"], 4)
+    self.assertEqual(
+      admission["contract"], "nonnegative-integer-f32-all-partials-within-2^24-v1"
+    )
+
+  def test_ordinary_reference_admits_eight_term_reductions_with_safe_integers(self):
+    experiment = _load_fpsan_experiment()
+    source, _input_bytes = self._wide_counterexample(width=8)
+    input_bytes = struct.pack("<16f", *([1.0] * 16))
+
+    admission = experiment._ordinary_generated_region_admission(source, input_bytes)
+
+    self.assertEqual(admission["status"], "admitted")
+    self.assertEqual(admission["max_reduction_width"], 8)
+    self.assertEqual(
+      admission["contract"], "nonnegative-integer-f32-all-partials-within-2^24-v1"
+    )
+
+  def test_wider_ordinary_contract_refuses_fractional_inputs(self):
+    experiment = _load_fpsan_experiment()
+    source, _input_bytes = self._wide_counterexample()
+    input_bytes = struct.pack("<8f", *([0.5] * 8))
+
+    admission = experiment._ordinary_generated_region_admission(source, input_bytes)
+
+    self.assertEqual(admission["status"], "unclassified")
+    self.assertIn("integer-valued", admission["reason"])
+
+  def test_wider_ordinary_contract_refuses_unbounded_partial_sums(self):
+    experiment = _load_fpsan_experiment()
+    source, _input_bytes = self._wide_counterexample()
+    input_bytes = struct.pack("<8f", *([6_000_000.0] * 8))
+
+    admission = experiment._ordinary_generated_region_admission(source, input_bytes)
+
+    self.assertEqual(admission["status"], "unclassified")
+    self.assertIn("exceeds exact range", admission["reason"])
+
+  def test_wider_ordinary_contract_records_its_partial_sum_proof(self):
+    experiment = _load_fpsan_experiment()
+    source, _input_bytes = self._wide_counterexample()
+    input_bytes = struct.pack("<8f", *([1.0] * 8))
+
+    admission = experiment._ordinary_generated_region_admission(source, input_bytes)
+
+    proof = admission["exact_integer_proof"]
+    self.assertEqual(proof["integer_exactness_bound"], 1 << 24)
+    self.assertLessEqual(proof["max_reduction_partial_sum"], 1 << 24)
+    self.assertEqual(len(proof["proof_sha256"]), 64)
+
+  def test_generated_arithmetic_corpus_is_admitted_by_ordinary_numeric_contracts(self):
+    experiment = _load_fpsan_experiment()
+    from test.lib import tensor_exact_f32
+
+    manifest = json.loads(
+      (ROOT / "test/tensor/gluon/programs/native-generated-corpus.json").read_text(
+        encoding="utf-8"
+      )
+    )
+    records = [
+      record
+      for record in manifest["programs"]
+      if record["generation"]["operation_mode"]
+      in {"subtraction", "multiplication", "mixed"}
+    ]
+
+    self.assertEqual(len(records), 4)
+    for record in records:
+      with self.subTest(program_id=record["program_id"]):
+        source = (
+          ROOT / "test/tensor/gluon/programs" / record["source_file"]
+        ).read_text(encoding="utf-8")
+        shape, _iterations, _types, _nodes, _updates = (
+          tensor_exact_f32._generated_region_program(source)
+        )
+        values = [index % 8 + 1 for index in range(math.prod(shape))]
+        input_bytes = struct.pack(f"<{len(values)}f", *values)
+        admission = experiment._ordinary_generated_region_admission(source, input_bytes)
+        exact_proof, exact_output = tensor_exact_f32.certify(
+          source, input_bytes, (0, 8)
+        )
+        actual_words = experiment._ordinary_generated_region_output_words(
+          source, input_bytes
+        )
+        actual_output = struct.pack(f"<{len(actual_words)}I", *actual_words)
+
+        self.assertEqual(admission["status"], "admitted", admission.get("reason"))
+        self.assertEqual(actual_output, exact_output)
+        if admission["max_reduction_width"] > 2:
+          self.assertEqual(
+            admission["contract"],
+            "nonnegative-integer-f32-all-partials-within-2^24-v1",
+          )
+          self.assertLessEqual(
+            admission["exact_integer_proof"]["max_reduction_partial_sum"],
+            exact_proof["integer_exactness_bound"],
+          )
 
   def test_unclassified_reduction_difference_keeps_actual_and_reference_words(self):
     experiment = _load_fpsan_experiment()
@@ -861,7 +975,7 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     source = (
       ROOT / "test/tensor/gluon/programs/" / "native-seed-6-shape-2x4-iterations-2.sir"
     ).read_text(encoding="utf-8")
-    input_bytes = struct.pack("<8f", *([1.0] * 8))
+    input_bytes = struct.pack("<8f", *([0.5] * 8))
     actual_words = [0x3F800000] * 8
 
     comparison = experiment._ordinary_generated_region_comparison(

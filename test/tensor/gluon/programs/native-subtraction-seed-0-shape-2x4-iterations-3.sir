@@ -1,0 +1,32 @@
+fun @kernel(%x: tensor [2, 4] f32) : tensor [2, 4] f32 {
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [2, 4] f32 = undef;
+  let mut %acc_y: tensor [2, 4] f32 = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  let mut %out: tensor [2, 4] f32 = undef;
+  let mut %t0: tensor [2, 4] f32 = undef;
+  let mut %t1: tensor [1, 4] f32 = undef;
+  let mut %t2: tensor [2, 4] f32 = undef;
+  let mut %t3: tensor [2, 4] f32 = undef;
+  let mut %next_x: tensor [2, 4] f32 = undef;
+  let mut %next_y: tensor [2, 4] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < 3, ^body, ^exit;
+^body:
+  %t0 = tensor add %acc_x, %acc_y;
+  %t1 = tensor sum %t0, 0, keep;
+  %t2 = tensor broadcast %t1, [2, 4];
+  %t3 = tensor add %t0, %t2;
+  %next_x = tensor sub %t3, %acc_x;
+  %next_y = tensor add %acc_y, %t3;
+  %acc_x = %next_x;
+  %acc_y = %next_y;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}

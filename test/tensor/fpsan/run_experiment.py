@@ -267,7 +267,7 @@ def _payload_operation_transition(
 
 
 def _ordinary_generated_region_admission(source, input_bytes):
-  """Admit finite nonnegative RNE arithmetic with unambiguous short reductions."""
+  """Admit RNE arithmetic whose reduction order is fixed or provably exact."""
   shape, _, tensor_types, nodes, _ = tensor_exact_f32._generated_region_program(source)
   count = math.prod(shape)
   if not isinstance(input_bytes, bytes) or len(input_bytes) != count * 4:
@@ -301,13 +301,57 @@ def _ordinary_generated_region_admission(source, input_bytes):
     )
   elif max_width > 2:
     unsupported = next(item for item in reductions if item["width"] > 2)
-    result.update(
-      status="unclassified",
-      reason=(
-        f"reduction width {unsupported['width']} at %{unsupported['destination']} "
-        "has no target-independent bitwise RNE tree contract"
-      ),
-    )
+    if any(not value.is_integer() for value in input_values):
+      result.update(
+        status="unclassified",
+        reason=(
+          f"reduction width {unsupported['width']} at %{unsupported['destination']} "
+          "requires integer-valued inputs for an order-independent exactness proof"
+        ),
+      )
+    else:
+      input_domain = (int(min(input_values)), int(max(input_values)))
+      try:
+        proof, exact_output = tensor_exact_f32.certify(
+          source, input_bytes, input_domain
+        )
+        ordinary_output_words = _ordinary_generated_region_output_words(
+          source, input_bytes
+        )
+        ordinary_output = struct.pack(
+          f"<{len(ordinary_output_words)}I", *ordinary_output_words
+        )
+        if exact_output != ordinary_output:
+          raise ValueError("ordinary RNE output differs from the exact integer proof")
+      except ValueError as error:
+        result.update(
+          status="unclassified",
+          reason=(
+            f"reduction width {unsupported['width']} at %{unsupported['destination']} "
+            f"failed the exact-integer partial-sum contract: {error}"
+          ),
+        )
+      else:
+        partial_sums = [
+          bound["max_partial_sum"]
+          for bound in proof["bounds"]
+          if "max_partial_sum" in bound
+        ]
+        proof_json = json.dumps(
+          proof, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+        result.update(
+          contract="nonnegative-integer-f32-all-partials-within-2^24-v1",
+          exact_integer_proof={
+            "input_domain": list(input_domain),
+            "integer_exactness_bound": proof["integer_exactness_bound"],
+            "max_reduction_partial_sum": max(partial_sums, default=0),
+            "max_materialized_value": max(
+              bound["max_value"] for bound in proof["bounds"]
+            ),
+            "proof_sha256": hashlib.sha256(proof_json).hexdigest(),
+          },
+        )
   if result["status"] == "admitted":
     try:
       _ordinary_generated_region_output_words(source, input_bytes)

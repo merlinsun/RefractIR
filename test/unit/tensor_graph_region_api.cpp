@@ -15,7 +15,10 @@ namespace {
       throw std::runtime_error(message);
   }
 
-  TensorRegion makeRegion(std::uint32_t seed, std::uint32_t maxOperators = 12) {
+  TensorRegion makeRegion(
+      std::uint32_t seed, std::uint32_t maxOperators = 12,
+      TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive
+  ) {
     TensorGenerationOptions options;
     options.profileVersion = TensorProfileId::V2;
     options.dtype = "i32";
@@ -27,7 +30,7 @@ namespace {
     limits.maxOperators = maxOperators;
     const TensorTypeInfo type{Shape{4, 4}, TensorElement::I32};
     return generateTensorRegion(
-        options, limits, {{"%acc_x", type}, {"%acc_y", type}}, {"%next_x", "%next_y"}
+        options, limits, {{"%acc_x", type}, {"%acc_y", type}}, {"%next_x", "%next_y"}, arithmetic
     );
   }
 
@@ -170,6 +173,47 @@ namespace {
     const auto region = makeNamedRegion(29, 8, {"%t0", "%other"});
     requireUniqueInstructionResults(region);
   }
+
+  void subtractionArithmeticModeEmitsComputedLeftOperand() {
+    const auto region = makeRegion(13, 10, TensorRegionArithmeticMode::Subtraction);
+    const auto instructions = region.renderInstructions();
+    const auto subtraction =
+        std::find_if(instructions.begin(), instructions.end(), [](const auto &line) {
+          return line.find("tensor sub") != std::string::npos;
+        });
+    require(subtraction != instructions.end(), "subtraction mode must emit tensor sub");
+    require(
+        subtraction->find(", %acc_x;") != std::string::npos,
+        "subtraction must subtract the first state input from the shared graph value"
+    );
+  }
+
+  void multiplicationArithmeticModeEmitsTensorMultiply() {
+    const auto region = makeRegion(17, 10, TensorRegionArithmeticMode::Multiplication);
+    const auto instructions = region.renderInstructions();
+    require(
+        std::any_of(
+            instructions.begin(), instructions.end(),
+            [](const auto &line) { return line.find("tensor mul") != std::string::npos; }
+        ),
+        "multiplication mode must emit tensor mul"
+    );
+  }
+
+  void mixedArithmeticModeKeepsBothResultsAndDependencies() {
+    const auto region = makeRegion(29, 10, TensorRegionArithmeticMode::Mixed);
+    const auto instructions = region.renderInstructions();
+    const auto text = joined(instructions);
+    require(text.find("tensor mul") != std::string::npos, "mixed mode must emit tensor mul");
+    require(text.find("tensor sub") != std::string::npos, "mixed mode must emit tensor sub");
+    const auto body = joined(region.renderBody({{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}}));
+    require(body.find("%next_x =") != std::string::npos, "first named root was lost");
+    require(body.find("%next_y =") != std::string::npos, "second named root was lost");
+    require(
+        body.rfind("  %acc_x = %next_x;") < body.rfind("  %acc_y = %next_y;"),
+        "both generated roots must be computed before ordered state writeback"
+    );
+  }
 } // namespace
 
 int main(int argc, char **argv) {
@@ -201,6 +245,12 @@ int main(int argc, char **argv) {
       firstResultNameStaysUniqueWithThreeRoots();
     else if (name == "result-name-t0-seed-variation")
       reservedNamesDoNotDependOnSeed();
+    else if (name == "region-subtraction")
+      subtractionArithmeticModeEmitsComputedLeftOperand();
+    else if (name == "region-multiplication")
+      multiplicationArithmeticModeEmitsTensorMultiply();
+    else if (name == "region-mixed-arithmetic")
+      mixedArithmeticModeKeepsBothResultsAndDependencies();
     else
       throw std::invalid_argument("unknown tensor graph region test: " + name);
   } catch (const std::exception &error) {

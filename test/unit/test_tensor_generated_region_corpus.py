@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import struct
@@ -16,13 +17,35 @@ from test.lib import tensor_exact_f32, tensor_fpsan
 PROGRAM_DIR = Path(__file__).resolve().parents[1] / "tensor" / "gluon" / "programs"
 MANIFEST_PATH = PROGRAM_DIR / "native-generated-corpus.json"
 EXPECTED_GENERATION = (
-  ("native-seed-7", 7, (2, 2), 2),
-  ("native-seed-17", 17, (2, 2), 2),
-  ("native-seed-29", 29, (2, 2), 2),
-  ("native-seed-0-shape-2x4-iterations-3", 0, (2, 4), 3),
-  ("native-seed-3-shape-4x2-iterations-4", 3, (4, 2), 4),
-  ("native-seed-6-shape-2x4-iterations-2", 6, (2, 4), 2),
-  ("native-seed-2-shape-8x8-iterations-2", 2, (8, 8), 2),
+  ("native-seed-7", 7, (2, 2), 2, "additive"),
+  ("native-seed-17", 17, (2, 2), 2, "additive"),
+  ("native-seed-29", 29, (2, 2), 2, "additive"),
+  ("native-seed-0-shape-2x4-iterations-3", 0, (2, 4), 3, "additive"),
+  ("native-seed-3-shape-4x2-iterations-4", 3, (4, 2), 4, "additive"),
+  ("native-seed-6-shape-2x4-iterations-2", 6, (2, 4), 2, "additive"),
+  ("native-seed-2-shape-8x8-iterations-2", 2, (8, 8), 2, "additive"),
+  (
+    "native-subtraction-seed-0-shape-2x4-iterations-3",
+    0,
+    (2, 4),
+    3,
+    "subtraction",
+  ),
+  (
+    "native-subtraction-seed-3-shape-4x2-iterations-4",
+    3,
+    (4, 2),
+    4,
+    "subtraction",
+  ),
+  (
+    "native-multiplication-seed-6-shape-2x4-iterations-1",
+    6,
+    (2, 4),
+    1,
+    "multiplication",
+  ),
+  ("native-mixed-seed-17-shape-2x2-iterations-1", 17, (2, 2), 1, "mixed"),
 )
 LARGE_ORTHOGONAL_PROGRAM_ID = "native-seed-2-shape-8x8-iterations-2"
 
@@ -41,6 +64,7 @@ class GeneratedRegionCorpusTests(unittest.TestCase):
           record["generation"]["seed"],
           tuple(record["generation"]["shape"]),
           record["generation"]["iterations"],
+          record["generation"]["operation_mode"],
         )
         for record in self.manifest["programs"]
       ),
@@ -76,6 +100,123 @@ class GeneratedRegionCorpusTests(unittest.TestCase):
     self.assertIn(1, reduction_counts)
     self.assertIn(2, reduction_counts)
     self.assertGreaterEqual(len(signatures), 4)
+
+  def _native_operation_families(self, record):
+    source = (PROGRAM_DIR / record["source_file"]).read_text(encoding="utf-8")
+    _shape, _iterations, _types, nodes, _updates = (
+      tensor_exact_f32._generated_region_program(source)
+    )
+    return {node[1] for node in nodes}
+
+  def test_native_generated_corpus_contains_multiplication_regions(self):
+    records = [
+      record
+      for record in self.manifest["programs"]
+      if "mul" in self._native_operation_families(record)
+    ]
+
+    self.assertTrue(
+      records,
+      "the native-generated loop corpus must exercise tensor multiplication",
+    )
+
+  def test_native_generated_corpus_contains_subtraction_regions(self):
+    records = [
+      record
+      for record in self.manifest["programs"]
+      if "sub" in self._native_operation_families(record)
+    ]
+
+    self.assertTrue(
+      records,
+      "the native-generated loop corpus must exercise tensor subtraction",
+    )
+
+  def test_native_generated_corpus_contains_a_mixed_arithmetic_region(self):
+    records = [
+      record
+      for record in self.manifest["programs"]
+      if {"sub", "mul"} <= self._native_operation_families(record)
+    ]
+
+    self.assertTrue(
+      records,
+      "a native-generated loop region must keep multiplication and subtraction live",
+    )
+
+  def test_generated_arithmetic_regions_vary_shapes_and_loop_counts(self):
+    records = [
+      record
+      for record in self.manifest["programs"]
+      if self._native_operation_families(record) & {"sub", "mul"}
+    ]
+    profiles = {
+      (tuple(record["generation"]["shape"]), record["generation"]["iterations"])
+      for record in records
+    }
+
+    self.assertGreaterEqual(
+      len(profiles),
+      3,
+      "arithmetic graph coverage must span at least three shape/loop profiles",
+    )
+
+  def test_generated_arithmetic_modes_are_recorded_in_native_provenance(self):
+    modes = {
+      record["generation"].get("operation_mode")
+      for record in self.manifest["programs"]
+      if self._native_operation_families(record) & {"sub", "mul"}
+    }
+
+    self.assertTrue(
+      {"subtraction", "multiplication", "mixed"} <= modes,
+      "the native manifest must identify each generated arithmetic policy",
+    )
+
+  def test_generated_arithmetic_regions_keep_exact_and_payload_contracts(self):
+    if not shutil.which("bitwuzla") and not shutil.which("z3"):
+      self.skipTest("Bitwuzla or Z3 is needed for generated payload witnesses")
+    required_families = {
+      "subtraction": {"sub"},
+      "multiplication": {"mul"},
+      "mixed": {"sub", "mul"},
+    }
+    records = [
+      record
+      for record in self.manifest["programs"]
+      if record["generation"]["operation_mode"] in required_families
+    ]
+
+    self.assertEqual(len(records), 4)
+    for record in records:
+      with self.subTest(program_id=record["program_id"]):
+        source = (PROGRAM_DIR / record["source_file"]).read_text(encoding="utf-8")
+        shape, _iterations, _types, nodes, _updates = (
+          tensor_exact_f32._generated_region_program(source)
+        )
+        families = {node[1] for node in nodes}
+        self.assertTrue(
+          required_families[record["generation"]["operation_mode"]] <= families
+        )
+        input_values = [index % 8 + 1 for index in range(math.prod(shape))]
+        input_bytes = struct.pack(f"<{len(input_values)}f", *input_values)
+        proof, expected_bytes = tensor_exact_f32.certify(source, input_bytes, (0, 8))
+        self.assertEqual(len(expected_bytes), len(input_bytes))
+        self.assertTrue(
+          required_families[record["generation"]["operation_mode"]]
+          <= set(proof["allowed_operations"])
+        )
+
+        witness = tensor_fpsan.synthesize_generated_region(source, timeout_s=30)
+        self.assertEqual(witness["status"], "SAT")
+        self.assertGreater(witness["input_diversity"]["distinct_payload_count"], 1)
+        self.assertGreater(len(set(witness["output_payloads"])), 1)
+        self.assertTrue(
+          all(
+            mutant["status"] == "detected"
+            for mutant in witness["calibration_mutants"].values()
+          )
+        )
 
   def test_manifest_includes_a_64_element_orthogonal_reduction_candidate(self):
     record = next(
@@ -210,6 +351,8 @@ class GeneratedRegionCorpusTests(unittest.TestCase):
             ",".join(str(size) for size in record["generation"]["shape"]),
             "--iterations",
             str(record["generation"]["iterations"]),
+            "--operation-mode",
+            record["generation"]["operation_mode"],
           ],
           check=True,
           capture_output=True,

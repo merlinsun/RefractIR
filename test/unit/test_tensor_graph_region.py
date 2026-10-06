@@ -46,6 +46,15 @@ class TensorGraphRegionApiTests(unittest.TestCase):
   def test_requested_temporary_name_reservation_is_seed_independent(self):
     self.run_contract("result-name-t0-seed-variation")
 
+  def test_subtraction_mode_places_subtraction_on_a_live_root(self):
+    self.run_contract("region-subtraction")
+
+  def test_multiplication_mode_places_multiplication_on_a_live_root(self):
+    self.run_contract("region-multiplication")
+
+  def test_mixed_mode_keeps_both_arithmetic_roots_before_writeback(self):
+    self.run_contract("region-mixed-arithmetic")
+
 
 if __name__ == "__main__":
   unittest.main()

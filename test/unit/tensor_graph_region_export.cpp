@@ -19,6 +19,7 @@ namespace {
     Shape shape{2, 2};
     std::uint32_t iterations = 2;
     bool hasSeed = false;
+    TensorRegionArithmeticMode operationMode = TensorRegionArithmeticMode::Additive;
   };
 
   std::uint32_t parseUnsigned(std::string_view text, std::string_view name) {
@@ -42,10 +43,25 @@ namespace {
     return shape;
   }
 
+  TensorRegionArithmeticMode parseOperationMode(std::string_view text) {
+    if (text == "additive")
+      return TensorRegionArithmeticMode::Additive;
+    if (text == "subtraction")
+      return TensorRegionArithmeticMode::Subtraction;
+    if (text == "multiplication")
+      return TensorRegionArithmeticMode::Multiplication;
+    if (text == "mixed")
+      return TensorRegionArithmeticMode::Mixed;
+    throw std::invalid_argument(
+        "operation mode must be additive, subtraction, multiplication, or mixed"
+    );
+  }
+
   ExportOptions parseArguments(int argc, char **argv) {
     ExportOptions options;
     bool hasShape = false;
     bool hasIterations = false;
+    bool hasOperationMode = false;
     for (int index = 1; index < argc; ++index) {
       const std::string_view name(argv[index]);
       if (index + 1 >= argc)
@@ -68,6 +84,11 @@ namespace {
         if (options.iterations < 1 || options.iterations > 8)
           throw std::invalid_argument("iterations must be in [1,8]");
         hasIterations = true;
+      } else if (name == "--operation-mode") {
+        if (hasOperationMode)
+          throw std::invalid_argument("--operation-mode may be specified only once");
+        options.operationMode = parseOperationMode(value);
+        hasOperationMode = true;
       } else {
         throw std::invalid_argument("unknown option: " + std::string(name));
       }
@@ -112,7 +133,8 @@ namespace {
 
     const TensorTypeInfo type{configuration.shape, TensorElement::F32};
     const auto region = generateTensorRegion(
-        options, limits, {{"%acc_x", type}, {"%acc_y", type}}, {"%next_x", "%next_y"}
+        options, limits, {{"%acc_x", type}, {"%acc_y", type}}, {"%next_x", "%next_y"},
+        configuration.operationMode
     );
     const std::vector<std::pair<std::string, std::string>> updates{
         {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
@@ -143,7 +165,8 @@ int main(int argc, char **argv) {
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n'
               << "usage: tensor_graph_region_export --seed <uint32> "
-                 "[--shape <rows,columns>] [--iterations <1..8>]\n";
+                 "[--shape <rows,columns>] [--iterations <1..8>] "
+                 "[--operation-mode <additive|subtraction|multiplication|mixed>]\n";
     return 2;
   }
 }

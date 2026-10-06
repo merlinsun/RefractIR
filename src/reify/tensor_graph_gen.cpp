@@ -135,11 +135,13 @@ namespace refractir::reify {
     public:
       Builder(
           std::mt19937 &random, const TensorGenerationOptions &options,
-          const TensorGraphLimits &limits
+          const TensorGraphLimits &limits,
+          TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive
       ) :
           random_(random),
           profile_(tensorProfile(options.profileVersion)),
-          element_(options.dtype == "i32" ? TensorElement::I32 : TensorElement::F32) {
+          element_(options.dtype == "i32" ? TensorElement::I32 : TensorElement::F32),
+          regionArithmetic_(arithmetic) {
         if (options.profileVersion != TensorProfileId::V2 &&
             options.profileVersion != TensorProfileId::V3)
           throw std::runtime_error("compositional generation supports tensor-v2 and tensor-v3 only"
@@ -188,6 +190,7 @@ namespace refractir::reify {
       std::uint32_t maxInputs_ = 0;
       std::uint32_t temporaries_ = 0;
       std::uint32_t multiplications_ = 0;
+      TensorRegionArithmeticMode regionArithmetic_ = TensorRegionArithmeticMode::Additive;
       std::vector<std::string> reservedNames_;
     };
 
@@ -804,8 +807,18 @@ namespace refractir::reify {
         current = emitRegionFold(graph, current, shape);
 
       for (std::size_t index = 0; index < resultNames.size(); ++index) {
-        const auto result =
-            emitPair(graph, static_cast<int>(index % inputs.size()), current, 0.0, TensorOp::Add);
+        auto operation = TensorOp::Add;
+        if (index == 0 && regionArithmetic_ == TensorRegionArithmeticMode::Subtraction)
+          operation = TensorOp::Sub;
+        else if (index == 0 && regionArithmetic_ == TensorRegionArithmeticMode::Multiplication)
+          operation = TensorOp::Mul;
+        else if (regionArithmetic_ == TensorRegionArithmeticMode::Mixed)
+          operation = index == 0 ? TensorOp::Mul : (index == 1 ? TensorOp::Sub : TensorOp::Add);
+
+        const auto state = static_cast<int>(index % inputs.size());
+        const auto result = operation == TensorOp::Add
+                                ? emitPair(graph, state, current, 0.0, operation)
+                                : emitPair(graph, current, state, 0.0, operation);
         graph.values[static_cast<std::size_t>(result)].name = resultNames[index];
         graph.roots.push_back(result);
       }
@@ -976,12 +989,22 @@ namespace refractir::reify {
 
   TensorRegion generateTensorRegion(
       const TensorGenerationOptions &options, const TensorGraphLimits &limits,
-      std::vector<TensorRegionInput> inputs, std::vector<std::string> results
+      std::vector<TensorRegionInput> inputs, std::vector<std::string> results,
+      TensorRegionArithmeticMode arithmetic
   ) {
+    switch (arithmetic) {
+      case TensorRegionArithmeticMode::Additive:
+      case TensorRegionArithmeticMode::Subtraction:
+      case TensorRegionArithmeticMode::Multiplication:
+      case TensorRegionArithmeticMode::Mixed:
+        break;
+      default:
+        throw std::invalid_argument("unknown tensor region arithmetic mode");
+    }
     for (std::uint32_t attempt = 0; attempt < constructAttempts; ++attempt) {
       std::mt19937 random(options.seed ^ (0x9e3779b9u * (attempt + 1)));
       try {
-        Builder builder(random, options, limits);
+        Builder builder(random, options, limits, arithmetic);
         const auto graph = builder.buildRegion(inputs, results);
         return emitRegion(graph, std::move(inputs), results);
       } catch (const AttemptFailure &) {

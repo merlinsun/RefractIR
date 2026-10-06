@@ -20,22 +20,32 @@ namespace refractir::reify {
     std::uint32_t maxOperators = 16;
   };
 
+  /// Arithmetic sampled at the named roots of a bounded loop-safe region.
+  /// Additive preserves the original generation policy; Mixed places one
+  /// multiplication and one subtraction on the first two roots.
+  enum class TensorRegionArithmeticMode : std::uint8_t {
+    Additive,
+    Subtraction,
+    Multiplication,
+    Mixed,
+  };
+
   /// Build a straight-line typed tensor dependency graph for the selected
   /// tensor profile and return it as an ordinary unchecked Program. Every
   /// parameter and computation of the result lies in the return value's
   /// backward slice. Throws std::runtime_error prefixed "graph_exhaustion:"
   /// when the limits admit no graph; the caller re-checks the emitted source.
-  Program generateTensorProgram(
-      const TensorGenerationOptions &options, const TensorGraphLimits &limits
-  );
+  Program
+  generateTensorProgram(const TensorGenerationOptions &options, const TensorGraphLimits &limits);
 
   /// Build a seeded multi-result DAG region from same-shaped tensor state
-  /// inputs. Its bounded loop-safe subset uses add, keep-dimension sum and
-  /// broadcast. Result names are also the graph roots, so dead branches are
-  /// excluded and the dependency union of every loop-carried result is kept.
+  /// inputs. Its bounded loop-safe subset uses add, sub, mul, keep-dimension
+  /// sum and broadcast. Result names are also the graph roots, so dead branches
+  /// are excluded and the dependency union of every loop-carried result is kept.
   TensorRegion generateTensorRegion(
       const TensorGenerationOptions &options, const TensorGraphLimits &limits,
-      std::vector<TensorRegionInput> inputs, std::vector<std::string> results
+      std::vector<TensorRegionInput> inputs, std::vector<std::string> results,
+      TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive
   );
 
 } // namespace refractir::reify

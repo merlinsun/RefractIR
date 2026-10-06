@@ -88,11 +88,11 @@ namespace refractir::reify {
           return value.name == name;
         }))
       throw std::invalid_argument("tensor region value is declared more than once");
-    const bool binary = op == TensorOp::Add;
+    const bool binary = op == TensorOp::Add || op == TensorOp::Sub || op == TensorOp::Mul;
     const bool reduction = op == TensorOp::Sum;
     const bool broadcast = op == TensorOp::Broadcast;
     if (!binary && !reduction && !broadcast)
-      throw std::invalid_argument("tensor region supports add, sum and broadcast");
+      throw std::invalid_argument("tensor region supports add, sub, mul, sum and broadcast");
     const std::size_t expectedOperands = binary ? 2 : 1;
     if (operandNames.size() != expectedOperands)
       throw std::invalid_argument("tensor region operation has the wrong operand count");
@@ -106,10 +106,10 @@ namespace refractir::reify {
     if (binary) {
       const auto &secondType = values_[static_cast<std::size_t>(operands[1])].type;
       if (firstType.element != secondType.element)
-        throw std::invalid_argument("tensor region add element types differ");
+        throw std::invalid_argument("tensor region binary operation element types differ");
       resultType.shape = broadcastShape(firstType.shape, secondType.shape);
       if (!attribute.empty())
-        throw std::invalid_argument("tensor region add does not accept attributes");
+        throw std::invalid_argument("tensor region binary operation does not accept attributes");
     } else if (reduction) {
       if (!attribute.empty())
         throw std::invalid_argument("tensor region sum does not accept a shape attribute");
@@ -165,7 +165,7 @@ namespace refractir::reify {
     const auto &result = values_[static_cast<std::size_t>(node.result)];
     out << "  " << result.name << " = tensor " << tensorOpName(node.op) << ' '
         << values_[static_cast<std::size_t>(node.operands.front())].name;
-    if (node.op == TensorOp::Add) {
+    if (node.op == TensorOp::Add || node.op == TensorOp::Sub || node.op == TensorOp::Mul) {
       out << ", " << values_[static_cast<std::size_t>(node.operands[1])].name;
     } else if (node.op == TensorOp::Sum) {
       out << ", " << node.axis << ", " << (node.keepDims ? "keep" : "drop");

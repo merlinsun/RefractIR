@@ -17,7 +17,8 @@
         "shape": [
           2,
           2
-        ]
+        ],
+        "operation_mode": "additive"
       },
       "program_id": "native-seed-7",
       "source_file": "native-seed-7.sir",
@@ -39,7 +40,8 @@
         "shape": [
           2,
           2
-        ]
+        ],
+        "operation_mode": "additive"
       },
       "program_id": "native-seed-17",
       "source_file": "native-seed-17.sir",
@@ -61,7 +63,8 @@
         "shape": [
           2,
           2
-        ]
+        ],
+        "operation_mode": "additive"
       },
       "program_id": "native-seed-29",
       "source_file": "native-seed-29.sir",
@@ -83,7 +86,8 @@
         "shape": [
           2,
           4
-        ]
+        ],
+        "operation_mode": "additive"
       },
       "program_id": "native-seed-0-shape-2x4-iterations-3",
       "source_file": "native-seed-0-shape-2x4-iterations-3.sir",
@@ -105,7 +109,8 @@
         "shape": [
           4,
           2
-        ]
+        ],
+        "operation_mode": "additive"
       },
       "program_id": "native-seed-3-shape-4x2-iterations-4",
       "source_file": "native-seed-3-shape-4x2-iterations-4.sir",
@@ -127,7 +132,8 @@
         "shape": [
           2,
           4
-        ]
+        ],
+        "operation_mode": "additive"
       },
       "program_id": "native-seed-6-shape-2x4-iterations-2",
       "source_file": "native-seed-6-shape-2x4-iterations-2.sir",
@@ -149,11 +155,104 @@
         "shape": [
           8,
           8
-        ]
+        ],
+        "operation_mode": "additive"
       },
       "program_id": "native-seed-2-shape-8x8-iterations-2",
       "source_file": "native-seed-2-shape-8x8-iterations-2.sir",
       "source_sha256": "aa2d0561c54a226d006fa43deff1393953c37d53d7e48d10f8610d0749c6e30e"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 3,
+        "operation_mode": "subtraction",
+        "profile": "v2",
+        "seed": 0,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      "program_id": "native-subtraction-seed-0-shape-2x4-iterations-3",
+      "source_file": "native-subtraction-seed-0-shape-2x4-iterations-3.sir",
+      "source_sha256": "5696216258747e92bc4da5f72799cf48b54555a248285bef07260ab930f5f402"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 4,
+        "operation_mode": "subtraction",
+        "profile": "v2",
+        "seed": 3,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      "program_id": "native-subtraction-seed-3-shape-4x2-iterations-4",
+      "source_file": "native-subtraction-seed-3-shape-4x2-iterations-4.sir",
+      "source_sha256": "669d6809f53969e1a32e1eb56cc692c40a1b76fe98da6ab4e86cca64b702c01a"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 1,
+        "operation_mode": "multiplication",
+        "profile": "v2",
+        "seed": 6,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      "program_id": "native-multiplication-seed-6-shape-2x4-iterations-1",
+      "source_file": "native-multiplication-seed-6-shape-2x4-iterations-1.sir",
+      "source_sha256": "9ba0d6ae44f584c3e4ca2cc63fe33b01678bb42f13caaeca6410d379350fd27a"
+    },
+    {
+      "generation": {
+        "dtype": "f32",
+        "generator": "refractir::reify::generateTensorRegion",
+        "graph_limits": {
+          "max_elements": 64,
+          "max_inputs": 2,
+          "max_operators": 10,
+          "max_rank": 2
+        },
+        "iterations": 1,
+        "operation_mode": "mixed",
+        "profile": "v2",
+        "seed": 17,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      "program_id": "native-mixed-seed-17-shape-2x2-iterations-1",
+      "source_file": "native-mixed-seed-17-shape-2x2-iterations-1.sir",
+      "source_sha256": "51d182d960c4ef2890bc5754fe8c67838bbebc15bec2adbf93b405148194a88b"
     }
   ],
   "supplemental_programs": [
