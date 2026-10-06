@@ -26,7 +26,12 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
+    "test/tensor/mutants/*/**",
+    "test/tensor/regressions/issue-11406-replay/affected/**",
+    "test/tensor/regressions/issue-11406-replay/fixed/**",
+    "test/tensor/regressions/triton-11186/replay/*/case/**",
 ]
+force-exclude = true
 include = ["."]
 
 # Same as Black.
