@@ -27,7 +27,7 @@ fun @kernel(%x: tensor [2, 2] f32) : tensor [2, 2] f32 {
   %t5 = tensor broadcast %t4, [2, 2];
   %t6 = tensor add %t3, %t5;
   %next_x = tensor mul %t6, %acc_x;
-  %next_y = tensor sub %t6, %acc_y;
+  %next_y = tensor sub %t6, %acc_x;
   %acc_x = %next_x;
   %acc_y = %next_y;
   %i = %i + 1;

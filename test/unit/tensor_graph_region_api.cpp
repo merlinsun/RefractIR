@@ -206,6 +206,14 @@ namespace {
     const auto text = joined(instructions);
     require(text.find("tensor mul") != std::string::npos, "mixed mode must emit tensor mul");
     require(text.find("tensor sub") != std::string::npos, "mixed mode must emit tensor sub");
+    const auto subtraction =
+        std::find_if(instructions.begin(), instructions.end(), [](const auto &line) {
+          return line.find("tensor sub") != std::string::npos;
+        });
+    require(
+        subtraction->find(", %acc_x;") != std::string::npos,
+        "mixed subtraction must consume the nonzero first state input"
+    );
     const auto body = joined(region.renderBody({{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}}));
     require(body.find("%next_x =") != std::string::npos, "first named root was lost");
     require(body.find("%next_y =") != std::string::npos, "second named root was lost");

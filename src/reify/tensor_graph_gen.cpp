@@ -815,7 +815,11 @@ namespace refractir::reify {
         else if (regionArithmetic_ == TensorRegionArithmeticMode::Mixed)
           operation = index == 0 ? TensorOp::Mul : (index == 1 ? TensorOp::Sub : TensorOp::Add);
 
-        const auto state = static_cast<int>(index % inputs.size());
+        auto state = static_cast<int>(index % inputs.size());
+        if (regionArithmetic_ == TensorRegionArithmeticMode::Mixed && index == 1) {
+          // Keep the subtraction observable without requiring a prior state update.
+          state = 0;
+        }
         const auto result = operation == TensorOp::Add
                                 ? emitPair(graph, state, current, 0.0, operation)
                                 : emitPair(graph, current, state, 0.0, operation);

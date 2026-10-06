@@ -144,6 +144,68 @@ class GeneratedRegionCorpusTests(unittest.TestCase):
       "a native-generated loop region must keep multiplication and subtraction live",
     )
 
+  def _mixed_generated_record(self):
+    return next(
+      record
+      for record in self.manifest["programs"]
+      if record["generation"]["operation_mode"] == "mixed"
+    )
+
+  def _mixed_addition_variant(self, source):
+    _shape, _iterations, _types, nodes, _updates = (
+      tensor_exact_f32._generated_region_program(source)
+    )
+    subtraction = next(node for node in nodes if node[1] == "sub")
+    right_operand = subtraction[2][1]
+    return source.replace(
+      f"tensor sub %t6, %{right_operand}", f"tensor add %t6, %{right_operand}"
+    )
+
+  def test_mixed_generated_subtraction_uses_the_nonzero_state_input(self):
+    record = self._mixed_generated_record()
+    source = (PROGRAM_DIR / record["source_file"]).read_text(encoding="utf-8")
+    _shape, _iterations, _types, nodes, _updates = (
+      tensor_exact_f32._generated_region_program(source)
+    )
+    subtraction = next(node for node in nodes if node[1] == "sub")
+
+    self.assertEqual(record["generation"]["iterations"], 1)
+    self.assertEqual(subtraction[2], ("t6", "acc_x"))
+
+  def test_mixed_generated_kernel_subtracts_the_nonzero_state_input(self):
+    record = self._mixed_generated_record()
+    source = (PROGRAM_DIR / record["source_file"]).read_text(encoding="utf-8")
+
+    kernel = tensor_fpsan.render_generated_region_triton_kernel(source)
+
+    self.assertIn("value_8 = value_6 - acc_x", kernel)
+
+  def test_mixed_subtraction_changes_payload_output(self):
+    record = self._mixed_generated_record()
+    source = (PROGRAM_DIR / record["source_file"]).read_text(encoding="utf-8")
+    addition_source = self._mixed_addition_variant(source)
+    self.assertNotEqual(addition_source, source)
+
+    subtraction_output = tensor_fpsan.evaluate_generated_payload_region(
+      source, [1, 2, 3, 4]
+    )
+    addition_output = tensor_fpsan.evaluate_generated_payload_region(
+      addition_source, [1, 2, 3, 4]
+    )
+
+    self.assertNotEqual(subtraction_output, addition_output)
+
+  def test_mixed_subtraction_changes_exact_f32_output(self):
+    record = self._mixed_generated_record()
+    source = (PROGRAM_DIR / record["source_file"]).read_text(encoding="utf-8")
+    addition_source = self._mixed_addition_variant(source)
+    input_bytes = struct.pack("<4f", 1.0, 2.0, 3.0, 4.0)
+
+    subtraction_output = tensor_exact_f32.certify(source, input_bytes, (0, 8))[1]
+    addition_output = tensor_exact_f32.certify(addition_source, input_bytes, (0, 8))[1]
+
+    self.assertNotEqual(subtraction_output, addition_output)
+
   def test_generated_arithmetic_regions_vary_shapes_and_loop_counts(self):
     records = [
       record
