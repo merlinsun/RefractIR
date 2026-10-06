@@ -1,0 +1,31 @@
+{
+  "actual_bytes": 32,
+  "actual_sha256": "da78bcd3b048194fecef6214bf5f3d3acb139a18a2e2b1332325dfe3da5408e4",
+  "artifacts": [
+    "actual.bin",
+    "case.json",
+    "compiler-llir.ir",
+    "compiler-ptx.ir",
+    "compiler-source.ir",
+    "compiler-ttgir.ir",
+    "compiler-ttir.ir",
+    "environment.json",
+    "expected.bin",
+    "inputs.bin",
+    "kernel.py",
+    "program.sir",
+    "result.json",
+    "run.json",
+    "stderr.log",
+    "stdout.log",
+    "worker-phase.json"
+  ],
+  "campaign_valid": true,
+  "detected": true,
+  "expected_sha256": "fa3c0394e84162fc74e5582d8cfa398b7515954c3e601b70eb425c78d9518f99",
+  "input_sha256": "61543317b702ae1ed8e75aa7849b1f833a5b6df62400d7f2ca205dd6b15711ca",
+  "mode": "compiled",
+  "mutant": "wrong_softmax_axis",
+  "source_case": "softmax_2x4_axis1_pos",
+  "status": "numeric_mismatch"
+}

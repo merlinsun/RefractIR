@@ -1,0 +1,26 @@
+{
+  "expected_sha256": "ca47d76586fdcb407ae4ad29d6d7c7c518232d9a222e59d7b51695143c20a0d1",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "inputs_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+  "kernel_sha256": "5b83eda641a1ccdc32c67640de6296c3ff19e539dd72501eb4edc7ab17f77b2f",
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+  },
+  "mode": "compiled",
+  "mutant": {
+    "after": "    _sir_expanded = _sir_rows",
+    "before": "    _sir_expanded = tl.expand_dims(_sir_rows, axis=1)",
+    "name": "missing_axis_restoration"
+  },
+  "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+  "refractir_revision": "unavailable",
+  "schema": "refractir.tensor-mutant-run.v1",
+  "source_sha256": "9add10d7e65ebde72ad09190e108c66d04269ae348209a8164fe8b3439dd5729",
+  "triton_source_revision": "e2e356723ce35f46b5144373b145c55c4d712237"
+}

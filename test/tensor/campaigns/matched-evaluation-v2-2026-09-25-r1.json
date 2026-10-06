@@ -1,0 +1,259 @@
+{
+  "schema": "refractir.tensor-matched-evaluation.v1",
+  "status": "predeclared_not_run",
+  "predeclared_on": "2026-09-25",
+  "supersedes": "matched-evaluation-v2-2026-09-25.json",
+  "configuration_frozen": true,
+  "holdout_status": "unavailable",
+  "fixed_count": {
+    "target_completed_runs_per_arm": 100,
+    "device_pool": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "max_concurrent_runs_per_device": 1,
+    "arms": {
+      "tensor-v1-existing-generator": {
+        "profile": "tensor-v1",
+        "dtype": "f32",
+        "property": "softmax-dominance",
+        "synthesis": "construction",
+        "seed_schedule": {
+          "kind": "consecutive-u32",
+          "start": 0,
+          "count": 100
+        },
+        "archive_reference": "test/tensor/campaigns/seed-100-structural.json",
+        "regenerate_from_recorded_seeds": true
+      },
+      "tensor-v2-compositional-ordinary": {
+        "profile": "tensor-v2",
+        "stratum": "multi-input-composition",
+        "dtype": "i32",
+        "synthesis": "construction",
+        "graph_seed_schedule": {
+          "kind": "consecutive-u32",
+          "start": 1000000,
+          "count": 100
+        },
+        "selection": {
+          "arm": "ordinary",
+          "P": "defined-stable-reference",
+          "D": "at-least-one-applicable-model-distinguished",
+          "domain": "finite-integer-valued-elements-in-[1,4]",
+          "proposal_mechanism": "python-mt19937-seed-plus-golden-ratio-step-v1",
+          "proposal_budget": 100,
+          "acceptance": "P; measure D without filtering"
+        }
+      },
+      "tensor-v2-compositional-directed": {
+        "profile": "tensor-v2",
+        "stratum": "multi-input-composition",
+        "dtype": "i32",
+        "synthesis": "construction",
+        "graph_seed_schedule": {
+          "kind": "consecutive-u32",
+          "start": 1000000,
+          "count": 100
+        },
+        "selection": {
+          "arm": "directed",
+          "P": "defined-stable-reference",
+          "D": "at-least-one-applicable-model-distinguished",
+          "domain": "finite-integer-valued-elements-in-[1,4]",
+          "proposal_mechanism": "python-mt19937-seed-plus-golden-ratio-step-v1",
+          "proposal_budget": 100,
+          "acceptance": "P and D",
+          "shortfall_policy": "retain graph shortfall; do not substitute a graph within this arm"
+        }
+      }
+    },
+    "compiler_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "equal_count_comparison_requires_all_arms_at_target": true
+  },
+  "fixed_time": {
+    "wall_clock_budget_s_per_arm": 3600,
+    "device_pool": [
+      0
+    ],
+    "max_concurrent_runs_per_device": 1,
+    "arms": {
+      "tensor-v1-existing-generator": {
+        "profile": "tensor-v1",
+        "dtype": "f32",
+        "property": "softmax-dominance",
+        "synthesis": "construction",
+        "seed_schedule": {
+          "kind": "consecutive-u32",
+          "start": 0,
+          "step": 1,
+          "stop": "when arm wall-clock budget is reached"
+        },
+        "regenerate_cases_during_timed_run": true
+      },
+      "tensor-v2-compositional-ordinary": {
+        "profile": "tensor-v2",
+        "stratum": "multi-input-composition",
+        "dtype": "i32",
+        "synthesis": "construction",
+        "graph_seed_schedule": {
+          "kind": "consecutive-u32",
+          "start": 2000000,
+          "step": 1,
+          "stop": "when arm wall-clock budget is reached"
+        },
+        "selection": {
+          "arm": "ordinary",
+          "P": "defined-stable-reference",
+          "D": "at-least-one-applicable-model-distinguished",
+          "domain": "finite-integer-valued-elements-in-[1,4]",
+          "proposal_mechanism": "python-mt19937-seed-plus-golden-ratio-step-v1",
+          "proposal_budget": 100,
+          "acceptance": "P; measure D without filtering"
+        }
+      },
+      "tensor-v2-compositional-directed": {
+        "profile": "tensor-v2",
+        "stratum": "multi-input-composition",
+        "dtype": "i32",
+        "synthesis": "construction",
+        "graph_seed_schedule": {
+          "kind": "consecutive-u32",
+          "start": 2000000,
+          "step": 1,
+          "stop": "when arm wall-clock budget is reached"
+        },
+        "selection": {
+          "arm": "directed",
+          "P": "defined-stable-reference",
+          "D": "at-least-one-applicable-model-distinguished",
+          "domain": "finite-integer-valued-elements-in-[1,4]",
+          "proposal_mechanism": "python-mt19937-seed-plus-golden-ratio-step-v1",
+          "proposal_budget": 100,
+          "acceptance": "P and D",
+          "shortfall_policy": "retain graph shortfall; do not substitute a graph within this arm"
+        }
+      }
+    },
+    "compiler_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "charged_stages": [
+      "generation_s",
+      "selection_s",
+      "input_materialization_s",
+      "reference_validation_s",
+      "compilation_s",
+      "gpu_execution_s"
+    ],
+    "unequal_completion_counts_are_results": true,
+    "stage_accounting": {
+      "generation_s": "rysmith graph construction and any generation-time solving",
+      "selection_s": "P/D proposal selection excluding timed reference subprocesses",
+      "input_materialization_s": "worker input staging duration",
+      "reference_validation_s": "reference subprocesses during selection plus case validation",
+      "compilation_s": "symirc emission plus Triton warmup/IR capture",
+      "gpu_execution_s": "worker launch and device synchronization",
+      "worker_output_materialization_and_harness_overhead": "reported separately; included in wall-clock budget"
+    }
+  },
+  "matching": [
+    "tensor-v2 source graph signature",
+    "logical input domain and proposal mechanism",
+    "logical shape and physical layout",
+    "warp count",
+    "comparison policy",
+    "compiler revision",
+    "same deterministic graph seed across ordinary and directed arms"
+  ],
+  "cache_policy": {
+    "compiler_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "empty_at_start": true,
+    "isolate_by": [
+      "arm",
+      "trial",
+      "case"
+    ],
+    "allow_within_arm_reuse": true,
+    "implementation_note": "The current runner starts an empty cache for every case; this is stricter than the arm/trial isolation requirement and will be reported as no within-arm cache hits.",
+    "share_across_arms": false
+  },
+  "environment": {
+    "device_class": "Tesla V100-SXM2-32GB",
+    "compute_capability": "7.0",
+    "python": "3.10.12",
+    "pytorch": "2.10.0+cu128",
+    "cuda": "12.8",
+    "driver": "535.274.02",
+    "triton_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "ptxas_sha256": "c960a4f238b17d5c5d3c01ad2bbc1ebd2c5aecc459cb4d223bff10b45f9b8fca",
+    "package_lock_sha256": "a0d2024351b57b399b3b7e03f85ecd69e51c866455a6eccb679d2741d9185606",
+    "gpu_count": 8,
+    "triton_version": "3.8.0+gite2e35672",
+    "package_lock_provenance": {
+      "status": "validated_before_execution",
+      "observed_sha256": "a0d2024351b57b399b3b7e03f85ecd69e51c866455a6eccb679d2741d9185606",
+      "comparison": "All 79 package records and artifact digests match the retained corrected-build lock; the earlier lock serializes the final package entries in a different order.",
+      "no_campaign_cases_run": true
+    }
+  },
+  "refractir": {
+    "base_revision": "7b43faa83e76d5ab17a8ec3fb62634746e28d104",
+    "working_tree_dirty": true,
+    "rysmith_sha256": "315132d68184ede6d34a6f54d9419502089696a69aaa7e0f4871d674b916aafd",
+    "symiri_sha256": "6f034763ea1bc6e06f601f83ff19bb7790f5e2ea180a545269b2f9d4e8409da1",
+    "symirc_sha256": "a83e98a16f74c057be6178610d02e34d1949b774bfa171f9b1269d3a0c5d9420",
+    "tensor_gen_cpp_sha256": "9b6e97883fa5894f2acdf46cc7f9449e012e18384ffece86221ced01d19b15cd",
+    "tensor_directed_py_sha256": "d345dd50201fcd35ce778c95a0db9371d0b8d666165d9cf3f3be7e615878d28d",
+    "tensor_evaluation_py_sha256": "c3b196b6d43952b19ebfe11438b039f1cca82c8af67b5b969b355830b7ecde03",
+    "run_triton_tests_py_sha256": "a6d97e4c804e3bfe31a928eb05d01c3175ab1f044628a7169d59f9c0591fa098",
+    "triton_case_worker_py_sha256": "9ab18dffb06c242f23f079e4c752a3b3bda3aa6101f6e6b4f41e0d2ee8048f67",
+    "test_tensor_evaluation_py_sha256": "78da02bf3132440b6bfb9e4464ffcccdc028314607fb2ea97a2f50d9e045b611",
+    "test_triton_worker_timing_py_sha256": "05d8aa9f9a715c1ff9ecdb5633b5d7f835f71da77c422817da44d381f5a60f4c",
+    "campaign_driver_py_sha256": "cb185ee57a3fd73695f1812b5fb00d88e095310602fa31d520dc0785f76d49c5",
+    "tensor_case_py_sha256": "2f68140daede6f924f8e8e2b9af79b604ba810eddc46fb57158de9ab9d1432a0",
+    "tensor_coverage_py_sha256": "5773534539d527d16f06a822e3ffe1ec34b9eca5ab8df023296de41f0e45726c",
+    "probe_triton_env_py_sha256": "343b1c71981c60fd67ad223c3b868685e70c0fa8acccc08038aa8953b0ab31b8"
+  },
+  "preflight_exclusions": [
+    {
+      "arm": "tensor-v1-existing-generator",
+      "seed": 0,
+      "reason": "Schema and CLI preflight only; no Triton run and excluded from case counts. The scheduled fixed-count run regenerates this seed as a fresh case in its own directory."
+    },
+    {
+      "arm": "tensor-v2-compositional",
+      "seed": 77,
+      "reason": "Prior mechanics pilot; excluded from fixed-count and fixed-time cases."
+    },
+    {
+      "arm": "tensor-v2-compositional",
+      "seed": 6000000,
+      "reason": "One real-device timing-artifact validation for ordinary and directed inputs; both runs are excluded from fixed-count and fixed-time results.",
+      "measured_target_execution": true
+    }
+  ],
+  "reporting": {
+    "case_counts_separate_from_investigated_defects": true,
+    "source_compiled_input_behavior_coverage": true,
+    "authored_replay_not_generalization": true,
+    "holdout_generalization_claim": "unavailable"
+  },
+  "configuration_revision": 2,
+  "timing_artifact": {
+    "schema": "refractir.tensor-worker-timing.v1",
+    "fields": {
+      "input_staging_s": "Host/device staging of inputs and output allocation",
+      "compilation_s": "Triton warmup plus retained compiler IR dump",
+      "gpu_execution_s": "Kernel launch and device synchronization",
+      "output_materialization_s": "Logical output extraction and artifact writing",
+      "worker_total_s": "Entire worker subprocess duration"
+    },
+    "failed_phase_times_are_retained": true,
+    "runner_artifact": "runs/<mode>/worker-timing.json"
+  }
+}

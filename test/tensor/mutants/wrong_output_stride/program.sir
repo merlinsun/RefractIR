@@ -1,0 +1,6 @@
+fun @kernel(%x: tensor [2, 4] f32) : tensor [2, 4] f32 {
+  let mut %out: tensor [2, 4] f32 = undef;
+^entry:
+  %out = tensor softmax %x, 1;
+  ret %out;
+}

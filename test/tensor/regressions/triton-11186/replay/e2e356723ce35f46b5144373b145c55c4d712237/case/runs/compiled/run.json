@@ -1,0 +1,74 @@
+{
+  "buffer_layouts": {
+    "inputs": [
+      {
+        "axis_order": [
+          0,
+          1
+        ],
+        "element_offset": 0,
+        "element_strides": [
+          1,
+          256
+        ],
+        "name": "x",
+        "shape": [
+          256,
+          2
+        ],
+        "storage_span": 512
+      }
+    ],
+    "output": {
+      "axis_order": [
+        0
+      ],
+      "element_offset": 0,
+      "element_strides": [
+        1
+      ],
+      "shape": [
+        256
+      ],
+      "storage_span": 256
+    }
+  },
+  "compiler": {
+    "executable": "/tmp/refractir-tensor-v02-src-20260924/symirc",
+    "flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -std=c++20",
+    "sha256": "f0522600b51e3996f8797dbbe1d58ea3679c395a8b33e22507d09aa091ca7b43"
+  },
+  "entry": "kernel",
+  "environment": "runs/compiled/environment.json",
+  "expected_sha256": "aaa567e5dfbba2cce9ba6ed03534fb09f2f33b964c5e3fb3be1395398412e184",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "inputs_sha256": "5cad1e45d49a13037d248a03119806d8dd1e00801523979481b59d88d54591f8",
+  "kernel_sha256": "2037b778f5824190f82e7e3f6a442cbcaa3ef949ed8c4f3602a8b023878ee4ef",
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 1
+  },
+  "layout_sentinels": {
+    "gap_sentinel_by_dtype": {
+      "f32": "7fc00000",
+      "i32": "5a5a5a5a"
+    },
+    "output_canary_by_dtype": {
+      "f32": "7fc00001",
+      "i32": "a5a5a5a5"
+    }
+  },
+  "mode": "compiled",
+  "package_lock": "runs/compiled/package-lock.json",
+  "refractir_revision": "39ddec6-working-dirty",
+  "schema": "refractir.tensor-run.v1",
+  "selected_device": 0,
+  "source_sha256": "ca59b968ed41c2c23d13ea1d2f6d08922babe0211ef4de37ee1720250b7cbfcc",
+  "started_at": "2026-09-24T21:55:21.457213+00:00",
+  "working_tree_dirty": "unknown"
+}

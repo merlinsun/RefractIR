@@ -1,0 +1,94 @@
+{
+  "schema": "refractir.tensor-rediscovery.v1",
+  "status": "predeclared_not_run",
+  "predeclared_on": "2026-09-25",
+  "supersedes": "evaluation.json#/rediscovery",
+  "configuration_frozen": true,
+  "pin_revision_reason": "The predeclared evaluation snapshot named tensor_gen.cpp from before commit 7b43faa. The reviewed implementation is frozen here before any Triton outcomes are collected.",
+  "excluded_preflight": {
+    "seed": 20260925,
+    "reason": "This seed was already used by the runner mechanics smoke check; it is excluded from the fresh-case denominator."
+  },
+  "target_defect": {
+    "id": "triton-pr-11186-OptimizeThreadLocality-reduction-reordering",
+    "affected_revision": "446f56ffd12431b1760ed504b7bcfdb6bb7b93c9",
+    "corrected_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "qualifying_outcome": "affected build returns a reference mismatch, corrected build passes byte-identical source, inputs, layout, launch settings, and device class, and TTGIR/root-cause triage confirms the same OptimizeThreadLocality reduction-reordering defect"
+  },
+  "generator": {
+    "profile": "tensor-v2",
+    "primary_stratum": "loop-reduction",
+    "dtype": "i32",
+    "synthesis": "construction",
+    "one_case_per_seed": true,
+    "proposal_budget_per_case": 100,
+    "command": [
+      "rysmith",
+      "--profile", "tensor",
+      "--target", "sir",
+      "--tensor-profile-version", "v2",
+      "--tensor-stratum", "loop-reduction",
+      "--tensor-dtype", "i32",
+      "--tensor-synthesis", "construction",
+      "--max-retries", "100",
+      "--seed", "SEED",
+      "--output-dir", "CASE_OUTPUT"
+    ]
+  },
+  "seed_schedule": {
+    "kind": "consecutive-u32",
+    "start": 20260926,
+    "count": 128,
+    "end_inclusive": 20261053
+  },
+  "candidate_attempt_cap": 128,
+  "wall_clock_budget_s": 21600,
+  "per_build_timeout_s": 60,
+  "device_schedule": {
+    "device_id": 0,
+    "device": "Tesla V100-SXM2-32GB",
+    "concurrency_per_device": 1,
+    "builds_per_case": "serial affected then corrected"
+  },
+  "environment": {
+    "python": "3.10.12",
+    "pytorch": "2.10.0+cu128",
+    "cuda": "12.8",
+    "driver": "535.274.02",
+    "device_compute_capability": "7.0",
+    "triton_version": "3.8.0",
+    "ptxas_path": "/root/.triton/.triton/nvidia/nvcc/cuda_nvcc-linux-x86_64-12.8.93-archive/bin/ptxas",
+    "ptxas_sha256": "c960a4f238b17d5c5d3c01ad2bbc1ebd2c5aecc459cb4d223bff10b45f9b8fca",
+    "corrected_package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+    "affected_libtriton_sha256": "cdceead1852fa2c4243e69abe338501cd83ab832e8aea405cb5bbb4582e1ca1c",
+    "corrected_libtriton_sha256": "2e56222c3057cd76476ff44869d3b275c0c7c091c292fbb64ea3106a68e1560b"
+  },
+  "refractir": {
+    "base_revision": "7b43faa83e76d5ab17a8ec3fb62634746e28d104",
+    "working_tree_dirty": true,
+    "build_flags": "g++ -std=c++20 -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/tmp/boost_1_89",
+    "source_sha256": {
+      "src/reify/tensor_gen.cpp": "9b6e97883fa5894f2acdf46cc7f9449e012e18384ffece86221ced01d19b15cd",
+      "src/reify/tensor_case.cpp": "1d372f8b7bbb716a6223d2be8d81da99611b8721fcdf074747b4247371ef31ea",
+      "src/backend/triton_backend.cpp": "0315aa3362d3e7eac9f8b803906d1b93f101f7d1af3ba083e3764d6940fcdf00",
+      "src/analysis/tensor.cpp": "d86522976c346d21fb2b01085b0bdc24833fc9db51931edf0f497c0a10578d99",
+      "test/lib/tensor_case.py": "2f68140daede6f924f8e8e2b9af79b604ba810eddc46fb57158de9ab9d1432a0",
+      "test/lib/triton_case_worker.py": "5c592c7298d93813024528f665b488b165b3d16ef275f172866e276079118a91",
+      "test/lib/run_triton_tests.py": "d4de6b1b8126a4f595e7d6bb6edd08a7a23384240f6a58f0714fa6236dbcad29",
+      "test/lib/probe_triton_env.py": "343b1c71981c60fd67ad223c3b868685e70c0fa8acccc08038aa8953b0ab31b8",
+      "test/lib/tensor_compare.py": "fe2dceca71d184ad525b20701b8058f87724ef280f71a7612382f57322d179b8",
+      "test/lib/replay_triton_11186.py": "df3bdc8fdd5562772a55f8504744f8a7f0a794b6cf99486f71463ebe1f7eeb63",
+      "test/lib/tensor_directed.py": "d345dd50201fcd35ce778c95a0db9371d0b8d666165d9cf3f3be7e615878d28d",
+      "test/lib/tensor_evaluation.py": "05ada2ad111e4b3422b16fbd9f07d4945a1a1613bfb753f426158df4efbfe697",
+      "test/tensor/campaigns/v2-fixtures.json": "e67276aa854727c50c4149429c5fb415dbd5b19810264a510a8a93a3f2ec9ace"
+    },
+    "binary_sha256": {
+      "rysmith": "315132d68184ede6d34a6f54d9419502089696a69aaa7e0f4871d674b916aafd",
+      "symiri": "6f034763ea1bc6e06f601f83ff19bb7790f5e2ea180a545269b2f9d4e8409da1",
+      "symirc": "a83e98a16f74c057be6178610d02e34d1949b774bfa171f9b1269d3a0c5d9420"
+    }
+  },
+  "attempts": [],
+  "triage_policy": "Stop on an affected-build wrong result, compile/runtime failure, or timeout and preserve both build artifact trees for investigation. Count a rediscovery only after explicit same-root-cause triage; unrelated findings remain separate. Resume the frozen seed schedule after triage, within the original count and time caps.",
+  "budget_exhaustion_without_rediscovery_is_valid": true
+}

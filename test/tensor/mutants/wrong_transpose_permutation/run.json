@@ -1,0 +1,26 @@
+{
+  "expected_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "inputs_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+  "kernel_sha256": "2b95ba058de53bd6ee835ef34a19246d2817a2514fcecb4e4abee50bdee9fbd9",
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+  },
+  "mode": "compiled",
+  "mutant": {
+    "after": "tl.permute(_sir_x, (1, 0))",
+    "before": "tl.permute(_sir_x, (0, 1))",
+    "name": "wrong_transpose_permutation"
+  },
+  "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+  "refractir_revision": "unavailable",
+  "schema": "refractir.tensor-mutant-run.v1",
+  "source_sha256": "bdb34651fce8ee00191064fdef9a259ea0814deba44ef7c6779a596b81f8e176",
+  "triton_source_revision": "e2e356723ce35f46b5144373b145c55c4d712237"
+}

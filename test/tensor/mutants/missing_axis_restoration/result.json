@@ -1,0 +1,25 @@
+{
+  "actual_bytes": null,
+  "actual_sha256": null,
+  "artifacts": [
+    "case.json",
+    "environment.json",
+    "expected.bin",
+    "inputs.bin",
+    "kernel.py",
+    "program.sir",
+    "result.json",
+    "run.json",
+    "stderr.log",
+    "stdout.log",
+    "worker-phase.json"
+  ],
+  "campaign_valid": true,
+  "detected": true,
+  "expected_sha256": "ca47d76586fdcb407ae4ad29d6d7c7c518232d9a222e59d7b51695143c20a0d1",
+  "input_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+  "mode": "compiled",
+  "mutant": "missing_axis_restoration",
+  "source_case": "composition_sum-expand_sum-then-expand",
+  "status": "compile_failure"
+}

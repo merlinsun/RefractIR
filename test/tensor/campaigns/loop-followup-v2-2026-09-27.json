@@ -1,0 +1,62 @@
+{
+  "schema": "refractir.tensor-loop-followup-plan.v1",
+  "campaign_id": "dynamic-loop-follow-up-2026-09-27",
+  "purpose": "Measure source-family reachability and optimized loop-reduction behavior before adding masked-tail semantics.",
+  "source_snapshot": {
+    "archive": "archive/2026-09-27/tensor-v03-source-20260927.tar.gz",
+    "sha256": "2855b9564aabe43dbfe7bcc28a6f4debf74da7b9d19e48b425f9f42125883f70"
+  },
+  "budget": {
+    "wall_seconds": 3600,
+    "scope": "candidate generation, stratified selection, interpreter and compiled runs, paired warp probes, and result summary",
+    "incomplete_run_policy": "retain every completed result and report unexecuted cases as incomplete"
+  },
+  "generator": {
+    "profile": "tensor-v2",
+    "stratum": "loop-reduction",
+    "synthesis": "construction",
+    "accepted_candidates_per_dtype": 3000,
+    "dtypes": {
+      "i32": {"seed": 20261002},
+      "f32": {"seed": 20261003}
+    }
+  },
+  "source_families": {
+    "loop_carried_reductions": "The source loop body reduces evolving %acc_x and %acc_y tensors and uses those reduced values in cross-state updates.",
+    "loop_invariant_reductions": "The source loop body reduces %x, %y, or their transformed values; the reducer may hoist these operations. Cases whose only reduction is before the loop are outside this follow-up's source families.",
+    "classification": "Classify from SIR before compilation: a body reduction of %acc_x or %acc_y is loop-carried; another body reduction is loop-invariant. Never classify from optimized IR."
+  },
+  "selection": {
+    "unit": "dtype x source_family x generated_num_warps",
+    "cases_per_cell": 64,
+    "generated_num_warps": [1, 2, 4, 8],
+    "ordering": "case directory name ascending; select the first 64 in each cell",
+    "expected_selected_cases": 1024,
+    "eligibility": "classify from source and manifest before inspecting compiled IR; do not filter by optimizer outcome",
+    "candidate_pool_policy": "archive every accepted candidate with selected, unselected_accepted, or ineligible status; report a shortfall if any cell has fewer than 64 candidates"
+  },
+  "paired_warp_controls": {
+    "cases_per_dtype_family_warp_cell": 4,
+    "selected_cases": 64,
+    "probed_num_warps": [1, 2, 4, 8],
+    "expected_probe_executions": 256,
+    "selection": "within each dtype x source_family x generated_num_warps cell, choose the first four cases by case directory name",
+    "classification": "pass, unsupported_configuration, resource_limit, environment_unavailable, or correctness/compiler candidate; never blacklist a legal family from a failing probe"
+  },
+  "execution": {
+    "devices": [0, 1, 2, 3, 4, 5, 6, 7],
+    "modes": ["interpret", "compiled"],
+    "target_triton": "3.8.0",
+    "target_commit": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "reference": "independent RefractIR tensor interpreter and stored expected output",
+    "optimized_ir": "retain TTGIR for every compiled selected case and classify reductions inside versus outside optimized loops"
+  },
+  "reporting": [
+    "selected and unselected source-family counts by dtype and generated warp count",
+    "optimized retained/hoisted/inconclusive loop-reduction counts by source family",
+    "interpret and compiled result counts, failures, and incomplete cases",
+    "paired warp-control outcomes and resource/environment classifications",
+    "unique source and normalized TTGIR fingerprints as supporting evidence",
+    "generation, selection, reference, compilation, and execution costs"
+  ]
+}

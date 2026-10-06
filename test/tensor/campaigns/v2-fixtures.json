@@ -1,0 +1,65 @@
+{
+  "schema": "refractir.tensor-v2-fixtures.v1",
+  "frozen_before_generator_tuning": true,
+  "freeze_date": "2026-09-24",
+  "calibration": {
+    "id": "triton-pr-11186",
+    "kind": "complete-build-sir-to-triton",
+    "status": "verified",
+    "fixture": "test/tensor/regressions/triton-11186/case.json",
+    "source_sha256": "ca59b968ed41c2c23d13ea1d2f6d08922babe0211ef4de37ee1720250b7cbfcc",
+    "inputs_sha256": "5cad1e45d49a13037d248a03119806d8dd1e00801523979481b59d88d54591f8",
+    "expected_sha256": "aaa567e5dfbba2cce9ba6ed03534fb09f2f33b964c5e3fb3be1395398412e184",
+    "affected": {
+      "revision": "446f56ffd12431b1760ed504b7bcfdb6bb7b93c9",
+      "status": "numeric_mismatch",
+      "mismatches": 256,
+      "max_absolute_error": [256, 1]
+    },
+    "corrected": {
+      "revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+      "status": "pass",
+      "mismatches": 0
+    },
+    "device": {
+      "name": "Tesla V100-SXM2-32GB",
+      "compute_capability": "7.0",
+      "cuda": "12.8",
+      "driver": "535.274.02",
+      "python": "3.10",
+      "pytorch": "2.10.0+cu128",
+      "triton": "3.8.0"
+    },
+    "package_lock": {
+      "path": "test/tensor/environments/v100-triton-3.8.0/package-lock.json",
+      "sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+    },
+    "launch": {
+      "grid": [1, 1, 1],
+      "num_warps": 1,
+      "num_stages": 1,
+      "enable_fp_fusion": false
+    },
+    "triage": {
+      "confirmed": true,
+      "summary": "The affected optimized TTGIR reduces an allow_reorder reshape without restoring elements outside the reduction axis. The corrected optimized TTGIR inserts the transpose and reshape that preserve those elements.",
+      "upstream_fix": "https://github.com/triton-lang/triton/pull/11186"
+    },
+    "replay_artifacts": "test/tensor/regressions/triton-11186/replay/"
+  },
+  "holdout_status": "unavailable",
+  "holdout_candidates": [
+    {
+      "id": "triton-issue-1438",
+      "source": "https://github.com/triton-lang/triton/issues/1438",
+      "status": "not_verified",
+      "reason": "No pinned complete affected/fixed compiler pair has been replayed through the tensor-v2 SIR-to-Triton path."
+    },
+    {
+      "id": "triton-issue-11406",
+      "status": "source_overlay_only",
+      "reason": "The existing replay replaces a library function overlay and does not establish complete affected/fixed backend builds."
+    }
+  ],
+  "generalization_claim": "unavailable"
+}

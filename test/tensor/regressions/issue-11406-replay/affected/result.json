@@ -1,0 +1,86 @@
+{
+  "actual_sha256": "345e3ea96c5b8d1ac8a989eb05f800268e8e3f646e5e21c429dad9a4f540943b",
+  "artifacts": [
+    "actual.bin",
+    "case.json",
+    "compiler-llir.ir",
+    "compiler-ptx.ir",
+    "compiler-source.ir",
+    "compiler-ttgir.ir",
+    "compiler-ttir.ir",
+    "environment.json",
+    "expected.bin",
+    "inputs.bin",
+    "kernel.py",
+    "legacy_standard.py",
+    "program.sir",
+    "run.json",
+    "stderr.log",
+    "stdout.log",
+    "worker-phase.json"
+  ],
+  "campaign_valid": true,
+  "comparison": {
+    "max_absolute_error": [
+      75850389,
+      16777216
+    ],
+    "max_relative_error": [
+      75850389,
+      14777323
+    ],
+    "mismatches": [
+      {
+        "actual_bits": "0x3e89b2b1",
+        "coordinate": [
+          0,
+          0
+        ],
+        "expected_bits": "0x3df420a9",
+        "index": 0
+      },
+      {
+        "actual_bits": "0x3e0402cb",
+        "coordinate": [
+          0,
+          1
+        ],
+        "expected_bits": "0x3f617beb",
+        "index": 1
+      },
+      {
+        "actual_bits": "0x40acdbd0",
+        "coordinate": [
+          1,
+          0
+        ],
+        "expected_bits": "0x3f617beb",
+        "index": 2
+      },
+      {
+        "actual_bits": "0x3d4241a2",
+        "coordinate": [
+          1,
+          1
+        ],
+        "expected_bits": "0x3df420a9",
+        "index": 3
+      }
+    ],
+    "mismatching_indices": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "status": "numeric_mismatch"
+  },
+  "expected_sha256": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+  "invocation_adapter": "explicit legacy keep_dims=False invocation",
+  "mode": "compiled",
+  "runtime_triton_source_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+  "softmax_source_revision": "f4fca2c0bc0e19930d2be76bb06ee7b232b60e86",
+  "softmax_source_sha256": "aea72016d62af8d48b29dd66a87ecaa5a224242b16b10e64f3bcb0e11ebe4819",
+  "status": "numeric_mismatch",
+  "variant": "affected"
+}

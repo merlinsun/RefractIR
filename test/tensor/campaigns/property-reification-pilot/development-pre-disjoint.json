@@ -1,0 +1,930 @@
+{
+  "problems": [
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "independent_sum",
+      "graph_id": "g001",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            16
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n0",
+          "op": "sum",
+          "operands": [
+            "x"
+          ],
+          "permutation": [],
+          "shape": []
+        }
+      ],
+      "output_id": "n0",
+      "output_shape": [],
+      "problem_id": "g001_t0",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 16,
+      "target": [
+        1
+      ],
+      "target_pattern": "scalar_menu"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "independent_sum",
+      "graph_id": "g001",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            16
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n0",
+          "op": "sum",
+          "operands": [
+            "x"
+          ],
+          "permutation": [],
+          "shape": []
+        }
+      ],
+      "output_id": "n0",
+      "output_shape": [],
+      "problem_id": "g001_t1",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 16,
+      "target": [
+        3
+      ],
+      "target_pattern": "scalar_menu"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "layout_sum",
+      "graph_id": "g009",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            4,
+            4
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "transpose",
+          "operands": [
+            "x"
+          ],
+          "permutation": [
+            1,
+            0
+          ],
+          "shape": [
+            4,
+            4
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n1",
+          "op": "mul",
+          "operands": [
+            "n0",
+            -1
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            4
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n2",
+          "op": "sum",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": [
+            4
+          ]
+        }
+      ],
+      "output_id": "n2",
+      "output_shape": [
+        4
+      ],
+      "problem_id": "g009_t0",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 16,
+      "target": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "target_pattern": "repeated"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "layout_sum",
+      "graph_id": "g009",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            4,
+            4
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "transpose",
+          "operands": [
+            "x"
+          ],
+          "permutation": [
+            1,
+            0
+          ],
+          "shape": [
+            4,
+            4
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n1",
+          "op": "mul",
+          "operands": [
+            "n0",
+            -1
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            4
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n2",
+          "op": "sum",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": [
+            4
+          ]
+        }
+      ],
+      "output_id": "n2",
+      "output_shape": [
+        4
+      ],
+      "problem_id": "g009_t1",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 16,
+      "target": [
+        3,
+        -3,
+        1,
+        -3
+      ],
+      "target_pattern": "mixed_sign"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "affine_sum",
+      "graph_id": "g025",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            32
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "mul",
+          "operands": [
+            "x",
+            1
+          ],
+          "permutation": [],
+          "shape": [
+            32
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n1",
+          "op": "add",
+          "operands": [
+            "n0",
+            -1
+          ],
+          "permutation": [],
+          "shape": [
+            32
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n2",
+          "op": "sum",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": []
+        }
+      ],
+      "output_id": "n2",
+      "output_shape": [],
+      "problem_id": "g025_t0",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 32,
+      "target": [
+        -1
+      ],
+      "target_pattern": "scalar_menu"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "affine_sum",
+      "graph_id": "g025",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            32
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "mul",
+          "operands": [
+            "x",
+            1
+          ],
+          "permutation": [],
+          "shape": [
+            32
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n1",
+          "op": "add",
+          "operands": [
+            "n0",
+            -1
+          ],
+          "permutation": [],
+          "shape": [
+            32
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n2",
+          "op": "sum",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": []
+        }
+      ],
+      "output_id": "n2",
+      "output_shape": [],
+      "problem_id": "g025_t1",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 32,
+      "target": [
+        1
+      ],
+      "target_pattern": "scalar_menu"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "shared_reductions",
+      "graph_id": "g033",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            4,
+            8
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "add",
+          "operands": [
+            "x",
+            "x"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            8
+          ]
+        },
+        {
+          "axis": 1,
+          "keep": true,
+          "node_id": "n1",
+          "op": "sum",
+          "operands": [
+            "n0"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            1
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n2",
+          "op": "broadcast",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            8
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n3",
+          "op": "add",
+          "operands": [
+            "n0",
+            "n2"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            8
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n4",
+          "op": "sum",
+          "operands": [
+            "n3"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n5",
+          "op": "sum",
+          "operands": [
+            "n0"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n6",
+          "op": "add",
+          "operands": [
+            "n4",
+            "n5"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        }
+      ],
+      "output_id": "n6",
+      "output_shape": [
+        8
+      ],
+      "problem_id": "g033_t0",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 32,
+      "target": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "target_pattern": "repeated"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "shared_reductions",
+      "graph_id": "g033",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            4,
+            8
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "add",
+          "operands": [
+            "x",
+            "x"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            8
+          ]
+        },
+        {
+          "axis": 1,
+          "keep": true,
+          "node_id": "n1",
+          "op": "sum",
+          "operands": [
+            "n0"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            1
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n2",
+          "op": "broadcast",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            8
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n3",
+          "op": "add",
+          "operands": [
+            "n0",
+            "n2"
+          ],
+          "permutation": [],
+          "shape": [
+            4,
+            8
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n4",
+          "op": "sum",
+          "operands": [
+            "n3"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        },
+        {
+          "axis": 0,
+          "keep": false,
+          "node_id": "n5",
+          "op": "sum",
+          "operands": [
+            "n0"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n6",
+          "op": "add",
+          "operands": [
+            "n4",
+            "n5"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        }
+      ],
+      "output_id": "n6",
+      "output_shape": [
+        8
+      ],
+      "problem_id": "g033_t1",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 32,
+      "target": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "target_pattern": "zero"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "nonlinear",
+      "graph_id": "g056",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            8,
+            4
+          ]
+        },
+        {
+          "name": "y",
+          "shape": [
+            8,
+            4
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "mul",
+          "operands": [
+            "x",
+            "y"
+          ],
+          "permutation": [],
+          "shape": [
+            8,
+            4
+          ]
+        },
+        {
+          "axis": 1,
+          "keep": false,
+          "node_id": "n1",
+          "op": "sum",
+          "operands": [
+            "n0"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        }
+      ],
+      "output_id": "n1",
+      "output_shape": [
+        8
+      ],
+      "problem_id": "g056_t0",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 64,
+      "target": [
+        -3,
+        -3,
+        -3,
+        -3,
+        -3,
+        -3,
+        -3,
+        -3
+      ],
+      "target_pattern": "repeated"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "nonlinear",
+      "graph_id": "g056",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            8,
+            4
+          ]
+        },
+        {
+          "name": "y",
+          "shape": [
+            8,
+            4
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "mul",
+          "operands": [
+            "x",
+            "y"
+          ],
+          "permutation": [],
+          "shape": [
+            8,
+            4
+          ]
+        },
+        {
+          "axis": 1,
+          "keep": false,
+          "node_id": "n1",
+          "op": "sum",
+          "operands": [
+            "n0"
+          ],
+          "permutation": [],
+          "shape": [
+            8
+          ]
+        }
+      ],
+      "output_id": "n1",
+      "output_shape": [
+        8
+      ],
+      "problem_id": "g056_t1",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 64,
+      "target": [
+        -1,
+        3,
+        1,
+        1,
+        -1,
+        1,
+        -3,
+        1
+      ],
+      "target_pattern": "mixed_sign"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "layout_sum",
+      "graph_id": "g050",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            1,
+            64
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "broadcast",
+          "operands": [
+            "x"
+          ],
+          "permutation": [],
+          "shape": [
+            2,
+            64
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n1",
+          "op": "sub",
+          "operands": [
+            "n0",
+            -2
+          ],
+          "permutation": [],
+          "shape": [
+            2,
+            64
+          ]
+        },
+        {
+          "axis": 1,
+          "keep": false,
+          "node_id": "n2",
+          "op": "sum",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": [
+            2
+          ]
+        }
+      ],
+      "output_id": "n2",
+      "output_shape": [
+        2
+      ],
+      "problem_id": "g050_t0",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 64,
+      "target": [
+        0,
+        0
+      ],
+      "target_pattern": "zero"
+    },
+    {
+      "domain": [
+        -8,
+        8
+      ],
+      "family": "layout_sum",
+      "graph_id": "g050",
+      "inputs": [
+        {
+          "name": "x",
+          "shape": [
+            1,
+            64
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n0",
+          "op": "broadcast",
+          "operands": [
+            "x"
+          ],
+          "permutation": [],
+          "shape": [
+            2,
+            64
+          ]
+        },
+        {
+          "axis": null,
+          "keep": false,
+          "node_id": "n1",
+          "op": "sub",
+          "operands": [
+            "n0",
+            -2
+          ],
+          "permutation": [],
+          "shape": [
+            2,
+            64
+          ]
+        },
+        {
+          "axis": 1,
+          "keep": false,
+          "node_id": "n2",
+          "op": "sum",
+          "operands": [
+            "n1"
+          ],
+          "permutation": [],
+          "shape": [
+            2
+          ]
+        }
+      ],
+      "output_id": "n2",
+      "output_shape": [
+        2
+      ],
+      "problem_id": "g050_t1",
+      "schema": "refractir.tensor-property-problem.v1",
+      "symbol_count": 64,
+      "target": [
+        3,
+        -1
+      ],
+      "target_pattern": "mixed_sign"
+    }
+  ],
+  "schema": "refractir.tensor-property-workload.v1",
+  "seed": 282
+}

@@ -1,0 +1,196 @@
+{
+  "schema": "refractir.tensor-v2-evaluation.v1",
+  "created_on": "2026-09-25",
+  "status": "pilot_complete_predeclared_campaign_not_run",
+  "scope": "matched-generator-evaluation-and-bounded-11186-rediscovery",
+  "holdout_status": "unavailable",
+  "holdout_reason": "No independent defect has a verified complete affected/fixed build pair through the tensor-v2 SIR-to-Triton path.",
+  "refractir": {
+    "base_revision": "39ddec6",
+    "working_tree_dirty": true,
+    "source_pins": {
+      "src/reify/tensor_gen.cpp": "5b3bc8f762a6cad449f92b1135f80a8dfd2bb364f3f48e4eed44747049fa8800",
+      "test/lib/tensor_directed.py": "d345dd50201fcd35ce778c95a0db9371d0b8d666165d9cf3f3be7e615878d28d",
+      "test/lib/tensor_evaluation.py": "05ada2ad111e4b3422b16fbd9f07d4945a1a1613bfb753f426158df4efbfe697",
+      "test/lib/run_triton_tests.py": "335ce05aaab08bb0ce5f0ed128abac4dec0a6629d9bff534c7b8554d2d3a49d9"
+    },
+    "build_flags": "g++ -std=c++20 -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/tmp/boost_1_89",
+    "binary_digests": {
+      "symiri": "77d988da71ff5f214a094ba797e99eb2057fa5149defbee399821939536c45cb",
+      "symirc": "f0522600b51e3996f8797dbbe1d58ea3679c395a8b33e22507d09aa091ca7b43",
+      "rysmith": "be3cc7db06c1098c54bef62537bfc34cbaf68325093a684f6fdf9c5e867cc79a"
+    }
+  },
+  "target_environment": {
+    "device_class": "Tesla V100-SXM2-32GB",
+    "compute_capability": "7.0",
+    "device_pool": [0, 1, 2, 3, 4, 5, 6, 7],
+    "max_concurrent_runs_per_device": 1,
+    "python": "3.10.12",
+    "pytorch": "2.10.0+cu128",
+    "cuda": "12.8",
+    "driver": "535.274.02",
+    "triton_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "triton_package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+    "ptxas_path": "/root/.triton/.triton/nvidia/nvcc/cuda_nvcc-linux-x86_64-12.8.93-archive/bin/ptxas",
+    "ptxas_sha256": "c960a4f238b17d5c5d3c01ad2bbc1ebd2c5aecc459cb4d223bff10b45f9b8fca"
+  },
+  "mechanics_pilot": {
+    "status": "completed",
+    "report": "test/tensor/campaigns/tensor-v02-matched-pair-pilot.json",
+    "matched_graphs": 1,
+    "ordinary_and_directed_property_passed": true,
+    "ordinary_and_directed_distinguished": true,
+    "interpreter": {
+      "completed_runs": 2,
+      "passes": 2
+    },
+    "compiled": {
+      "completed_runs": 2,
+      "passes": 2,
+      "triton_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+      "device_id": 0,
+      "num_warps": 8,
+      "isolated_empty_caches": true
+    },
+    "warp_preflight": {
+      "status": "probed",
+      "device_id": 1,
+      "results": [
+        {"num_warps": 1, "classification": "pass"},
+        {"num_warps": 2, "classification": "pass"},
+        {"num_warps": 4, "classification": "pass"},
+        {"num_warps": 8, "classification": "pass"}
+      ]
+    },
+    "limits": [
+      "One graph validates runner mechanics only; it is not a three-arm comparison.",
+      "This is not fresh-case #11186 rediscovery or independent holdout evaluation.",
+      "The case artifact tree remains on the remote host at /tmp/tensor-v02-pd-clean/pair_000003; the local pilot record retains hashes and summaries."
+    ]
+  },
+  "rediscovery_smoke": {
+    "status": "pilot_only_not_counted",
+    "seed": 20260925,
+    "stratum": "loop-reduction",
+    "dtype": "i32",
+    "source_sha256": "93545bed5d21ea9cf2ba22ca0e7cc9948135404062fdc65ee1beb23c37062866",
+    "inputs_sha256": "d278dfa5ec3ea085e4cfe50f77c0abd2f79ef7009bb088aff73136e1a89d4d95",
+    "expected_sha256": "688d6d47b3c9d463fc651d9a428d2f3fbd3b9f050ecc5ccfc914273a05619e91",
+    "affected_status": "pass",
+    "corrected_status": "pass",
+    "triage_same_root_cause": false,
+    "device_id": 0,
+    "artifact_root": "/tmp/tensor-v02-rediscovery-smoke/replay",
+    "counted_as_rediscovery": false,
+    "reason": "One toolchain smoke case passed on both builds; it is not a qualifying mismatch and does not exhaust the frozen rediscovery budget."
+  },
+  "rediscovery": {
+    "status": "predeclared_not_run",
+    "defect": "triton-pr-11186-OptimizeThreadLocality-reduction-reordering",
+    "affected_revision": "446f56ffd12431b1760ed504b7bcfdb6bb7b93c9",
+    "corrected_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "fixture_replay_is_not_rediscovery": true,
+    "fresh_case_required": true,
+    "generator": {
+      "profile": "tensor-v2",
+      "stratum": "loop-reduction",
+      "dtype": "i32",
+      "synthesis": "construction",
+      "source_sha256": "5b3bc8f762a6cad449f92b1135f80a8dfd2bb364f3f48e4eed44747049fa8800",
+      "command": "rysmith --profile tensor --target sir --tensor-profile-version v2 --tensor-stratum loop-reduction --tensor-dtype i32 --tensor-synthesis construction --seed SEED"
+    },
+    "seed_schedule": {
+      "kind": "consecutive-u32",
+      "start": 20260925,
+      "count": 128
+    },
+    "input_policy": "Use each fresh case's generated input bytes unchanged on both Triton builds; reference-validation failures are inadmissible attempts.",
+    "candidate_attempt_cap": 128,
+    "wall_clock_budget_s": 21600,
+    "success_requires": [
+      "freshly generated source and input bytes",
+      "affected build compiles and returns exact_mismatch or numeric_mismatch against the independent reference",
+      "corrected build passes with identical source, input bytes, layout, launch settings, and device class",
+      "root-cause triage confirms the same #11186 OptimizeThreadLocality reduction-reordering defect"
+    ],
+    "budget_exhaustion_without_rediscovery_is_valid": true
+  },
+  "evaluation": {
+    "status": "predeclared_not_run",
+    "arms": [
+      {
+        "id": "existing-tensor-v1-generator",
+        "profile": "tensor-v1",
+        "corpus": "test/tensor/campaigns/seed-100-structural.json",
+        "seed_range": [0, 100],
+        "archive_case_directories": "not_present",
+        "fixed_time_eligible": false,
+        "fixed_time_exclusion": "Regenerate from a pinned v1 implementation and charge generation/reference preparation, or provide archived preparation timings before making a throughput comparison."
+      },
+      {
+        "id": "tensor-v2-compositional-ordinary",
+        "profile": "tensor-v2",
+        "stratum": "multi-input-composition",
+        "input_selection": "first candidate satisfying P; measure D without rejecting",
+        "candidate_proposal_budget": 100
+      },
+      {
+        "id": "tensor-v2-compositional-directed",
+        "profile": "tensor-v2",
+        "stratum": "multi-input-composition",
+        "input_selection": "first candidate satisfying P and D",
+        "candidate_proposal_budget": 100,
+        "shortfall_policy": "retain shortfall; never replace the graph"
+      }
+    ],
+    "matching": [
+      "source graph signature",
+      "logical input domain",
+      "shape and layout",
+      "warp count",
+      "compiler revision",
+      "proposal mechanism and seed schedule",
+      "comparison policy and proposal budget"
+    ],
+    "protocols": {
+      "fixed-count": {
+        "target_completed_runs_per_arm": 100,
+        "unequal_completion_policy": "report shortfall and withhold equal-count sensitivity comparison"
+      },
+      "fixed-time": {
+        "wall_clock_budget_s_per_arm": 3600,
+        "same_device_pool_and_schedule": true,
+        "charge_stages": [
+          "generation_s",
+          "solving_s",
+          "input_materialization_s",
+          "reference_validation_s",
+          "compilation_s",
+          "gpu_execution_s"
+        ],
+        "unequal_completion_policy": "report actual completion counts as throughput outcomes"
+      }
+    },
+    "cache_policy": {
+      "empty_at_start": true,
+      "isolate_by": ["arm", "trial"],
+      "allow_within_arm_reuse": true,
+      "share_across_arms": false
+    },
+    "reporting": {
+      "count_cases_separately_from_investigated_defects": true,
+      "authored_replay_is_not_generator_generalization": true,
+      "source_compiled_input_behavior_coverage": true,
+      "retain_all_ir_novelty_cases": true
+    }
+  },
+  "preconditions_before_execution": [
+    "Build the exact pinned RefractIR source and record all binary digests.",
+    "Verify both complete #11186 Triton builds and their package locks are available.",
+    "Set TRITON_PTXAS_PATH to the recorded CUDA 12.8.93 ptxas binary for both builds.",
+    "Regenerate the tensor-v1 arm from a pinned implementation or keep it out of fixed-time throughput claims.",
+    "Record per-stage timing data for generation, validation, compilation, and GPU execution.",
+    "Run each selected GPU device serially and record its identity."
+  ]
+}

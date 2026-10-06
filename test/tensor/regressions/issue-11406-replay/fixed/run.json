@@ -1,0 +1,22 @@
+{
+  "expected_sha256": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "inputs_sha256": "817e9f91fe51eff655fecffc85ab53d7f5354197d816fed7b47a8952add35e18",
+  "invocation_adapter": "omit removed keep_dims keyword; operation and tolerance are unchanged",
+  "kernel_sha256": "aa1125c39125a30b1683c3b5ff9ddf93bb90666375c512d7f0b3282a8fb60130",
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+  },
+  "mode": "compiled",
+  "schema": "refractir.tensor-historical-run.v1",
+  "softmax_source_revision": "31b1bf9aed2714af9a816d023b405499e8b27883",
+  "softmax_source_sha256": "09f3461fb408f718198800367f73764a183fe4dcf8db20b57bc319bf6fdb04ea",
+  "source_sha256": "eef1c893c897b8f4221a5622217d7a55fb4490f214d23a3849ede90c6006cead",
+  "variant": "fixed"
+}

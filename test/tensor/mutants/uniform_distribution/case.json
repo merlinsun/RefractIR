@@ -1,0 +1,129 @@
+{
+  "axis_choices": [
+    1
+  ],
+  "comparison": {
+    "atol": [
+      2,
+      100000
+    ],
+    "mode": "numeric",
+    "policy": "numeric-v1",
+    "rtol": [
+      2,
+      1000
+    ]
+  },
+  "entry": "kernel",
+  "environment": {
+    "file": "environment.json",
+    "package_lock": "../../environments/v100-triton-3.8.0/package-lock.json",
+    "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+  },
+  "evidence": {
+    "artifacts": [],
+    "kind": "conformance_matrix",
+    "status": "validated"
+  },
+  "execution_mode": "compiled",
+  "files": {
+    "expected.bin": {
+      "bytes": 32,
+      "fnv1a64": "101c9a9bec39cb95"
+    },
+    "inputs.bin": {
+      "bytes": 32,
+      "fnv1a64": "1816e1c665042f48"
+    },
+    "kernel.py": {
+      "bytes": 489,
+      "fnv1a64": "6d20bbcce23e4cf7"
+    },
+    "program.sir": {
+      "bytes": 153,
+      "fnv1a64": "70a64ce722167424"
+    }
+  },
+  "generator_revision": "hand-written-tensor-v1",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "inputs": [
+    {
+      "byte_length": 32,
+      "byte_offset": 0,
+      "dtype": "f32",
+      "element_offset": 0,
+      "element_strides": [
+        4,
+        1
+      ],
+      "file": "inputs.bin",
+      "name": "x",
+      "shape": [
+        2,
+        4
+      ],
+      "tile_origin": [
+        0,
+        0
+      ],
+      "tile_shape": [
+        2,
+        4
+      ]
+    }
+  ],
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+  },
+  "output": {
+    "byte_length": 32,
+    "byte_offset": 0,
+    "dtype": "f32",
+    "element_offset": 0,
+    "element_strides": [
+      4,
+      1
+    ],
+    "file": "expected.bin",
+    "name": "return",
+    "shape": [
+      2,
+      4
+    ],
+    "tile_origin": [
+      0,
+      0
+    ],
+    "tile_shape": [
+      2,
+      4
+    ]
+  },
+  "profile": "tensor-v1",
+  "property": {
+    "id": "regression.softmax_2x4_axis1_pos",
+    "source": "Complete output compared against the independent tensor reference."
+  },
+  "reference": {
+    "precisions": [
+      128,
+      256
+    ],
+    "stable": true
+  },
+  "regression_group": "softmax.(2, 4).1",
+  "schema": "refractir.tensor-case.v1",
+  "seed": 0,
+  "softmax_lowering": "direct",
+  "test_only_mutant": {
+    "after": "tl.full((2, 4), 0.25, tl.float32)",
+    "before": "tl.softmax(_sir_x, dim=1)",
+    "name": "uniform_distribution"
+  }
+}

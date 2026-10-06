@@ -1,0 +1,28 @@
+{
+  "buffers": [
+    {
+      "axis_order": [
+        0,
+        1
+      ],
+      "element_offset": 0,
+      "element_strides": [
+        1,
+        256
+      ],
+      "name": "x",
+      "storage_span": 512
+    },
+    {
+      "axis_order": [
+        0
+      ],
+      "element_offset": 0,
+      "element_strides": [
+        1
+      ],
+      "name": "return",
+      "storage_span": 256
+    }
+  ]
+}

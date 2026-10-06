@@ -1,0 +1,6 @@
+fun @kernel(%x: tensor [2, 4] i32) : tensor [2, 4] i32 {
+  let mut %out: tensor [2, 4] i32 = undef;
+^entry:
+  %out = tensor transpose %x, [0, 1];
+  ret %out;
+}

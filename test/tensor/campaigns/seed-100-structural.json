@@ -1,0 +1,4852 @@
+{
+  "campaign_valid": true,
+  "case_artifacts": [
+    {
+      "case_json": "135d88c30ba9777ddf285ac9f20b51c3dbb06cb5ad84ce954ca415242ac7eaec",
+      "expected_bin": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+      "inputs_bin": "510c4a8e33c1eceaab2159a13d1e95fc89509f4621380ada6c71b1df0fbd6c7c",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "df1d8dd1eaae517d3dfbe4311e7691fe1c8b1ff68d23e7475bca6fa2ddf33a55",
+      "seed": 0,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "e7011216e8864e64cafa463a745666ea0a7647b8a73108c278ae00bd0c8e73e2",
+      "expected_bin": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+      "inputs_bin": "1a56ebe9335455cd95f9f1e82c03f683fe050dcc2576755a267d91ce3b00e694",
+      "operator_coverage": [
+        "transpose",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "360b89773056c731736699ab5e3d9ad59b6366f8a205a76fa171dbd5aef09ce4",
+      "seed": 1,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            2,
+            2,
+            2
+          ]
+        },
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "81fafdbc4417d409372ff561320e39fdd206e460510dabd386756d644c99c417",
+      "expected_bin": "7bcd6b65e4b3af0b84fb496d518faf7f3bfce37581229e9d5e8b9ccafc2fd49d",
+      "inputs_bin": "76a56463acde034a3d98d04fad0fac44da15eacc2d7862829d1a8ae842ba8af9",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "c68edb979067017985eb142246418aa38fad286d6102a2ba35092d63bcf9d83c",
+      "seed": 2,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "b35a6db06126ec7d286c41a4ceb2ce01b1578517974a253d2597733ed585d1cf",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "61ea6d291f51bed018bdd7fb80d20685e7773ed7872222c6648a8ecfbe680f88",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "8e7076c4363656c56801f47764d9615ca732f7aa2b026aef46d82be34ab1ab2e",
+      "seed": 3,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "5d6500a8160258dfcf2a402ca35dc54144013d45d569b1da1fa71992f028789f",
+      "expected_bin": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+      "inputs_bin": "7d31f6429f1b2b53b968a0b20e508a9d1641c9afba397ce89b0904c276d5c7fe",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "ea90294898d69e7f6618a14893f607057d4f303ab6b4b6388981e6ee165e1e80",
+      "seed": 4,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "d35cce4d2ef8db9fe8fa81c71bcbfd828de6676f55e210d71a40577bf8dbbd4e",
+      "expected_bin": "fb2612a3ea7017b0e8b5ff95cbd397c43d5a2ea93054d96e0b30a0c0a7ed8a11",
+      "inputs_bin": "295797564f1f231dc586fe8c0858e12254586262cc1ec1e724763ec627f3d0d8",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "26e4b51582f85bf5564ebc9290a831d7c00bf36a9d70980c17c919cd505fff2f",
+      "seed": 5,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "7863081ff6bd54340fb4b2c046dc7e587894f7236274d985167f32df57c3b073",
+      "expected_bin": "0b267b75bcdc3bb120bd7e0b160b511275a9d035168c760e410ee3467a3f0581",
+      "inputs_bin": "c1112024d84bac179cfda8df2d45cdb8cb941ec29f75e8cffa61c3b4c46d44a1",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "4e7ca9d1eed69daf76a1624dce8965a998e97219d7c148b8c9af3a1a71a25592",
+      "seed": 6,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "468cbee35780916b67f075af0324f4da6cca17c8d67d3f6c47225deef5b87cd6",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "c1112024d84bac179cfda8df2d45cdb8cb941ec29f75e8cffa61c3b4c46d44a1",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "afeb790d3a7294b0ea4c12d62a6b1f9985c3f60b4b1d89f12b885452b6cd09cd",
+      "seed": 7,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "abcb26e1f5a524a279927baa6bfb372d63850768571fcd0aabcb6a69e34cb513",
+      "expected_bin": "2c9096cc13e03b7b77cc8add442a5480b873e042c78b725e4ec144b306489cf4",
+      "inputs_bin": "19964881fc52b89b0d5934635859e58ecb460124b750303690de73d539c37d48",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "2693427e9ada8b0271a1f2f135c5c1cdc3ba8febc49d41a5456e23a40bbc5de7",
+      "seed": 8,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            1,
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "61da2aaeda672141cd4c04dcb2f8125d55774b110933697b7d7d90305adb6a94",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b3e8dd58728564404b2de252d25eb740edfd6a7a30373ce860daeb93a3ef0252",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "7dce1b126f3e710db31055ea5beb478afd294d7b600c5913728c8ecb37d7fa37",
+      "seed": 9,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "9c51961ae34b630cea53d7f8c674cb3ee4a51344489b4639414f4ff9f6675dc9",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b37e0fb27cc0ec8f81787bfee7e5159945432f81dd7182cab3ece073f4cf1b24",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "1afd22b481c5d376d62c44b09eecbcb9be48d83ee2b89ab88859225776a4b3f8",
+      "seed": 10,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "9d63a81b7ea257953c9ad06b11caa41c0d84f01498f38dd1bd99a93b00f6a20e",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b3e8dd58728564404b2de252d25eb740edfd6a7a30373ce860daeb93a3ef0252",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "afeb790d3a7294b0ea4c12d62a6b1f9985c3f60b4b1d89f12b885452b6cd09cd",
+      "seed": 11,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "615446d787363298f480fe3412bdeda7baf43e0607db8856f30c48d3bdee366c",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "4ac5fb098d1287268009b80aed12a9aaad29ce62c3c1e09c6b36149f8e417939",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "556b9ff2e57b4295008971536e2bfab84c4e0ffc83539bc66af3ce8eca3463c9",
+      "seed": 12,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "51f0ac5e88c1be45fdb00ade5177fa8899d9725ba55e8811643a9c7ba1f5d869",
+      "expected_bin": "0b267b75bcdc3bb120bd7e0b160b511275a9d035168c760e410ee3467a3f0581",
+      "inputs_bin": "a47077a19cd711eed33ac9521628adc95b9fbae3f98b8a29810cc96dbc1065af",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "c276eff95c7910aadc0ac2d581926d7fffed5313ff59821c656928b86079ff43",
+      "seed": 13,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "bd194fa727366fc33153df979b278fe3e058a2b0e450c1f478a39c1539ad94d7",
+      "expected_bin": "2cdd06a7abb2dcbe9af140b33c167e32b424138185fe93abf4429bfb6a6551dd",
+      "inputs_bin": "78dcda778c64fa3b8b52070e84d2338f3c6e3c9cb6930d62ea98e868096cb9ab",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "af190477acfd205ff469cce109e7e7f816f0c33c8107d9663dea19bb54b62c38",
+      "seed": 14,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            1,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "4103bac1721aa65def219184b1ad192c70f0d46348ace169a5acc8750f341155",
+      "expected_bin": "8626730dac1baa280a75a1e5eb728ebe79892082445969539878c7e207e0646e",
+      "inputs_bin": "e6dcbd13130e8302b42477406a9cd2151fe21b86cb4a336a7699fce6fbf97d17",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "a8626744666b153f30a9371752817c8e27bfa75061c44717dbfc6ac84a73a95f",
+      "seed": 15,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "7a6438525cebc3c779462987bc10301fa968027efa97770a5e3fd2331440df38",
+      "expected_bin": "8626730dac1baa280a75a1e5eb728ebe79892082445969539878c7e207e0646e",
+      "inputs_bin": "c4408067b1543bfc2fa3d150bf84a4d90ef00dd40a7b42dc246477a1fc52aeae",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "b45e66516a1a54e1e00fa1de761329bf1860c69b61ccc84dcf89f0220a42fe35",
+      "seed": 16,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "2e40f080ea07c517f238091b164ed5172335fd5872b161352b6bb163790ca669",
+      "expected_bin": "8626730dac1baa280a75a1e5eb728ebe79892082445969539878c7e207e0646e",
+      "inputs_bin": "752efae24162a4327ed7644611214b414550fc75e1f0573eece07cda49d2fe18",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "6c4497b039deeb65112bfd0ef35eadd2d8c7e61b3d88fcf3282632da04fc432c",
+      "seed": 17,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a7472f8ee487a15d9df8b7edca38a1a52ed4e033fc3597580f5843aa66dda658",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "05473633096137766d27d8bb96a587094dbbc499dd3a18083e045d6a8d19c36b",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "c24bb50f1202327973d47dd18ffe668235bf028d35f02c79ff08e3c2251e4059",
+      "seed": 18,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "c660beaf64e12b055931f1770e80e893feafe0140b774c2b92b42160d528814f",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "a6a4d0e5f0338d9a234616c4900fcdd98d19823bba98c07b37304b853b6c0f13",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "bf49e9a9292bb0eae8af106095ac911cec49fbb453dad199f40041f69c94611e",
+      "seed": 19,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "3d4959e9affbd17baa198db882f092f85deaae2a2d07bd822f15c361d94ae5c6",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "21cae2751ca0f59c18c126dd5371462f2299bd9b2eaf5a2ed30271046193f578",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "da23a7894f9d0e197619e65ab36bab41552e7980950432a10e6f9f3a8da52b2a",
+      "seed": 20,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "baf59fd243b2491c2be6695cf88a02c897aa55bfdd6714848263292113a51a8c",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "21cae2751ca0f59c18c126dd5371462f2299bd9b2eaf5a2ed30271046193f578",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "3c319e0b8c5ac5f5fa134185cfd3fbfe5597bdd98be79d68f38cbd2be50ad684",
+      "seed": 21,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a72d876365b3645f26459a24ec771ddf2cc712aceee5763dd13125927b479500",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "f464870459534382c6bb99f38de7dbf998d8ee3a0e1bbea8ddc4de0a95d8e8c1",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "8f2176522c0be1449d04bd1bc93bdab53b76fbedc05d5748c57a62104f9edba9",
+      "seed": 22,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "38f3593ec2fc6ac25a693fdb80629bbf4d43d14ddf157b0ffd100006d77517c1",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "5d1ce83fa100ac31de3bddd841a458174ee5539f3df286af40ff006c9519486d",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "6d66b3ba4db0b04aab552b8d7ac3a924f2d5e7bf85414256a0883689c286e7a2",
+      "seed": 23,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a2fe6e56683d5acbbc473f4dd8eac8f57d770931098b2924321738f743bcd49c",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "a6d409b501d5a0ed6ea854ec8460313b0ea832e622db4cc65a6f25de836b7375",
+      "operator_coverage": [
+        "transpose",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "d42a646e58f753fe6ea77a20d8cb3c4152b8d537df60c8cd62de05c0c0f74fe3",
+      "seed": 24,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            4
+          ]
+        },
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "01f40369801d85a43e535ed157a4de2cbf0625d8baa40baed80c2274790b69fc",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "703303c93f1dce84eb9fbab65211b54cb1d28dd42ce1ccaff572575e466190b6",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "8d228341e6ac96b350fc05dd6878ca6d5e044933f851f13111cb3a9939aaf12e",
+      "seed": 25,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "63398e3f62a61276ed0e61eb5473d0c6511d9768aa22b29ed153ee59209dc73d",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "510c4a8e33c1eceaab2159a13d1e95fc89509f4621380ada6c71b1df0fbd6c7c",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "d13aae1624a0f06e442cb68572c44e359abcbb14688869482ff0993c6c8a6199",
+      "seed": 26,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a02f952100387e87dacd3e54706c87f4f2c5ee34ad579e97d4b9634995e0cda7",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "61ea6d291f51bed018bdd7fb80d20685e7773ed7872222c6648a8ecfbe680f88",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "da23a7894f9d0e197619e65ab36bab41552e7980950432a10e6f9f3a8da52b2a",
+      "seed": 27,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "f291ea8e7a0efc67128b3032a46f16c34ac514424a9e6cdad3af14d7974103d9",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "a6d409b501d5a0ed6ea854ec8460313b0ea832e622db4cc65a6f25de836b7375",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "06302126ba5965b8351f3aa066e9efb62b05352c82340748293488996ff3b1e0",
+      "seed": 28,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "2ce39808e25b0ff9a6ff2185304035ee919f42a6e94fd8442624bd49d6b73b56",
+      "expected_bin": "34cff425bcb1abd0461531557b85f336d77ca5efed02fc9e5f8a8563f1ab4e4f",
+      "inputs_bin": "a527f6c2fbde17555714773e4d5ce06608d7f336389de936d73f09383fd17960",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "df0fc2a56fe96fffcc5ba58e743b8ac2e0ff676c7f1cd773d684609774eb2ca1",
+      "seed": 29,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "92d61769517587f5bfeb8e9a65693f824ae9c517aa4c0b6fc41b4dddf50b5312",
+      "expected_bin": "73398a5003030f53da6565ee00a8308bbbf3c117a3e51ca5dfb8093139425672",
+      "inputs_bin": "0fcb79131ab51125301b761c9c393cbe2e896f0071f6b6f97a2426fe2f90c439",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "330a97c3f5df102db683088baeb4461ce115b0ab53baec544415782035df0316",
+      "seed": 30,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            2,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "339f0fe0e424e4ff26d2227a7d0da86078d7e63041c0a72bab4d7350b23cb3e9",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b3e8dd58728564404b2de252d25eb740edfd6a7a30373ce860daeb93a3ef0252",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "afeb790d3a7294b0ea4c12d62a6b1f9985c3f60b4b1d89f12b885452b6cd09cd",
+      "seed": 31,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a1d28a8be464298153bd590354bec47af872eefc77db1c519cd38db626dca618",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "05473633096137766d27d8bb96a587094dbbc499dd3a18083e045d6a8d19c36b",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "f7533db8e2be729d05a859c31913a0c3c5444a781aad7877a5386d4b8b434dbb",
+      "seed": 32,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "3b76bf3aed10752d0edce88e02065cfb900d71551662ce27a6f42fbacb5ab78a",
+      "expected_bin": "b9b31190db83829ce695c08960c9b1da72afdd672846d035939072f5fc8da5db",
+      "inputs_bin": "3067f2691a08115b7cd59732610fe9f00789f73c97babcab6c437901a123c9de",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "b8daf44ab4a68a08cdb3d4233b3151434f5285b82d8a6c76a0c808b2ef1fad1b",
+      "seed": 33,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "330d0bdbdf4322ce1261ba1389766559a273d7da2b065d16efc30e8bc113bb18",
+      "expected_bin": "2428751fb38a800ddefeb90d3b3314bef84d997e0980fe204d4d8c2c9fc8d12f",
+      "inputs_bin": "5b1a0bf9d634a16d842d3676ed8df2fe4801cae258ee03de598f9590d763be56",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "b6ffbcf54f1626cfec1bbc1502a20b4133e8afc1100f3c2d88005b1d52df17bc",
+      "seed": 34,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            2,
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "43b270153b9e0ea3ab2fe95269b9e0553716a6b110358a4612fd0fc0662fa597",
+      "expected_bin": "cb0db702cfb8279654902c11c5eed251a4e85ff7ec69c746712d2f983e22a4b7",
+      "inputs_bin": "8a6c958ea430b04e67b416dd0e38522786fac635808f9acb066076466172fc20",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "55ea308f7bebedfbf536e408d4af767d5fea3140dc2e9542c587a586ed19d640",
+      "seed": 35,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            4,
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "efa32853ef5e570a30b3c05109bf1bd21ee847421064e46a13fb7b50536f183c",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "703303c93f1dce84eb9fbab65211b54cb1d28dd42ce1ccaff572575e466190b6",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "35e3d1273269e462ae3897785f625770d54bbe7ba85668e33d83a7c14eb2e7cc",
+      "seed": 36,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "db70b969316b602a7cffb6ed9e6dfbb4dd4ab58f4f4c3116c14e9cdb68169f92",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "a47077a19cd711eed33ac9521628adc95b9fbae3f98b8a29810cc96dbc1065af",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "3e8d608174b799a86bba7712a7a78c7942be758e09a4468f739519dbbf5ae4b0",
+      "seed": 37,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "cd5e43c9355f68c4c42165626171936e3f05e978ba034cff5561717a1a702671",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "3afd75566ef355b02ecb42535774e986cf5e24c76fce5e0d052af3f90cf36331",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "3b48d3cdbfb6e52046eb8fd7125a6bcdf9b5aae5b0900aea06724fec71e29aab",
+      "seed": 38,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "b6c3691288cce8cd5363a6cccf19cd2b1a6b0186efad23cab61539c9c89dab5c",
+      "expected_bin": "7bcd6b65e4b3af0b84fb496d518faf7f3bfce37581229e9d5e8b9ccafc2fd49d",
+      "inputs_bin": "bbda8dec335bcb077424d35f47b0360ad927c027c62d37be6cb6c3c340066156",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "ebd2bdcbf32a6916d37807805ff9deb18d001898161dae93d784e5fb2d596f30",
+      "seed": 39,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "6dfd2b28dbca9be0f6e99e6802aeebc789c3c4aa21c6e0ab4b9f5da4c2797018",
+      "expected_bin": "cb0db702cfb8279654902c11c5eed251a4e85ff7ec69c746712d2f983e22a4b7",
+      "inputs_bin": "3986fb9bb1d0a29f5b269236d84ebe7c76f3ef0038d187b243775adf581f2a88",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "a5cbdc1282c29cc32a42ac49727821f05803db2a64f463280e7d56c48b3d7e41",
+      "seed": 40,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "b7f512fa01f1202c6e952caef688fb399b20a4e0aa84351014c7f75c62afddec",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "c03cadb6fe3e04c18669e43547c5d50bd0ca163a54cbe2a2915b184ed3344d42",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "30cc6ec739266f0ee857a1e6bff1e05d772e7017faa9a26b6c3b565d8b623b6e",
+      "seed": 41,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "4811212aff8984b3509ea46e0109b008e669e5692c64043b7aaa6767eb3c56f3",
+      "expected_bin": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+      "inputs_bin": "c13e3dbc0650f008cb965f7681dd6708443a433e2ecc2b9861fcdff43d6051c0",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "633233b7290f65b28a8a0c4be67469e14a27f2895647c4c73dd782ff04cae992",
+      "seed": 42,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "f33dcca85b59c8ea6785a059e9122218fcf0b95792df724aadaa737c96a3e2b5",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "a47077a19cd711eed33ac9521628adc95b9fbae3f98b8a29810cc96dbc1065af",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "d37666705d8e7d26efc3b5d96bc8a7e9b92c1e03f9e05288ab0c394504eeb51b",
+      "seed": 43,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "cc90bb05845adc74c0d53d59027bbd15512a4b4494580e5e2ebd3b9976ba8f7d",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "c03cadb6fe3e04c18669e43547c5d50bd0ca163a54cbe2a2915b184ed3344d42",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "c24bb50f1202327973d47dd18ffe668235bf028d35f02c79ff08e3c2251e4059",
+      "seed": 44,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "de90856becc693c980f1e19f3c8ae7a590bff10fd09d38880ae2a25541f74a00",
+      "expected_bin": "7a1b4d870148047ec146663f498fff7b921afa1a1e489a750e847cdbeac7a7f8",
+      "inputs_bin": "9028fad1d53297cb94222df9518678c895793e5b603e8155b0192d07d47586b8",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "63d490cccfbb61a398bb134276517f4e299d98ab245efed29cf1ebfb058a04df",
+      "seed": 45,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "79ab8b8a1f5df61e885ddaf3aceec7b7746cc54666ad1747a5c62101fb99cc96",
+      "expected_bin": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+      "inputs_bin": "a6d409b501d5a0ed6ea854ec8460313b0ea832e622db4cc65a6f25de836b7375",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "df1d8dd1eaae517d3dfbe4311e7691fe1c8b1ff68d23e7475bca6fa2ddf33a55",
+      "seed": 46,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "ce55bcf2a83767b133ba51b5d2ed0af24a968d08aa2e89fb1ba3bf6815adadd6",
+      "expected_bin": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+      "inputs_bin": "a6a4d0e5f0338d9a234616c4900fcdd98d19823bba98c07b37304b853b6c0f13",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "1fddd6b3e279ddf7d55aabab222ce8c7efc3581400e2a2947db2b24a4ccb9ad6",
+      "seed": 47,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "2ac8436dbbe92ae30a528499a4895931ea1941b37bd6a5b28ff7b2638006c01c",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "21cae2751ca0f59c18c126dd5371462f2299bd9b2eaf5a2ed30271046193f578",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "afeb790d3a7294b0ea4c12d62a6b1f9985c3f60b4b1d89f12b885452b6cd09cd",
+      "seed": 48,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "086d73b439371d3180f4c08feb468d7b75bf73c7a6d65da8750d57098c988f54",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "a47077a19cd711eed33ac9521628adc95b9fbae3f98b8a29810cc96dbc1065af",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "eb7330268dcad3d67281533aa9add55a535a52ee07a7e4375e9586862daf60c8",
+      "seed": 49,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "4d5407b08dcebf9bcd7f89129be52191a11c622d7eab796bc09a1750701ea32b",
+      "expected_bin": "0b267b75bcdc3bb120bd7e0b160b511275a9d035168c760e410ee3467a3f0581",
+      "inputs_bin": "b3e8dd58728564404b2de252d25eb740edfd6a7a30373ce860daeb93a3ef0252",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "5feaa659fdf4a9ad474237f7dfe6d56d9aceb1b04090f0b29661cf43f2ac5471",
+      "seed": 50,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "ca7d17e88b1c95a57912d6c537738dd5fd1b44d2839a137d98dd08350992da11",
+      "expected_bin": "cb0db702cfb8279654902c11c5eed251a4e85ff7ec69c746712d2f983e22a4b7",
+      "inputs_bin": "486aff0409e475ff1cb424f2e8e1e453e84932b441e19b5b819b6c8992915fc1",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "442297c797bc2f7f63af277386e7f3f38040a63ef31ce3ab9597fa0fbf858a60",
+      "seed": 51,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            1,
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "e97d9cd9cb41d11533b9536cfb847add2bc40beb38b1feed5ce0f55974feaa8b",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "6c09aa6f2bbf3e7f0c08dd602b789a9d09edc74fe297fec4b7a8f908814f0c39",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "d0e039b6cc56ccab3003359ed866e00fb61fe25882ec93f951078c882e4c1a30",
+      "seed": 52,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "8e7a64b38e377c2f5eaa7d51b272e4e880d288804003e68fc333e59f1d3d43db",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "6c09aa6f2bbf3e7f0c08dd602b789a9d09edc74fe297fec4b7a8f908814f0c39",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "be85a35a73f3b8758f3a2dfdfc0eaff51dd00c2370b2d1f4880f9d2438bafbc0",
+      "seed": 53,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "8bbb0d8584621c35a90acf000b5e60f45e404e4892572771dc5aae42600277ac",
+      "expected_bin": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+      "inputs_bin": "6c09aa6f2bbf3e7f0c08dd602b789a9d09edc74fe297fec4b7a8f908814f0c39",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "6228d2f619a88cad1a639b28e8af50617461c515058890c031743b13d2164ad5",
+      "seed": 54,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "efe4a828c0df0480a583d22ab94ff03bec890699d5880ae00fca0a9991641391",
+      "expected_bin": "cb0db702cfb8279654902c11c5eed251a4e85ff7ec69c746712d2f983e22a4b7",
+      "inputs_bin": "c4b8997356f0549d8e8dcc0ca7c9fdf57d442522e3b470b1e3cb044a30c60b36",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "442297c797bc2f7f63af277386e7f3f38040a63ef31ce3ab9597fa0fbf858a60",
+      "seed": 55,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            1,
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "61fea8f03737f425713d3d64d86e3f422e1b7933fcaa85ab32b002f499d7c4f3",
+      "expected_bin": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+      "inputs_bin": "a6a4d0e5f0338d9a234616c4900fcdd98d19823bba98c07b37304b853b6c0f13",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "417d108df832a6ad8b481f63b389872021e6c28c28929337965e123ea1f62144",
+      "seed": 56,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "6f9bd95e1226ac4f2547021eeeaccb014a3cdeef274792988521fd21e435ac97",
+      "expected_bin": "9b96a7222e28f62f0901e63224c33aa9bfe35dc68afe80a76c26ec811c775d37",
+      "inputs_bin": "70f1bfe691b157640be78546cbf525c878796a5e637c43f70a4002e8c8a0fe57",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "50a7819fce6d75990e52815a5b3393f816a809cee43b907bebcf3e84fa86fc79",
+      "seed": 57,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "0177c152a9e18a2871868a5e6a19ac0d20583e7f32ae8369965982c1d64529d2",
+      "expected_bin": "dc919d9c6c420410422835c4f8e4fa92fdf271870e72471a7665543daaf56115",
+      "inputs_bin": "6d4f1baa62f0343e0bacbedfdf25aa3aa4a0d969563d9e7f989e8e3d52d4dfa9",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "be8f5794eb2836bd44ef65c87b2b398e448944332a7c481b5ea3bae827a2ff26",
+      "seed": 58,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "40571ace7602e748af882fa5c260f549cc67939985339b7cdec7ad5c51b1c7f3",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "3f710ac088db33363087de2b9a657541fe5447821debaa9fe5cbd538eb1a5f29",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "7dce1b126f3e710db31055ea5beb478afd294d7b600c5913728c8ecb37d7fa37",
+      "seed": 59,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "f8a60d726f76ea0075299e48513d2ca5f6690b1bd1fe32ba1afbd10fb8e488f1",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "3f710ac088db33363087de2b9a657541fe5447821debaa9fe5cbd538eb1a5f29",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "fe5b50fbab1a843db97ea5ee18a0449a2b787bbe1b80093470744d635c0d3f5b",
+      "seed": 60,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "791767f970bb60e4263a1c83a6f9361664e58df5a54fc669af98a527aa8e094f",
+      "expected_bin": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+      "inputs_bin": "c03cadb6fe3e04c18669e43547c5d50bd0ca163a54cbe2a2915b184ed3344d42",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "b3f673ad06fd575c7c534eb0c8b23946a0dbb5a8c49d63c4bc90ac2d91865786",
+      "seed": 61,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "997cd948fa5c0b8238372efd7c5efdc62a21c90140036318092587f2fdce8a3c",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "906cc7bf2bad89fc62adceb8713c1972c67c7058e018c9caa3d9fc5f7d113691",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "efe1280a48cbebeae7ad07ac3d14a8f1e46243faa73e6a047b6d284d3facc782",
+      "seed": 62,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "eb982a1e4467d1c6434f368bb1d95b098befc2e3775e49f934ffba77ea4779b5",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "c1112024d84bac179cfda8df2d45cdb8cb941ec29f75e8cffa61c3b4c46d44a1",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "8e7076c4363656c56801f47764d9615ca732f7aa2b026aef46d82be34ab1ab2e",
+      "seed": 63,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "2b40f030eb7802ff9bc3cde06110d30e9248999ef2befa9617ff447280fce2aa",
+      "expected_bin": "a328b33bde39e98bb06b08eb99a601006451204d0ce0b5535440e26e44a052b2",
+      "inputs_bin": "7abd948d8a4a15dcc3f497d164b20f6afc0c3f7bfe322ba0d3eeabc6e66c9517",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "c34fd379d6c484bff43d5e88e56b1748c538fc29dcf14cae7c6efb21b3affbae",
+      "seed": 64,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "845397bdc1fa11d624d3aa543d5efa031f261ac6f309f29267d805a536c4f26c",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "c1112024d84bac179cfda8df2d45cdb8cb941ec29f75e8cffa61c3b4c46d44a1",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "bb67065144c7b0b0e2aa01fcca09626a581c0c26ce08f0e8e5419e59caa3f3ce",
+      "seed": 65,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "771b9d1adabbbf0b3714e02822e0641a71a03512fa4b3dfc862a4817e9c7d8f4",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b3e8dd58728564404b2de252d25eb740edfd6a7a30373ce860daeb93a3ef0252",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "3c319e0b8c5ac5f5fa134185cfd3fbfe5597bdd98be79d68f38cbd2be50ad684",
+      "seed": 66,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "eb658303dffceeb5e4bfa246c7f4b29144b87aa16fd011dfd4f4808e8c89e78c",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "a6d409b501d5a0ed6ea854ec8460313b0ea832e622db4cc65a6f25de836b7375",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "8f4ae8fab1f775fd0e4a30fcf7215d87e9747440f3aa716b1a3fbfc9424643da",
+      "seed": 67,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "6d8e61558eff3b1bc61e6b26c52e110b144b38bcee5071963591dd77a678b1d7",
+      "expected_bin": "bb65faac5d1f23481cbd9b0cf5de9a70b28030d981b1c234b067edee9d01d0fd",
+      "inputs_bin": "aab32900f6d519c4b528bec93d1343db2c9c99716584d821e2dfc2a7a7b1bd04",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "5000d44b58c2e57a55194fd26da35f18ce3c23ae748fb4902ff24c462db32349",
+      "seed": 68,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            4,
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "9cdd6e940b719f6135359a7834219222a3085518f5ab437724a71ef2d54d5bab",
+      "expected_bin": "7e0869244f960416da2d3625a4ccabbd2d096272987106836093e30ba2dc6d94",
+      "inputs_bin": "8c0e08eeb7a96738c915784d9863ed8716d9566b92ea6f365bb57e699ca3caaa",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "5ca675bfec10380ccaaf61a21c8d76d4f455cdfa2bb10cc033effcf7fc13bd6e",
+      "seed": 69,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "5d5124202ff4c294287ec246e31cec215e6ca2b6012ab2ec52d5a03789d6823e",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "a527f6c2fbde17555714773e4d5ce06608d7f336389de936d73f09383fd17960",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "993fc67a94db9e53cc08c24d197b17045c496a56bfe1d4a1e0c07739f8161376",
+      "seed": 70,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "58dcd905e59c7097eecd0aab7f434849481d19c404fceb13afeac8bba7bc7770",
+      "expected_bin": "9b96a7222e28f62f0901e63224c33aa9bfe35dc68afe80a76c26ec811c775d37",
+      "inputs_bin": "6616b48a4525bd7a8a5287a532b88117a005dd6379e89ca3127dd7319048c121",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "7e365157feb62a26208fa866afb53c9522ba8aa7f3bf7adf97cdf8c8785d2935",
+      "seed": 71,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            4,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "157c6ef82081c05612c845ffc8a3ca46bf0abd3675a110342b2a1822f1b08735",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "3f710ac088db33363087de2b9a657541fe5447821debaa9fe5cbd538eb1a5f29",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "f4d4b31e175599c29b7a45544e3fa4b32fc50584a1c399bfdedb453402382c23",
+      "seed": 72,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "f063fc44f4116e1f1db5e63fcab20068b12dcf1cae0a53bf7020a9e0a797e223",
+      "expected_bin": "35752728aaaa1fbb25dfd348ccae31630030bef5e5c5d656a95a4d273a6e7e56",
+      "inputs_bin": "fe1c9a576e31c50f8a1978b46e143503ef8099cf403e815bb7b1adccc2b1fe98",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "c6a63d814a933297b29dd566c652ef728a055b173bb6c8f99b0c2ab8d6bb0627",
+      "seed": 73,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "16b0de5d6a2d349054cfc3d49209a8d71bbd63bf9b45a041fc3e5653eb0acb1f",
+      "expected_bin": "7bcd6b65e4b3af0b84fb496d518faf7f3bfce37581229e9d5e8b9ccafc2fd49d",
+      "inputs_bin": "15f121e48be38617f95d99992120bfce3a48e7377f85008782029e212b8ad114",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "38bfd632dbcee701c6ea190f31a1166d11e7435e0c84d283baaefb748653528a",
+      "seed": 74,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            1,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "6c23d5c0d803c5153d4f05695d2c90b10d09cd49505a09ce4f96c5dde24122a4",
+      "expected_bin": "0cce8b2026dbfcd73de991d2f96b54cc9ed6656c248f2692a93977adf7f360f2",
+      "inputs_bin": "8d8fbf30fa12a09ef7161c2f9501a4daeca5c01bbd7556b5ed94ef2e396e54d1",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "a0b992ebbbb59cce3a1bebc13180af1a4864ea7d912689b42c61ea472046eca4",
+      "seed": 75,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "b7805c6fb4967a335351066584c2d49c20bc0c66f1bbca70d74a8bfccdc99b66",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "8a65d97dc44de56f80dcc2b479c7c0c8ea7f3c4e707ae2e437de9fb9f99c0832",
+      "operator_coverage": [
+        "transpose",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "ca8206908c7f23bec092cf117942fa30f5739670288d0eb8f44961bdb07fecdb",
+      "seed": 76,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            2
+          ]
+        },
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "c1b256ee2962d4751b94ba219dc5bb331d0320fd79b742c7877c18e398e2ff0c",
+      "expected_bin": "0b267b75bcdc3bb120bd7e0b160b511275a9d035168c760e410ee3467a3f0581",
+      "inputs_bin": "3f710ac088db33363087de2b9a657541fe5447821debaa9fe5cbd538eb1a5f29",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "99619a23b3a4560f0f125f168566190d7e3e43e5f7a4d26fd7df8986e7d7290a",
+      "seed": 77,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "5fefe7e48aea214a42165728e3ac591b48d97666c3352a2012e921243eb75524",
+      "expected_bin": "0b267b75bcdc3bb120bd7e0b160b511275a9d035168c760e410ee3467a3f0581",
+      "inputs_bin": "f464870459534382c6bb99f38de7dbf998d8ee3a0e1bbea8ddc4de0a95d8e8c1",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "c276eff95c7910aadc0ac2d581926d7fffed5313ff59821c656928b86079ff43",
+      "seed": 78,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "30c5aa867a133549eedcc59d6e4b31f0d04995c7d2a8ada0acec4d0ada028bac",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b3e8dd58728564404b2de252d25eb740edfd6a7a30373ce860daeb93a3ef0252",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "ee3820fcf4b0d4fbafe24b47fc59f26c0f604dfd6e083c2565b592fd0f6958ad",
+      "seed": 79,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "f3ae8764eb7045dd4d57f7a26ff90619a53601227a09cfcaaa236a633f7ef1e4",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b3e8dd58728564404b2de252d25eb740edfd6a7a30373ce860daeb93a3ef0252",
+      "operator_coverage": [
+        "transpose",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "6eb6300bab6a769ddebcac3edd905fcf655f99e5d94b6142d256c93f3530e5ed",
+      "seed": 80,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        },
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "b2c7f5f82352852e8240d618a711056900c0fbd345f03be9c95d521ad751c285",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "61ea6d291f51bed018bdd7fb80d20685e7773ed7872222c6648a8ecfbe680f88",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "3c319e0b8c5ac5f5fa134185cfd3fbfe5597bdd98be79d68f38cbd2be50ad684",
+      "seed": 81,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "b6956203e6443a553aa7ebbdbd2e6e59026667a46dcb30b32343d8a42d8710a2",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "f464870459534382c6bb99f38de7dbf998d8ee3a0e1bbea8ddc4de0a95d8e8c1",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "070e575b05f5a2568be480344deca41a5babc1ccbe3aeb9c4eeadb478cd5b297",
+      "seed": 82,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "80fdb0428a55589a6183f97333d26c78633a5caa186fb773171a98f37a161606",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "510c4a8e33c1eceaab2159a13d1e95fc89509f4621380ada6c71b1df0fbd6c7c",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "10fe035645c38382e710105a1612f4c87de3d94792419cdff993c566688fccf8",
+      "seed": 83,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "74fceb6d62cf821368c8af20e7ad72c51dc9019f5c58cbec526c1a02303efb39",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "1369be1144f2414ec2cc94e2d81ef18c9643704615fbc132b14c6199665b23f8",
+      "operator_coverage": [
+        "softmax",
+        "min",
+        "extract"
+      ],
+      "program_sir": "d278a4bdff202baa3500f3d916d134f35f42747a76c66ec286639391742f2ad0",
+      "seed": 84,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "b140bdffa91f0728769a01da80e40c3bc2a20d2317785aada494bf888422a54b",
+      "expected_bin": "321480d3215656e03d38e6008802b4a9e74bef81ca778149d8ffdf99b10bca8b",
+      "inputs_bin": "9981ee4ccf31592fcab60887239d3608a8c0b6e4b9787d79155af56fe1250d6b",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "7f58481c42e662de738eb267c09c8b3098f5d72f898fd48a5d80fd5ba813fa20",
+      "seed": 85,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            4,
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a29978ab0aef42e10b337a2ec74b97b0b5b9f2c55e18e0f1514ce275b4b4713b",
+      "expected_bin": "2c9096cc13e03b7b77cc8add442a5480b873e042c78b725e4ec144b306489cf4",
+      "inputs_bin": "bf4acbfd2d88341e8c8a9d68b8c3a409c3536b95cc7146323f1bfb2bb6082932",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "a54cdfc7d5ad432b2663c1355dd95ca078134cf1ecd3b145667f8ef30dd2a999",
+      "seed": 86,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "2d212697ed16f419a7407a3bf339be12921d58c36f4ea35dcfd5703dba4e7a2f",
+      "expected_bin": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+      "inputs_bin": "dfff50a1e6637a95f154c0fb0372ab97cf849d08ea9925c40da8c2ed2f97e842",
+      "operator_coverage": [
+        "transpose",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "3b2944e15621bf6eec0040a798dd3bbf36170d2fa234fa9a16377e6910c44e05",
+      "seed": 87,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2,
+            4
+          ]
+        },
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "1319b48e76c70807fc0e3999e49705da81dd04487c8d96a81778298ccc0e80f3",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "3afd75566ef355b02ecb42535774e986cf5e24c76fce5e0d052af3f90cf36331",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "9758886011eae300bda2a3c9f41adbcfc76b44d179c4c70d857715f4f2784539",
+      "seed": 88,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "da33768051298b70844c5178c51f4c7bcb35c81936133d322fba85b4e2719127",
+      "expected_bin": "bb65faac5d1f23481cbd9b0cf5de9a70b28030d981b1c234b067edee9d01d0fd",
+      "inputs_bin": "fc1559500e6412a870f628b334248ede1ea0d6db21a6d8bc219d65893b736017",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "05152ae0a3cce65e4d9cf634d1105c20db4e0ad8eb7952432188cf2935debcda",
+      "seed": 89,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            4,
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "946f2d3c39098177f62eeb3764ab620d16d91eab53d150c90f2925241efdf46a",
+      "expected_bin": "9b96a7222e28f62f0901e63224c33aa9bfe35dc68afe80a76c26ec811c775d37",
+      "inputs_bin": "c27f437679db94dbd81692fd96036b48e0f506a44dec58309d2d498b8986d8a1",
+      "operator_coverage": [
+        "transpose",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "1db97f6e735d61f34c8eca38beb12f082173743e5fb649324819c66fd34905e2",
+      "seed": 90,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            4
+          ]
+        },
+        {
+          "axis": 0,
+          "shape": [
+            4,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "1af0c5f4b02d33ef4ea952db5dfd247b9e535b10fbef9930873cc910a61f60ad",
+      "expected_bin": "2e14d1bb490c03deabb686babb4cf0ed1ee75761700d002a2a780c2ac8418506",
+      "inputs_bin": "a1697b9c69e2cfea0c4092344264dd7d932c94548b8f2fd7937eeb65a1f0364e",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "ff1573e010ccb00fc5c90a0915a139c0663075466e495b10eba5a8e51ef93035",
+      "seed": 91,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            4,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "ff31a73d73c642b87537d2cd614100c77d73c918b702d5fee4d9ec84e13073f8",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "b37e0fb27cc0ec8f81787bfee7e5159945432f81dd7182cab3ece073f4cf1b24",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "ee3820fcf4b0d4fbafe24b47fc59f26c0f604dfd6e083c2565b592fd0f6958ad",
+      "seed": 92,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a8c97dd6dbfb6889cb9b67a018db929065cffdc8e6f422eacc4fe142a0a788ff",
+      "expected_bin": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+      "inputs_bin": "3d205210adbfbfaa1fc9578a5de0ebb9ec3817cfd1eb406302338245e8f10973",
+      "operator_coverage": [
+        "rmax",
+        "expand",
+        "sub",
+        "exp",
+        "sum",
+        "div",
+        "extract"
+      ],
+      "program_sir": "c657c66861435306c172d144a6cedf931f47ec98ae834781476d1ab22292cec6",
+      "seed": 93,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            1,
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "de8b6972079b0965c7a74af53c1745687935fd69721ec2ad504f19d73e8de406",
+      "expected_bin": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+      "inputs_bin": "a6d409b501d5a0ed6ea854ec8460313b0ea832e622db4cc65a6f25de836b7375",
+      "operator_coverage": [
+        "softmax",
+        "max",
+        "extract"
+      ],
+      "program_sir": "c24bb50f1202327973d47dd18ffe668235bf028d35f02c79ff08e3c2251e4059",
+      "seed": 94,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "a9ac8f38e9a12cf23e9cbcaf581801186e8bf1422b3dc57126a392c891693a31",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "c7d3db82b64b0f6ed4280bb1290e3a0fd7e2ad9bdb4f10f8ffe337a14849889a",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "63cd803f041190470209d8ed157c0c047c0835b4df22e38e1a07f1b631cdf953",
+      "seed": 95,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            2,
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "3493c2ecea58a4d60d67e786d164cb4cacae23cab7e269bcfd53895ab74f78e6",
+      "expected_bin": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "inputs_bin": "7f1cd4565749f5099dab8f6c67a230baa86e2cb64eb86a06bbb8524a32f61d58",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "f791296e08624e7eea627fc96a342f6d3d2a5984b05ac778d43881dc5f31fce5",
+      "seed": 96,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            1,
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "504338c85d03c60bd9b871b0e88d70d4adf32db8dbeaca0bfef190ebcba6a86b",
+      "expected_bin": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+      "inputs_bin": "703303c93f1dce84eb9fbab65211b54cb1d28dd42ce1ccaff572575e466190b6",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "8f2176522c0be1449d04bd1bc93bdab53b76fbedc05d5748c57a62104f9edba9",
+      "seed": 97,
+      "shape_axes": [
+        {
+          "axis": 0,
+          "shape": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "bad83911164299b645cca979d5ca5fb41012fbd025b8721e0f691ff44a952c31",
+      "expected_bin": "2428751fb38a800ddefeb90d3b3314bef84d997e0980fe204d4d8c2c9fc8d12f",
+      "inputs_bin": "b41dd3221d1c52cc025bb966cee85458c7443c82534f4013f2c695bba484a511",
+      "operator_coverage": [
+        "broadcast",
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "e0a69f631c67b1d6d8ef0151d7e48ac9954db3526cd427e726ef0cad0292fd46",
+      "seed": 98,
+      "shape_axes": [
+        {
+          "axis": 2,
+          "shape": [
+            2,
+            4,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "case_json": "5eaaab2bd77eeca1e1c0681110427975a2a08e2b93a775d6c8467d9e23c621df",
+      "expected_bin": "f50c91a688c7e814d8ccb2fa0dc1f5c63e5ea9d06346bece2dc895becac1f9f4",
+      "inputs_bin": "4e2eb1d67e04c1f12f3e0bb0bc03a9c5fd7ca31107071e8a911a47ccf3523489",
+      "operator_coverage": [
+        "softmax",
+        "extract"
+      ],
+      "program_sir": "7ce448b22ecdd191550bc999842c8b39d614192ec0a6018b0897f5da72811c92",
+      "seed": 99,
+      "shape_axes": [
+        {
+          "axis": 1,
+          "shape": [
+            4,
+            4,
+            2
+          ]
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "complete": 100,
+    "emitted": 100,
+    "rejected": 100,
+    "requested": 100
+  },
+  "coverage": {
+    "axis_case_coverage": {
+      "0": 54,
+      "1": 37,
+      "2": 15
+    },
+    "cases_with_unequal_group_offsets": 46,
+    "input_axis_case_coverage": {
+      "0": 50,
+      "1": 35,
+      "2": 15
+    },
+    "input_shape_axis_pair_count": 42,
+    "input_shape_axis_pairs": [
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          1,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "input_shape_count": 32,
+    "negative_axis_sources": 41,
+    "operation_axis_case_coverage": {
+      "0": 54,
+      "1": 37,
+      "2": 15
+    },
+    "operation_shape_axis_pairs": [
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          1,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "operator_case_coverage": {
+      "broadcast": 19,
+      "div": 21,
+      "exp": 21,
+      "expand": 21,
+      "extract": 100,
+      "max": 16,
+      "min": 13,
+      "rmax": 21,
+      "softmax": 79,
+      "sub": 21,
+      "sum": 21,
+      "transpose": 6
+    },
+    "rank_case_coverage": {
+      "1": 21,
+      "2": 43,
+      "3": 36
+    },
+    "shape_axis_pair_count": 42,
+    "shape_axis_pairs": [
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          1,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          1,
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          2,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          2,
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1,
+          1
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          1,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          1,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          2,
+          2
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "axis": 0,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "axis": 1,
+        "shape": [
+          4,
+          4,
+          2
+        ]
+      },
+      {
+        "axis": 2,
+        "shape": [
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "shape_case_coverage": [
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 11,
+        "shape": [
+          1,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          2,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          1,
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 5,
+        "shape": [
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 3,
+        "shape": [
+          1,
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          4,
+          4
+        ]
+      },
+      {
+        "cases": 15,
+        "shape": [
+          2
+        ]
+      },
+      {
+        "cases": 6,
+        "shape": [
+          2,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          2,
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 5,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 4,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 4,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          2,
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          2,
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          2,
+          4,
+          4
+        ]
+      },
+      {
+        "cases": 6,
+        "shape": [
+          4
+        ]
+      },
+      {
+        "cases": 6,
+        "shape": [
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          4,
+          1,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          1,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 3,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          4,
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 3,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 3,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "shape_count": 32,
+    "shapes": [
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 11,
+        "shape": [
+          1,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          2,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          1,
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 5,
+        "shape": [
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 3,
+        "shape": [
+          1,
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          1,
+          4,
+          4
+        ]
+      },
+      {
+        "cases": 15,
+        "shape": [
+          2
+        ]
+      },
+      {
+        "cases": 7,
+        "shape": [
+          2,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          2,
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 6,
+        "shape": [
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 4,
+        "shape": [
+          2,
+          2,
+          1
+        ]
+      },
+      {
+        "cases": 3,
+        "shape": [
+          2,
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          2,
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 4,
+        "shape": [
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          2,
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          2,
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          2,
+          4,
+          4
+        ]
+      },
+      {
+        "cases": 6,
+        "shape": [
+          4
+        ]
+      },
+      {
+        "cases": 7,
+        "shape": [
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          4,
+          1,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          1,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          1,
+          4
+        ]
+      },
+      {
+        "cases": 4,
+        "shape": [
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          4,
+          2,
+          2
+        ]
+      },
+      {
+        "cases": 3,
+        "shape": [
+          4,
+          2,
+          4
+        ]
+      },
+      {
+        "cases": 4,
+        "shape": [
+          4,
+          4
+        ]
+      },
+      {
+        "cases": 2,
+        "shape": [
+          4,
+          4,
+          1
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          4,
+          2
+        ]
+      },
+      {
+        "cases": 1,
+        "shape": [
+          4,
+          4,
+          4
+        ]
+      }
+    ],
+    "unique_expected_outputs": 27,
+    "unique_input_buffers": 61,
+    "unique_sources": 85
+  },
+  "created_on": "2026-09-24",
+  "dtype": "f32",
+  "implementation": {
+    "environment_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+    "gpu_execution": false,
+    "reference": "Boost.Multiprecision 1.89.0 at 128 and 256 binary digits",
+    "refractir_base_revision": "54fc8f91a8ff22cf7b946ffc001062f137f2c1cc",
+    "solver": "Bitwuzla 0.9.1-dev",
+    "working_tree_dirty": true
+  },
+  "profile": "softmax-dominance",
+  "requested_per_seed": 1,
+  "schema": "refractir.tensor-structural-seed-campaign.v1",
+  "seed_range": [
+    0,
+    100
+  ],
+  "seeds": [
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 0,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 1,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 2,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 3,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 4,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 5,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 6,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 7,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 8,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 9,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 10,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 11,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 12,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 13,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 14,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 15,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 16,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 17,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 18,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 19,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 20,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 21,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 22,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 23,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 24,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 25,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 26,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 27,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 28,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 29,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 30,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 31,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 32,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 33,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 34,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 35,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 36,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 37,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 38,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 39,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 40,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 41,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 42,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 43,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 44,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 45,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 46,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 47,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 48,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 49,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 50,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 51,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 52,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 53,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 54,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 55,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 56,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 57,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 58,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 59,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 60,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 61,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 62,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 63,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 64,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 65,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 66,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 67,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 68,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 69,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 70,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 71,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 72,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 73,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 74,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 75,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 76,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 77,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 78,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 79,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 80,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 81,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 82,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 83,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 84,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 85,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 86,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 87,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 88,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 89,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 90,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 91,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 92,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 93,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 94,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 95,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 96,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 97,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 98,
+      "status": "complete"
+    },
+    {
+      "attempts": 2,
+      "emitted": 1,
+      "rejected": 1,
+      "requested": 1,
+      "returncode": 0,
+      "seed": 99,
+      "status": "complete"
+    }
+  ],
+  "synthesis": "construction",
+  "triton_compiled_gpu_smoke": {
+    "campaign_valid": true,
+    "case_count": 6,
+    "compiler_flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2",
+    "device": {
+      "compute_capability": "7.0",
+      "cuda_version": "12.8",
+      "cuda_visible_devices": "0",
+      "driver_version": "535.274.02",
+      "logical_device": 0,
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    "execution_mode": "compiled",
+    "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+    "python_version": "3.10.12",
+    "refractir_revision": "54fc8f91a8ff22cf7b946ffc001062f137f2c1cc",
+    "refractir_worktree_dirty": true,
+    "samples": [
+      {
+        "actual_sha256": "7d8cf5aeb1613245e75221d6e392a2f22cf21c5fe7707829abc7d383c17dc37a",
+        "campaign_valid": true,
+        "comparison": "pass",
+        "expected_sha256": "a9a2515682bbcfab57cae06ad6e79ef0595ced2597521212d1068a38898207c2",
+        "inputs_sha256": "510c4a8e33c1eceaab2159a13d1e95fc89509f4621380ada6c71b1df0fbd6c7c",
+        "mismatches": 0,
+        "operators": [
+          "rmax",
+          "expand",
+          "sub",
+          "exp",
+          "sum",
+          "div",
+          "extract"
+        ],
+        "program_sha256": "df1d8dd1eaae517d3dfbe4311e7691fe1c8b1ff68d23e7475bca6fa2ddf33a55",
+        "runner_status": "pass",
+        "seed": 0,
+        "shape_axes": [
+          {
+            "axis": 0,
+            "shape": [
+              4,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "actual_sha256": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+        "campaign_valid": true,
+        "comparison": "pass",
+        "expected_sha256": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+        "inputs_sha256": "1a56ebe9335455cd95f9f1e82c03f683fe050dcc2576755a267d91ce3b00e694",
+        "mismatches": 0,
+        "operators": [
+          "transpose",
+          "softmax",
+          "extract"
+        ],
+        "program_sha256": "360b89773056c731736699ab5e3d9ad59b6366f8a205a76fa171dbd5aef09ce4",
+        "runner_status": "pass",
+        "seed": 1,
+        "shape_axes": [
+          {
+            "axis": 2,
+            "shape": [
+              2,
+              2,
+              2
+            ]
+          },
+          {
+            "axis": 0,
+            "shape": [
+              2,
+              2,
+              2
+            ]
+          }
+        ]
+      },
+      {
+        "actual_sha256": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+        "campaign_valid": true,
+        "comparison": "pass",
+        "expected_sha256": "e63ed56706fc5924f6d2965463f14c13a7aa1e38b028be7b63f2f3724ef400dd",
+        "inputs_sha256": "61ea6d291f51bed018bdd7fb80d20685e7773ed7872222c6648a8ecfbe680f88",
+        "mismatches": 0,
+        "operators": [
+          "broadcast",
+          "softmax",
+          "extract"
+        ],
+        "program_sha256": "8e7076c4363656c56801f47764d9615ca732f7aa2b026aef46d82be34ab1ab2e",
+        "runner_status": "pass",
+        "seed": 3,
+        "shape_axes": [
+          {
+            "axis": 0,
+            "shape": [
+              2,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "actual_sha256": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+        "campaign_valid": true,
+        "comparison": "pass",
+        "expected_sha256": "c3435e2e753ea2630835850e203efe1a757634a48864479f381bfba83b0ea791",
+        "inputs_sha256": "7d31f6429f1b2b53b968a0b20e508a9d1641c9afba397ce89b0904c276d5c7fe",
+        "mismatches": 0,
+        "operators": [
+          "softmax",
+          "max",
+          "extract"
+        ],
+        "program_sha256": "ea90294898d69e7f6618a14893f607057d4f303ab6b4b6388981e6ee165e1e80",
+        "runner_status": "pass",
+        "seed": 4,
+        "shape_axes": [
+          {
+            "axis": 0,
+            "shape": [
+              2,
+              4
+            ]
+          }
+        ]
+      },
+      {
+        "actual_sha256": "7d8cf5aeb1613245e75221d6e392a2f22cf21c5fe7707829abc7d383c17dc37a",
+        "campaign_valid": true,
+        "comparison": "pass",
+        "expected_sha256": "8530f1960bed055ddc61d5c270447a698872eace241f9dc19d6b403a5761df4e",
+        "inputs_sha256": "4ac5fb098d1287268009b80aed12a9aaad29ce62c3c1e09c6b36149f8e417939",
+        "mismatches": 0,
+        "operators": [
+          "softmax",
+          "extract"
+        ],
+        "program_sha256": "556b9ff2e57b4295008971536e2bfab84c4e0ffc83539bc66af3ce8eca3463c9",
+        "runner_status": "pass",
+        "seed": 12,
+        "shape_axes": [
+          {
+            "axis": 0,
+            "shape": [
+              4,
+              1
+            ]
+          }
+        ]
+      },
+      {
+        "actual_sha256": "d2b68252090483cfa1b8eec59d73d4b20452755eacfa3c1ba836c3872f0c1e2a",
+        "campaign_valid": true,
+        "comparison": "pass",
+        "expected_sha256": "2cdd06a7abb2dcbe9af140b33c167e32b424138185fe93abf4429bfb6a6551dd",
+        "inputs_sha256": "78dcda778c64fa3b8b52070e84d2338f3c6e3c9cb6930d62ea98e868096cb9ab",
+        "mismatches": 0,
+        "operators": [
+          "softmax",
+          "min",
+          "extract"
+        ],
+        "program_sha256": "af190477acfd205ff469cce109e7e7f816f0c33c8107d9663dea19bb54b62c38",
+        "runner_status": "pass",
+        "seed": 14,
+        "shape_axes": [
+          {
+            "axis": 2,
+            "shape": [
+              1,
+              2,
+              4
+            ]
+          }
+        ]
+      }
+    ],
+    "status": "pass",
+    "torch_version": "2.10.0+cu128",
+    "triton_source_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+    "triton_version": "3.8.0+gite2e35672"
+  },
+  "triton_interpreter_smoke": {
+    "case_count": 6,
+    "compiled_gpu_status": "pass",
+    "execution_mode": "interpret",
+    "operators": [
+      "softmax",
+      "rmax",
+      "transpose",
+      "broadcast",
+      "min",
+      "max"
+    ],
+    "status": "pass"
+  }
+}

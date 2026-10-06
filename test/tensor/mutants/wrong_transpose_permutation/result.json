@@ -1,0 +1,25 @@
+{
+  "actual_bytes": null,
+  "actual_sha256": null,
+  "artifacts": [
+    "case.json",
+    "environment.json",
+    "expected.bin",
+    "inputs.bin",
+    "kernel.py",
+    "program.sir",
+    "result.json",
+    "run.json",
+    "stderr.log",
+    "stdout.log",
+    "worker-phase.json"
+  ],
+  "campaign_valid": true,
+  "detected": true,
+  "expected_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+  "input_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+  "mode": "compiled",
+  "mutant": "wrong_transpose_permutation",
+  "source_case": "transpose_2x4_perm0_1",
+  "status": "compile_failure"
+}

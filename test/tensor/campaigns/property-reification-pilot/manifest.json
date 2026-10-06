@@ -1,0 +1,76 @@
+{
+  "development_evaluation_graph_overlap": [],
+  "development_graph_count": 6,
+  "development_problem_count": 12,
+  "development_seed": 282,
+  "development_sha256": "2774c30d378ce0e573951362e92496a34aa8240b9f9cfd6f128cb266822e8ebd",
+  "evaluation_graph_count": 60,
+  "evaluation_problem_count": 120,
+  "evaluation_seed": 281,
+  "evaluation_sha256": "9091cf3905a2a5255d923114f8fb81db6cac24d682f26917b3f918cb5f5babeb",
+  "family_problem_counts": {
+    "affine_sum": 24,
+    "independent_sum": 24,
+    "layout_sum": 24,
+    "nonlinear": 30,
+    "shared_reductions": 18
+  },
+  "normalization_collisions": [
+    [
+      "g001",
+      "g004"
+    ],
+    [
+      "g010",
+      "g012"
+    ],
+    [
+      "g013",
+      "g015"
+    ],
+    [
+      "g016",
+      "g019"
+    ],
+    [
+      "g021",
+      "g023",
+      "g024"
+    ],
+    [
+      "g034",
+      "g035"
+    ],
+    [
+      "g043",
+      "g044"
+    ],
+    [
+      "g050",
+      "g052"
+    ],
+    [
+      "g053",
+      "g054",
+      "g055"
+    ],
+    [
+      "g057",
+      "g060"
+    ]
+  ],
+  "rejected_structurally_invalid_graphs": [],
+  "schema": "refractir.tensor-property-workload.v1",
+  "symbol_count_problem_counts": {
+    "16": 40,
+    "32": 40,
+    "64": 40
+  },
+  "target_pattern_counts": {
+    "distinct": 37,
+    "mixed_sign": 20,
+    "repeated": 24,
+    "scalar_menu": 18,
+    "zero": 21
+  }
+}

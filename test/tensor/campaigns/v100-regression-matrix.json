@@ -1,0 +1,1072 @@
+{
+  "all_campaign_valid": true,
+  "campaign": "tensor-v0.1-v100-regression-matrix",
+  "case_count": 112,
+  "cases": [
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "ba1a19aca4a029cb6eb9ff7ad60c7ebb47975365205e856c02416f35acb01bc9",
+      "campaign_valid": true,
+      "case": "coordinate",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 4,
+      "actual_sha256": "6d58692645c9d1cfaf13541cbd258f86193ef63c2f1d38f6bbca9617372d7bd6",
+      "campaign_valid": true,
+      "case": "extract_negative_zero",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 4,
+      "actual_sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450",
+      "campaign_valid": true,
+      "case": "extract_subnormal",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 4,
+      "actual_sha256": "075de2b906dbd7066da008cab735bee896370154603579a50122f9b88545bd45",
+      "campaign_valid": true,
+      "case": "integer_sum",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "875fa94a205198da0494096a22cc794e9ce4b586b192809305139c4f2d7b3774",
+      "campaign_valid": true,
+      "case": "singleton_broadcast",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "c7c33128f3094883271342bbe54d194efa4a326ccb920fc4ca6fb17cb87bafb0",
+      "campaign_valid": true,
+      "case": "softmax",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "c7c33128f3094883271342bbe54d194efa4a326ccb920fc4ca6fb17cb87bafb0",
+      "campaign_valid": true,
+      "case": "softmax_decomposed",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "e22ba83356daa73f6b8320b775163e399ad625567c5a6c5ec1334bd9f3e2374f",
+      "campaign_valid": true,
+      "case": "transpose",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "ba1a19aca4a029cb6eb9ff7ad60c7ebb47975365205e856c02416f35acb01bc9",
+      "campaign_valid": true,
+      "case": "coordinate",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 4,
+      "actual_sha256": "6d58692645c9d1cfaf13541cbd258f86193ef63c2f1d38f6bbca9617372d7bd6",
+      "campaign_valid": true,
+      "case": "extract_negative_zero",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 4,
+      "actual_sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450",
+      "campaign_valid": true,
+      "case": "extract_subnormal",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 4,
+      "actual_sha256": "075de2b906dbd7066da008cab735bee896370154603579a50122f9b88545bd45",
+      "campaign_valid": true,
+      "case": "integer_sum",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "875fa94a205198da0494096a22cc794e9ce4b586b192809305139c4f2d7b3774",
+      "campaign_valid": true,
+      "case": "singleton_broadcast",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "bd23dc6e2a72377413508e46d48f291f27e8f395f70b3ccf06d2f8fb3c2371bd",
+      "campaign_valid": true,
+      "case": "softmax",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "bd23dc6e2a72377413508e46d48f291f27e8f395f70b3ccf06d2f8fb3c2371bd",
+      "campaign_valid": true,
+      "case": "softmax_decomposed",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "e22ba83356daa73f6b8320b775163e399ad625567c5a6c5ec1334bd9f3e2374f",
+      "campaign_valid": true,
+      "case": "transpose",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "hand"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "7582de1cdb1b23b3e2b88d583332f25e6ba823f32ee7eef498cfad86d10a3e53",
+      "campaign_valid": true,
+      "case": "composition_broadcast-softmax_broadcast-then-softmax",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "7582de1cdb1b23b3e2b88d583332f25e6ba823f32ee7eef498cfad86d10a3e53",
+      "campaign_valid": true,
+      "case": "composition_broadcast-softmax_softmax-then-broadcast",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "ca47d76586fdcb407ae4ad29d6d7c7c518232d9a222e59d7b51695143c20a0d1",
+      "campaign_valid": true,
+      "case": "composition_sum-expand_expand-then-sum",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "ca47d76586fdcb407ae4ad29d6d7c7c518232d9a222e59d7b51695143c20a0d1",
+      "campaign_valid": true,
+      "case": "composition_sum-expand_sum-then-expand",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "f1d829544e185f9ad250dbb36589404c7f10da0fd3c246b70bac62590918d42a",
+      "campaign_valid": true,
+      "case": "composition_transpose-softmax_softmax-then-transpose",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "f1d829544e185f9ad250dbb36589404c7f10da0fd3c246b70bac62590918d42a",
+      "campaign_valid": true,
+      "case": "composition_transpose-softmax_transpose-then-softmax",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 8,
+      "actual_sha256": "34940ef2de20f8195fd2705a9f384df0e38f525712e975686463cc16902dbf13",
+      "campaign_valid": true,
+      "case": "composition_transpose-sum-expand_sum-expand-transpose",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 8,
+      "actual_sha256": "34940ef2de20f8195fd2705a9f384df0e38f525712e975686463cc16902dbf13",
+      "campaign_valid": true,
+      "case": "composition_transpose-sum-expand_transpose-sum-expand",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "34cff425bcb1abd0461531557b85f336d77ca5efed02fc9e5f8a8563f1ab4e4f",
+      "campaign_valid": true,
+      "case": "issue_11406",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis0_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis0_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "afb33a9223f5062d1d15f05c86a42d4aea5345a7cf67a8c6857c5fe87fa37dc0",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis1_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "afb33a9223f5062d1d15f05c86a42d4aea5345a7cf67a8c6857c5fe87fa37dc0",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis1_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f10c76126791e691a77d3c1c57e2a0a8cff6d5b2cad0c050c6ee6d57842bd08f",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis0_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f10c76126791e691a77d3c1c57e2a0a8cff6d5b2cad0c050c6ee6d57842bd08f",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis0_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "7ef4456b35bf96d5a63a86095c7070ce0cbffe69df20437067869e329076d9ae",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis1_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "7ef4456b35bf96d5a63a86095c7070ce0cbffe69df20437067869e329076d9ae",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis1_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "722638e05adab118e4fe398c1170700760b6ed55286548efa084124078d0c0fb",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis0_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "722638e05adab118e4fe398c1170700760b6ed55286548efa084124078d0c0fb",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis0_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "83d775e0f0465596bfab222a4832cf3cfa122134987993e88895a28aa06f7fbe",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis1_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "83d775e0f0465596bfab222a4832cf3cfa122134987993e88895a28aa06f7fbe",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis1_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "3b15d8cd92900b8ed4d90e1af1ad614aa33b762a7d526eae7337bc4285f5a6bd",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis2_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "3b15d8cd92900b8ed4d90e1af1ad614aa33b762a7d526eae7337bc4285f5a6bd",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis2_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "da78bcd3b048194fecef6214bf5f3d3acb139a18a2e2b1332325dfe3da5408e4",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis0_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "da78bcd3b048194fecef6214bf5f3d3acb139a18a2e2b1332325dfe3da5408e4",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis0_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "45468bead3e2a847e705b5a5d8afd16604d98efeafcf8cbb4bf58060eeeabd16",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis1_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "45468bead3e2a847e705b5a5d8afd16604d98efeafcf8cbb4bf58060eeeabd16",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis1_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "2375ead87e7ae2992b5c282ce8805d4844f43ac6988585f3e02af0aa8912655f",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis0_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "2375ead87e7ae2992b5c282ce8805d4844f43ac6988585f3e02af0aa8912655f",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis0_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis1_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis1_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "b23214f17ae93adab5a0d763321a2df70a21561a8d255a40c5012e1d0b1ec040",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis0_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "b23214f17ae93adab5a0d763321a2df70a21561a8d255a40c5012e1d0b1ec040",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis0_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "b2dc2b8a2f35123248752f1cd79117ff93383e5e81f5b057c17cccb92a396891",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis1_neg",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "b2dc2b8a2f35123248752f1cd79117ff93383e5e81f5b057c17cccb92a396891",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis1_pos",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "613f5a2c13d84abb9f9bbab1c0abbf057648d71abadd823c88c6e4efd4658181",
+      "campaign_valid": true,
+      "case": "transpose_2x2_perm0_1",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "0f949519ec27bbf15b736eb9b9327ccb8faabf1361394092d63dd5419bf15021",
+      "campaign_valid": true,
+      "case": "transpose_2x2_perm1_0",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "260d94f631511323d344802e58ea6b9003d368f5fbb4aa4a6d1530b605d94e92",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm0_1_2",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "39e8d2a748b6fc92b84a6054625ba9f8b4b7e57e709bf4478e977798e624a877",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm0_2_1",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "2fb348bb24a9eef41c6b75ba366ed18dc59deed4e4c5ea4c962fbefc8bae3b37",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm1_0_2",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "ca9a40007ebc0ce75e0c62e45dae8a4729f938aa2684c55afb2f427aac827291",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm1_2_0",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "bd9fc03b35ba825ab5a5b6774fbba63ccf1d34cc31f2d9c56fdaf5ed82c0eac9",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm2_0_1",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "7140c81d8552eedd33d93cbfc3c05a15589b5b31c4cbc40f32f96926f3ae1fd7",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm2_1_0",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+      "campaign_valid": true,
+      "case": "transpose_2x4_perm0_1",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "3526a9ad305e561a5d46b3b199ab8971b07670c266978dce2537bcf65c05c51a",
+      "campaign_valid": true,
+      "case": "transpose_2x4_perm1_0",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "e2b476d04553f0d36800019c227f861e53231ec3ac8986faf4e91a7e7a434891",
+      "campaign_valid": true,
+      "case": "transpose_4_perm0",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "3d54448e2ca9d54fbaf78225227ee0ceefab8bef863b3f543fce76cce98095a2",
+      "campaign_valid": true,
+      "case": "transpose_4x2_perm0_1",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "06b91a893fe00bdce29628c7bc51bb950fa47a97b8a2f45c5dccb09b71262006",
+      "campaign_valid": true,
+      "case": "transpose_4x2_perm1_0",
+      "mode": "interpret",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "388a1ca94103e8da7e971445e3973fcd9da35d9d51ebac3749f1af0939f64900",
+      "campaign_valid": true,
+      "case": "composition_broadcast-softmax_broadcast-then-softmax",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "388a1ca94103e8da7e971445e3973fcd9da35d9d51ebac3749f1af0939f64900",
+      "campaign_valid": true,
+      "case": "composition_broadcast-softmax_softmax-then-broadcast",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "ca47d76586fdcb407ae4ad29d6d7c7c518232d9a222e59d7b51695143c20a0d1",
+      "campaign_valid": true,
+      "case": "composition_sum-expand_expand-then-sum",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "ca47d76586fdcb407ae4ad29d6d7c7c518232d9a222e59d7b51695143c20a0d1",
+      "campaign_valid": true,
+      "case": "composition_sum-expand_sum-then-expand",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "19f8301275d88c553a046524430c3bbcde02d05866689bbbd5c6053191cc9e51",
+      "campaign_valid": true,
+      "case": "composition_transpose-softmax_softmax-then-transpose",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "19f8301275d88c553a046524430c3bbcde02d05866689bbbd5c6053191cc9e51",
+      "campaign_valid": true,
+      "case": "composition_transpose-softmax_transpose-then-softmax",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 8,
+      "actual_sha256": "34940ef2de20f8195fd2705a9f384df0e38f525712e975686463cc16902dbf13",
+      "campaign_valid": true,
+      "case": "composition_transpose-sum-expand_sum-expand-transpose",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 8,
+      "actual_sha256": "34940ef2de20f8195fd2705a9f384df0e38f525712e975686463cc16902dbf13",
+      "campaign_valid": true,
+      "case": "composition_transpose-sum-expand_transpose-sum-expand",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+      "campaign_valid": true,
+      "case": "issue_11406",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis0_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis0_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "3ea39193f6d3192a7e75f1ce3fe6a0e4f35f964b624188ca3caf55834259bb44",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis1_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "3ea39193f6d3192a7e75f1ce3fe6a0e4f35f964b624188ca3caf55834259bb44",
+      "campaign_valid": true,
+      "case": "softmax_1x4_axis1_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "2e3b2366c24319e3e572e48b0ea553af6af01fe5af384a577c1ad7d7ed18fba6",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis0_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "2e3b2366c24319e3e572e48b0ea553af6af01fe5af384a577c1ad7d7ed18fba6",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis0_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "3e5ce64efd316d3c1c1fb59e3f7a634c447228ae90be095c829f384a38c96985",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis1_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "3e5ce64efd316d3c1c1fb59e3f7a634c447228ae90be095c829f384a38c96985",
+      "campaign_valid": true,
+      "case": "softmax_2x2_axis1_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "0da157219022399f6ebeacb5ce018991889613231fde842e64c815e3fe8e2528",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis0_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "0da157219022399f6ebeacb5ce018991889613231fde842e64c815e3fe8e2528",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis0_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "f79a445dc78d8941fa845634b754b810bc25e5b1fca0dac665f293870f4a1803",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis1_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "f79a445dc78d8941fa845634b754b810bc25e5b1fca0dac665f293870f4a1803",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis1_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "cdcf20f42bbc51f6fd9f7d3416030f7fa809e0d1c7a5b84a39abb9280ae5214b",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis2_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "cdcf20f42bbc51f6fd9f7d3416030f7fa809e0d1c7a5b84a39abb9280ae5214b",
+      "campaign_valid": true,
+      "case": "softmax_2x2x4_axis2_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "da78bcd3b048194fecef6214bf5f3d3acb139a18a2e2b1332325dfe3da5408e4",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis0_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "da78bcd3b048194fecef6214bf5f3d3acb139a18a2e2b1332325dfe3da5408e4",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis0_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "6a293ff7f1c983025ab3d1b300086d056ceb4d1b8c530db6600d06051c7785d8",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis1_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "6a293ff7f1c983025ab3d1b300086d056ceb4d1b8c530db6600d06051c7785d8",
+      "campaign_valid": true,
+      "case": "softmax_2x4_axis1_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f2f708504cab97c40c5586212b0d00f1d5073436dfa5df84a3fe0aa80c5f3173",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis0_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f2f708504cab97c40c5586212b0d00f1d5073436dfa5df84a3fe0aa80c5f3173",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis0_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis1_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "f6bb1294da2f78cd935b01c7656280df5eaa0439e9d97bc03775825a41a508e4",
+      "campaign_valid": true,
+      "case": "softmax_4x1_axis1_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "fa79b95ac573a800e0c7db19a311d25bf3ffbc1788f4f74f68a2a744052d3088",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis0_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "fa79b95ac573a800e0c7db19a311d25bf3ffbc1788f4f74f68a2a744052d3088",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis0_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "9008eea0ee699977b5ba52c679de6f89161bcad784a921c24b1ea4926fe41631",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis1_neg",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "9008eea0ee699977b5ba52c679de6f89161bcad784a921c24b1ea4926fe41631",
+      "campaign_valid": true,
+      "case": "softmax_4x2_axis1_pos",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "613f5a2c13d84abb9f9bbab1c0abbf057648d71abadd823c88c6e4efd4658181",
+      "campaign_valid": true,
+      "case": "transpose_2x2_perm0_1",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "0f949519ec27bbf15b736eb9b9327ccb8faabf1361394092d63dd5419bf15021",
+      "campaign_valid": true,
+      "case": "transpose_2x2_perm1_0",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "260d94f631511323d344802e58ea6b9003d368f5fbb4aa4a6d1530b605d94e92",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm0_1_2",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "39e8d2a748b6fc92b84a6054625ba9f8b4b7e57e709bf4478e977798e624a877",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm0_2_1",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "2fb348bb24a9eef41c6b75ba366ed18dc59deed4e4c5ea4c962fbefc8bae3b37",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm1_0_2",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "ca9a40007ebc0ce75e0c62e45dae8a4729f938aa2684c55afb2f427aac827291",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm1_2_0",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "bd9fc03b35ba825ab5a5b6774fbba63ccf1d34cc31f2d9c56fdaf5ed82c0eac9",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm2_0_1",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 64,
+      "actual_sha256": "7140c81d8552eedd33d93cbfc3c05a15589b5b31c4cbc40f32f96926f3ae1fd7",
+      "campaign_valid": true,
+      "case": "transpose_2x2x4_perm2_1_0",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "58f9e5fef010ef7ea7a5856f040f37b99cf48f82e76004c5db33fed0e3b25805",
+      "campaign_valid": true,
+      "case": "transpose_2x4_perm0_1",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "3526a9ad305e561a5d46b3b199ab8971b07670c266978dce2537bcf65c05c51a",
+      "campaign_valid": true,
+      "case": "transpose_2x4_perm1_0",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 16,
+      "actual_sha256": "e2b476d04553f0d36800019c227f861e53231ec3ac8986faf4e91a7e7a434891",
+      "campaign_valid": true,
+      "case": "transpose_4_perm0",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "3d54448e2ca9d54fbaf78225227ee0ceefab8bef863b3f543fce76cce98095a2",
+      "campaign_valid": true,
+      "case": "transpose_4x2_perm0_1",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    },
+    {
+      "actual_bytes": 32,
+      "actual_sha256": "06b91a893fe00bdce29628c7bc51bb950fa47a97b8a2f45c5dccb09b71262006",
+      "campaign_valid": true,
+      "case": "transpose_4x2_perm1_0",
+      "mode": "compiled",
+      "status": "pass",
+      "suite": "regressions"
+    }
+  ],
+  "cuda_version": "12.8",
+  "gpus": [
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    }
+  ],
+  "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+  "python_version": "3.10.12",
+  "refractir_revision": "32368310b8fd45dcc4b42f4e6e8d80aa25a9165e",
+  "refractir_worktree_dirty": true,
+  "result_counts": {
+    "hand/compiled/pass": 8,
+    "hand/interpret/pass": 8,
+    "regressions/compiled/pass": 48,
+    "regressions/interpret/pass": 48
+  },
+  "schema": "refractir.tensor-campaign-summary.v1",
+  "torch_version": "2.10.0+cu128",
+  "triton_source_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+  "triton_version": "3.8.0+gite2e35672"
+}

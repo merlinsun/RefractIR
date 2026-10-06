@@ -1,0 +1,123 @@
+{
+  "actual_bytes": 1024,
+  "actual_sha256": "aaa567e5dfbba2cce9ba6ed03534fb09f2f33b964c5e3fb3be1395398412e184",
+  "artifact_digests": {
+    "expected.bin": {
+      "bytes": 1024,
+      "sha256": "aaa567e5dfbba2cce9ba6ed03534fb09f2f33b964c5e3fb3be1395398412e184"
+    },
+    "inputs.bin": {
+      "bytes": 2048,
+      "sha256": "5cad1e45d49a13037d248a03119806d8dd1e00801523979481b59d88d54591f8"
+    },
+    "program.sir": {
+      "bytes": 1637,
+      "sha256": "ca59b968ed41c2c23d13ea1d2f6d08922babe0211ef4de37ee1720250b7cbfcc"
+    },
+    "runs/compiled/actual-physical.bin": {
+      "bytes": 1024,
+      "sha256": "aaa567e5dfbba2cce9ba6ed03534fb09f2f33b964c5e3fb3be1395398412e184"
+    },
+    "runs/compiled/actual.bin": {
+      "bytes": 1024,
+      "sha256": "aaa567e5dfbba2cce9ba6ed03534fb09f2f33b964c5e3fb3be1395398412e184"
+    },
+    "runs/compiled/compiler-llir.ir": {
+      "bytes": 4122,
+      "sha256": "802db3a3149409aadbb8e8463610b7181bbd477709596346ad2bb7fa692a49ff"
+    },
+    "runs/compiled/compiler-ptx.ir": {
+      "bytes": 9788,
+      "sha256": "b1915da21929e7440381744e28547de6943c286a6f98c1814fd3621ec45bfce2"
+    },
+    "runs/compiled/compiler-source.ir": {
+      "bytes": 244962,
+      "sha256": "cadfb8d227b67fcc463dc6a0e4c63a99a632e805b20ec49982005b4c495c07e1"
+    },
+    "runs/compiled/compiler-ttgir.ir": {
+      "bytes": 6666,
+      "sha256": "0b26f4f1d2156e6414d973ac9adcb68448c40ae4c5593ef66a0407626bd51736"
+    },
+    "runs/compiled/compiler-ttir.ir": {
+      "bytes": 3837,
+      "sha256": "cb47ab971b135f18de617647fdc94b6ee10342d69c01b07404195cc8651004ba"
+    },
+    "runs/compiled/compiler.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "runs/compiled/environment.json": {
+      "bytes": 1557,
+      "sha256": "5e9bc4990869b122e2584869183aabd4a7afc9115cf865dcaa89409993422def"
+    },
+    "runs/compiled/kernel.py": {
+      "bytes": 25476,
+      "sha256": "2037b778f5824190f82e7e3f6a442cbcaa3ef949ed8c4f3602a8b023878ee4ef"
+    },
+    "runs/compiled/package-lock.json": {
+      "bytes": 7577298,
+      "sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+    },
+    "runs/compiled/run.json": {
+      "bytes": 1796,
+      "sha256": "1d547dbb4942301a430d0d9c26a43b098482fecd561b45022c4d59cd7b538eb2"
+    },
+    "runs/compiled/stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "runs/compiled/stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "runs/compiled/tensor-layout.json": {
+      "bytes": 395,
+      "sha256": "7a48c4cd9fe4ceb76b0fdfde9194d5433f1c5c2e230e8561e3b2adfdd12306ed"
+    },
+    "runs/compiled/worker-phase.json": {
+      "bytes": 21,
+      "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+    }
+  },
+  "artifacts": [
+    "program.sir",
+    "inputs.bin",
+    "expected.bin",
+    "runs/compiled/kernel.py",
+    "runs/compiled/run.json",
+    "runs/compiled/compiler.log",
+    "runs/compiled/stdout.log",
+    "runs/compiled/stderr.log",
+    "runs/compiled/environment.json",
+    "runs/compiled/package-lock.json",
+    "runs/compiled/worker-phase.json",
+    "runs/compiled/actual.bin",
+    "runs/compiled/tensor-layout.json",
+    "runs/compiled/actual-physical.bin",
+    "runs/compiled/compiler-llir.ir",
+    "runs/compiled/compiler-ptx.ir",
+    "runs/compiled/compiler-source.ir",
+    "runs/compiled/compiler-ttgir.ir",
+    "runs/compiled/compiler-ttir.ir"
+  ],
+  "campaign_valid": true,
+  "case": "/tmp/refractir-tensor-v02-src-20260924/build/tensor_runs/11186-full-replay-final/e2e356723ce35f46b5144373b145c55c4d712237/case",
+  "comparison": {
+    "max_absolute_error": [
+      0,
+      1
+    ],
+    "max_relative_error": [
+      0,
+      1
+    ],
+    "mismatches": [],
+    "mismatching_indices": [],
+    "status": "pass"
+  },
+  "exit_code": 0,
+  "mode": "compiled",
+  "status": "pass",
+  "stderr": "runs/compiled/stderr.log",
+  "stdout": "runs/compiled/stdout.log"
+}

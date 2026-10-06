@@ -1,0 +1,143 @@
+{
+  "axis_choices": [],
+  "comparison": {
+    "atol": [
+      2,
+      100000
+    ],
+    "mode": "numeric",
+    "policy": "numeric-v1",
+    "rtol": [
+      2,
+      1000
+    ]
+  },
+  "entry": "kernel",
+  "environment": {
+    "file": "environment.json",
+    "package_lock": "../../../environments/v100-triton-3.8.0/package-lock.json",
+    "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+  },
+  "evidence": {
+    "artifacts": [],
+    "kind": "historical_regression",
+    "status": "validated"
+  },
+  "execution_mode": "compiled",
+  "files": {
+    "expected.bin": {
+      "bytes": 16,
+      "fnv1a64": "c3bad932c90dacf9"
+    },
+    "inputs.bin": {
+      "bytes": 16,
+      "fnv1a64": "6a8866026097db68"
+    },
+    "kernel.py": {
+      "bytes": 489,
+      "fnv1a64": "d907857f6ab2e377"
+    },
+    "program.sir": {
+      "bytes": 153,
+      "fnv1a64": "4eafd4bebc554e72"
+    }
+  },
+  "generator_revision": "hand-written-tensor-v1",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "historical": {
+    "affected_revision": "f4fca2c0bc0e19930d2be76bb06ee7b232b60e86",
+    "axis": 1,
+    "compatibility_pr": "https://github.com/triton-lang/triton/pull/11430",
+    "corrected_keep_dims": null,
+    "corrected_revision": "31b1bf9aed2714af9a816d023b405499e8b27883",
+    "fix_pr": "https://github.com/triton-lang/triton/pull/11409",
+    "input_values": [
+      0.0,
+      2.0,
+      3.0,
+      1.0
+    ],
+    "issue": 11406,
+    "legacy_keep_dims": false,
+    "shape": [
+      2,
+      2
+    ]
+  },
+  "historical_variant": "affected",
+  "inputs": [
+    {
+      "byte_length": 16,
+      "byte_offset": 0,
+      "dtype": "f32",
+      "element_offset": 0,
+      "element_strides": [
+        2,
+        1
+      ],
+      "file": "inputs.bin",
+      "name": "x",
+      "shape": [
+        2,
+        2
+      ],
+      "tile_origin": [
+        0,
+        0
+      ],
+      "tile_shape": [
+        2,
+        2
+      ]
+    }
+  ],
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+  },
+  "output": {
+    "byte_length": 16,
+    "byte_offset": 0,
+    "dtype": "f32",
+    "element_offset": 0,
+    "element_strides": [
+      2,
+      1
+    ],
+    "file": "expected.bin",
+    "name": "return",
+    "shape": [
+      2,
+      2
+    ],
+    "tile_origin": [
+      0,
+      0
+    ],
+    "tile_shape": [
+      2,
+      2
+    ]
+  },
+  "profile": "tensor-v1",
+  "property": {
+    "id": "regression.issue_11406",
+    "source": "Complete output compared against the independent tensor reference."
+  },
+  "reference": {
+    "precisions": [
+      128,
+      256
+    ],
+    "stable": true
+  },
+  "regression_group": "triton.issue.11406",
+  "schema": "refractir.tensor-case.v1",
+  "seed": 0,
+  "softmax_lowering": "direct"
+}

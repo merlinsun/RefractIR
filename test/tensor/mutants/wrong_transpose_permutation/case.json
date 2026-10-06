@@ -1,0 +1,124 @@
+{
+  "axis_choices": [],
+  "comparison": {
+    "atol": [
+      0,
+      1
+    ],
+    "mode": "exact",
+    "policy": "bit-exact",
+    "rtol": [
+      0,
+      1
+    ]
+  },
+  "entry": "kernel",
+  "environment": {
+    "file": "environment.json",
+    "package_lock": "../../environments/v100-triton-3.8.0/package-lock.json",
+    "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+  },
+  "evidence": {
+    "artifacts": [],
+    "kind": "conformance_matrix",
+    "status": "validated"
+  },
+  "execution_mode": "compiled",
+  "files": {
+    "expected.bin": {
+      "bytes": 32,
+      "fnv1a64": "f3d0f129a49cc75b"
+    },
+    "inputs.bin": {
+      "bytes": 32,
+      "fnv1a64": "f3d0f129a49cc75b"
+    },
+    "kernel.py": {
+      "bytes": 490,
+      "fnv1a64": "472d908477076199"
+    },
+    "program.sir": {
+      "bytes": 160,
+      "fnv1a64": "239c88e1c2b0ce06"
+    }
+  },
+  "generator_revision": "hand-written-tensor-v1",
+  "grid": [
+    1,
+    1,
+    1
+  ],
+  "inputs": [
+    {
+      "byte_length": 32,
+      "byte_offset": 0,
+      "dtype": "i32",
+      "element_offset": 0,
+      "element_strides": [
+        4,
+        1
+      ],
+      "file": "inputs.bin",
+      "name": "x",
+      "shape": [
+        2,
+        4
+      ],
+      "tile_origin": [
+        0,
+        0
+      ],
+      "tile_shape": [
+        2,
+        4
+      ]
+    }
+  ],
+  "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+  },
+  "output": {
+    "byte_length": 32,
+    "byte_offset": 0,
+    "dtype": "i32",
+    "element_offset": 0,
+    "element_strides": [
+      4,
+      1
+    ],
+    "file": "expected.bin",
+    "name": "return",
+    "shape": [
+      2,
+      4
+    ],
+    "tile_origin": [
+      0,
+      0
+    ],
+    "tile_shape": [
+      2,
+      4
+    ]
+  },
+  "profile": "tensor-v1",
+  "property": {
+    "id": "regression.transpose_2x4_perm0_1",
+    "source": "Complete output compared against the independent tensor reference."
+  },
+  "reference": {
+    "precisions": [],
+    "stable": true
+  },
+  "regression_group": "transpose.rank2",
+  "schema": "refractir.tensor-case.v1",
+  "seed": 0,
+  "softmax_lowering": "direct",
+  "test_only_mutant": {
+    "after": "tl.permute(_sir_x, (1, 0))",
+    "before": "tl.permute(_sir_x, (0, 1))",
+    "name": "wrong_transpose_permutation"
+  }
+}

@@ -1,0 +1,660 @@
+{
+  "artifact_root": "/tmp/tensor-v02-pd-clean/pair_000003",
+  "environment": {
+    "compute_capability": "7.0",
+    "device": "Tesla V100-SXM2-32GB",
+    "device_id": 0,
+    "package_lock_sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44",
+    "python": "3.10.12",
+    "pytorch": "2.10.0+cu128",
+    "triton": "3.8.0",
+    "triton_revision": "e2e356723ce35f46b5144373b145c55c4d712237"
+  },
+  "evidence": {
+    "cache_isolated_by_arm": true,
+    "campaign_valid_runs": 4,
+    "compiled_completed_target_runs": 2,
+    "compiled_passes": 2,
+    "interpret_completed_target_runs": 2,
+    "interpret_passes": 2,
+    "matched_graphs": 1,
+    "source_and_compiled_ir_artifact_hashes_retained": true
+  },
+  "limits": [
+    "This is one matched graph and does not constitute the three-arm generator comparison.",
+    "It is not an #11186 rediscovery attempt or independent held-out evaluation.",
+    "The case artifact tree remains at the recorded remote artifact root; pair.json records per-artifact digests."
+  ],
+  "pair_report": {
+    "arms": [
+      {
+        "D": "at-least-one-applicable-model-distinguished",
+        "P": "defined-stable-reference",
+        "arm": "ordinary",
+        "cache_id": "d0ba8213095d4d96f5a9d2cdc05a94cbee1205161ae91e57f913f55f8a7c2b28",
+        "case_directory": "ordinary",
+        "comparison_policy_id": "{\"atol\":[2,100000],\"mode\":\"numeric\",\"rtol\":[2,1000]}",
+        "compiler_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+        "distinguished": true,
+        "graph_id": "8137bc52e2a00feaf9103f9f305c1bd9ffe2178a2375b763a840f41406ad47b2",
+        "input_domain_id": "finite-integer-valued-elements-in-[1,4]",
+        "layout_id": "34b703c08c8de4317f3a6bb4c3c86869e32ba8e3d6c26025ce731bc43d858113",
+        "num_warps": 8,
+        "property_passed": true,
+        "proposal_budget": 8,
+        "proposal_count": 1,
+        "proposal_mechanism_id": "python-mt19937-seed-plus-golden-ratio-step-v1",
+        "seed_schedule_id": "single-seed-77",
+        "selection_strategy": "ordinary",
+        "shape": [
+          4,
+          2,
+          8
+        ],
+        "status": "accepted"
+      },
+      {
+        "D": "at-least-one-applicable-model-distinguished",
+        "P": "defined-stable-reference",
+        "arm": "directed",
+        "cache_id": "4d89831bb2d0a1a005af81e2c2b1b71f1eb15bf56ac338c70a2c731484cbd4c0",
+        "case_directory": "directed",
+        "comparison_policy_id": "{\"atol\":[2,100000],\"mode\":\"numeric\",\"rtol\":[2,1000]}",
+        "compiler_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+        "distinguished": true,
+        "graph_id": "8137bc52e2a00feaf9103f9f305c1bd9ffe2178a2375b763a840f41406ad47b2",
+        "input_domain_id": "finite-integer-valued-elements-in-[1,4]",
+        "layout_id": "34b703c08c8de4317f3a6bb4c3c86869e32ba8e3d6c26025ce731bc43d858113",
+        "num_warps": 8,
+        "property_passed": true,
+        "proposal_budget": 8,
+        "proposal_count": 1,
+        "proposal_mechanism_id": "python-mt19937-seed-plus-golden-ratio-step-v1",
+        "seed_schedule_id": "single-seed-77",
+        "selection_strategy": "directed",
+        "shape": [
+          4,
+          2,
+          8
+        ],
+        "status": "accepted"
+      }
+    ],
+    "candidate_proposal_budget": 8,
+    "graph_id": "8137bc52e2a00feaf9103f9f305c1bd9ffe2178a2375b763a840f41406ad47b2",
+    "input_domain_id": "finite-integer-valued-elements-in-[1,4]",
+    "pairing": {
+      "pairs": [
+        {
+          "directed": {
+            "D": "at-least-one-applicable-model-distinguished",
+            "P": "defined-stable-reference",
+            "arm": "directed",
+            "cache_id": null,
+            "case_directory": "directed",
+            "comparison_policy_id": "{\"atol\":[2,100000],\"mode\":\"numeric\",\"rtol\":[2,1000]}",
+            "compiler_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+            "distinguished": true,
+            "graph_id": "8137bc52e2a00feaf9103f9f305c1bd9ffe2178a2375b763a840f41406ad47b2",
+            "input_domain_id": "finite-integer-valued-elements-in-[1,4]",
+            "layout_id": "34b703c08c8de4317f3a6bb4c3c86869e32ba8e3d6c26025ce731bc43d858113",
+            "num_warps": 8,
+            "property_passed": true,
+            "proposal_budget": 8,
+            "proposal_count": 1,
+            "proposal_mechanism_id": "python-mt19937-seed-plus-golden-ratio-step-v1",
+            "seed_schedule_id": "single-seed-77",
+            "selection_strategy": "directed",
+            "shape": [
+              4,
+              2,
+              8
+            ],
+            "status": "accepted"
+          },
+          "graph_id": "8137bc52e2a00feaf9103f9f305c1bd9ffe2178a2375b763a840f41406ad47b2",
+          "ordinary": {
+            "D": "at-least-one-applicable-model-distinguished",
+            "P": "defined-stable-reference",
+            "arm": "ordinary",
+            "cache_id": null,
+            "case_directory": "ordinary",
+            "comparison_policy_id": "{\"atol\":[2,100000],\"mode\":\"numeric\",\"rtol\":[2,1000]}",
+            "compiler_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+            "distinguished": true,
+            "graph_id": "8137bc52e2a00feaf9103f9f305c1bd9ffe2178a2375b763a840f41406ad47b2",
+            "input_domain_id": "finite-integer-valued-elements-in-[1,4]",
+            "layout_id": "34b703c08c8de4317f3a6bb4c3c86869e32ba8e3d6c26025ce731bc43d858113",
+            "num_warps": 8,
+            "property_passed": true,
+            "proposal_budget": 8,
+            "proposal_count": 1,
+            "proposal_mechanism_id": "python-mt19937-seed-plus-golden-ratio-step-v1",
+            "seed_schedule_id": "single-seed-77",
+            "selection_strategy": "ordinary",
+            "shape": [
+              4,
+              2,
+              8
+            ],
+            "status": "accepted"
+          }
+        }
+      ],
+      "unmatched": {
+        "directed": [],
+        "ordinary": []
+      }
+    },
+    "runs": {
+      "compiled": {
+        "arms": [
+          {
+            "arm": "ordinary",
+            "cache": {
+              "cache_id": "d0ba8213095d4d96f5a9d2cdc05a94cbee1205161ae91e57f913f55f8a7c2b28",
+              "empty_at_start": true,
+              "path": "runs/compiled/triton-cache"
+            },
+            "completed_target_runs": 1,
+            "result": {
+              "actual_bytes": 256,
+              "actual_sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354",
+              "artifact_digests": {
+                "expected.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "inputs.bin": {
+                  "bytes": 512,
+                  "sha256": "e8d31ee588a822282c5a69f8a35c4e27001bd19e73341b469fc438622c8622d2"
+                },
+                "program.sir": {
+                  "bytes": 673,
+                  "sha256": "4e64166658396917dea34647c8b65d8496c7305083b406bd0a16ff55da554d28"
+                },
+                "runs/compiled/actual-physical.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/compiled/actual.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/compiled/compiler-llir.ir": {
+                  "bytes": 5940,
+                  "sha256": "0935c540f35e1675b4c3d8a573ce8d33bb62626f5585cc0828b9ca980327d42a"
+                },
+                "runs/compiled/compiler-ptx.ir": {
+                  "bytes": 10656,
+                  "sha256": "f0abb223dfd1338b23f6562354f1ef7b9e7eab560240290f3e046498a978a6cc"
+                },
+                "runs/compiled/compiler-source.ir": {
+                  "bytes": 25872,
+                  "sha256": "4f18195b43a85615ba263c8633067cca2d8bd6d4d5505d7474f4b38b7806bdb6"
+                },
+                "runs/compiled/compiler-ttgir.ir": {
+                  "bytes": 11664,
+                  "sha256": "9e3099e49f2b3f83e5426e0677694f73979659b706fc99110073ccd303b7e9b3"
+                },
+                "runs/compiled/compiler-ttir.ir": {
+                  "bytes": 8731,
+                  "sha256": "d9a0189e9daaa51ed407d53ddd90e657271feee05f884dce4bc9e0bc72c78ec9"
+                },
+                "runs/compiled/compiler.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/compiled/environment.json": {
+                  "bytes": 1557,
+                  "sha256": "5e9bc4990869b122e2584869183aabd4a7afc9115cf865dcaa89409993422def"
+                },
+                "runs/compiled/kernel.py": {
+                  "bytes": 1242,
+                  "sha256": "c128873fbe701aafddc7e052024093c81c98ecbea77b2a6fd8f9eeb696841136"
+                },
+                "runs/compiled/package-lock.json": {
+                  "bytes": 7577298,
+                  "sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+                },
+                "runs/compiled/run.json": {
+                  "bytes": 20814,
+                  "sha256": "b366738cb0f0a926ed081bd0ad225212ebc648a9c6ae2101d313210a0fce4aec"
+                },
+                "runs/compiled/stderr.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/compiled/stdout.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/compiled/tensor-layout.json": {
+                  "bytes": 674,
+                  "sha256": "16281c279d2fcdab97cb3ae30620d1159c92274d1fe99fa5b051144672700efb"
+                },
+                "runs/compiled/worker-phase.json": {
+                  "bytes": 21,
+                  "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+                }
+              },
+              "artifacts": [
+                "program.sir",
+                "inputs.bin",
+                "expected.bin",
+                "runs/compiled/kernel.py",
+                "runs/compiled/run.json",
+                "runs/compiled/compiler.log",
+                "runs/compiled/stdout.log",
+                "runs/compiled/stderr.log",
+                "runs/compiled/environment.json",
+                "runs/compiled/package-lock.json",
+                "runs/compiled/worker-phase.json",
+                "runs/compiled/actual.bin",
+                "runs/compiled/tensor-layout.json",
+                "runs/compiled/actual-physical.bin",
+                "runs/compiled/compiler-llir.ir",
+                "runs/compiled/compiler-ptx.ir",
+                "runs/compiled/compiler-source.ir",
+                "runs/compiled/compiler-ttgir.ir",
+                "runs/compiled/compiler-ttir.ir"
+              ],
+              "campaign_valid": true,
+              "case": "/tmp/tensor-v02-pd-clean/pair_000003/ordinary",
+              "comparison": {
+                "max_absolute_error": [
+                  0,
+                  1
+                ],
+                "max_relative_error": [
+                  0,
+                  1
+                ],
+                "mismatches": [],
+                "mismatching_indices": [],
+                "status": "pass"
+              },
+              "exit_code": 0,
+              "mode": "compiled",
+              "status": "pass",
+              "stderr": "runs/compiled/stderr.log",
+              "stdout": "runs/compiled/stdout.log"
+            },
+            "run_status": "pass"
+          },
+          {
+            "arm": "directed",
+            "cache": {
+              "cache_id": "4d89831bb2d0a1a005af81e2c2b1b71f1eb15bf56ac338c70a2c731484cbd4c0",
+              "empty_at_start": true,
+              "path": "runs/compiled/triton-cache"
+            },
+            "completed_target_runs": 1,
+            "result": {
+              "actual_bytes": 256,
+              "actual_sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354",
+              "artifact_digests": {
+                "expected.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "inputs.bin": {
+                  "bytes": 512,
+                  "sha256": "e8d31ee588a822282c5a69f8a35c4e27001bd19e73341b469fc438622c8622d2"
+                },
+                "program.sir": {
+                  "bytes": 673,
+                  "sha256": "4e64166658396917dea34647c8b65d8496c7305083b406bd0a16ff55da554d28"
+                },
+                "runs/compiled/actual-physical.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/compiled/actual.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/compiled/compiler-llir.ir": {
+                  "bytes": 5940,
+                  "sha256": "75f27ef6dd73173ed40ffb469a60ccc01742d986761d7aeffbd51dc371898b52"
+                },
+                "runs/compiled/compiler-ptx.ir": {
+                  "bytes": 10656,
+                  "sha256": "deddb88723d2c274f2204750a310ba450e16a6b4f1861e762693e269ff8c8b1d"
+                },
+                "runs/compiled/compiler-source.ir": {
+                  "bytes": 25872,
+                  "sha256": "6953fe3e12363f8add05c6e0e7395e9139c1d02b0c0a5dcc9e1dcaeb0ef8839c"
+                },
+                "runs/compiled/compiler-ttgir.ir": {
+                  "bytes": 11664,
+                  "sha256": "3f9cc96652fd987d44d4fc8b3f1c29421ee942c6a566c461d7dc0cc7226ceeb8"
+                },
+                "runs/compiled/compiler-ttir.ir": {
+                  "bytes": 8731,
+                  "sha256": "dc87d6a78d83d339c89bf7e6933c1556d5308d2c22b96a274748d9551a4aec35"
+                },
+                "runs/compiled/compiler.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/compiled/environment.json": {
+                  "bytes": 1557,
+                  "sha256": "5e9bc4990869b122e2584869183aabd4a7afc9115cf865dcaa89409993422def"
+                },
+                "runs/compiled/kernel.py": {
+                  "bytes": 1242,
+                  "sha256": "c128873fbe701aafddc7e052024093c81c98ecbea77b2a6fd8f9eeb696841136"
+                },
+                "runs/compiled/package-lock.json": {
+                  "bytes": 7577298,
+                  "sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+                },
+                "runs/compiled/run.json": {
+                  "bytes": 20814,
+                  "sha256": "f72f7ae1bc0a29d3298a11f98b4604f7cec5e9334543f3ce1a9a1fc17edc9a24"
+                },
+                "runs/compiled/stderr.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/compiled/stdout.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/compiled/tensor-layout.json": {
+                  "bytes": 674,
+                  "sha256": "16281c279d2fcdab97cb3ae30620d1159c92274d1fe99fa5b051144672700efb"
+                },
+                "runs/compiled/worker-phase.json": {
+                  "bytes": 21,
+                  "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+                }
+              },
+              "artifacts": [
+                "program.sir",
+                "inputs.bin",
+                "expected.bin",
+                "runs/compiled/kernel.py",
+                "runs/compiled/run.json",
+                "runs/compiled/compiler.log",
+                "runs/compiled/stdout.log",
+                "runs/compiled/stderr.log",
+                "runs/compiled/environment.json",
+                "runs/compiled/package-lock.json",
+                "runs/compiled/worker-phase.json",
+                "runs/compiled/actual.bin",
+                "runs/compiled/tensor-layout.json",
+                "runs/compiled/actual-physical.bin",
+                "runs/compiled/compiler-llir.ir",
+                "runs/compiled/compiler-ptx.ir",
+                "runs/compiled/compiler-source.ir",
+                "runs/compiled/compiler-ttgir.ir",
+                "runs/compiled/compiler-ttir.ir"
+              ],
+              "campaign_valid": true,
+              "case": "/tmp/tensor-v02-pd-clean/pair_000003/directed",
+              "comparison": {
+                "max_absolute_error": [
+                  0,
+                  1
+                ],
+                "max_relative_error": [
+                  0,
+                  1
+                ],
+                "mismatches": [],
+                "mismatching_indices": [],
+                "status": "pass"
+              },
+              "exit_code": 0,
+              "mode": "compiled",
+              "status": "pass",
+              "stderr": "runs/compiled/stderr.log",
+              "stdout": "runs/compiled/stdout.log"
+            },
+            "run_status": "pass"
+          }
+        ],
+        "cache_evidence_complete": true,
+        "cache_records": [
+          {
+            "arm": "ordinary",
+            "cache_empty_at_start": true,
+            "cache_id": "d0ba8213095d4d96f5a9d2cdc05a94cbee1205161ae91e57f913f55f8a7c2b28",
+            "trial": "77"
+          },
+          {
+            "arm": "directed",
+            "cache_empty_at_start": true,
+            "cache_id": "4d89831bb2d0a1a005af81e2c2b1b71f1eb15bf56ac338c70a2c731484cbd4c0",
+            "trial": "77"
+          }
+        ],
+        "completed_target_runs": 2,
+        "device_id": 0,
+        "status": "complete"
+      },
+      "interpret": {
+        "arms": [
+          {
+            "arm": "ordinary",
+            "cache": null,
+            "completed_target_runs": 1,
+            "result": {
+              "actual_bytes": 256,
+              "actual_sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354",
+              "artifact_digests": {
+                "expected.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "inputs.bin": {
+                  "bytes": 512,
+                  "sha256": "e8d31ee588a822282c5a69f8a35c4e27001bd19e73341b469fc438622c8622d2"
+                },
+                "program.sir": {
+                  "bytes": 673,
+                  "sha256": "4e64166658396917dea34647c8b65d8496c7305083b406bd0a16ff55da554d28"
+                },
+                "runs/interpret/actual-physical.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/interpret/actual.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/interpret/compiler.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/interpret/environment.json": {
+                  "bytes": 1557,
+                  "sha256": "5e9bc4990869b122e2584869183aabd4a7afc9115cf865dcaa89409993422def"
+                },
+                "runs/interpret/kernel.py": {
+                  "bytes": 1242,
+                  "sha256": "c128873fbe701aafddc7e052024093c81c98ecbea77b2a6fd8f9eeb696841136"
+                },
+                "runs/interpret/package-lock.json": {
+                  "bytes": 7577298,
+                  "sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+                },
+                "runs/interpret/run.json": {
+                  "bytes": 20666,
+                  "sha256": "fe2235648217031d0502459040234364c4685db6aeee00a5069c8907ca375eb6"
+                },
+                "runs/interpret/stderr.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/interpret/stdout.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/interpret/tensor-layout.json": {
+                  "bytes": 674,
+                  "sha256": "16281c279d2fcdab97cb3ae30620d1159c92274d1fe99fa5b051144672700efb"
+                },
+                "runs/interpret/worker-phase.json": {
+                  "bytes": 21,
+                  "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+                }
+              },
+              "artifacts": [
+                "program.sir",
+                "inputs.bin",
+                "expected.bin",
+                "runs/interpret/kernel.py",
+                "runs/interpret/run.json",
+                "runs/interpret/compiler.log",
+                "runs/interpret/stdout.log",
+                "runs/interpret/stderr.log",
+                "runs/interpret/environment.json",
+                "runs/interpret/package-lock.json",
+                "runs/interpret/worker-phase.json",
+                "runs/interpret/actual.bin",
+                "runs/interpret/tensor-layout.json",
+                "runs/interpret/actual-physical.bin"
+              ],
+              "campaign_valid": true,
+              "case": "/tmp/tensor-v02-pd-clean/pair_000003/ordinary",
+              "comparison": {
+                "max_absolute_error": [
+                  0,
+                  1
+                ],
+                "max_relative_error": [
+                  0,
+                  1
+                ],
+                "mismatches": [],
+                "mismatching_indices": [],
+                "status": "pass"
+              },
+              "exit_code": 0,
+              "mode": "interpret",
+              "status": "pass",
+              "stderr": "runs/interpret/stderr.log",
+              "stdout": "runs/interpret/stdout.log"
+            },
+            "run_status": "pass"
+          },
+          {
+            "arm": "directed",
+            "cache": null,
+            "completed_target_runs": 1,
+            "result": {
+              "actual_bytes": 256,
+              "actual_sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354",
+              "artifact_digests": {
+                "expected.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "inputs.bin": {
+                  "bytes": 512,
+                  "sha256": "e8d31ee588a822282c5a69f8a35c4e27001bd19e73341b469fc438622c8622d2"
+                },
+                "program.sir": {
+                  "bytes": 673,
+                  "sha256": "4e64166658396917dea34647c8b65d8496c7305083b406bd0a16ff55da554d28"
+                },
+                "runs/interpret/actual-physical.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/interpret/actual.bin": {
+                  "bytes": 256,
+                  "sha256": "8bd08cb02c55b414c1501123448c9825265dd3ced3df47a6c54039cc8e852354"
+                },
+                "runs/interpret/compiler.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/interpret/environment.json": {
+                  "bytes": 1557,
+                  "sha256": "5e9bc4990869b122e2584869183aabd4a7afc9115cf865dcaa89409993422def"
+                },
+                "runs/interpret/kernel.py": {
+                  "bytes": 1242,
+                  "sha256": "c128873fbe701aafddc7e052024093c81c98ecbea77b2a6fd8f9eeb696841136"
+                },
+                "runs/interpret/package-lock.json": {
+                  "bytes": 7577298,
+                  "sha256": "86ee249201768e82cf8c5d1d122bf378bf11d7f239e62dd78a4d87396e61cb44"
+                },
+                "runs/interpret/run.json": {
+                  "bytes": 20666,
+                  "sha256": "a237396125e2a91c7f50a9a885e6447a458657b90ec68d971a8101ea0031bbf8"
+                },
+                "runs/interpret/stderr.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/interpret/stdout.log": {
+                  "bytes": 0,
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                },
+                "runs/interpret/tensor-layout.json": {
+                  "bytes": 674,
+                  "sha256": "16281c279d2fcdab97cb3ae30620d1159c92274d1fe99fa5b051144672700efb"
+                },
+                "runs/interpret/worker-phase.json": {
+                  "bytes": 21,
+                  "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+                }
+              },
+              "artifacts": [
+                "program.sir",
+                "inputs.bin",
+                "expected.bin",
+                "runs/interpret/kernel.py",
+                "runs/interpret/run.json",
+                "runs/interpret/compiler.log",
+                "runs/interpret/stdout.log",
+                "runs/interpret/stderr.log",
+                "runs/interpret/environment.json",
+                "runs/interpret/package-lock.json",
+                "runs/interpret/worker-phase.json",
+                "runs/interpret/actual.bin",
+                "runs/interpret/tensor-layout.json",
+                "runs/interpret/actual-physical.bin"
+              ],
+              "campaign_valid": true,
+              "case": "/tmp/tensor-v02-pd-clean/pair_000003/directed",
+              "comparison": {
+                "max_absolute_error": [
+                  0,
+                  1
+                ],
+                "max_relative_error": [
+                  0,
+                  1
+                ],
+                "mismatches": [],
+                "mismatching_indices": [],
+                "status": "pass"
+              },
+              "exit_code": 0,
+              "mode": "interpret",
+              "status": "pass",
+              "stderr": "runs/interpret/stderr.log",
+              "stdout": "runs/interpret/stdout.log"
+            },
+            "run_status": "pass"
+          }
+        ],
+        "completed_target_runs": 2,
+        "device_id": null,
+        "status": "complete"
+      }
+    },
+    "schema": "refractir.tensor-matched-pair.v1",
+    "seed": 77
+  },
+  "run_date": "2026-09-25",
+  "schema": "refractir.tensor-matched-pair-pilot.v1",
+  "status": "completed"
+}

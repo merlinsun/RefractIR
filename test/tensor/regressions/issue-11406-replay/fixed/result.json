@@ -1,0 +1,43 @@
+{
+  "actual_sha256": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+  "artifacts": [
+    "actual.bin",
+    "case.json",
+    "compiler-llir.ir",
+    "compiler-ptx.ir",
+    "compiler-source.ir",
+    "compiler-ttgir.ir",
+    "compiler-ttir.ir",
+    "environment.json",
+    "expected.bin",
+    "inputs.bin",
+    "kernel.py",
+    "program.sir",
+    "run.json",
+    "stderr.log",
+    "stdout.log",
+    "worker-phase.json"
+  ],
+  "campaign_valid": true,
+  "comparison": {
+    "max_absolute_error": [
+      0,
+      1
+    ],
+    "max_relative_error": [
+      0,
+      1
+    ],
+    "mismatches": [],
+    "mismatching_indices": [],
+    "status": "pass"
+  },
+  "expected_sha256": "72ea14137e9e1e3dbc2486140209dc092dddc838f8bc7072eabdce3d91f8ebe1",
+  "invocation_adapter": "omit removed keep_dims keyword; operation and tolerance are unchanged",
+  "mode": "compiled",
+  "runtime_triton_source_revision": "e2e356723ce35f46b5144373b145c55c4d712237",
+  "softmax_source_revision": "31b1bf9aed2714af9a816d023b405499e8b27883",
+  "softmax_source_sha256": "09f3461fb408f718198800367f73764a183fe4dcf8db20b57bc319bf6fdb04ea",
+  "status": "pass",
+  "variant": "fixed"
+}
