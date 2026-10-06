@@ -15,15 +15,35 @@ PROGRAM_IDS = (
   "column-reduction-v1",
   "two-axis-reduction-v1",
 )
-NATIVE_GENERATED_PROGRAM_IDS = (
-  "native-seed-7",
-  "native-seed-17",
-  "native-seed-29",
-  "native-seed-0-shape-2x4-iterations-3",
-  "native-seed-3-shape-4x2-iterations-4",
-  "native-seed-6-shape-2x4-iterations-2",
-  "native-seed-2-shape-8x8-iterations-2",
-)
+NATIVE_GENERATED_PROFILES = {
+  "native-seed-7": (7, (2, 2), 2, "additive"),
+  "native-seed-17": (17, (2, 2), 2, "additive"),
+  "native-seed-29": (29, (2, 2), 2, "additive"),
+  "native-seed-0-shape-2x4-iterations-3": (0, (2, 4), 3, "additive"),
+  "native-seed-3-shape-4x2-iterations-4": (3, (4, 2), 4, "additive"),
+  "native-seed-6-shape-2x4-iterations-2": (6, (2, 4), 2, "additive"),
+  "native-seed-2-shape-8x8-iterations-2": (2, (8, 8), 2, "additive"),
+  "native-subtraction-seed-0-shape-2x4-iterations-3": (
+    0,
+    (2, 4),
+    3,
+    "subtraction",
+  ),
+  "native-subtraction-seed-3-shape-4x2-iterations-4": (
+    3,
+    (4, 2),
+    4,
+    "subtraction",
+  ),
+  "native-multiplication-seed-6-shape-2x4-iterations-1": (
+    6,
+    (2, 4),
+    1,
+    "multiplication",
+  ),
+  "native-mixed-seed-17-shape-2x2-iterations-1": (17, (2, 2), 1, "mixed"),
+}
+NATIVE_GENERATED_PROGRAM_IDS = tuple(NATIVE_GENERATED_PROFILES)
 
 
 class GeneratedSelectionStudyTests(unittest.TestCase):
@@ -42,9 +62,17 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
       self.assertEqual(
         record["source_sha256"], hashlib.sha256(source.encode()).hexdigest()
       )
-      self.assertIn(f"seed-{record['generation']['seed']}", record["program_id"])
-      self.assertEqual(len(record["generation"]["shape"]), 2)
-      self.assertGreaterEqual(record["generation"]["iterations"], 1)
+      generation = record["generation"]
+      expected = NATIVE_GENERATED_PROFILES[record["program_id"]]
+      self.assertEqual(
+        (
+          generation["seed"],
+          tuple(generation["shape"]),
+          generation["iterations"],
+          generation["operation_mode"],
+        ),
+        expected,
+      )
       tensor_exact_f32._generated_region_program(source)
 
   def test_selection_catalog_admits_frozen_native_graph_sources(self):
@@ -54,24 +82,57 @@ class GeneratedSelectionStudyTests(unittest.TestCase):
     ]
 
     self.assertEqual(
-      len({hashlib.sha256(source.encode()).hexdigest() for source in sources}), 7
+      len({hashlib.sha256(source.encode()).hexdigest() for source in sources}),
+      len(NATIVE_GENERATED_PROGRAM_IDS),
     )
 
   def test_default_matrix_includes_all_frozen_native_graph_programs(self):
     self.assertTrue(
       set(NATIVE_GENERATED_PROGRAM_IDS).issubset(run_selection_study.PROGRAM_SOURCES)
     )
+    target_indices = ((0, 0), (1, 1))
+    seeds = (17, 29)
+    layout_seeds = (20261002, 20261003)
     cells = run_selection_study._matrix_cell_specs(
       program_ids=NATIVE_GENERATED_PROGRAM_IDS,
-      target_indices=((0, 0), (1, 1)),
-      seeds=(17, 29),
-      layout_seeds=(20261002, 20261003),
+      target_indices=target_indices,
+      seeds=seeds,
+      layout_seeds=layout_seeds,
     )
 
-    self.assertEqual(len(cells), 56)
+    expected_count = (
+      len(NATIVE_GENERATED_PROGRAM_IDS)
+      * len(target_indices)
+      * len(seeds)
+      * len(layout_seeds)
+    )
+    self.assertEqual(expected_count, 88)
+    self.assertEqual(len(cells), expected_count)
+    self.assertEqual(len({cell["cell_id"] for cell in cells}), len(cells))
     self.assertEqual(
       {cell["program_id"] for cell in cells}, set(NATIVE_GENERATED_PROGRAM_IDS)
     )
+
+  def test_complete_selection_catalog_has_expected_matrix_cardinality(self):
+    program_ids = tuple(run_selection_study.PROGRAM_SOURCES)
+    target_indices = ((0, 0), (1, 1))
+    seeds = (17, 29)
+    layout_seeds = (20261002, 20261003)
+
+    cells = run_selection_study._matrix_cell_specs(
+      program_ids=program_ids,
+      target_indices=target_indices,
+      seeds=seeds,
+      layout_seeds=layout_seeds,
+    )
+
+    expected_count = (
+      len(program_ids) * len(target_indices) * len(seeds) * len(layout_seeds)
+    )
+    self.assertEqual(expected_count, 112)
+    self.assertEqual(len(cells), expected_count)
+    self.assertEqual(len({cell["cell_id"] for cell in cells}), expected_count)
+    self.assertEqual({cell["program_id"] for cell in cells}, set(program_ids))
 
   def test_matrix_accepts_an_index_in_an_expanded_program_shape(self):
     cells = run_selection_study._matrix_cell_specs(
