@@ -91,6 +91,119 @@ def _load_fpsan_experiment():
   return module
 
 
+def _run_fpsan_case_with_paired_timing_failure():
+  experiment = _load_fpsan_experiment()
+  source_path = ROOT / "test/tensor/gluon/programs/elementwise-multiply-region-v1.sir"
+  input_words = [0x3F800000] * 4
+  output_words = [0x40800000] * 4
+  witness = {
+    "status": "SAT",
+    "shape": [2, 2],
+    "iterations": 1,
+    "transport_contract": "test-payload-transport-v1",
+    "query_sha256": "a" * 64,
+    "input_payloads": input_words,
+    "output_payloads": [4] * 4,
+    "input_diversity": {"distinct_payloads": 1},
+    "input_float_words": input_words,
+    "output_float_words": output_words,
+    "input_float_bits": [f"{word:08x}" for word in input_words],
+    "output_float_bits": [f"{word:08x}" for word in output_words],
+    "calibration_mutants": {},
+    "property": {"kind": "output-payload-equals", "target": 0, "index": [0, 0]},
+    "cost_s": 0.01,
+    "solver": "test-solver",
+    "solver_outcome": "sat",
+  }
+
+  class Tensor:
+    def __init__(self, words):
+      self.words = words
+
+    def reshape(self, _shape):
+      return self
+
+  launch_modes = []
+
+  def compile_mode(_kernel, _inputs, _shape, mode):
+    launch_modes.append("fpsan" if mode else "ordinary")
+    return Tensor(output_words), SimpleNamespace(asm={}), lambda: None, 0.0125
+
+  def capture_ir(_compiled, prefix, ir_directory):
+    content = f"synthetic IR for {prefix}\n".encode("utf-8")
+    path = Path(ir_directory) / f"{prefix}.ttgir"
+    path.write_bytes(content)
+    return {
+      "files": {"ttgir": str(path)},
+      "stage_sha256": {"ttgir": hashlib.sha256(content).hexdigest()},
+      "stage_bytes": {"ttgir": len(content)},
+    }
+
+  with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    output_path = root / "report.json"
+    entry = {}
+    report = {"generated_regions": {"programs": {"case": entry}}}
+    persisted_at_timing = []
+
+    def fail_during_paired_timing(_launches):
+      persisted_at_timing.append(
+        json.loads(output_path.read_text(encoding="utf-8"))["generated_regions"][
+          "programs"
+        ]["case"]
+      )
+      raise RuntimeError("synthetic paired timing failure")
+
+    fake_triton = ModuleType("triton")
+    fake_triton.__path__ = []
+    fake_triton.jit = lambda function: function
+    fake_language = ModuleType("triton.language")
+    with (
+      mock.patch.dict(
+        sys.modules,
+        {"triton": fake_triton, "triton.language": fake_language},
+      ),
+      mock.patch.object(
+        experiment, "synthesize_generated_region", return_value=witness
+      ),
+      mock.patch.object(experiment, "_tensor_from_words", side_effect=Tensor),
+      mock.patch.object(
+        experiment, "_raw_words", side_effect=lambda tensor: tensor.words
+      ),
+      mock.patch.object(
+        experiment, "_compile_generated_kernel_mode", side_effect=compile_mode
+      ),
+      mock.patch.object(experiment, "_capture_ir", side_effect=capture_ir),
+      mock.patch.object(
+        experiment, "_validate_generated_region_payload_lowering", return_value={}
+      ),
+      mock.patch.object(
+        experiment,
+        "_measure_paired_generated_modes",
+        side_effect=fail_during_paired_timing,
+      ),
+    ):
+      experiment._run_generated_region_case_record(
+        report,
+        output_path,
+        root / "case",
+        entry,
+        source_path=source_path,
+        target=None,
+        target_index=(0, 0),
+        timeout_s=1.0,
+      )
+
+    return {
+      "at_timing": persisted_at_timing[0],
+      "result": json.loads(output_path.read_text(encoding="utf-8"))[
+        "generated_regions"
+      ]["programs"]["case"],
+      "launch_modes": launch_modes,
+      "expected_output_words": output_words,
+    }
+
+
 class GeneratedRegionRunnerTests(unittest.TestCase):
   def test_region_parser_admits_elementwise_subtraction(self):
     from test.lib import tensor_exact_f32
@@ -290,6 +403,66 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
       [4, 3, 2, 1],
     )
     self.assertEqual(result["work_variants"]["lost_update_acc_y"]["status"], "running")
+
+  def test_ordinary_first_launch_checkpoint_precedes_paired_timing(self):
+    observation = _run_fpsan_case_with_paired_timing_failure()
+
+    self.assertEqual(observation["launch_modes"], ["fpsan", "ordinary"])
+    self.assertEqual(observation["at_timing"]["stage"], "ordinary_output_captured")
+
+  def test_ordinary_first_launch_checkpoint_retains_output_comparison_and_ir(self):
+    observation = _run_fpsan_case_with_paired_timing_failure()
+    persisted = observation["at_timing"]
+    ordinary_ir = persisted["ordinary_compiler_ir"]
+
+    self.assertEqual(
+      persisted["ordinary_output_words"], observation["expected_output_words"]
+    )
+    self.assertEqual(
+      persisted["ordinary_reference"]["actual_words"],
+      observation["expected_output_words"],
+    )
+    self.assertEqual(
+      persisted["ordinary_reference"]["reference_words"],
+      observation["expected_output_words"],
+    )
+    self.assertEqual(persisted["ordinary_reference"]["status"], "pass")
+    self.assertEqual(persisted["work_variants"]["ordinary"]["compiler"], ordinary_ir)
+    self.assertTrue(ordinary_ir["stage_sha256"]["ttgir"])
+
+  def test_ordinary_first_launch_checkpoint_retains_compile_wall_time(self):
+    observation = _run_fpsan_case_with_paired_timing_failure()
+    persisted = observation["at_timing"]
+
+    self.assertEqual(
+      persisted["ordinary_first_launch_wall_s_including_compilation"], 0.0125
+    )
+    self.assertEqual(
+      persisted["work_variants"]["ordinary"][
+        "first_launch_wall_s_including_compilation"
+      ],
+      0.0125,
+    )
+
+  def test_paired_timing_failure_counts_both_successful_first_launches(self):
+    observation = _run_fpsan_case_with_paired_timing_failure()
+    accounting = observation["result"]["measurement_accounting"]
+
+    self.assertEqual(accounting["observed"]["useful_compilations"], 2)
+    self.assertEqual(accounting["observed"]["useful_executions"], 2)
+    self.assertEqual(accounting["observed"]["total_compilations"], 2)
+    self.assertEqual(accounting["observed"]["total_executions"], 2)
+
+  def test_paired_timing_failure_keeps_work_unknown_and_totals_censored(self):
+    observation = _run_fpsan_case_with_paired_timing_failure()
+    accounting = observation["result"]["measurement_accounting"]
+
+    self.assertEqual(accounting["status"], "unknown")
+    self.assertEqual(accounting["observed"]["total_compilations"], 2)
+    self.assertEqual(accounting["observed"]["total_executions"], 2)
+    self.assertIsNone(accounting["total"]["total_compilations"])
+    self.assertIsNone(accounting["total"]["total_executions"])
+    self.assertIsNone(accounting["total"]["total_measured_launches"])
 
   def test_ordinary_reference_admits_binary32_subtraction_region(self):
     experiment = _load_fpsan_experiment()

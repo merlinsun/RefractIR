@@ -882,6 +882,21 @@ def _run_generated_region_case(
     reference_words=ordinary_expected_words,
   )
   ordinary_comparison["compiler_ir"] = ordinary_ir
+  note(
+    "ordinary_output_captured",
+    ordinary_output_words=ordinary_words,
+    ordinary_reference=ordinary_comparison,
+    ordinary_compiler_ir=ordinary_ir,
+    ordinary_first_launch_wall_s_including_compilation=ordinary_compile_wall_s,
+    work_variant_updates={
+      "ordinary": {
+        "status": "running",
+        "compiler": ordinary_ir,
+        "execution_observed": True,
+        "first_launch_wall_s_including_compilation": ordinary_compile_wall_s,
+      }
+    },
+  )
   paired_measurements, paired_overhead = _measure_paired_generated_modes(
     {"fpsan": fpsan_launch, "ordinary": ordinary_launch}
   )
@@ -912,14 +927,10 @@ def _run_generated_region_case(
   }
   ordinary_comparison["measurement"] = ordinary_measurement
   note(
-    "ordinary_output_captured",
-    ordinary_reference=ordinary_comparison,
-    ordinary_compiler_ir=ordinary_ir,
-  )
-  note(
     "paired_runtime_measured",
     fpsan_measurement=fpsan_measurement,
     ordinary_measurement=ordinary_measurement,
+    ordinary_reference=ordinary_comparison,
     paired_overhead={**paired_overhead, "protocol": paired_protocol},
     work_variant_updates={
       "fpsan": {
@@ -932,6 +943,7 @@ def _run_generated_region_case(
         "status": "complete",
         "compiler": ordinary_ir,
         "execution_observed": True,
+        "first_launch_wall_s_including_compilation": ordinary_compile_wall_s,
         "measurement": ordinary_measurement,
       },
     },
