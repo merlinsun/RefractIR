@@ -18,7 +18,12 @@ from pathlib import Path
 import torch
 import triton
 
-from test.lib import tensor_case, tensor_exact_f32, tensor_route_protocol
+from test.lib import (
+  probe_triton_env,
+  tensor_case,
+  tensor_exact_f32,
+  tensor_route_protocol,
+)
 from test.lib.tensor_compiler_observation import (
   observe_compiler_ir,
   observe_pass_dumps,
@@ -34,7 +39,6 @@ from test.lib.tensor_gluon_lowering import (
   render_gluon_kernel,
 )
 
-TRITON_VERSION = "3.8.0"
 WARMUP_LAUNCHES = tensor_route_protocol.WARMUP_LAUNCHES
 MEASURED_LAUNCHES = tensor_route_protocol.MEASURED_LAUNCHES
 
@@ -180,8 +184,7 @@ def run_program(
   layout_count=5,
 ):
   """Compare sampled Gluon layouts on one admitted generated-region source."""
-  if triton.__version__ != TRITON_VERSION:
-    raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
+  probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
     raise RuntimeError("CUDA device is unavailable")
   device_name = torch.cuda.get_device_name()
@@ -413,8 +416,7 @@ def run_program(
 
 
 def run(case_directory, output_path, ir_directory, *, symiri=None):
-  if triton.__version__ != TRITON_VERSION:
-    raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
+  probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
     raise RuntimeError("CUDA device is unavailable")
   device_name = torch.cuda.get_device_name()

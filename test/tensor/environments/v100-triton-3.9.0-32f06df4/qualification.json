@@ -1,0 +1,107 @@
+{
+  "commands": [
+    "docker exec great_rhodes bash -lc 'cd /tmp && /root/triton-latest/.venv/bin/python /host/qualify_gluon.py'",
+    "python -m test.tensor.gluon.run_exact_loop --output <out> --ir-dir <dir> (temporary guard bypass to qualify before the guard was updated)"
+  ],
+  "compile_and_run_set": {
+    "case_count": 5,
+    "cases": {
+      "blocked-a-baseline": {
+        "effective_conversion_operations": [],
+        "effective_layout_conversion_count": 0,
+        "layout_conversion_operation_count": 5,
+        "layout_plan": null,
+        "loop_status": "unrolled_or_removed",
+        "output_matches_reference": null,
+        "shared_memory_transfer_count": null,
+        "status": "pass",
+        "warp_shuffle_count": null
+      },
+      "blocked-a-compute-to-reduction": {
+        "effective_conversion_operations": [
+          "compute_to_reduction",
+          "reduction_to_compute_column",
+          "reduction_to_compute_row"
+        ],
+        "effective_layout_conversion_count": 3,
+        "layout_conversion_operation_count": 5,
+        "layout_plan": null,
+        "loop_status": "unrolled_or_removed",
+        "output_matches_reference": null,
+        "shared_memory_transfer_count": null,
+        "status": "pass",
+        "warp_shuffle_count": null
+      },
+      "blocked-a-compute-to-store": {
+        "effective_conversion_operations": [
+          "compute_to_store"
+        ],
+        "effective_layout_conversion_count": 1,
+        "layout_conversion_operation_count": 5,
+        "layout_plan": null,
+        "loop_status": "unrolled_or_removed",
+        "output_matches_reference": null,
+        "shared_memory_transfer_count": null,
+        "status": "pass",
+        "warp_shuffle_count": null
+      },
+      "blocked-a-load-to-compute": {
+        "effective_conversion_operations": [
+          "load_to_compute"
+        ],
+        "effective_layout_conversion_count": 1,
+        "layout_conversion_operation_count": 5,
+        "layout_plan": null,
+        "loop_status": "unrolled_or_removed",
+        "output_matches_reference": null,
+        "shared_memory_transfer_count": null,
+        "status": "pass",
+        "warp_shuffle_count": null
+      },
+      "blocked-b-compute-to-reduction": {
+        "effective_conversion_operations": [
+          "compute_to_reduction",
+          "reduction_to_compute_column",
+          "reduction_to_compute_row"
+        ],
+        "effective_layout_conversion_count": 3,
+        "layout_conversion_operation_count": 5,
+        "layout_plan": null,
+        "loop_status": "unrolled_or_removed",
+        "output_matches_reference": null,
+        "shared_memory_transfer_count": null,
+        "status": "pass",
+        "warp_shuffle_count": null
+      }
+    },
+    "runner": "test.tensor.gluon.run_exact_loop"
+  },
+  "compiler": {
+    "environment_record": "environment.json",
+    "import_path": "/root/triton-latest/python/triton",
+    "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+    "triton_version": "3.9.0"
+  },
+  "date_utc": "2026-10-11",
+  "device": {
+    "compute_capability": [
+      7,
+      0
+    ],
+    "name": "Tesla V100-SXM2-32GB"
+  },
+  "limitations": [
+    "One logical program and one shape; it qualifies the environment, not coverage.",
+    "The recorded Triton 3.8.0 environment is no longer present in the container."
+  ],
+  "pass_dump": {
+    "compilations_parsed": 6,
+    "full_result_artifact": "/tmp/gluon-qualification.json",
+    "full_result_sha256": "f125b3400d57ff99b23bd03c78ad08301797a9a6b333a72e1d37a48d09c5a8ce",
+    "raw_artifact": "/tmp/gluon-ir/mlir-pass-dump.txt",
+    "raw_sha256": "48e6f880dca8c462c2e1596a3423cfc6cf9bb90ca53f1089bf8147a259d1be9f",
+    "retention": "raw snapshots stay outside the repository; only digests and derived counts are committed for this finite qualification run"
+  },
+  "purpose": "Qualify the pinned Triton development revision before accepting it as the GPU environment for the targeted compiler-behavior tracks.",
+  "schema": "refractir.triton-qualification.v1"
+}

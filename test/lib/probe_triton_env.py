@@ -105,6 +105,44 @@ def _gpu_records(torch_module):
     return []
 
 
+# The Gluon GPU runners are qualified against exactly one compiler identity.
+# A development checkout reports the version it will release as, so the version
+# string alone cannot identify the compiler that produced a measurement.
+QUALIFIED_TRITON_VERSION = "3.9.0"
+QUALIFIED_TRITON_SOURCE_REVISION = "32f06df4bf1c30885ff61ee3488836ca81ed65f0"
+
+
+def qualified_compiler_identity():
+  """The compiler version and source revision the GPU runners were qualified on."""
+  return {
+    "version": QUALIFIED_TRITON_VERSION,
+    "source_revision": QUALIFIED_TRITON_SOURCE_REVISION,
+  }
+
+
+def require_qualified_triton(*, version=None, source_revision=None):
+  """Fail closed unless the imported Triton is the qualified compiler.
+
+  Callers may inject the observed values; otherwise the imported package
+  version and its resolved checkout revision are used.
+  """
+  identity = qualified_compiler_identity()
+  if version is None:
+    import triton
+
+    version = triton.__version__
+  if source_revision is None:
+    source_revision = _triton_source_revision()
+  if version != identity["version"]:
+    raise RuntimeError(f"expected Triton {identity['version']}, found {version}")
+  if source_revision != identity["source_revision"]:
+    raise RuntimeError(
+      "expected Triton source revision "
+      f"{identity['source_revision']}, found {source_revision}"
+    )
+  return identity
+
+
 def _triton_source_revision():
   distribution = None
   try:

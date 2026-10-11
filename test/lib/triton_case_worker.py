@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import runpy
 import sys
 import time
@@ -61,6 +62,20 @@ def _dump_ir(compiled, artifact_dir):
       continue
     safe_kind = "".join(char.lower() if char.isalnum() else "_" for char in kind)
     (artifact_dir / f"compiler-{safe_kind}.ir").write_text(content, encoding="utf-8")
+
+
+def configure_pass_dumps(artifact_dir):
+  """Route MLIR pass dumps into one file per worker compilation.
+
+  A worker process compiles a single kernel, so the dump file cannot mix
+  compilations. Dumping stays opt-in because it serializes the pass pipeline.
+  """
+  if os.environ.get("REFRACTIR_TRITON_PASS_DUMP") not in {"1", "true", "True"}:
+    return None
+  path = Path(artifact_dir) / "compiler-pass-dump.txt"
+  os.environ["MLIR_ENABLE_DUMP"] = "1"
+  os.environ["MLIR_DUMP_PATH"] = str(path)
+  return path
 
 
 def execute(case_dir, mode, artifacts_dir=None):
@@ -148,6 +163,7 @@ def execute(case_dir, mode, artifacts_dir=None):
     phase_path = artifacts_dir / "worker-phase.json"
     grid = (1, 1, 1) if has_layout else (1,)
     if mode == "compiled":
+      configure_pass_dumps(artifacts_dir)
       _write_phase(phase_path, "compilation")
       compile_started = time.perf_counter()
       try:

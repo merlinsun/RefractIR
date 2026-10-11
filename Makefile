@@ -474,7 +474,8 @@ test-tensor-emit: $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 
 test-tensor-runner: $(TARGET_INTERP) $(TARGET_COMPILER)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
-	  $(PY) -m unittest test.unit.test_tensor_runner
+	  $(PY) -m unittest test.unit.test_tensor_runner \
+	    test.unit.test_triton_worker_timing
 
 test-tensor-build:
 	REFRACTIR_TEST_SOLVER='$(SOLVER)' $(PY) -m unittest test.unit.test_tensor_build

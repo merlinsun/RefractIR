@@ -46,6 +46,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 - Reify pipeline support for the Python target, structured lowering with per-program strategy sweeps, and reducible CFG generation.
 - `rysmith --n-examples`: more than one input/output example per concretized `.sir`.
 - `make install` target.
+- Compiler-behavior observation for the Triton tracks: loop retention is decided per required stage, so a loop that survives only in TTIR cannot satisfy a later-stage requirement; layout conversions are matched across pass boundaries by resolved encoding definitions, source line, and enclosing region, so renamed aliases and renumbered values stay one fragment and a conversion that moves into a loop is reported as moved at equal counts; rematerialization is confirmed only when a recomputed pure value takes over a use the original no longer has, with untransferred duplicates reported as unattributed work; and a named target pass reports its own transition, or `unavailable` when the dump holds no measurable one. Worker compilations can capture the raw pass snapshots (`REFRACTIR_TRITON_PASS_DUMP=1`) into one file per compilation.
+- Qualified GPU compiler identity: the Gluon runners accept the pinned development revision (`3.9.0` at `32f06df4`), recorded with its environment probe and a compile-and-run qualification, instead of the version string alone. `make test-tensor-runner` now also runs the previously unreferenced worker timing tests.
 
 ### Changed
 

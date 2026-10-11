@@ -16,15 +16,56 @@ _SOLVER_PROBE_AVAILABLE = (
 )
 
 if _ENV_PROBE_AVAILABLE:
-  from test.lib.probe_triton_env import _triton_source_revision, collect_environment
+  from test.lib.probe_triton_env import (
+    _triton_source_revision,
+    collect_environment,
+    qualified_compiler_identity,
+    require_qualified_triton,
+  )
 else:
   collect_environment = None
   _triton_source_revision = None
+  qualified_compiler_identity = None
+  require_qualified_triton = None
 
 if _SOLVER_PROBE_AVAILABLE:
   from test.lib.probe_cvc5_tensor import run_probe
 else:
   run_probe = None
+
+
+class QualifiedCompilerIdentityTests(unittest.TestCase):
+  """Gluon runners accept one pinned compiler revision, not a version string."""
+
+  def setUp(self):
+    self.assertTrue(_ENV_PROBE_AVAILABLE, "tensor probe APIs are not implemented")
+
+  def test_accepts_the_qualified_revision(self):
+    identity = qualified_compiler_identity()
+    require_qualified_triton(
+      version=identity["version"], source_revision=identity["source_revision"]
+    )
+
+  def test_rejects_a_declared_revision_without_the_qualified_source(self):
+    identity = qualified_compiler_identity()
+
+    with self.assertRaisesRegex(RuntimeError, "source revision"):
+      require_qualified_triton(version=identity["version"], source_revision="0" * 40)
+
+  def test_rejects_an_unqualified_version(self):
+    identity = qualified_compiler_identity()
+    with self.assertRaisesRegex(RuntimeError, "3.8.0"):
+      require_qualified_triton(
+        version="3.8.0", source_revision=identity["source_revision"]
+      )
+
+  def test_rejects_an_unavailable_source_revision(self):
+    identity = qualified_compiler_identity()
+
+    with self.assertRaisesRegex(RuntimeError, "source revision"):
+      require_qualified_triton(
+        version=identity["version"], source_revision="unavailable"
+      )
 
 
 class TensorProbeTests(unittest.TestCase):

@@ -1,6 +1,7 @@
 """Worker phase timing and runner artifact retention tests."""
 
 import json
+import os
 import struct
 import tempfile
 import unittest
@@ -150,6 +151,59 @@ class TritonWorkerTimingTests(unittest.TestCase):
     self.assertIn("compilation_s", timing)
     self.assertIn("gpu_execution_s", timing)
     self.assertEqual(phase["phase"], "runtime")
+
+  def test_pass_dump_capture_is_off_by_default(self):
+    with (
+      tempfile.TemporaryDirectory() as directory,
+      mock.patch.dict("os.environ", {}, clear=True),
+    ):
+      requested = triton_case_worker.configure_pass_dumps(Path(directory))
+
+      self.assertIsNone(requested)
+      self.assertNotIn("MLIR_DUMP_PATH", os.environ)
+
+  def test_pass_dump_capture_routes_one_file_per_compilation(self):
+    with (
+      tempfile.TemporaryDirectory() as directory,
+      mock.patch.dict("os.environ", {"REFRACTIR_TRITON_PASS_DUMP": "1"}, clear=True),
+    ):
+      artifact_dir = Path(directory)
+      requested = triton_case_worker.configure_pass_dumps(artifact_dir)
+
+      self.assertEqual(requested, artifact_dir / "compiler-pass-dump.txt")
+      self.assertEqual(os.environ["MLIR_ENABLE_DUMP"], "1")
+      self.assertEqual(os.environ["MLIR_DUMP_PATH"], str(requested))
+      self.assertIn("pass", requested.name)
+      self.assertIn("dump", requested.name)
+
+  def test_compiled_run_exposes_the_dump_path_during_compilation(self):
+    observed = []
+    kernel = FakeKernel(struct.pack("<8f", *range(8)))
+    original_warmup = kernel.warmup
+
+    def recording_warmup(*args, **kwargs):
+      observed.append(os.environ.get("MLIR_DUMP_PATH"))
+      return original_warmup(*args, **kwargs)
+
+    kernel.warmup = recording_warmup
+    with (
+      tempfile.TemporaryDirectory() as directory,
+      mock.patch.dict("os.environ", {"REFRACTIR_TRITON_PASS_DUMP": "1"}, clear=True),
+    ):
+      artifact_dir = self.run_worker(Path(directory), kernel)
+
+    self.assertEqual(observed, [str(artifact_dir / "compiler-pass-dump.txt")])
+
+  def test_interpreter_run_does_not_request_pass_dumps(self):
+    with (
+      tempfile.TemporaryDirectory() as directory,
+      mock.patch.dict("os.environ", {"REFRACTIR_TRITON_PASS_DUMP": "1"}, clear=True),
+    ):
+      self.run_worker(
+        Path(directory), FakeKernel(struct.pack("<8f", *range(8))), mode="interpret"
+      )
+
+      self.assertNotIn("MLIR_DUMP_PATH", os.environ)
 
   def test_runner_lists_worker_timing_artifact(self):
     from test.lib import run_triton_tests

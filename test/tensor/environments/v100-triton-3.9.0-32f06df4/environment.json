@@ -1,0 +1,57 @@
+{
+  "campaign_available": true,
+  "cuda_version": "12.1",
+  "driver_version": "535.274.02",
+  "failure_reasons": [],
+  "gpus": [
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+      "compute_capability": "7.0",
+      "driver_version": "535.274.02",
+      "name": "Tesla V100-SXM2-32GB"
+    }
+  ],
+  "package_lock_file": "package-lock.json",
+  "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+  "python_version": "3.12.15",
+  "refractir_revision": "unavailable",
+  "schema": "refractir.tensor-environment.v1",
+  "status": "environment_available",
+  "torch_version": "2.5.1+cu121",
+  "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+  "triton_version": "3.9.0+git32f06df4"
+}

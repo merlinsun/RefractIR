@@ -18,6 +18,7 @@ import triton
 from triton.experimental import gluon
 from triton.experimental.gluon import language as gl
 
+from test.lib import probe_triton_env
 from test.lib.tensor_compiler_observation import (
   observe_compiler_ir,
   observe_pass_dumps,
@@ -25,7 +26,6 @@ from test.lib.tensor_compiler_observation import (
 from test.lib.tensor_exact_f32 import certify, render_program
 from test.lib.tensor_gluon import generate_layout_plans
 
-TRITON_VERSION = "3.8.0"
 INPUT_VALUES = (1.0, 2.0, 4.0, 8.0)
 DOMAIN = (0, 8)
 ITERATIONS = 2
@@ -301,8 +301,7 @@ def run(
   target_index=TARGET_INDEX,
   layout_seed=LAYOUT_SEED,
 ):
-  if triton.__version__ != TRITON_VERSION:
-    raise RuntimeError(f"expected Triton {TRITON_VERSION}, found {triton.__version__}")
+  probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
     raise RuntimeError("CUDA device is unavailable")
   device_name = torch.cuda.get_device_name()
