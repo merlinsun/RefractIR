@@ -1,0 +1,1042 @@
+{
+ "cross-state": {
+  "confirmed_rematerialization_passes": [
+   "InlinerPass",
+   "CSEPass",
+   "SCCPPass"
+  ],
+  "conversion_moves": [],
+  "conversion_removals": [
+   {
+    "pass": "TritonGPURemoveLayoutConversions",
+    "removed": 8
+   }
+  ],
+  "conversions_by_stage": {
+   "llir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ptx": {
+    "effective": 0,
+    "total": 0
+   },
+   "source": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttgir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttir": {
+    "effective": 0,
+    "total": 0
+   }
+  },
+  "final_loop_construct_count": 0,
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": true,
+   "ttgir": true,
+   "ttir": true
+  },
+  "loop_status_by_required_stage": "unrolled_or_removed",
+  "passes_with_observable_effect": [
+   {
+    "confirmed_rematerializations": 9,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "InlinerPass",
+    "rematerialization": "confirmed_and_unattributed"
+   },
+   {
+    "confirmed_rematerializations": 5,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "CSEPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 5,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "ConvertTritonToTritonGPU",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 3,
+     "matched": 5,
+     "moved": 0,
+     "preserved": 5,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUCoalesce",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 8,
+     "moved": 0,
+     "preserved": 8,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUF32DotTC",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 8,
+     "moved": 0,
+     "preserved": 8,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonNvidiaGPUAssignCGALayoutsPass",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 8
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPURemoveLayoutConversions",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 3,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "SCCPPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": -1,
+    "moved": [],
+    "pass": "SCFToControlFlowPass",
+    "rematerialization": "unattributed_only"
+   }
+  ],
+  "ptx": {
+   "shared_memory_transfer_count": 0,
+   "warp_shuffle_count": 0
+  },
+  "stages": [
+   "llir",
+   "ptx",
+   "source",
+   "ttgir",
+   "ttir"
+  ],
+  "target_pass_evidence": {
+   "TritonGPUOptimizeThreadLocality": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 15
+     }
+    ],
+    "status": "observed",
+    "transition_index": 15,
+    "transition_indices": [
+     15
+    ]
+   },
+   "TritonGPUReduceDataDuplication": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 33
+     }
+    ],
+    "status": "observed",
+    "transition_index": 33,
+    "transition_indices": [
+     33
+    ]
+   },
+   "TritonGPURemoveLayoutConversions": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 12
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 14
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 18
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 31
+     }
+    ],
+    "status": "repeated",
+    "transition_index": null,
+    "transition_indices": [
+     12,
+     14,
+     18,
+     31
+    ]
+   },
+   "TritonLoopInvariantCodeMotion": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 23
+     }
+    ],
+    "status": "observed",
+    "transition_index": 23,
+    "transition_indices": [
+     23
+    ]
+   }
+  }
+ },
+ "mixed-depth": {
+  "confirmed_rematerialization_passes": [
+   "InlinerPass",
+   "CSEPass",
+   "SCCPPass"
+  ],
+  "conversion_moves": [],
+  "conversion_removals": [
+   {
+    "pass": "TritonGPURemoveLayoutConversions",
+    "removed": 11
+   }
+  ],
+  "conversions_by_stage": {
+   "llir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ptx": {
+    "effective": 0,
+    "total": 0
+   },
+   "source": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttgir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttir": {
+    "effective": 0,
+    "total": 0
+   }
+  },
+  "final_loop_construct_count": 0,
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": true,
+   "ttgir": true,
+   "ttir": true
+  },
+  "loop_status_by_required_stage": "unrolled_or_removed",
+  "passes_with_observable_effect": [
+   {
+    "confirmed_rematerializations": 9,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "InlinerPass",
+    "rematerialization": "confirmed_and_unattributed"
+   },
+   {
+    "confirmed_rematerializations": 5,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "CSEPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 8,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "ConvertTritonToTritonGPU",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 3,
+     "matched": 8,
+     "moved": 0,
+     "preserved": 8,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUCoalesce",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 11,
+     "moved": 0,
+     "preserved": 11,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUF32DotTC",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 11,
+     "moved": 0,
+     "preserved": 11,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonNvidiaGPUAssignCGALayoutsPass",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 11
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPURemoveLayoutConversions",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 3,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "SCCPPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": -1,
+    "moved": [],
+    "pass": "SCFToControlFlowPass",
+    "rematerialization": "unattributed_only"
+   }
+  ],
+  "ptx": {
+   "shared_memory_transfer_count": 0,
+   "warp_shuffle_count": 6
+  },
+  "stages": [
+   "llir",
+   "ptx",
+   "source",
+   "ttgir",
+   "ttir"
+  ],
+  "target_pass_evidence": {
+   "TritonGPUOptimizeThreadLocality": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 15
+     }
+    ],
+    "status": "observed",
+    "transition_index": 15,
+    "transition_indices": [
+     15
+    ]
+   },
+   "TritonGPUReduceDataDuplication": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 33
+     }
+    ],
+    "status": "observed",
+    "transition_index": 33,
+    "transition_indices": [
+     33
+    ]
+   },
+   "TritonGPURemoveLayoutConversions": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 12
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 14
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 18
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 31
+     }
+    ],
+    "status": "repeated",
+    "transition_index": null,
+    "transition_indices": [
+     12,
+     14,
+     18,
+     31
+    ]
+   },
+   "TritonLoopInvariantCodeMotion": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 23
+     }
+    ],
+    "status": "observed",
+    "transition_index": 23,
+    "transition_indices": [
+     23
+    ]
+   }
+  }
+ },
+ "orthogonal-reductions": {
+  "confirmed_rematerialization_passes": [
+   "InlinerPass",
+   "CSEPass",
+   "SCCPPass"
+  ],
+  "conversion_moves": [],
+  "conversion_removals": [
+   {
+    "pass": "TritonGPURemoveLayoutConversions",
+    "removed": 15
+   }
+  ],
+  "conversions_by_stage": {
+   "llir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ptx": {
+    "effective": 0,
+    "total": 0
+   },
+   "source": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttgir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttir": {
+    "effective": 0,
+    "total": 0
+   }
+  },
+  "final_loop_construct_count": 0,
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": true,
+   "ttgir": true,
+   "ttir": true
+  },
+  "loop_status_by_required_stage": "unrolled_or_removed",
+  "passes_with_observable_effect": [
+   {
+    "confirmed_rematerializations": 9,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "InlinerPass",
+    "rematerialization": "confirmed_and_unattributed"
+   },
+   {
+    "confirmed_rematerializations": 5,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "CSEPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 12,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "ConvertTritonToTritonGPU",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 3,
+     "matched": 12,
+     "moved": 0,
+     "preserved": 12,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUCoalesce",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 15,
+     "moved": 0,
+     "preserved": 15,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUF32DotTC",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 15,
+     "moved": 0,
+     "preserved": 15,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonNvidiaGPUAssignCGALayoutsPass",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 15
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPURemoveLayoutConversions",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 3,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "SCCPPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": -1,
+    "moved": [],
+    "pass": "SCFToControlFlowPass",
+    "rematerialization": "unattributed_only"
+   }
+  ],
+  "ptx": {
+   "shared_memory_transfer_count": 0,
+   "warp_shuffle_count": 10
+  },
+  "stages": [
+   "llir",
+   "ptx",
+   "source",
+   "ttgir",
+   "ttir"
+  ],
+  "target_pass_evidence": {
+   "TritonGPUOptimizeThreadLocality": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 15
+     }
+    ],
+    "status": "observed",
+    "transition_index": 15,
+    "transition_indices": [
+     15
+    ]
+   },
+   "TritonGPUReduceDataDuplication": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 33
+     }
+    ],
+    "status": "observed",
+    "transition_index": 33,
+    "transition_indices": [
+     33
+    ]
+   },
+   "TritonGPURemoveLayoutConversions": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 12
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 14
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 18
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 31
+     }
+    ],
+    "status": "repeated",
+    "transition_index": null,
+    "transition_indices": [
+     12,
+     14,
+     18,
+     31
+    ]
+   },
+   "TritonLoopInvariantCodeMotion": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 23
+     }
+    ],
+    "status": "observed",
+    "transition_index": 23,
+    "transition_indices": [
+     23
+    ]
+   }
+  }
+ },
+ "reduction-arithmetic": {
+  "confirmed_rematerialization_passes": [
+   "InlinerPass",
+   "CSEPass",
+   "SCCPPass"
+  ],
+  "conversion_moves": [],
+  "conversion_removals": [
+   {
+    "pass": "TritonGPURemoveLayoutConversions",
+    "removed": 11
+   }
+  ],
+  "conversions_by_stage": {
+   "llir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ptx": {
+    "effective": 0,
+    "total": 0
+   },
+   "source": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttgir": {
+    "effective": 0,
+    "total": 0
+   },
+   "ttir": {
+    "effective": 0,
+    "total": 0
+   }
+  },
+  "final_loop_construct_count": 0,
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": true,
+   "ttgir": true,
+   "ttir": true
+  },
+  "loop_status_by_required_stage": "unrolled_or_removed",
+  "passes_with_observable_effect": [
+   {
+    "confirmed_rematerializations": 9,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "InlinerPass",
+    "rematerialization": "confirmed_and_unattributed"
+   },
+   {
+    "confirmed_rematerializations": 5,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "CSEPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 8,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "ConvertTritonToTritonGPU",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 3,
+     "matched": 8,
+     "moved": 0,
+     "preserved": 8,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUCoalesce",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 11,
+     "moved": 0,
+     "preserved": 11,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPUF32DotTC",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 11,
+     "moved": 0,
+     "preserved": 11,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonNvidiaGPUAssignCGALayoutsPass",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 11
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "TritonGPURemoveLayoutConversions",
+    "rematerialization": "none"
+   },
+   {
+    "confirmed_rematerializations": 3,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": 0,
+    "moved": [],
+    "pass": "SCCPPass",
+    "rematerialization": "confirmed_only"
+   },
+   {
+    "confirmed_rematerializations": 0,
+    "conversion_match": {
+     "added": 0,
+     "matched": 0,
+     "moved": 0,
+     "preserved": 0,
+     "removed": 0
+    },
+    "loop_delta": -1,
+    "moved": [],
+    "pass": "SCFToControlFlowPass",
+    "rematerialization": "unattributed_only"
+   }
+  ],
+  "ptx": {
+   "shared_memory_transfer_count": 0,
+   "warp_shuffle_count": 4
+  },
+  "stages": [
+   "llir",
+   "ptx",
+   "source",
+   "ttgir",
+   "ttir"
+  ],
+  "target_pass_evidence": {
+   "TritonGPUOptimizeThreadLocality": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 15
+     }
+    ],
+    "status": "observed",
+    "transition_index": 15,
+    "transition_indices": [
+     15
+    ]
+   },
+   "TritonGPUReduceDataDuplication": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 33
+     }
+    ],
+    "status": "observed",
+    "transition_index": 33,
+    "transition_indices": [
+     33
+    ]
+   },
+   "TritonGPURemoveLayoutConversions": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 12
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 14
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 18
+     },
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 31
+     }
+    ],
+    "status": "repeated",
+    "transition_index": null,
+    "transition_indices": [
+     12,
+     14,
+     18,
+     31
+    ]
+   },
+   "TritonLoopInvariantCodeMotion": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 23
+     }
+    ],
+    "status": "observed",
+    "transition_index": 23,
+    "transition_indices": [
+     23
+    ]
+   }
+  }
+ }
+}

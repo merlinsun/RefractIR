@@ -13,6 +13,21 @@ class GeneratedGluonKernel:
   shape: tuple[int, int]
   iterations: int
   conversion_source_lines: dict[int, str]
+  # Identifiers of the constexpr layout parameters, in signature order. A
+  # caller supplying a plan passes the matching layout objects positionally.
+  layout_parameters: tuple[str, ...] = ()
+
+  def layout_arguments(self, layouts):
+    """Map each layout parameter to the plan object that names it."""
+    by_identifier = {_layout_identifier(layout.name): layout for layout in layouts}
+    missing = [
+      identifier
+      for identifier in self.layout_parameters
+      if identifier not in by_identifier
+    ]
+    if missing:
+      raise ValueError(f"layout parameters without a plan object: {missing}")
+    return [by_identifier[identifier] for identifier in self.layout_parameters]
 
 
 def _shape_layout(shape, full_shape, parent):
@@ -185,15 +200,17 @@ def render_gluon_kernel(source, *, plan=None):
   emit(
     f"    acc_y = gl.zeros(({rows}, {columns}), gl.float32, layout={compute_layout})"
   )
-  emit(f"    for _ in range({iterations}):")
-
   if state_layout is not None:
+    # A loop-carried value keeps one type for the whole loop, so the state
+    # layout is established before the loop and the assigned roots are
+    # converted into it. The body's own operations stay in the compute layout.
     for state in ("acc_x", "acc_y"):
       emit(
-        f"        {state} = gl.convert_layout({state}, {compute_layout})",
-        conversion=f"{state}_from_state_layout",
+        f"    {state} = gl.convert_layout({state}, {state_layout})",
+        conversion=f"{state}_to_state_layout",
       )
-      current_layouts[state] = compute_layout
+      current_layouts[state] = state_layout
+  emit(f"    for _ in range({iterations}):")
 
   value_names = {"acc_x": "acc_x", "acc_y": "acc_y"}
   for index, (destination, _operation, _operands, _attribute) in enumerate(nodes):
@@ -234,6 +251,16 @@ def render_gluon_kernel(source, *, plan=None):
       )
       if tuple(result_shape) == shape:
         reference = "acc_x"
+        if plan is not None and current_layouts.get("acc_x") != target_layout:
+          # The broadcast reference is a value, not just a shape, so it has to
+          # carry the layout the result will have.
+          reference = f"acc_x_view_{target_layout}"
+          if reference not in view_names:
+            emit(
+              f"        {reference} = gl.convert_layout(acc_x, {target_layout})",
+              conversion=f"region_broadcast_{index}_reference_layout",
+            )
+            view_names.add(reference)
       else:
         emit(
           f"        {value}_reference = gl.zeros({tuple(result_shape)!r}, "
@@ -268,16 +295,16 @@ def render_gluon_kernel(source, *, plan=None):
       current_layouts[value] = target_layout
 
   for state, root in updates:
-    emit(f"        {state} = {value_names[root]}")
-    current_layouts[state] = current_layouts.get(value_names[root], compute_layout)
-
-  if state_layout is not None:
-    for state in ("acc_x", "acc_y"):
+    root_value = value_names[root]
+    if state_layout is not None and current_layouts.get(root_value) != state_layout:
       emit(
-        f"        {state} = gl.convert_layout({state}, {state_layout})",
+        f"        {state} = gl.convert_layout({root_value}, {state_layout})",
         conversion=f"{state}_to_state_layout",
       )
       current_layouts[state] = state_layout
+    else:
+      emit(f"        {state} = {root_value}")
+      current_layouts[state] = current_layouts.get(root_value, compute_layout)
 
   emit("    out_left, out_right = gl.broadcast(acc_x, acc_y)")
   emit("    output = out_left + out_right")
@@ -300,5 +327,9 @@ def render_gluon_kernel(source, *, plan=None):
   )
   emit("    gl.store(output_ptr + store_offsets, output)")
   return GeneratedGluonKernel(
-    "\n".join(lines) + "\n", shape, iterations, conversion_source_lines
+    "\n".join(lines) + "\n",
+    shape,
+    iterations,
+    conversion_source_lines,
+    tuple(constexpr_layouts),
   )

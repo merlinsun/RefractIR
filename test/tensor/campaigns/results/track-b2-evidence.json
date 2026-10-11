@@ -1,0 +1,317 @@
+{
+ "case_000000": {
+  "element_offset": 1,
+  "element_strides": [
+   32,
+   1
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   1,
+   9
+  ],
+  "ptx_shuffles": 30,
+  "shape": [
+   8,
+   31
+  ],
+  "shared_memory_transfers": 10,
+  "storage_span": 256,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000001": {
+  "element_offset": 2,
+  "element_strides": [
+   1,
+   32
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   1,
+   32
+  ],
+  "ptx_shuffles": 16,
+  "shape": [
+   31,
+   8
+  ],
+  "shared_memory_transfers": 4,
+  "storage_span": 257,
+  "tile_shape": [
+   32,
+   8
+  ]
+ },
+ "case_000002": {
+  "element_offset": 2,
+  "element_strides": [
+   1,
+   11
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   34,
+   1
+  ],
+  "ptx_shuffles": 12,
+  "shape": [
+   8,
+   31
+  ],
+  "shared_memory_transfers": 12,
+  "storage_span": 340,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000003": {
+  "element_offset": 0,
+  "element_strides": [
+   32,
+   1
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   33,
+   1
+  ],
+  "ptx_shuffles": 16,
+  "shape": [
+   8,
+   31
+  ],
+  "shared_memory_transfers": 4,
+  "storage_span": 255,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000004": {
+  "element_offset": 2,
+  "element_strides": [
+   33,
+   1
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   33,
+   1
+  ],
+  "ptx_shuffles": 100,
+  "shape": [
+   8,
+   31
+  ],
+  "shared_memory_transfers": 32,
+  "storage_span": 264,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000005": {
+  "element_offset": 1,
+  "element_strides": [
+   1,
+   11
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   1,
+   11
+  ],
+  "ptx_shuffles": 16,
+  "shape": [
+   8,
+   31
+  ],
+  "shared_memory_transfers": 8,
+  "storage_span": 339,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000006": {
+  "element_offset": 2,
+  "element_strides": [
+   34,
+   1
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   9,
+   1
+  ],
+  "ptx_shuffles": 16,
+  "shape": [
+   8,
+   31
+  ],
+  "shared_memory_transfers": 4,
+  "storage_span": 271,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000007": {
+  "element_offset": 2,
+  "element_strides": [
+   1,
+   11
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   8,
+   31
+  ],
+  "output_strides": [
+   1,
+   34
+  ],
+  "ptx_shuffles": 8,
+  "shape": [
+   8,
+   31
+  ],
+  "shared_memory_transfers": 19,
+  "storage_span": 340,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000008": {
+  "element_offset": 0,
+  "element_strides": [
+   1,
+   65
+  ],
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "source": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "loop_status": "unrolled_or_removed",
+  "mask_extents": [
+   1,
+   4,
+   63
+  ],
+  "output_strides": [
+   1,
+   64
+  ],
+  "ptx_shuffles": 24,
+  "shape": [
+   63,
+   4
+  ],
+  "shared_memory_transfers": 0,
+  "storage_span": 258,
+  "tile_shape": [
+   64,
+   4
+  ]
+ }
+}
