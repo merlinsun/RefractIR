@@ -1,5 +1,12 @@
 {
  "cross-state": {
+  "backedges_per_stage": {
+   "llir": 0,
+   "ptx": 0,
+   "source": 0,
+   "ttgir": 0,
+   "ttir": 0
+  },
   "confirmed_rematerialization_passes": [
    "InlinerPass",
    "CSEPass",
@@ -35,6 +42,13 @@
    }
   },
   "final_loop_construct_count": 0,
+  "loop_evidence": {
+   "llir": null,
+   "ptx": null,
+   "source": "mlir-construct",
+   "ttgir": "mlir-construct",
+   "ttir": "mlir-construct"
+  },
   "loop_presence": {
    "llir": false,
    "ptx": false,
@@ -260,6 +274,13 @@
   }
  },
  "mixed-depth": {
+  "backedges_per_stage": {
+   "llir": 0,
+   "ptx": 0,
+   "source": 0,
+   "ttgir": 0,
+   "ttir": 0
+  },
   "confirmed_rematerialization_passes": [
    "InlinerPass",
    "CSEPass",
@@ -295,6 +316,13 @@
    }
   },
   "final_loop_construct_count": 0,
+  "loop_evidence": {
+   "llir": null,
+   "ptx": null,
+   "source": "mlir-construct",
+   "ttgir": "mlir-construct",
+   "ttir": "mlir-construct"
+  },
   "loop_presence": {
    "llir": false,
    "ptx": false,
@@ -520,6 +548,13 @@
   }
  },
  "orthogonal-reductions": {
+  "backedges_per_stage": {
+   "llir": 0,
+   "ptx": 0,
+   "source": 0,
+   "ttgir": 0,
+   "ttir": 0
+  },
   "confirmed_rematerialization_passes": [
    "InlinerPass",
    "CSEPass",
@@ -555,6 +590,13 @@
    }
   },
   "final_loop_construct_count": 0,
+  "loop_evidence": {
+   "llir": null,
+   "ptx": null,
+   "source": "mlir-construct",
+   "ttgir": "mlir-construct",
+   "ttir": "mlir-construct"
+  },
   "loop_presence": {
    "llir": false,
    "ptx": false,
@@ -780,6 +822,13 @@
   }
  },
  "reduction-arithmetic": {
+  "backedges_per_stage": {
+   "llir": 0,
+   "ptx": 0,
+   "source": 0,
+   "ttgir": 0,
+   "ttir": 0
+  },
   "confirmed_rematerialization_passes": [
    "InlinerPass",
    "CSEPass",
@@ -815,6 +864,13 @@
    }
   },
   "final_loop_construct_count": 0,
+  "loop_evidence": {
+   "llir": null,
+   "ptx": null,
+   "source": "mlir-construct",
+   "ttgir": "mlir-construct",
+   "ttir": "mlir-construct"
+  },
   "loop_presence": {
    "llir": false,
    "ptx": false,

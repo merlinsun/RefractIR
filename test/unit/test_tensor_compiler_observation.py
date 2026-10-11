@@ -237,6 +237,90 @@ class TensorCompilerLoopStageTests(unittest.TestCase):
     self.assertEqual(report["loop_presence"], {"ttir": True, "ttgir": None})
 
 
+class TensorCompilerBackedgeTests(unittest.TestCase):
+  """A lowered loop is still a loop: later stages encode it as a backedge."""
+
+  _PTX = """\
+//
+.version 8.8
+.target sm_70
+$L__BB0_1:
+@%p1 bra $L__BB0_1;
+bra.uni $L__BB0_1;
+bra $L__BB0_3;
+$L__BB0_3:
+ret;
+"""
+
+  def test_ptx_backedge_counts_as_a_retained_device_loop(self):
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ttgir": _STRAIGHT_LINE_BODY, "ptx": self._PTX},
+      expected_loop=True,
+      loop_required_stages=("ptx",),
+    )
+
+    self.assertEqual(report["loop_status"], "retained")
+    self.assertEqual(report["loop_presence"]["ptx"], True)
+    self.assertEqual(report["stages"]["ptx"]["backedge_count"], 2)
+    self.assertEqual(report["loop_evidence"]["ptx"], "backedge")
+
+  def test_forward_branch_is_not_a_loop(self):
+    forward = """\
+$L__BB0_1:
+bra $L__BB0_3;
+$L__BB0_3:
+ret;
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ptx": forward}, expected_loop=True, loop_required_stages=("ptx",)
+    )
+
+    self.assertEqual(report["stages"]["ptx"]["backedge_count"], 0)
+    self.assertEqual(report["loop_status"], "unrolled_or_removed")
+
+  def test_llvm_ir_backedge_counts_as_a_retained_loop(self):
+    llir = """\
+define void @k() {
+entry:
+  br label %loop
+loop:
+  br i1 %c, label %loop, label %exit
+exit:
+  ret void
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 1)
+    self.assertEqual(report["loop_status"], "retained")
+
+  def test_lowered_mlir_loop_counts_as_present(self):
+    lowered = """\
+module {
+  cf.br ^bb1
+^bb1:
+  cf.br ^bb1
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ttgir": lowered}, expected_loop=True, loop_required_stages=("ttgir",)
+    )
+
+    self.assertEqual(report["stages"]["ttgir"]["loop_construct_count"], 0)
+    self.assertEqual(report["stages"]["ttgir"]["backedge_count"], 1)
+    self.assertEqual(report["loop_status"], "retained")
+    self.assertEqual(report["loop_evidence"]["ttgir"], "backedge")
+
+  def test_mlir_construct_reports_its_own_evidence(self):
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ttir": _LOOP_BODY}, expected_loop=True, loop_required_stages=("ttir",)
+    )
+
+    self.assertEqual(report["loop_evidence"]["ttir"], "mlir-construct")
+
+
 class TensorCompilerConversionIdentityTests(unittest.TestCase):
   """Encodings are compared by definition, not by alias name."""
 

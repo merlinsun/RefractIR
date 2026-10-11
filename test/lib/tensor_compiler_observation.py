@@ -126,6 +126,49 @@ def _region_map(text):
   return regions
 
 
+_PTX_LABEL = re.compile(r"^\s*(\$[\w$.]+):")
+_LLVM_LABEL = re.compile(r"^\s*([A-Za-z_][\w.$]*):")
+_PTX_BRANCH = re.compile(r"^\s*(?:@[%!]?[\w$.]+\s+)?bra(?:\.uni)?\s+(\$[\w$.]+)")
+_LLVM_BRANCH = re.compile(r"\bbr\b[^\n]*?\blabel\s+%([\w.$]+)")
+_MLIR_LABEL = re.compile(r"^\s*(\^[\w$.]+):")
+_MLIR_BRANCH = re.compile(r"\b(?:cf\.)?br\s+(\^[\w$.]+)")
+
+
+def _backedge_count(text):
+  """Count branches whose target label is already defined earlier in the text.
+
+  PTX and LLVM IR encode a loop as a backward branch, and a lowered MLIR stage
+  encodes it as a branch to an earlier block. Counting only structured MLIR
+  operations would report a device loop as removed the moment it is lowered out
+  of `scf`, which is a lowering rather than an unrolling decision.
+  """
+  definitions = {}
+  backedges = 0
+  for index, line in enumerate(text.splitlines()):
+    ptx_label = _PTX_LABEL.match(line)
+    llvm_label = _LLVM_LABEL.match(line)
+    mlir_label = _MLIR_LABEL.match(line)
+    if ptx_label:
+      definitions.setdefault(("ptx", ptx_label[1]), index)
+    elif mlir_label:
+      definitions.setdefault(("mlir", mlir_label[1]), index)
+    elif llvm_label and not line.strip().startswith("//"):
+      definitions.setdefault(("llvm", llvm_label[1]), index)
+    ptx_branch = _PTX_BRANCH.match(line)
+    if ptx_branch and definitions.get(("ptx", ptx_branch[1]), index) < index:
+      backedges += 1
+      continue
+    for target in _MLIR_BRANCH.findall(line):
+      if definitions.get(("mlir", target), index) < index:
+        backedges += 1
+        break
+    else:
+      for target in _LLVM_BRANCH.findall(line):
+        if definitions.get(("llvm", target), index) < index:
+          backedges += 1
+  return backedges
+
+
 def _stage_observation(text):
   lines = text.splitlines()
   locations = _location_definitions(text)
@@ -210,6 +253,7 @@ def _stage_observation(text):
     "duplicate_expressions": duplicates,
     "loop_construct_count": len(loops),
     "loop_constructs": loops,
+    "backedge_count": _backedge_count(text),
     "layout_conversions": conversions,
   }
 
@@ -302,15 +346,29 @@ def observe_compiler_ir(
   required_stages = (
     list(artifacts) if loop_required_stages is None else list(loop_required_stages)
   )
-  loop_presence = {
-    stage: stages[stage]["loop_construct_count"] > 0 if stage in stages else None
-    for stage in dict.fromkeys(list(artifacts) + required_stages)
-  }
+  loop_evidence = {}
+  loop_presence = {}
+  for stage in dict.fromkeys(list(artifacts) + required_stages):
+    if stage not in stages:
+      # A stage that was never measured is unavailable, not loop-free.
+      loop_evidence[stage] = None
+      loop_presence[stage] = None
+      continue
+    if stages[stage]["loop_construct_count"] > 0:
+      loop_evidence[stage] = "mlir-construct"
+    elif stages[stage]["backedge_count"] > 0:
+      loop_evidence[stage] = "backedge"
+    else:
+      loop_evidence[stage] = None
+    loop_presence[stage] = loop_evidence[stage] is not None
+  required_presence = [loop_presence[stage] for stage in required_stages]
   if not expected_loop:
     loop_status = "not_applicable"
-  elif any(present is None for present in loop_presence.values()):
+  elif not required_stages:
     loop_status = "unavailable"
-  elif all(loop_presence.values()):
+  elif any(present is None for present in required_presence):
+    loop_status = "unavailable"
+  elif all(required_presence):
     loop_status = "retained"
   else:
     loop_status = "unrolled_or_removed"
@@ -324,6 +382,7 @@ def observe_compiler_ir(
     "effective_conversion_operations": sorted(observed_operations),
     "loop_status": loop_status,
     "loop_presence": loop_presence,
+    "loop_evidence": loop_evidence,
     "loop_required_stages": required_stages,
     "loop_stages": loop_stages,
     "interpretation_limit": (

@@ -28,9 +28,9 @@ Observations:
 
 * The four families reach different conversion counts under one pipeline, so
   the connection skeleton changes what the layout passes see.
-* These small cases are unrolled before the device, so this table alone does
-  **not** show a layout decision inside a retained loop; the retained-loop run
-  below does.
+* These small cases still hold the loop in TTGIR, but LLVM unrolls it before
+  PTX, so this table alone does **not** show a layout decision that reaches a
+  device loop; the retained-loop run below does.
 * `TritonGPUReduceDataDuplication`, `TritonGPUOptimizeThreadLocality`, and
   `TritonLoopInvariantCodeMotion` each report one measurable transition per
   compilation (`target_pass_evidence` in `track-a-evidence.json`).
@@ -38,9 +38,13 @@ Observations:
   with redirected uses appears only in `InlinerPass`, `CSEPass`, and `SCCPPass`.
   Per the plan, a layout result without rematerialization is useful evidence but
   does not satisfy a rematerialization claim.
-* In these small cases the counted loop is not retained: two-to-three-trip
-  loops over 32 elements are unrolled before the device. Loop retention is a
-  size and bound effect, and the next section reaches it.
+* In these small cases the counted loop survives TTIR and TTGIR (one `scf.for`
+  in each) and is gone by LLIR: `SCFToControlFlow` lowers it and the LLVM
+  pipeline then fully unrolls it, so the PTX has no backedge. An earlier
+  reading of this record said the loop was already removed before TTGIR; that
+  was an observer defect (loop detection only recognised structured MLIR
+  operations, so any lowered stage counted as loop-free) and is corrected here.
+  The next section shows a configuration that reaches PTX with a backedge.
 
 ## Track A, second run: a retained loop with a layout decision inside it
 
@@ -58,7 +62,7 @@ their complete 2048-byte references: both pass, both `campaign_valid`
 
 | Observation | Result |
 |---|---|
-| TTGIR / TTIR loop constructs | 1 / 1 |
+| TTGIR / TTIR loop constructs | 1 / 1 (`mlir-construct` evidence) |
 | `RemoveLayoutConversions` occurrences | 4, loop present before and after every one |
 | Conversions removed by that pass | 12, with `loop_construct_delta` 0 |
 | Loop removal | `SCFToControlFlowPass`, `loop_construct_delta` -1 |
