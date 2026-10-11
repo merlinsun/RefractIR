@@ -109,10 +109,18 @@ def _buffer_layout(record, profile):
 
 
 def _read_inputs(case_dir, manifest, *, device, envelope, profile):
-  """Stage every input, in an envelope when the case declares guards."""
+  """Stage every input, in an envelope when the case declares guards.
+
+  Returns the kernel arguments, the host bytes each staged allocation started
+  with, and the device buffer a write outside the tensor would land in. A
+  guarded input is handed to the kernel as a view that starts at the guard
+  prefix, because the recorded offsets address the tensor inside its
+  allocation, while the view keeps sharing storage with the whole buffer.
+  """
   raw = (case_dir / "inputs.bin").read_bytes()
   inputs = []
   physical_inputs = []
+  staged_buffers = []
   for record in manifest["inputs"]:
     begin = record["byte_offset"]
     end = begin + record["byte_length"]
@@ -122,6 +130,7 @@ def _read_inputs(case_dir, manifest, *, device, envelope, profile):
     if record["dtype"] == "f32" and not bool(torch.isfinite(host).all()):
       raise ValueError(f"input {record['name']} contains non-finite values")
     physical = raw[begin:end]
+    guarded = envelope.declared and bool(profile) and bool(record["shape"])
     if profile and record["shape"]:
       layout = _buffer_layout(record, profile)
       if envelope.declared:
@@ -146,9 +155,17 @@ def _read_inputs(case_dir, manifest, *, device, envelope, profile):
         )
       host = torch.frombuffer(bytearray(staged), dtype=dtype).clone()
       physical = staged
-    inputs.append(host.to(device))
+    device_buffer = host.to(device)
+    inputs.append(
+      device_buffer[
+        envelope.guards.prefix : envelope.guards.prefix + record["storage_span"]
+      ]
+      if guarded
+      else device_buffer
+    )
     physical_inputs.append(physical)
-  return inputs, physical_inputs
+    staged_buffers.append(device_buffer)
+  return inputs, physical_inputs, staged_buffers
 
 
 def _initial_output(output_record, canary, envelope, *, profile):
@@ -316,7 +333,7 @@ def execute(case_dir, mode, artifacts_dir=None):
     try:
       envelope = _envelope(manifest) if "execution" in manifest else _no_envelope()
       profile = _LAYOUT_PROFILES.get(manifest["profile"])
-      inputs, initial_inputs = _read_inputs(
+      inputs, initial_inputs, staged_inputs = _read_inputs(
         case_dir, manifest, device=device, envelope=envelope, profile=profile
       )
       output_record = manifest["output"]
@@ -329,17 +346,26 @@ def execute(case_dir, mode, artifacts_dir=None):
         initial_output = _initial_output(
           output_record, canary, envelope, profile=profile
         )
-        output = (
+        output_buffer = (
           torch.frombuffer(bytearray(initial_output), dtype=output_dtype)
           .clone()
           .to(device)
         )
+        output = (
+          output_buffer[
+            envelope.guards.prefix : envelope.guards.prefix
+            + output_record["storage_span"]
+          ]
+          if envelope.declared
+          else output_buffer
+        )
       else:
         output_count = output_record["byte_length"] // 4
         fill_value = _I32_SENTINEL if output_record["dtype"] == "i32" else float("nan")
-        output = torch.full(
+        output_buffer = torch.full(
           (output_count,), fill_value, dtype=output_dtype, device=device
         )
+        output = output_buffer
       if envelope.declared:
         (artifacts_dir / "worker-staging.json").write_text(
           json.dumps(
@@ -402,7 +428,11 @@ def execute(case_dir, mode, artifacts_dir=None):
 
     materialize_started = time.perf_counter()
     try:
-      physical = _host_bytes(output)
+      # The checks compare the whole allocation, so they read the buffer the
+      # kernel's view points into rather than the view itself.
+      physical = _host_bytes(
+        output_buffer if envelope.declared and output_record["shape"] else output
+      )
       if profile:
         if envelope.declared and output_record["shape"]:
           begin = output_record["byte_offset"]
@@ -451,10 +481,10 @@ def execute(case_dir, mode, artifacts_dir=None):
         result = physical
       (artifacts_dir / "actual.bin").write_bytes(result)
       if profile == "v3" or (envelope.declared and profile):
-        for record, (input_tensor, initial) in zip(
-          manifest["inputs"], zip(inputs, initial_inputs)
+        for record, (staged_input, initial) in zip(
+          manifest["inputs"], zip(staged_inputs, initial_inputs)
         ):
-          actual_input = _host_bytes(input_tensor)
+          actual_input = _host_bytes(staged_input)
           if actual_input == initial:
             continue
           changed = _modified_input_slots(

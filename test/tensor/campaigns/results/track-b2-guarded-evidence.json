@@ -1,0 +1,88 @@
+{
+ "no-guards": {
+  "actual_sha256": "f5d5a7f8d8eef438cc862673bd53c2ee0c98c85b6654617a39eef74592169070",
+  "buffers": null,
+  "case_padding": null,
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": null,
+  "logical_bytes": 2048,
+  "padding_by_dtype": null
+ },
+ "pattern-a": {
+  "actual_sha256": "f5d5a7f8d8eef438cc862673bd53c2ee0c98c85b6654617a39eef74592169070",
+  "buffers": [
+   {
+    "name": "x",
+    "physical_length": 2080,
+    "role": "input",
+    "storage_span": 512
+   },
+   {
+    "name": "return",
+    "physical_length": 2080,
+    "role": "output",
+    "storage_span": 512
+   }
+  ],
+  "case_padding": {
+   "f32": "3f800001",
+   "i32": "55555555"
+  },
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "logical_bytes": 2048,
+  "padding_by_dtype": {
+   "f32": "3f800001",
+   "i32": "55555555"
+  }
+ },
+ "pattern-b": {
+  "actual_sha256": "f5d5a7f8d8eef438cc862673bd53c2ee0c98c85b6654617a39eef74592169070",
+  "buffers": [
+   {
+    "name": "x",
+    "physical_length": 2080,
+    "role": "input",
+    "storage_span": 512
+   },
+   {
+    "name": "return",
+    "physical_length": 2080,
+    "role": "output",
+    "storage_span": 512
+   }
+  ],
+  "case_padding": {
+   "f32": "3f800002",
+   "i32": "aaaaaaaa"
+  },
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "logical_bytes": 2048,
+  "padding_by_dtype": {
+   "f32": "3f800002",
+   "i32": "aaaaaaaa"
+  }
+ }
+}

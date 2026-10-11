@@ -127,11 +127,29 @@ Observations:
   refuses the kernel, which is why the plan asks for consistent loop-state
   layouts across the backedge.
 
+## Track B, second run: guarded allocations on the device
+
+Three cases of the admitted `mixed-depth` `[32, 16]` four-trip region were built
+through the exact builder: one with a `(3, 5)` guard envelope and padding
+`55555555`, one with the same envelope and padding `aaaaaaaa`, and one with no
+envelope as a control. All three pass on the device against their complete
+references with `campaign_valid` (`track-b2-guarded-evidence.json`); the
+per-case `worker-staging.json` records the guards, the padding, and a 2080-byte
+physical allocation around a 2048-byte logical tensor.
+
+The first device attempt of this run failed: with the whole guarded allocation
+handed to the kernel, the recorded element offsets addressed the tensor as if
+it started at slot 0, so the kernel read three slots early. Guarded inputs and
+outputs are now handed over as views that start at the guard prefix while
+sharing storage with the whole allocation, which keeps the record's addressing
+correct and still lets the worker refuse a write into a guard, gap, or logical
+slot by name.
+
 ## Gaps and controls
 
-* Two padding patterns and allocated guard envelopes are implemented and
-  host-tested; no device run used them yet, so no guard-write observation is
-  claimed.
+* Guard *detection* is verified on the host (a mutated allocation is refused by
+  slot name) but not on the device: no run has yet executed a kernel that
+  deliberately writes outside its tensor.
 * Ranks, warps, and layouts beyond the runs above are untouched; the run
   counts here are far below the plan's per-track budgets.
 * No new compiler failure was found. The differences reported above are

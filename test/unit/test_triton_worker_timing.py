@@ -48,12 +48,19 @@ class FakeTensor:
 
 class FakeKernel:
   def __init__(
-    self, output_bytes, *, compile_error=None, runtime_error=None, corrupt=None
+    self,
+    output_bytes,
+    *,
+    compile_error=None,
+    runtime_error=None,
+    corrupt=None,
+    output_corrupt=False,
   ):
     self.output_bytes = output_bytes
     self.compile_error = compile_error
     self.runtime_error = runtime_error
     self.corrupt = corrupt
+    self.output_corrupt = output_corrupt
 
   def warmup(self, *_args, **_kwargs):
     if self.compile_error:
@@ -64,7 +71,10 @@ class FakeKernel:
     def launch(*args, **_kwargs):
       if self.runtime_error:
         raise self.runtime_error
-      args[-1].data = self.output_bytes
+      payload = bytearray(self.output_bytes)
+      if self.output_corrupt:
+        payload[0:4] = b"\xde\xad\xbe\xef"
+      args[-1].data = bytes(payload)
       if self.corrupt is not None:
         args[0].data = self.corrupt
 
@@ -92,13 +102,27 @@ class RecordingTensor(FakeTensor):
   """A stand-in device tensor that copies buffers and records its transfers.
 
   A real tensor copy owns its storage, so mutating one buffer must never be
-  visible in another; the tape keeps every buffer handed to the device.
+  visible in another; the tape keeps every buffer handed to the device. A slice
+  of a device tensor shares storage with it, which is how a guarded run hands
+  the kernel a view at the guard prefix while the worker still validates the
+  whole allocation.
   """
 
-  def __init__(self, data=b"", *, dtype=None, tape=None):
-    super().__init__(data)
+  def __init__(self, data=b"", *, dtype=None, tape=None, parent=None, start=0):
+    self._buffer = bytearray(data) if parent is None else parent._buffer
+    self.start = start
+    self._length = len(data)
     self.dtype = dtype
     self.tape = tape
+    self.parent = parent
+
+  @property
+  def data(self):
+    return bytes(self._buffer[self.start : self.start + self._length])
+
+  @data.setter
+  def data(self, value):
+    self._buffer[self.start : self.start + len(value)] = value
 
   def clone(self):
     return RecordingTensor(self.data, dtype=self.dtype, tape=self.tape)
@@ -108,6 +132,22 @@ class RecordingTensor(FakeTensor):
     if self.tape is not None:
       self.tape.append(device)
     return device
+
+  def __len__(self):
+    return self._length
+
+  def __getitem__(self, item):
+    if not isinstance(item, slice) or item.step not in (None, 1):
+      raise TypeError("the worker only takes a contiguous view slice")
+    begin = (item.start or 0) * 4
+    end = item.stop * 4 if item.stop is not None else self._length
+    return RecordingTensor(
+      self.data[begin:end],
+      dtype=self.dtype,
+      tape=self.tape,
+      parent=self,
+      start=begin,
+    )
 
 
 def recording_torch(tape):
@@ -127,13 +167,16 @@ def recording_torch(tape):
   )
 
 
-def scatter(logical, layout, *, padding, envelope, element_size=4):
-  """Place logical values in the enveloped slots the device writes them to."""
+def scatter(logical, layout, *, padding, element_size=4):
+  """Place logical values where a kernel writing through its view puts them.
+
+  The view starts at the tensor, so an address is relative to the tensor and
+  the guard prefix is not part of what the kernel sees.
+  """
   addresses = tensor_layout.logical_addresses(layout)
-  slots = envelope.prefix + layout["storage_span"] + envelope.suffix
-  physical = bytearray(padding * slots)
+  physical = bytearray(padding * layout["storage_span"])
   for index, address in enumerate(addresses):
-    target = (envelope.prefix + address) * element_size
+    target = address * element_size
     physical[target : target + element_size] = logical[
       index * element_size : (index + 1) * element_size
     ]
@@ -238,11 +281,7 @@ class TritonWorkerGuardEnvelopeTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       self.run_worker(
         Path(directory),
-        FakeKernel(
-          scatter(
-            self.inputs, self.layout, padding=self.padding, envelope=self.envelope
-          )
-        ),
+        FakeKernel(scatter(self.inputs, self.layout, padding=self.padding)),
       )
 
     input_buffer = self.device_bytes(0)
@@ -264,11 +303,7 @@ class TritonWorkerGuardEnvelopeTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       self.run_worker(
         Path(directory),
-        FakeKernel(
-          scatter(
-            self.expected, self.layout, padding=self.canary, envelope=self.envelope
-          )
-        ),
+        FakeKernel(scatter(self.expected, self.layout, padding=self.canary)),
       )
       actual = (self.artifacts / "actual.bin").read_bytes()
 
@@ -283,32 +318,45 @@ class TritonWorkerGuardEnvelopeTests(unittest.TestCase):
     self.assertEqual(actual, self.expected)
 
   def test_guard_gap_and_input_writes_are_named_in_the_rejection(self):
-    corrupt = bytearray(
-      scatter(self.expected, self.layout, padding=self.canary, envelope=self.envelope)
-    )
+    # A kernel writing through its view can still leave the tensor: writing
+    # before the view start reaches the allocation's prefix guard.
+    accepted = scatter(self.expected, self.layout, padding=self.canary)
+    corrupt = bytearray(accepted)
     corrupt[0:4] = b"\xde\xad\xbe\xef"
-    corrupt[(self.prefix + 5) * 4 : (self.prefix + 6) * 4] = b"\xde\xad\xbe\xef"
-    corrupt[(self.prefix + 1) * 4 : (self.prefix + 2) * 4] = b"\xde\xad\xbe\xef"
-    accepted = scatter(
-      self.expected, self.layout, padding=self.canary, envelope=self.envelope
-    )
+    corrupt[5 * 4 : 6 * 4] = b"\xde\xad\xbe\xef"
+    corrupt[1 * 4 : 2 * 4] = b"\xde\xad\xbe\xef"
+    writing = FakeKernel(accepted, corrupt=bytes(corrupt))
     with tempfile.TemporaryDirectory() as directory:
-      self.run_worker(Path(directory), FakeKernel(accepted, corrupt=bytes(corrupt)))
+      case = self.case_dir(Path(directory))
+      self.run_case(case, writing)
+    input_message = self.refusal()
+    self.assertIn("gap-5", input_message)
+    self.assertIn("input-0", input_message)
 
-    message = self.refusal()
-    self.assertIn("prefix-guard-0", message)
-    self.assertIn("gap-5", message)
-    self.assertIn("input-0", message)
+    # A write through the output view is named too. Slot 0 of the tensor is a
+    # gap in this layout (its addresses start at element offset 1), so the
+    # refusal names the gap; writing on a logical address names that element.
+    self.device = []
+    self.failure = None
+    with tempfile.TemporaryDirectory() as directory:
+      self.run_worker(Path(directory), FakeKernel(accepted, output_corrupt=True))
+    self.assertIn("gap-0", self.refusal())
+
+    self.device = []
+    self.failure = None
+    accepted_slots = bytearray(accepted)
+    accepted_slots[1 * 4 : 2 * 4] = b"\xde\xad\xbe\xef"
+    with tempfile.TemporaryDirectory() as directory:
+      self.run_worker(
+        Path(directory), FakeKernel(bytes(accepted_slots), output_corrupt=True)
+      )
+    self.assertIn("input-0", self.refusal())
 
   def test_staging_record_reports_the_guards_and_padding_used(self):
     with tempfile.TemporaryDirectory() as directory:
       self.run_worker(
         Path(directory),
-        FakeKernel(
-          scatter(
-            self.inputs, self.layout, padding=self.padding, envelope=self.envelope
-          )
-        ),
+        FakeKernel(scatter(self.inputs, self.layout, padding=self.padding)),
       )
       staging = self.staging()
 
@@ -321,14 +369,7 @@ class TritonWorkerGuardEnvelopeTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       self.run_worker(
         Path(directory),
-        FakeKernel(
-          scatter(
-            self.inputs,
-            self.layout,
-            padding=self.gap_sentinel,
-            envelope=self.envelope,
-          )
-        ),
+        FakeKernel(scatter(self.inputs, self.layout, padding=self.gap_sentinel)),
         padding=False,
       )
       staging = self.staging()
