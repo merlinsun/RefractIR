@@ -1,0 +1,314 @@
+[
+ {
+  "family": "fold",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 2,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "fold",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 2,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "fold",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "fold",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "fold",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "fold",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "fold",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 2,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "fold",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 2,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "fold",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "fold",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "fold",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "fold",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 2,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 2,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   256,
+   2
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 2,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 2,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": 0
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ },
+ {
+  "family": "orthogonal-reductions",
+  "shape": [
+   128,
+   4
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "ttir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge_candidates": true
+ }
+]

@@ -28,6 +28,9 @@ Observations:
 
 * The four families reach different conversion counts under one pipeline, so
   the connection skeleton changes what the layout passes see.
+* These small cases are unrolled before the device, so this table alone does
+  **not** show a layout decision inside a retained loop; the retained-loop run
+  below does.
 * `TritonGPUReduceDataDuplication`, `TritonGPUOptimizeThreadLocality`, and
   `TritonLoopInvariantCodeMotion` each report one measurable transition per
   compilation (`target_pass_evidence` in `track-a-evidence.json`).
@@ -35,11 +38,47 @@ Observations:
   with redirected uses appears only in `InlinerPass`, `CSEPass`, and `SCCPPass`.
   Per the plan, a layout result without rematerialization is useful evidence but
   does not satisfy a rematerialization claim.
-* The counted loop is **not** retained: `loop_status` is `unrolled_or_removed`
-  for the required TTGIR stage and the final snapshot holds no loop construct.
-  Two-to-three-trip loops over 32 elements are unrolled before the device. A
-  retained-device-loop claim needs larger trip counts or volumes, which is a
-  separate extension rather than a result of this run.
+* In these small cases the counted loop is not retained: two-to-three-trip
+  loops over 32 elements are unrolled before the device. Loop retention is a
+  size and bound effect, and the next section reaches it.
+
+## Track A, second run: a retained loop with a layout decision inside it
+
+Configurations at the profile volume retain the loop. The sweep
+(`sweep-retained.json`, `sweep2-retained.json`) shows one `scf.for` in TTGIR at
+`[256, 2]` and `[128, 4]` for 2–8 iterations and at `[32, 16]` for 4–8, for both
+the default and the orthogonal-reduction families, at one and four warps.
+Among these, `mixed-depth` at `[32, 16]` with four iterations is also admitted
+by the exact f32 reference, so it can carry a full certificate.
+
+Two such cases (`num_warps` 1 and 4) were built through the exact builder with
+the region configuration recorded, executed on the device, and compared with
+their complete 2048-byte references: both pass, both `campaign_valid`
+(`track-a-retained-evidence.json`).
+
+| Observation | Result |
+|---|---|
+| TTGIR / TTIR loop constructs | 1 / 1 |
+| `RemoveLayoutConversions` occurrences | 4, loop present before and after every one |
+| Conversions removed by that pass | 12, with `loop_construct_delta` 0 |
+| Loop removal | `SCFToControlFlowPass`, `loop_construct_delta` -1 |
+| PTX backedge | one, `bra $L__BB0_1` to a label defined 132 lines earlier |
+| PTX shuffles / shared transfers | 12 / 0 (one warp), 20 / 2 (four warps) |
+| Rematerialization | none attributable to a layout pass |
+
+So a layout decision is eliminated inside a loop that survives the layout
+passes and reaches PTX as a genuine backedge. The structured loop disappears at
+the `scf`-to-`cf` boundary, which is after TTGIR and before LLIR.
+
+## Retained-loop configurations and exact admission
+
+The exact reference admits a recurrence only while every materialized value and
+reduction partial stays inside 2^24. Reduction width and trip count multiply, so
+a 512-element shape with 2–4 trips is admitted only when the reduced axis is
+narrow (`mixed-depth` at `[32, 16]` reduces a 32-wide axis; `[2, 256]` reduces a
+2-wide axis and is admitted to eight trips) or the domain is small. Rejected
+configurations are recorded with their reason in `sweep2-retained.json` rather
+than relaxed: a 256-wide reduction with four trips over `[0, 2]` is refused.
 
 ## Track B: tails and physical layouts
 

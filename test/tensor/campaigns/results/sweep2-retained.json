@@ -1,0 +1,242 @@
+[
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "reduction-arithmetic",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   2,
+   256
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": false,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 4,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 4,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 8,
+  "num_warps": 1,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ },
+ {
+  "family": "mixed-depth",
+  "shape": [
+   32,
+   16
+  ],
+  "iterations": 8,
+  "num_warps": 4,
+  "ttgir_loops": 1,
+  "loop_status": "retained",
+  "ptx_backedge": true,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "conversions_ttgir": 0
+ }
+]
