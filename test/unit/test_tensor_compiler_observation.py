@@ -313,6 +313,28 @@ module {
     self.assertEqual(report["loop_status"], "retained")
     self.assertEqual(report["loop_evidence"]["ttgir"], "backedge")
 
+  def test_llvm_numeric_labels_count_as_a_backedge(self):
+    # Optimized LLVM IR prints numeric labels, and a bottom-tested loop lists
+    # its exit block first, so the backedge is not the first label operand.
+    llir = """\
+define void @k() {
+entry:
+  br label %56
+56:
+  %c = icmp slt i32 %i, 4
+  br i1 %c, label %119, label %56
+119:
+  ret void
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 1)
+    self.assertEqual(report["loop_status"], "retained")
+    self.assertEqual(report["loop_evidence"]["llir"], "backedge")
+
   def test_mlir_construct_reports_its_own_evidence(self):
     report = tensor_compiler_observation.observe_compiler_ir(
       {"ttir": _LOOP_BODY}, expected_loop=True, loop_required_stages=("ttir",)

@@ -145,11 +145,85 @@ sharing storage with the whole allocation, which keeps the record's addressing
 correct and still lets the worker refuse a write into a guard, gap, or logical
 slot by name.
 
+## Track C, second run: all six families through the runner
+
+Twelve device runs (`summary-gluon-plan-sweep-<family>-w<warps>.json`) cover the
+six families at one and four warps on the same admitted `[8, 8]` region, one
+bound. Every run matched the complete 64-word reference, and both calibration
+controls behaved as declared.
+
+| Family | TTGIR conversions (total/effective), w1 | w4 | PTX shuffles / shared, w1 | w4 |
+|---|---|---|---|---|
+| all-same-layout | 8 / 0 | 8 / 0 | 24 / 0 | 8 / 2 |
+| load-to-compute | 8 / 1 | 8 / 1 | 24 / 16 | 8 / 6 |
+| reduction-result-expand | 8 / 2 | 8 / 2 | 21 / 12 | 24 / 6 |
+| shared-value-reused | 9 / 4 | 9 / 4 | 24 / 38 | 12 / 13 |
+| split-reduction-consumers | 10 / 5 | 10 / 5 | 12 / 49 | 12 / 19 |
+| loop-state-layout | 14 / 7 | 14 / 7 | 24 / 77 | 8 / 43 |
+
+Of 114 requested conversions, 38 survive, 76 are eliminated, none are folded or
+unattributed. Every survivor is a cross-lane change at one warp and a cross-warp
+change at four, and all lower in `ConvertTritonGPUToLLVM`; no pass adds a
+conversion, which is why nothing is unattributed. Registers per thread stay at
+or below 58 with no spills.
+
+Two gaps this sweep exposed, both in the plan rather than in the compiler, are
+now fixed:
+
+* `reduction-result-expand` asked for views that were the compute layout by
+  construction, and named one consumer the emitter never queries, so its run
+  reduced to load-to-compute plus compute-to-store. The family now gives the two
+  broadcast consumers a view that differs from the compute layout.
+* A declared consumer view that no consumer ever queries silently did nothing.
+  Emission now refuses such a plan, and a test checks that every family's
+  difference from the baseline reaches the generated kernel.
+
+## Track A, third run: the generation matrix
+
+Seventy-two configurations (six shapes, four families, bounds 2–4) were
+generated, compiled, and launched at one and four warps
+(`.planning/2026-10-11-targeted-compiler-behavior/track-a-matrix.md`, raw
+records under `/host/track-a-matrix/`):
+
+| Count | Value |
+|---|---|
+| configurations generated / out of profile | 72 / 0 |
+| admitted / rejected by the exact proof | 51 / 21 |
+| Triton runs compiled and launched | 144 / 144 |
+| admitted runs matching the reference bits | 102 / 102 |
+| configurations with a TTGIR loop | 51 / 51 admitted |
+| configurations with a PTX backedge | 23 (11 of them admitted) |
+
+Every rejection carries the same reason (`materialized value or reduction
+partial sum exceeds exact range`) and follows the reduced-axis width times the
+trip count. Retention does not follow admission: some configurations keep a
+device loop only where the proof rejects them, and `cross-state`, which has no
+reduction, never keeps a backedge.
+
+Zero layout conversions survive to the final IR in all 144 runs; the pass-dump
+sub-study shows `TritonGPURemoveLayoutConversions` removing everything present
+on its first occurrence with `loop_construct_delta` 0, and the three reduction
+families reaching PTX with shuffles and shared-memory transfers (928/114,
+738/118, 876/122) while `cross-state` reports none.
+
+This run also caught a second observer defect: optimized LLVM IR prints numeric
+labels and lists a bottom-tested loop's exit block first, so the LLVM backedge
+detector missed real loops. Counting every `label %x` operand with numeric
+labels agrees with the PTX backedge in 144/144 runs. Both the label patterns
+and the branch scanning are fixed, and the helper now reports the backedge where
+it previously reported a null.
+
 ## Gaps and controls
 
 * Guard *detection* is verified on the host (a mutated allocation is refused by
   slot name) but not on the device: no run has yet executed a kernel that
   deliberately writes outside its tensor.
+* Track C ran one bound, so every device run was unrolled and no cross-backedge
+  loop-state conversion was exercised on the device; no rematerialization is
+  attributed to any pass.
+* The Track C intersection with Track B (padded logical tails under explicit
+  layouts) is not implemented: the Gluon emitter still rejects non-power-of-two
+  dimensions.
 * Ranks, warps, and layouts beyond the runs above are untouched; the run
   counts here are far below the plan's per-track budgets.
 * No new compiler failure was found. The differences reported above are

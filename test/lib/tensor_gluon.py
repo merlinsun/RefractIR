@@ -344,7 +344,10 @@ def region_plan_families(shape, *, num_warps, layouts):
       third,
       second,
       reduction=second,
-      views={("v1", 2): third, ("v2", 3): third},
+      # The first broadcast reads the first reduction's result (`v0`) and the
+      # second reads the second reduction's (`v2`), so each gets a view that
+      # differs from the compute layout the emitter would otherwise inherit.
+      views={("v0", 1): fourth, ("v2", 3): fourth},
     ),
     "loop-state-layout": region(
       "loop-state-layout",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from test.lib.tensor_gluon import (
@@ -136,6 +137,39 @@ class TensorGluonRegionPlanTests(unittest.TestCase):
       f"gl.convert_layout(acc_x, {identifier(region_plan.state_layout)})",
       generated.source,
     )
+
+  def test_every_family_actually_requests_a_conversion(self):
+    generated = {
+      name: render_gluon_kernel(self.source, plan=family).source
+      for name, family in self.families.items()
+    }
+
+    baseline = self.families["all-same-layout"]
+    self.assertNotIn(
+      "_view_", generated["all-same-layout"], "the baseline asks for no view"
+    )
+    for name, family in self.families.items():
+      if name == "all-same-layout":
+        continue
+      with self.subTest(family=name):
+        # A family differs from the baseline through its roles, its views, or
+        # both, and the difference has to reach the emitted kernel.
+        self.assertNotEqual(family.as_record(), baseline.as_record())
+        self.assertNotEqual(
+          generated[name],
+          generated["all-same-layout"],
+          f"{name} emitted the baseline kernel",
+        )
+
+  def test_a_view_the_region_never_queries_is_refused(self):
+    family = self.families["shared-value-reused"]
+    broken = replace(
+      family,
+      consumer_views={**family.consumer_views, ("v99", 7): family.store},
+    )
+
+    with self.assertRaisesRegex(ValueError, "never queries"):
+      render_gluon_kernel(self.source, plan=broken)
 
   def test_unqualified_compiler_identity_is_refused(self):
     from test.lib import probe_triton_env

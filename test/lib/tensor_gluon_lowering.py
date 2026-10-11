@@ -160,9 +160,11 @@ def render_gluon_kernel(source, *, plan=None):
 
   current_layouts = {"acc_x": compute_layout, "acc_y": compute_layout}
   view_names = set()
+  plan_uses = []
 
   def use(value, node_index, fallback_layout, label):
     """Name the local one consumer reads, converting into a view if needed."""
+    plan_uses.append((value, node_index, fallback_layout))
     wanted = (
       _layout_identifier(plan.view_for(value, node_index).name)
       if plan is not None
@@ -326,6 +328,17 @@ def render_gluon_kernel(source, *, plan=None):
     + " + store_columns[None, :]"
   )
   emit("    gl.store(output_ptr + store_offsets, output)")
+  if plan is not None:
+    # A declared view that no consumer ever queries means the plan and the
+    # graph disagree about who reads what, so the family would silently do
+    # nothing. Report it instead of emitting a kernel that ignores the plan.
+    queried = {(value, index) for value, index, _layout in plan_uses}
+    unqueried = sorted(set(plan.consumer_views) - queried)
+    if unqueried:
+      raise ValueError(
+        "layout plan declares consumer views the region never queries: "
+        + ", ".join(f"{value}#{index}" for value, index in unqueried)
+      )
   return GeneratedGluonKernel(
     "\n".join(lines) + "\n",
     shape,

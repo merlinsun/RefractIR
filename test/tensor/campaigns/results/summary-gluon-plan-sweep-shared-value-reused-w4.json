@@ -1,0 +1,814 @@
+{
+  "artifacts": {
+    "calibration_llir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/calibration-add-one-output-mutant.llir",
+    "calibration_llir_sha256": "43d71ddfe51d9a2786cde53a261819f063c0e7b4af344fad607036ceb541f167",
+    "calibration_ptx": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/calibration-add-one-output-mutant.ptx",
+    "calibration_ptx_sha256": "6a0aeda9ccc45c64deedfce94fe4aab04614ff421b8a13c47174e4174b3eb2ef",
+    "calibration_ttgir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/calibration-add-one-output-mutant.ttgir",
+    "calibration_ttgir_sha256": "03d66eafd1755127b7a5ca1970577f907d6a54de8fff04826013e53b5b5d2d18",
+    "family_llir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/shared-value-reused.llir",
+    "family_llir_sha256": "f18070613953891d741f1402c6f8caa7b894d9bf58433c0d79d65040e7bfe762",
+    "family_ptx": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/shared-value-reused.ptx",
+    "family_ptx_sha256": "c86122644c2bda9c7f1ca34dbddb8a74b4134b19d7bb37c69e7094533fe275ea",
+    "family_ttgir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/shared-value-reused.ttgir",
+    "family_ttgir_sha256": "8961566645bec4fa166f48b0da414481a67b5f14454d2fdb8594c7ae9365fb48",
+    "generated_kernel": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/generated-region-kernel.py",
+    "generated_kernel_sha256": "7c617a03ee6c78a13f794f574a7da387e352b9a91d20a9942f859d59462646c7",
+    "pass_dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/mlir-pass-dump.txt",
+    "pass_dump_sha256": "5a217545331af5c8ac2d2715abb4b8559e97b7147af19f0c704eb0f1ade33cc2",
+    "raw_json": "/host/gluon-plan-sweep/gluon-plan-sweep-shared-value-reused-w4.json",
+    "raw_json_sha256": "85d15154a1b43f0c247d8c8b7670275aec10401966d24ab88db8da11464c8154",
+    "run_log": "/host/gluon-plan-sweep/logs/gluon-plan-sweep-shared-value-reused-w4.log",
+    "run_log_sha256": "8d79ab54fc2d9e32bca1a7638799264b74b61ded3598ff6aad7bad7f6f696002"
+  },
+  "calibration": {
+    "controls": [
+      {
+        "control_id": "correct-layout-baseline",
+        "expected_detection": false,
+        "observed_detection": false
+      },
+      {
+        "actual_output_bits": [
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000"
+        ],
+        "control_id": "add-one-output-mutant",
+        "expected_detection": true,
+        "expected_output_bits": [
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000"
+        ],
+        "observed_detection": true
+      }
+    ],
+    "ptx_shared_memory_transfer_count": 13,
+    "ptx_warp_shuffle_count": 12
+  },
+  "case_status": "pass",
+  "compiler": {
+    "final_loop_construct_count": 0,
+    "num_warps": null,
+    "pass_snapshot_count": 34,
+    "registers_per_thread": 32,
+    "spill_bytes": 0,
+    "terminal_pass": "LLVMDIScope"
+  },
+  "device_name": "Tesla V100-SXM2-32GB",
+  "exact_reference_match": true,
+  "family": "shared-value-reused",
+  "input_bits_sha256": "12e54ae6a8028465af16e2e048a2c168e0a90b8359773299958058fa98d61739",
+  "input_values_sha256": "a64e7b66f52b8022a6f6f1bc53366d1b52aaad9ed0f92cd8e2a76e840660b9c8",
+  "iterations": 1,
+  "kernel_source_reproduces": true,
+  "layout_count": 5,
+  "layout_seed": 20261002,
+  "mismatched_words": 0,
+  "num_warps": 4,
+  "plan": {
+    "launch_arguments": [
+      {
+        "layout": "reduction-blocked-4-warps",
+        "parameter": "reduction_blocked_4_warps"
+      },
+      {
+        "layout": "blocked-0329",
+        "parameter": "blocked_0329"
+      }
+    ],
+    "layout_parameters": [
+      "reduction_blocked_4_warps",
+      "blocked_0329"
+    ],
+    "pool": [
+      {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+          1,
+          0
+        ],
+        "size_per_thread": [
+          1,
+          1
+        ],
+        "threads_per_warp": [
+          1,
+          32
+        ],
+        "warps_per_cta": [
+          4,
+          1
+        ]
+      },
+      {
+        "name": "blocked-0329",
+        "order": [
+          1,
+          0
+        ],
+        "size_per_thread": [
+          4,
+          2
+        ],
+        "threads_per_warp": [
+          1,
+          32
+        ],
+        "warps_per_cta": [
+          4,
+          1
+        ]
+      },
+      {
+        "name": "blocked-0388",
+        "order": [
+          0,
+          1
+        ],
+        "size_per_thread": [
+          4,
+          4
+        ],
+        "threads_per_warp": [
+          16,
+          2
+        ],
+        "warps_per_cta": [
+          4,
+          1
+        ]
+      },
+      {
+        "name": "blocked-0204",
+        "order": [
+          0,
+          1
+        ],
+        "size_per_thread": [
+          2,
+          2
+        ],
+        "threads_per_warp": [
+          16,
+          2
+        ],
+        "warps_per_cta": [
+          1,
+          4
+        ]
+      },
+      {
+        "name": "blocked-0368",
+        "order": [
+          0,
+          1
+        ],
+        "size_per_thread": [
+          4,
+          4
+        ],
+        "threads_per_warp": [
+          2,
+          16
+        ],
+        "warps_per_cta": [
+          2,
+          2
+        ]
+      }
+    ],
+    "pool_class_matrix": [
+      {
+        "class": "identical",
+        "left": "reduction-blocked-4-warps",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0329",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0388",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0388",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0388",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0388",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "equivalent",
+        "left": "blocked-0388",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0204",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0368",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0368",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "equivalent",
+        "left": "blocked-0368",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0368",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0368",
+        "right": "blocked-0368"
+      }
+    ],
+    "role_pair_classes": [
+      {
+        "class": "identical",
+        "pair": "load->compute"
+      },
+      {
+        "class": "cross_warp",
+        "pair": "compute->store"
+      },
+      {
+        "class": "identical",
+        "pair": "compute->reduction"
+      },
+      {
+        "class": "cross_warp",
+        "pair": "compute->view acc_x#0"
+      },
+      {
+        "class": "cross_warp",
+        "pair": "compute->view acc_x#2"
+      }
+    ],
+    "roles": {
+      "compute": "reduction-blocked-4-warps",
+      "consumer_views": {
+        "acc_x#0": "blocked-0329",
+        "acc_x#2": "blocked-0329"
+      },
+      "load": "reduction-blocked-4-warps",
+      "name": "shared-value-reused",
+      "reduction": "reduction-blocked-4-warps",
+      "shape": [
+        8,
+        8
+      ],
+      "state_layout": null,
+      "store": "blocked-0329"
+    }
+  },
+  "plan_rebuild_matches_record": true,
+  "pool_size": 5,
+  "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+  "proof_bound": 16777216,
+  "proof_obligations": 12,
+  "requested_conversions": [
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "load_to_compute",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "load_to_compute"
+      },
+      "removed_at_pass": null,
+      "source_line": 15,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "cross_warp"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        true
+      ],
+      "frontend_class": "cross_warp",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        8
+      ],
+      "frontend_encoding_class": [
+        "cross_warp"
+      ],
+      "frontend_layout_changed_textually": [
+        true
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[4,2],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_sum_0_to_reduction",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_sum_0_to_reduction"
+      },
+      "removed_at_pass": null,
+      "source_line": 18,
+      "verdict": "surviving"
+    },
+    {
+      "final_ttgir_class": [
+        "cross_warp"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        true
+      ],
+      "frontend_class": "cross_warp",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        8,
+        1
+      ],
+      "frontend_encoding_class": [
+        "cross_warp"
+      ],
+      "frontend_layout_changed_textually": [
+        true
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[4,2],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_sum_0_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_sum_0_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 19,
+      "verdict": "surviving"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_broadcast_1_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_broadcast_1_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 21,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "cross_warp"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        true
+      ],
+      "frontend_class": "cross_warp",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        8,
+        1
+      ],
+      "frontend_encoding_class": [
+        "cross_warp"
+      ],
+      "frontend_layout_changed_textually": [
+        true
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[4,2],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_sum_2_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_sum_2_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 22,
+      "verdict": "surviving"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_broadcast_3_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_broadcast_3_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 24,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_add_4_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_add_4_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 27,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_add_5_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_add_5_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 30,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "cross_warp"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        true
+      ],
+      "frontend_class": "cross_warp",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        8
+      ],
+      "frontend_encoding_class": [
+        "cross_warp"
+      ],
+      "frontend_layout_changed_textually": [
+        true
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[4,2],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "compute_to_store",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "compute_to_store"
+      },
+      "removed_at_pass": null,
+      "source_line": 35,
+      "verdict": "surviving"
+    }
+  ],
+  "shape": [
+    8,
+    8
+  ],
+  "stage_observations": {
+    "llir": {
+      "backedge_count": 0,
+      "conversions": 0,
+      "conversions_by_class": {},
+      "effective_conversions": 0,
+      "loop_construct_count": 0,
+      "shared_memory_transfer_count": null,
+      "warp_shuffle_count": null
+    },
+    "ptx": {
+      "backedge_count": 0,
+      "conversions": 0,
+      "conversions_by_class": {},
+      "effective_conversions": 0,
+      "loop_construct_count": 0,
+      "shared_memory_transfer_count": 13,
+      "warp_shuffle_count": 12
+    },
+    "ttgir": {
+      "backedge_count": 0,
+      "conversions": 9,
+      "conversions_by_class": {
+        "cross_warp": 4,
+        "identical": 5
+      },
+      "effective_conversions": 4,
+      "loop_construct_count": 0,
+      "shared_memory_transfer_count": null,
+      "warp_shuffle_count": null
+    }
+  },
+  "status": "pass",
+  "torch_version": "2.5.1+cu121",
+  "triton_version": "3.9.0",
+  "unattributed_effective_conversions": []
+}

@@ -60,6 +60,10 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 - Guarded allocations reach the device: a guarded tensor is handed to the kernel as a view that starts at the guard prefix, so the case's recorded addressing stays correct while the worker still validates the whole allocation. Three admitted cases (two padding patterns and an unguarded control) pass on the V100 against their complete references.
 - Guarded cases reach the device route: the worker stages inputs inside an allocated envelope, fills guards and internal gaps with the case's padding, allocates the output the same way, compares the whole input allocation, rejects any change to a guard, gap, or logical slot by name, gathers the logical result, and records what it staged (`worker-staging.json`). The exporter writes `execution.guard_envelope` and `execution.padding_by_dtype` when a case asks for guards, and an explicit zero envelope stages byte-identical bytes to no envelope.
 
+- All six Gluon layout plan families ran through the runner on the V100 at one and four warps: twelve runs, every one matching the complete 64-word reference, with 38 of 114 requested conversions surviving, 76 eliminated, none folded or unattributed. No pass adds a conversion; every survivor lowers in `ConvertTritonGPUToLLVM` and is a cross-lane change at one warp and a cross-warp change at four. The sweep exposed two plan-side gaps, now fixed: a family whose views were the compute layout by construction, and a declared view that no consumer queried (emission now refuses it).
+
+- The LLVM backedge detector matches printed optimized IR: numeric labels count, and every `label %x` operand of a branch is read, so a bottom-tested loop whose exit block is listed first is no longer missed. The Track A matrix (72 configurations, 144 device runs) agrees with the PTX backedge in every run under that reading.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

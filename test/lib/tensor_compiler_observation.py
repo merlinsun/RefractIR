@@ -127,9 +127,9 @@ def _region_map(text):
 
 
 _PTX_LABEL = re.compile(r"^\s*(\$[\w$.]+):")
-_LLVM_LABEL = re.compile(r"^\s*([A-Za-z_][\w.$]*):")
+_LLVM_LABEL = re.compile(r"^\s*([A-Za-z_0-9][\w.$]*):")
 _PTX_BRANCH = re.compile(r"^\s*(?:@[%!]?[\w$.]+\s+)?bra(?:\.uni)?\s+(\$[\w$.]+)")
-_LLVM_BRANCH = re.compile(r"\bbr\b[^\n]*?\blabel\s+%([\w.$]+)")
+_LLVM_BRANCH = re.compile(r"\blabel\s+%([\w.$]+)")
 _MLIR_LABEL = re.compile(r"^\s*(\^[\w$.]+):")
 _MLIR_BRANCH = re.compile(r"\b(?:cf\.)?br\s+(\^[\w$.]+)")
 

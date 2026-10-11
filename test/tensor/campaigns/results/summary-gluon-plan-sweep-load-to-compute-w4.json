@@ -1,0 +1,770 @@
+{
+  "artifacts": {
+    "calibration_llir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/calibration-add-one-output-mutant.llir",
+    "calibration_llir_sha256": "a61ff68321310db5c86f6dd606a6d35ce9d0aa6ebb7611924642b19c7ee5c094",
+    "calibration_ptx": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/calibration-add-one-output-mutant.ptx",
+    "calibration_ptx_sha256": "b01bda8de6f9874ba57918ef14027c72b8f0561351324cbe23c6971e42315030",
+    "calibration_ttgir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/calibration-add-one-output-mutant.ttgir",
+    "calibration_ttgir_sha256": "9fd5f38373c545fbb36a812c8d11f94e0653c9287bf458ba5efde9793c44cfa9",
+    "family_llir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/load-to-compute.llir",
+    "family_llir_sha256": "a186e44905fddfb16a0d55bf47eb89c5ccb77009750bc10721c4a3478af61fd5",
+    "family_ptx": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/load-to-compute.ptx",
+    "family_ptx_sha256": "c11661782809a16834789d8e3cf909135ce5dc280258a9703d9c79967aff13ae",
+    "family_ttgir": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/load-to-compute.ttgir",
+    "family_ttgir_sha256": "9610b8d27382deb3a34d7aa6c4e8f50e14a7f20c486b7f51513414a2b5024c70",
+    "generated_kernel": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/generated-region-kernel.py",
+    "generated_kernel_sha256": "7bd4cfc41746fbc10ccd699f6bdc22e6bf35503c626dff7b13ef110cfbc1e335",
+    "pass_dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/mlir-pass-dump.txt",
+    "pass_dump_sha256": "8a4ad09449c6bff2996d06f8c81137fb7f18c3abe40b1a00718490806eb16e66",
+    "raw_json": "/host/gluon-plan-sweep/gluon-plan-sweep-load-to-compute-w4.json",
+    "raw_json_sha256": "f965969025aebe6ead6afe513b57c03b6d4dae2eeb68cf127048e404ce3b5ffb",
+    "run_log": "/host/gluon-plan-sweep/logs/gluon-plan-sweep-load-to-compute-w4.log",
+    "run_log_sha256": "629f8335448a7974c64660c265e1c47065bb1fc509cd5055d1d9f1f3bfe1c445"
+  },
+  "calibration": {
+    "controls": [
+      {
+        "control_id": "correct-layout-baseline",
+        "expected_detection": false,
+        "observed_detection": false
+      },
+      {
+        "actual_output_bits": [
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000",
+          "42800000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42920000",
+          "42800000"
+        ],
+        "control_id": "add-one-output-mutant",
+        "expected_detection": true,
+        "expected_output_bits": [
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000",
+          "427c0000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "42900000",
+          "427c0000"
+        ],
+        "observed_detection": true
+      }
+    ],
+    "ptx_shared_memory_transfer_count": 6,
+    "ptx_warp_shuffle_count": 8
+  },
+  "case_status": "pass",
+  "compiler": {
+    "final_loop_construct_count": 0,
+    "num_warps": null,
+    "pass_snapshot_count": 34,
+    "registers_per_thread": 21,
+    "spill_bytes": 0,
+    "terminal_pass": "LLVMDIScope"
+  },
+  "device_name": "Tesla V100-SXM2-32GB",
+  "exact_reference_match": true,
+  "family": "load-to-compute",
+  "input_bits_sha256": "12e54ae6a8028465af16e2e048a2c168e0a90b8359773299958058fa98d61739",
+  "input_values_sha256": "a64e7b66f52b8022a6f6f1bc53366d1b52aaad9ed0f92cd8e2a76e840660b9c8",
+  "iterations": 1,
+  "kernel_source_reproduces": true,
+  "layout_count": 5,
+  "layout_seed": 20261002,
+  "mismatched_words": 0,
+  "num_warps": 4,
+  "plan": {
+    "launch_arguments": [
+      {
+        "layout": "blocked-0329",
+        "parameter": "blocked_0329"
+      },
+      {
+        "layout": "reduction-blocked-4-warps",
+        "parameter": "reduction_blocked_4_warps"
+      }
+    ],
+    "layout_parameters": [
+      "blocked_0329",
+      "reduction_blocked_4_warps"
+    ],
+    "pool": [
+      {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+          1,
+          0
+        ],
+        "size_per_thread": [
+          1,
+          1
+        ],
+        "threads_per_warp": [
+          1,
+          32
+        ],
+        "warps_per_cta": [
+          4,
+          1
+        ]
+      },
+      {
+        "name": "blocked-0329",
+        "order": [
+          1,
+          0
+        ],
+        "size_per_thread": [
+          4,
+          2
+        ],
+        "threads_per_warp": [
+          1,
+          32
+        ],
+        "warps_per_cta": [
+          4,
+          1
+        ]
+      },
+      {
+        "name": "blocked-0388",
+        "order": [
+          0,
+          1
+        ],
+        "size_per_thread": [
+          4,
+          4
+        ],
+        "threads_per_warp": [
+          16,
+          2
+        ],
+        "warps_per_cta": [
+          4,
+          1
+        ]
+      },
+      {
+        "name": "blocked-0204",
+        "order": [
+          0,
+          1
+        ],
+        "size_per_thread": [
+          2,
+          2
+        ],
+        "threads_per_warp": [
+          16,
+          2
+        ],
+        "warps_per_cta": [
+          1,
+          4
+        ]
+      },
+      {
+        "name": "blocked-0368",
+        "order": [
+          0,
+          1
+        ],
+        "size_per_thread": [
+          4,
+          4
+        ],
+        "threads_per_warp": [
+          2,
+          16
+        ],
+        "warps_per_cta": [
+          2,
+          2
+        ]
+      }
+    ],
+    "pool_class_matrix": [
+      {
+        "class": "identical",
+        "left": "reduction-blocked-4-warps",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "cross_warp",
+        "left": "reduction-blocked-4-warps",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0329",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0329",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0388",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0388",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0388",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0388",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "equivalent",
+        "left": "blocked-0388",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0204",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0204",
+        "right": "blocked-0368"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0368",
+        "right": "reduction-blocked-4-warps"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0368",
+        "right": "blocked-0329"
+      },
+      {
+        "class": "equivalent",
+        "left": "blocked-0368",
+        "right": "blocked-0388"
+      },
+      {
+        "class": "cross_warp",
+        "left": "blocked-0368",
+        "right": "blocked-0204"
+      },
+      {
+        "class": "identical",
+        "left": "blocked-0368",
+        "right": "blocked-0368"
+      }
+    ],
+    "role_pair_classes": [
+      {
+        "class": "cross_warp",
+        "pair": "load->compute"
+      },
+      {
+        "class": "identical",
+        "pair": "compute->store"
+      },
+      {
+        "class": "identical",
+        "pair": "compute->reduction"
+      }
+    ],
+    "roles": {
+      "compute": "reduction-blocked-4-warps",
+      "consumer_views": {},
+      "load": "blocked-0329",
+      "name": "load-to-compute",
+      "reduction": "reduction-blocked-4-warps",
+      "shape": [
+        8,
+        8
+      ],
+      "state_layout": null,
+      "store": "reduction-blocked-4-warps"
+    }
+  },
+  "plan_rebuild_matches_record": true,
+  "pool_size": 5,
+  "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+  "proof_bound": 16777216,
+  "proof_obligations": 12,
+  "requested_conversions": [
+    {
+      "final_ttgir_class": [
+        "cross_warp"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        true
+      ],
+      "frontend_class": "cross_warp",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        8,
+        1
+      ],
+      "frontend_encoding_class": [
+        "cross_warp"
+      ],
+      "frontend_layout_changed_textually": [
+        true
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[4,2],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "load_to_compute",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "load_to_compute"
+      },
+      "removed_at_pass": null,
+      "source_line": 15,
+      "verdict": "surviving"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_sum_0_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_sum_0_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 18,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_broadcast_1_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_broadcast_1_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 20,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_sum_2_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_sum_2_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 21,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_broadcast_3_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_broadcast_3_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 23,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_add_4_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_add_4_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 26,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "region_add_5_result_layout",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "region_add_5_result_layout"
+      },
+      "removed_at_pass": null,
+      "source_line": 29,
+      "verdict": "eliminated"
+    },
+    {
+      "final_ttgir_class": [
+        "identical"
+      ],
+      "final_ttgir_conversions": 1,
+      "final_ttgir_layout_changed_textually": [
+        false
+      ],
+      "frontend_class": "identical",
+      "frontend_conversions": 1,
+      "frontend_elements_per_thread": [
+        1,
+        1
+      ],
+      "frontend_encoding_class": [
+        "identical"
+      ],
+      "frontend_layout_changed_textually": [
+        false
+      ],
+      "frontend_source_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "frontend_target_encoding": "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[1,32],warpsPerCTA=[4,1],order=[1,0]}>",
+      "label": "compute_to_store",
+      "lowered_at_pass": {
+        "added_in_same_transition": 0,
+        "next_snapshot_pass": "InitializeWSClusterBarriers",
+        "pass": "ConvertTritonGPUToLLVM",
+        "source_operation": "compute_to_store"
+      },
+      "removed_at_pass": null,
+      "source_line": 34,
+      "verdict": "eliminated"
+    }
+  ],
+  "shape": [
+    8,
+    8
+  ],
+  "stage_observations": {
+    "llir": {
+      "backedge_count": 0,
+      "conversions": 0,
+      "conversions_by_class": {},
+      "effective_conversions": 0,
+      "loop_construct_count": 0,
+      "shared_memory_transfer_count": null,
+      "warp_shuffle_count": null
+    },
+    "ptx": {
+      "backedge_count": 0,
+      "conversions": 0,
+      "conversions_by_class": {},
+      "effective_conversions": 0,
+      "loop_construct_count": 0,
+      "shared_memory_transfer_count": 6,
+      "warp_shuffle_count": 8
+    },
+    "ttgir": {
+      "backedge_count": 0,
+      "conversions": 8,
+      "conversions_by_class": {
+        "cross_warp": 1,
+        "identical": 7
+      },
+      "effective_conversions": 1,
+      "loop_construct_count": 0,
+      "shared_memory_transfer_count": null,
+      "warp_shuffle_count": null
+    }
+  },
+  "status": "pass",
+  "torch_version": "2.5.1+cu121",
+  "triton_version": "3.9.0",
+  "unattributed_effective_conversions": []
+}
