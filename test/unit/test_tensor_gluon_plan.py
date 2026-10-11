@@ -11,6 +11,7 @@ from test.lib.tensor_gluon import (
   BlockedLayoutPlan,
   classify_layout_pair,
   effective_mapping,
+  region_consumers,
   region_plan_families,
 )
 from test.lib.tensor_gluon_lowering import render_gluon_kernel
@@ -32,6 +33,12 @@ def identifier(layout):
   return str(layout.name).replace("-", "_")
 
 
+def owner_lanes(layout, shape, coordinate):
+  """The physical lanes that own one logical coordinate."""
+  index = coordinate[0] * shape[1] + coordinate[1]
+  return {lane for _warp, lane, _register in effective_mapping(layout, shape)[index]}
+
+
 class TensorGluonPlanMappingTests(unittest.TestCase):
   """Effective mappings decide whether two plans ask for the same work."""
 
@@ -41,6 +48,48 @@ class TensorGluonPlanMappingTests(unittest.TestCase):
 
     self.assertEqual(effective_mapping(narrow, (2, 1)), effective_mapping(wide, (2, 1)))
     self.assertEqual(classify_layout_pair(narrow, wide, shape=(2, 1)), "equivalent")
+
+  def test_declared_lane_bits_keep_physical_lane_identity(self):
+    narrow = plan("narrow-lanes", (1, 1), (4, 8))
+    wide = plan("wide-lanes", (1, 1), (16, 2))
+
+    self.assertNotEqual(classify_layout_pair(narrow, wide, shape=(2, 2)), "equivalent")
+    self.assertEqual(min(owner_lanes(narrow, (2, 2), (1, 0))), 8)
+    self.assertEqual(min(owner_lanes(wide, (2, 2), (1, 0))), 2)
+
+  def test_a_value_smaller_than_the_tile_is_replicated_on_every_lane(self):
+    layout = plan("replicated", (1, 1), (1, 32))
+
+    owners = effective_mapping(layout, (2, 1))
+
+    self.assertEqual({lane for _warp, lane, _register in owners[0]}, set(range(32)))
+    self.assertEqual({register for _warp, _lane, register in owners[0]}, {0})
+
+  def test_a_size_per_thread_wider_than_the_tensor_keeps_lane_identity(self):
+    layout = plan("wide-tile", (1, 2), (1, 32))
+
+    owners = effective_mapping(layout, (2, 2))
+
+    self.assertEqual({lane for _warp, lane, _register in owners[1]}, set(range(32)))
+    self.assertEqual({register for _warp, _lane, register in owners[1]}, {1})
+    self.assertEqual({register for _warp, _lane, register in owners[0]}, {0})
+
+  def test_a_declared_warp_beyond_the_extent_repeats_the_tile_on_that_warp(self):
+    layout = BlockedLayoutPlan("wide-warps", (1, 1), (1, 32), (4, 1), (1, 0))
+
+    owners = effective_mapping(layout, (2, 2))
+
+    self.assertEqual({warp for warp, _lane, _register in owners[0]}, {0, 2})
+    self.assertEqual({warp for warp, _lane, _register in owners[2]}, {1, 3})
+
+  def test_classification_follows_owner_sets_not_declared_extents(self):
+    single = plan("single-warp", (1, 1), (32, 1))
+    doubled = BlockedLayoutPlan("two-warps", (1, 1), (32, 1), (2, 1), (1, 0))
+
+    self.assertNotEqual(
+      effective_mapping(single, (2, 2)), effective_mapping(doubled, (2, 2))
+    )
+    self.assertEqual(classify_layout_pair(single, doubled, shape=(2, 2)), "cross_warp")
 
   def test_a_lane_change_is_cross_lane_and_a_warp_change_is_cross_warp(self):
     single = plan("single", (1, 1), (1, 32))
@@ -62,8 +111,13 @@ class TensorGluonRegionPlanTests(unittest.TestCase):
       plan("blocked-c", (1, 2), (1, 32), order=(0, 1)),
       plan("blocked-d", (2, 2), (1, 32), order=(0, 1)),
     ]
-    self.families = region_plan_families(SHAPE, num_warps=1, layouts=self.layouts)
     self.source = ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
+    self.families = region_plan_families(
+      SHAPE,
+      num_warps=1,
+      layouts=self.layouts,
+      consumers=region_consumers(self.source),
+    )
 
   def test_plan_families_cover_the_six_roles(self):
     self.assertEqual(
@@ -182,9 +236,21 @@ class TensorGluonRegionPlanTests(unittest.TestCase):
 
 
 class TensorGluonPlanEdgeTests(unittest.TestCase):
+  def test_warp_factors_beyond_the_extent_replicate_and_stay_equivalent(self):
+    rows = BlockedLayoutPlan("warp-rows", (1, 1), (1, 32), (2, 1), (1, 0))
+    columns = BlockedLayoutPlan("warp-columns", (1, 1), (1, 32), (1, 2), (1, 0))
+
+    owners = effective_mapping(rows, (1, 1))
+
+    self.assertEqual(len(owners[0]), 64)
+    self.assertEqual(classify_layout_pair(rows, columns, shape=(1, 1)), "equivalent")
+
   def test_equivalent_mapping_is_not_classified_as_cross_lane_work(self):
     layouts = [plan("a", (2, 1), (1, 32)), plan("b", (4, 1), (1, 32))]
-    families = region_plan_families((2, 1), num_warps=1, layouts=layouts)
+    consumers = region_consumers(generated_region_source())
+    families = region_plan_families(
+      (2, 1), num_warps=1, layouts=layouts, consumers=consumers
+    )
 
     baseline = families["all-same-layout"]
     self.assertEqual(
@@ -202,6 +268,7 @@ class TensorGluonPlanEdgeTests(unittest.TestCase):
         (2, 2),
         num_warps=1,
         layouts=[plan("a", (2, 1), (1, 32)), plan("b", (4, 1), (1, 32))],
+        consumers=consumers,
       )["load-to-compute"],
     )
 

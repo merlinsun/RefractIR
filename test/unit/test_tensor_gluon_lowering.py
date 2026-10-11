@@ -1,9 +1,11 @@
 """Shared generated-region graphs lower to inspectable Gluon source."""
 
 import ast
+import re
 import unittest
 from pathlib import Path
 
+from test.lib.tensor_gluon import BlockedLayoutPlan, GluonRegionPlan
 from test.lib.tensor_gluon_lowering import (
   cross_lane_threads_per_warp,
   render_gluon_kernel,
@@ -17,6 +19,37 @@ ORTHOGONAL_PROGRAM_PATH = (
   Path(__file__).resolve().parents[1]
   / "tensor/gluon/programs/orthogonal-reductions-region-v1.sir"
 )
+
+LOAD = BlockedLayoutPlan("load-a", (1, 1), (1, 32), (1, 1), (1, 0))
+COMPUTE = BlockedLayoutPlan("compute-b", (2, 1), (1, 32), (1, 1), (1, 0))
+REDUCTION = BlockedLayoutPlan("reduction-c", (1, 2), (1, 32), (1, 1), (0, 1))
+STORE = BlockedLayoutPlan("store-d", (2, 2), (1, 32), (1, 1), (0, 1))
+STATE = BlockedLayoutPlan("state-e", (4, 2), (1, 32), (1, 1), (0, 1))
+CONSUMER = BlockedLayoutPlan("consumer-f", (4, 1), (1, 32), (1, 1), (1, 0))
+
+
+def identifier(layout):
+  """The kernel-body identifier the emitter derives from a layout name."""
+  return str(layout.name).replace("-", "_")
+
+
+def role_plan(**overrides):
+  """One plan whose roles are all distinct, so no role hides behind another."""
+  fields = {
+    "name": "distinct-roles",
+    "shape": (8, 8),
+    "load": LOAD,
+    "compute": COMPUTE,
+    "reduction": REDUCTION,
+    "store": STORE,
+  }
+  fields.update(overrides)
+  return GluonRegionPlan(**fields)
+
+
+def kernel_body(source):
+  """The emitted body, i.e. everything after the kernel signature."""
+  return source.split("\n):\n", 1)[1]
 
 
 class TensorGluonLoweringTests(unittest.TestCase):
@@ -134,6 +167,69 @@ class TensorGluonLoweringTests(unittest.TestCase):
     self.assertTrue(
       all("_reduction_input_" in line for line in mapped_lines), mapped_lines
     )
+
+
+class TensorGluonDeclaredRoleTests(unittest.TestCase):
+  """A plan states each role; the emitter honors the role without an override."""
+
+  def setUp(self):
+    self.source = ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
+
+  def test_declared_reduction_layout_reaches_the_sum_operand(self):
+    generated = render_gluon_kernel(self.source, plan=role_plan())
+    view = f"acc_x_view_{identifier(REDUCTION)}"
+
+    self.assertIn(
+      f"{view} = gl.convert_layout(acc_x, {identifier(REDUCTION)})",
+      generated.source,
+    )
+    self.assertIn(f"gl.sum({view}, axis=1)", generated.source)
+    self.assertIn(f"gl.sum({view}, axis=0)", generated.source)
+
+  def test_two_reduction_consumers_share_one_role_view(self):
+    generated = render_gluon_kernel(self.source, plan=role_plan())
+    view = f"acc_x_view_{identifier(REDUCTION)}"
+    conversions = [
+      line
+      for line in generated.source.splitlines()
+      if line.strip() == f"{view} = gl.convert_layout(acc_x, {identifier(REDUCTION)})"
+    ]
+
+    self.assertEqual(len(conversions), 1)
+    self.assertEqual(generated.source.count(f"gl.sum({view},"), 2)
+
+  def test_consumer_override_takes_precedence_over_the_declared_role(self):
+    plan = role_plan(consumer_views={("acc_x", 0): CONSUMER})
+    generated = render_gluon_kernel(self.source, plan=plan)
+
+    self.assertIn(
+      f"gl.sum(acc_x_view_{identifier(CONSUMER)}, axis=1)", generated.source
+    )
+    self.assertIn(
+      f"gl.sum(acc_x_view_{identifier(REDUCTION)}, axis=0)", generated.source
+    )
+
+  def test_every_declared_role_layout_is_used_by_the_body(self):
+    generated = render_gluon_kernel(self.source, plan=role_plan(state_layout=STATE))
+    body = kernel_body(generated.source)
+
+    for name in generated.layout_parameters:
+      with self.subTest(layout=name):
+        self.assertRegex(body, rf"\b{re.escape(name)}\b")
+
+  def test_view_for_states_only_explicit_consumer_overrides(self):
+    plan = role_plan(consumer_views={("acc_x", 0): CONSUMER})
+
+    self.assertIs(plan.view_for("acc_x", 0), CONSUMER)
+    self.assertIsNone(plan.view_for("acc_x", 2))
+    self.assertIsNone(plan.view_for("v0", 1))
+
+  def test_a_plan_without_a_reduction_role_keeps_the_sums_in_compute(self):
+    generated = render_gluon_kernel(self.source, plan=role_plan(reduction=None))
+
+    self.assertIn("gl.sum(acc_x, axis=1)", generated.source)
+    self.assertIn("gl.sum(acc_x, axis=0)", generated.source)
+    self.assertNotIn(f"acc_x_view_{identifier(COMPUTE)}", generated.source)
 
 
 if __name__ == "__main__":

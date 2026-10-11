@@ -32,6 +32,7 @@ from test.lib.tensor_gluon import (
   PLAN_FAMILY_MINIMUM_LAYOUTS,
   BlockedLayoutPlan,
   generate_layout_plans,
+  region_consumers,
   region_plan_families,
   select_distinct_layouts,
 )
@@ -187,25 +188,27 @@ def region_layout_pool(shape, reduction_layout, *, num_warps, seed, count):
   )
 
 
-def select_plan_family(name, shape, *, num_warps, layouts):
-  """Select one named plan family the sampled layout pool can express.
+def select_plan_family(name, shape, *, num_warps, layouts, consumers):
+  """Select one named plan family the sampled pool and the region can express.
 
-  A family states its roles from the pool's distinct layouts, so a pool that
-  holds fewer layouts than the family has roles cannot express it. Such a
-  request is refused with the counts instead of silently collapsing roles.
+  A family states its roles from the pool's distinct layouts and its consumer
+  views from the region's own consumers, so a request the pool or the graph
+  cannot express is refused with the reason instead of silently collapsing.
   """
-  required = PLAN_FAMILY_MINIMUM_LAYOUTS.get(name)
-  if required is None:
+  if name not in PLAN_FAMILY_MINIMUM_LAYOUTS:
     raise ValueError(
       f"unknown plan family {name!r}; expected one of "
       + ", ".join(sorted(PLAN_FAMILY_MINIMUM_LAYOUTS))
     )
-  if len(layouts) < required:
+  families = region_plan_families(
+    shape, num_warps=num_warps, layouts=layouts, consumers=consumers
+  )
+  family = families.get(name)
+  if family is None:
     raise ValueError(
-      f"plan family {name!r} places {required} distinct layouts on its roles, "
-      f"but the run sampled {len(layouts)}"
+      f"plan family {name!r} cannot be expressed: {families.omitted[name]}"
     )
-  return region_plan_families(shape, num_warps=num_warps, layouts=layouts)[name]
+  return family
 
 
 def region_launch_arguments(generated, layouts, input_tensor, output_tensor):
@@ -418,7 +421,11 @@ def run_program(
     plan_record = None
   else:
     family_plan = select_plan_family(
-      plan_family, shape, num_warps=num_warps, layouts=plans
+      plan_family,
+      shape,
+      num_warps=num_warps,
+      layouts=plans,
+      consumers=region_consumers(source),
     )
     generated = render_gluon_kernel(source, plan=family_plan)
     kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")

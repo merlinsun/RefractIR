@@ -70,6 +70,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The observer no longer confirms a rematerialization from SSA renaming: a candidate needs an equal canonical expression, strictly more pure definitions with that expression after the pass, a lost consumer, a structurally matching redirected consumer, and a surviving original; ambiguity confirms nothing. Loop retention is decided by a per-function branch graph (PTX fall-through included) and cycle membership rather than by print order, and unreadable branches leave a stage unavailable. Reclassifying the preserved IR withdraws every recorded rematerialization (102 events) and changes no loop classification.
 
+- Gluon layout plans follow the graph and the declared roles: `effective_mapping` builds each element's owner set the way `BlockedLayoutAttr::toLinearLayout` does (declared widths place the lane and warp bits, replication keeps physical lane identities, tile repeats land in registers), so two parameter tuples with the same owners are equivalent while `[4,8]` and `[16,2]` are not; a sum without a consumer override runs in the declared reduction layout instead of the compute layout; and the six families derive their consumers from the typed graph (`region_consumers`) and name every family they omit with a reason. The mapping model was checked against the pinned compiler's own `format_tensor_view` over 5040 combinations with no mismatch, and plan-mode runs of a native exported region match the exact reference.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

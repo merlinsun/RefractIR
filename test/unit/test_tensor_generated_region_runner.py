@@ -1353,6 +1353,13 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(summary["paired_ratio_range"], [2.0, 3.0])
 
 
+def _consumers(source):
+  """The consumer identities the emitter sees in one recorded region source."""
+  from test.lib.tensor_gluon import region_consumers
+
+  return region_consumers(source)
+
+
 def _layout_pool(runner, *, shape=PLAN_SHAPE, count=4, seed=PLAN_LAYOUT_SEED):
   """The runner's own deterministic layout pool for one region shape."""
   from test.lib.tensor_gluon_lowering import reduction_blocked_layout
@@ -1499,11 +1506,20 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
 
     runner = _load_runner()
     pool = _layout_pool(runner)
+    consumers = _consumers(ORTHOGONAL_REGION_SOURCE)
     first = runner.select_plan_family(
-      "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=_layout_pool(runner)
+      "loop-state-layout",
+      PLAN_SHAPE,
+      num_warps=1,
+      layouts=_layout_pool(runner),
+      consumers=consumers,
     )
     second = runner.select_plan_family(
-      "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=_layout_pool(runner)
+      "loop-state-layout",
+      PLAN_SHAPE,
+      num_warps=1,
+      layouts=_layout_pool(runner),
+      consumers=consumers,
     )
 
     self.assertEqual(first.name, "loop-state-layout")
@@ -1528,7 +1544,11 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
 
     with self.assertRaisesRegex(ValueError, "unknown plan family") as refusal:
       runner.select_plan_family(
-        "all-same-layouts", PLAN_SHAPE, num_warps=1, layouts=_layout_pool(runner)
+        "all-same-layouts",
+        PLAN_SHAPE,
+        num_warps=1,
+        layouts=_layout_pool(runner),
+        consumers=_consumers(ORTHOGONAL_REGION_SOURCE),
       )
 
     for family in (
@@ -1547,13 +1567,21 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
 
     with self.assertRaisesRegex(ValueError, "loop-state-layout") as refusal:
       runner.select_plan_family(
-        "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=pool
+        "loop-state-layout",
+        PLAN_SHAPE,
+        num_warps=1,
+        layouts=pool,
+        consumers=_consumers(ORTHOGONAL_REGION_SOURCE),
       )
 
     self.assertIn("places 4 distinct layouts", str(refusal.exception))
     self.assertIn("sampled 2", str(refusal.exception))
     expressible = runner.select_plan_family(
-      "load-to-compute", PLAN_SHAPE, num_warps=1, layouts=pool
+      "load-to-compute",
+      PLAN_SHAPE,
+      num_warps=1,
+      layouts=pool,
+      consumers=_consumers(ORTHOGONAL_REGION_SOURCE),
     )
     self.assertEqual(
       [expressible.load.name, expressible.compute.name],
@@ -1566,7 +1594,11 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
     runner = _load_runner()
     pool = _layout_pool(runner)
     family = runner.select_plan_family(
-      "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=pool
+      "loop-state-layout",
+      PLAN_SHAPE,
+      num_warps=1,
+      layouts=pool,
+      consumers=_consumers(ORTHOGONAL_REGION_SOURCE),
     )
     generated = render_gluon_kernel(ORTHOGONAL_REGION_SOURCE, plan=family)
 
@@ -1626,7 +1658,11 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
     record = result["plan"]
     pool = _layout_pool(runner, shape=NATIVE_SHAPE, count=4)
     family = runner.select_plan_family(
-      "loop-state-layout", NATIVE_SHAPE, num_warps=1, layouts=pool
+      "loop-state-layout",
+      NATIVE_SHAPE,
+      num_warps=1,
+      layouts=pool,
+      consumers=_consumers(NATIVE_SEED_7_SOURCE),
     )
     generated = render_gluon_kernel(NATIVE_SEED_7_SOURCE, plan=family)
 
@@ -1676,7 +1712,11 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
     runner = _load_runner()
     pool = _layout_pool(runner, count=1)
     family = runner.select_plan_family(
-      "all-same-layout", PLAN_SHAPE, num_warps=1, layouts=pool
+      "all-same-layout",
+      PLAN_SHAPE,
+      num_warps=1,
+      layouts=pool,
+      consumers=_consumers(ORTHOGONAL_REGION_SOURCE),
     )
 
     self.assertEqual(
@@ -1690,7 +1730,11 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
     )
     with self.assertRaisesRegex(ValueError, "load-to-compute"):
       runner.select_plan_family(
-        "load-to-compute", PLAN_SHAPE, num_warps=1, layouts=pool
+        "load-to-compute",
+        PLAN_SHAPE,
+        num_warps=1,
+        layouts=pool,
+        consumers=_consumers(ORTHOGONAL_REGION_SOURCE),
       )
 
   def test_plan_mode_refuses_an_unqualified_compiler_before_the_device(self):

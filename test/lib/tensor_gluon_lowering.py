@@ -163,12 +163,15 @@ def render_gluon_kernel(source, *, plan=None):
   plan_uses = []
 
   def use(value, node_index, fallback_layout, label):
-    """Name the local one consumer reads, converting into a view if needed."""
+    """Name the local one consumer reads, converting into a view if needed.
+
+    An explicit consumer view wins. Without one the consumer keeps the layout
+    its operation's role declares, which is the fallback the call site states.
+    """
     plan_uses.append((value, node_index, fallback_layout))
+    override = plan.view_for(value, node_index) if plan is not None else None
     wanted = (
-      _layout_identifier(plan.view_for(value, node_index).name)
-      if plan is not None
-      else fallback_layout
+      _layout_identifier(override.name) if override is not None else fallback_layout
     )
     if plan is None:
       emit(f"        {value} = gl.convert_layout({value}, {wanted})", conversion=label)

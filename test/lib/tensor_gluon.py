@@ -1,9 +1,12 @@
 """Small, validated Gluon layout descriptions for the exact tensor pilot."""
 
 import random
+import re
 from dataclasses import asdict, dataclass, field
 from functools import reduce
 from operator import mul
+
+from test.lib.tensor_exact_f32 import _generated_region_program
 
 
 def _is_power_of_two(value):
@@ -165,43 +168,87 @@ def select_distinct_layouts(required, sampled, *, shape, num_warps, count):
 
 
 def _bits(value):
-  """Bit width one distribution factor contributes to a lane identifier."""
+  """Bit width one declared distribution factor contributes."""
   return 0 if value <= 1 else value.bit_length() - 1
 
 
-def _blocked_owner(plan, shape, coordinate):
-  """Return (warp, lane, register) owning one element under a blocked layout.
+def _blocked_bases(plan, shape):
+  """Return the (axis, coordinate value) bases of each hardware dimension.
 
-  Each dimension is covered by a tile of sizePerThread x threadsPerWarp x
-  warpsPerCTA; a larger extent repeats that tile, and the repetition lands in
-  the thread's registers. Bits are concatenated across dimensions in `order`,
-  which lists axes from fastest to slowest.
+  Triton reads a blocked layout as `register(sizePerThread) *
+  lane(threadsPerWarp) * warp(warpsPerCTA)`, where `inner * outer` keeps the
+  inner bases at the low bits of every axis and shifts the outer bases up by
+  the inner extent. The register bits are therefore the low bits of each axis,
+  the lane bits follow them, and the warp bits follow those. A tile smaller
+  than the tensor is repeated by register bits appended after all three
+  factors, in the layout's own axis order.
+
+  A basis that reaches past the tensor is dropped when it is a register bit and
+  blanked when it is a lane or warp bit: the register then does not exist,
+  while the lane or warp keeps its physical identity and holds a copy of the
+  element another lane or warp already holds.
   """
-  warp = lane = register = 0
-  lane_stride = warp_stride = register_stride = 1
+  registers, lanes, warps = [], [], []
   for axis in plan.order:
-    extent = shape[axis]
-    per_thread = min(plan.size_per_thread[axis], extent)
-    per_warp = min(plan.threads_per_warp[axis], max(1, extent // per_thread))
-    per_cta = min(plan.warps_per_cta[axis], max(1, extent // (per_thread * per_warp)))
-    coverage = per_thread * per_warp * per_cta
-    within = coordinate[axis] % coverage
-    tiles = coordinate[axis] // coverage
-    lane += ((within // per_thread) % per_warp) * lane_stride
-    warp += ((within // (per_thread * per_warp)) % per_cta) * warp_stride
-    register += (tiles * per_thread + within % per_thread) * register_stride
-    lane_stride *= max(per_warp, 1)
-    warp_stride *= max(per_cta, 1)
-    register_stride *= -(-extent // coverage) * per_thread
-  return warp, lane, register
+    per_thread = plan.size_per_thread[axis]
+    per_warp = per_thread * plan.threads_per_warp[axis]
+    for bit in range(_bits(per_thread)):
+      registers.append((axis, 1 << bit))
+    for bit in range(_bits(plan.threads_per_warp[axis])):
+      lanes.append((axis, per_thread << bit))
+    for bit in range(_bits(plan.warps_per_cta[axis])):
+      warps.append((axis, per_warp << bit))
+  for axis in plan.order:
+    tile = (
+      plan.size_per_thread[axis]
+      * plan.threads_per_warp[axis]
+      * plan.warps_per_cta[axis]
+    )
+    for bit in range(_bits(shape[axis] // tile)):
+      registers.append((axis, tile << bit))
+  registers = [basis for basis in registers if basis[1] < shape[basis[0]]]
+  lanes = [(axis, value if value < shape[axis] else 0) for axis, value in lanes]
+  warps = [(axis, value if value < shape[axis] else 0) for axis, value in warps]
+  return registers, lanes, warps
+
+
+def _basis_coordinate(bases, index):
+  """The logical coordinate one hardware dimension's index selects."""
+  row = column = 0
+  for bit, (axis, value) in enumerate(bases):
+    if index >> bit & 1:
+      if axis == 0:
+        row += value
+      else:
+        column += value
+  return row, column
 
 
 def effective_mapping(plan, shape):
-  """Return the (warp, lane, register) owner of every element, row-major."""
+  """Return the owner set of every element, row-major.
+
+  An owner is a `(warp, lane, register)` triple. A tensor smaller than the
+  layout tile gives one element several owners, because the unused lane and
+  warp bits repeat it across the hardware instead of renumbering it.
+  """
   if not isinstance(shape, (tuple, list)) or len(shape) != 2:
     raise ValueError("effective mapping needs a rank-two shape")
+  shape = tuple(shape)
+  registers, lanes, warps = _blocked_bases(plan, shape)
+  owners = {}
+  for register in range(1 << len(registers)):
+    register_row, register_column = _basis_coordinate(registers, register)
+    for lane in range(1 << len(lanes)):
+      lane_row, lane_column = _basis_coordinate(lanes, lane)
+      for warp in range(1 << len(warps)):
+        warp_row, warp_column = _basis_coordinate(warps, warp)
+        coordinate = (
+          register_row + lane_row + warp_row,
+          register_column + lane_column + warp_column,
+        )
+        owners.setdefault(coordinate, []).append((warp, lane, register))
   return tuple(
-    _blocked_owner(plan, tuple(shape), (row, column))
+    tuple(sorted(owners[(row, column)]))
     for row in range(shape[0])
     for column in range(shape[1])
   )
@@ -216,8 +263,16 @@ def _layout_identity(plan):
   )
 
 
+def _owner_field(owners, field_index):
+  return {owner[field_index] for owner in owners}
+
+
 def classify_layout_pair(left, right, *, shape):
-  """Name what a layout change between two plans actually moves."""
+  """Name what a layout change between two plans actually moves.
+
+  Two parameter tuples are equivalent only when every element has the same
+  owners in both, replicated owners included.
+  """
   if not isinstance(left, BlockedLayoutPlan) or not isinstance(
     right, BlockedLayoutPlan
   ):
@@ -228,10 +283,12 @@ def classify_layout_pair(left, right, *, shape):
   right_mapping = effective_mapping(right, shape)
   if left_mapping == right_mapping:
     return "equivalent"
-  if any(a[0] != b[0] for a, b in zip(left_mapping, right_mapping)):
-    return "cross_warp"
-  if any(a[1] != b[1] for a, b in zip(left_mapping, right_mapping)):
-    return "cross_lane"
+  for field_index, verdict in ((0, "cross_warp"), (1, "cross_lane")):
+    if any(
+      _owner_field(left_owners, field_index) != _owner_field(right_owners, field_index)
+      for left_owners, right_owners in zip(left_mapping, right_mapping)
+    ):
+      return verdict
   return "register_only"
 
 
@@ -254,8 +311,13 @@ class GluonRegionPlan:
   consumer_views: dict = field(default_factory=dict)
 
   def view_for(self, value, node_index):
-    """The layout of one consumer's view, or the compute layout by default."""
-    return self.consumer_views.get((value, node_index), self.compute)
+    """The layout of one consumer's explicit view, or None when it has none.
+
+    A consumer without an override keeps the layout of the role its operation
+    declares, which only the emitter knows, so this reports no layout rather
+    than inventing one.
+    """
+    return self.consumer_views.get((value, node_index))
 
   def as_record(self):
     return {
@@ -273,6 +335,129 @@ class GluonRegionPlan:
     }
 
 
+@dataclass(frozen=True)
+class RegionConsumers:
+  """The consumer identities one generated region offers a layout plan.
+
+  `operations` names the operation of every node in graph order, and `uses`
+  pairs the alias of each operand with the index of the node that reads it.
+  Aliases follow the emitter: the loop states keep their names and a node
+  result is `v<node index>`, whatever the graph calls it.
+  """
+
+  shape: tuple[int, int]
+  roots: tuple[str, ...]
+  operations: tuple[str, ...]
+  uses: tuple[tuple[str, int], ...]
+
+  def uses_of(self, operation):
+    """The (alias, node index) pairs read by one kind of operation."""
+    return tuple(
+      (value, index)
+      for value, index in self.uses
+      if self.operations[index] == operation
+    )
+
+  def shared_reduction_value(self):
+    """The value two reductions read, with their node indexes, if there is one."""
+    readers = {}
+    for value, index in self.uses_of("sum"):
+      readers.setdefault(value, []).append(index)
+    for value, indexes in readers.items():
+      if len(indexes) >= 2:
+        return value, (indexes[0], indexes[1])
+    return None
+
+  def reduction_result_broadcasts(self):
+    """The (alias, node index) pairs of broadcasts that read a reduction."""
+    return tuple(
+      (value, index)
+      for value, index in self.uses_of("broadcast")
+      if self._is_reduction_result(value)
+    )
+
+  def _is_reduction_result(self, value):
+    index = _node_index(value)
+    return index is not None and self.operations[index] == "sum"
+
+
+def _node_index(alias):
+  """The node index an emitter alias names, or None for a loop state."""
+  match = re.fullmatch(r"v(\d+)", str(alias))
+  return int(match[1]) if match else None
+
+
+def region_consumers(source):
+  """Read the emitter-visible consumers of one generated region source.
+
+  The region grammar names its temporaries itself; a plan has to state the
+  consumers the emitter will actually write, so this translates every operand
+  into the emitter's alias for it and rejects an operand the emitter cannot
+  name instead of guessing one.
+  """
+  shape, _iterations, _tensor_types, nodes, updates = _generated_region_program(source)
+  aliases = {}
+  for index, (destination, _operation, _operands, _attribute) in enumerate(nodes):
+    aliases[destination] = f"v{index}"
+  roots = tuple(state for state, _root in updates)
+  for state in roots:
+    if state in aliases:
+      raise ValueError(f"generated region reads and updates {state!r}")
+    aliases[state] = state
+  uses = []
+  for index, (_destination, _operation, operands, _attribute) in enumerate(nodes):
+    for operand in operands:
+      if operand not in aliases:
+        raise ValueError(
+          f"generated region node {index} reads {operand!r}, which the emitter "
+          "cannot name"
+        )
+      uses.append((aliases[operand], index))
+  return RegionConsumers(
+    tuple(shape),
+    roots,
+    tuple(operation for _destination, operation, _o, _a in nodes),
+    tuple(uses),
+  )
+
+
+@dataclass(frozen=True)
+class PlanFamilies:
+  """The plan families one layout pool and one region graph can express.
+
+  `plans` holds the families that are expressible. `omitted` names every other
+  family of `PLAN_FAMILY_MINIMUM_LAYOUTS` with the reason it is missing, so a
+  caller never has to guess whether the pool or the graph left it out.
+  """
+
+  plans: dict
+  omitted: dict
+
+  def __getitem__(self, name):
+    return self.plans[name]
+
+  def __contains__(self, name):
+    return name in self.plans
+
+  def __iter__(self):
+    return iter(self.plans)
+
+  def __len__(self):
+    return len(self.plans)
+
+  def get(self, name, default=None):
+    return self.plans.get(name, default)
+
+  def keys(self):
+    return self.plans.keys()
+
+  def values(self):
+    return self.plans.values()
+
+  def items(self):
+    return self.plans.items()
+
+
 # Distinct sampled layouts each family places on its roles. A pool that holds
 # fewer layouts than a family has roles would put one layout on two roles, so
 # the family would silently stop stating the difference its name describes.
@@ -286,80 +471,96 @@ PLAN_FAMILY_MINIMUM_LAYOUTS = {
 }
 
 
-def region_plan_families(shape, *, num_warps, layouts):
-  """Build the layout plan families one layout pool can faithfully express.
+def region_plan_families(shape, *, num_warps, layouts, consumers):
+  """Build the layout plan families one layout pool and one region can express.
 
-  `layouts` holds distinct sampled blocked layouts; the families place them on
-  the load, compute, reduction, per-consumer, loop-state, and store roles. A
-  family that needs more distinct layouts than the pool holds is left out
-  rather than collapsing two of its roles onto one layout.
+  `layouts` holds distinct sampled blocked layouts, which the families place on
+  the load, compute, reduction, per-consumer, loop-state, and store roles.
+  `consumers` states who the region's graph lets a plan address, so a family
+  views the values the region really has. A family the pool cannot afford or
+  the graph cannot express is omitted with its reason rather than collapsing
+  two of its roles onto one layout or inventing a consumer.
   """
   if not isinstance(layouts, (list, tuple)) or not layouts:
     raise ValueError("plan families need at least one distinct layout")
   for layout in layouts:
     layout.validate(shape, num_warps=num_warps)
+  if not isinstance(consumers, RegionConsumers):
+    raise ValueError("plan families need the region's consumer identities")
+  # A region with no reduction has no reduction role, so no family declares
+  # one: a parameter the kernel body never reads would state nothing.
+  reductions = bool(consumers.uses_of("sum"))
   baseline = layouts[0]
   second = layouts[1 % len(layouts)]
   third = layouts[2 % len(layouts)]
   fourth = layouts[3 % len(layouts)]
 
+  plans = {}
+  omitted = {
+    name: (
+      f"plan family {name!r} places {required} distinct layouts on its roles, "
+      f"but the run sampled {len(layouts)}"
+    )
+    for name, required in PLAN_FAMILY_MINIMUM_LAYOUTS.items()
+    if len(layouts) < required
+  }
+
   def region(name, load, compute, store, *, reduction=None, state=None, views=None):
-    return GluonRegionPlan(
+    if name in omitted:
+      return
+    plans[name] = GluonRegionPlan(
       name,
       tuple(shape),
       load,
       compute,
       store,
-      reduction=reduction,
+      reduction=reduction if reductions else None,
       state_layout=state,
       consumer_views=dict(views or {}),
     )
 
-  families = {
-    "all-same-layout": region(
-      "all-same-layout", baseline, baseline, baseline, reduction=baseline
-    ),
-    "load-to-compute": region(
-      "load-to-compute", second, baseline, baseline, reduction=baseline
-    ),
-    "shared-value-reused": region(
+  region("all-same-layout", baseline, baseline, baseline, reduction=baseline)
+  region("load-to-compute", second, baseline, baseline, reduction=baseline)
+
+  shared = consumers.shared_reduction_value()
+  if shared is None:
+    for name in ("shared-value-reused", "split-reduction-consumers"):
+      omitted.setdefault(name, "no value is read by two reduction nodes")
+  else:
+    value, (first, last) = shared
+    region(
       "shared-value-reused",
       baseline,
       baseline,
       second,
       reduction=baseline,
-      views={("acc_x", 0): second, ("acc_x", 2): second},
-    ),
-    "split-reduction-consumers": region(
+      views={(value, first): second, (value, last): second},
+    )
+    region(
       "split-reduction-consumers",
       baseline,
       baseline,
       second,
       reduction=second,
-      views={("acc_x", 0): second, ("acc_x", 2): third},
-    ),
-    "reduction-result-expand": region(
+      views={(value, first): second, (value, last): third},
+    )
+
+  broadcasts = consumers.reduction_result_broadcasts()
+  if len(broadcasts) < 2:
+    omitted.setdefault(
+      "reduction-result-expand", "fewer than two reductions feed a broadcast"
+    )
+  else:
+    region(
       "reduction-result-expand",
       baseline,
       third,
       second,
       reduction=second,
-      # The first broadcast reads the first reduction's result (`v0`) and the
-      # second reads the second reduction's (`v2`), so each gets a view that
-      # differs from the compute layout the emitter would otherwise inherit.
-      views={("v0", 1): fourth, ("v2", 3): fourth},
-    ),
-    "loop-state-layout": region(
-      "loop-state-layout",
-      baseline,
-      baseline,
-      fourth,
-      reduction=second,
-      state=third,
-    ),
-  }
-  return {
-    name: family
-    for name, family in families.items()
-    if len(layouts) >= PLAN_FAMILY_MINIMUM_LAYOUTS[name]
-  }
+      # Each broadcast reads one reduction's result, so each gets the view that
+      # differs from the compute layout the emitter would otherwise give it.
+      views={use: fourth for use in broadcasts[:2]},
+    )
+
+  region("loop-state-layout", baseline, baseline, fourth, reduction=second, state=third)
+  return PlanFamilies(plans, omitted)
