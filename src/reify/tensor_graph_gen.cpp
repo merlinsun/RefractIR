@@ -181,6 +181,7 @@ namespace refractir::reify {
 
       bool admissible(const Shape &shape) const;
       Shape makeWorkingShape();
+      Shape chooseTailedShape();
       Shape makeInputShape(const Shape &working);
       std::uint32_t chooseExtent(bool allowTail);
       std::optional<Shape> applyBinary(const Shape &lhs, const Shape &rhs) const;
@@ -245,12 +246,24 @@ namespace refractir::reify {
       return small[random_() % small.size()];
     }
 
+    Shape Builder::chooseTailedShape() {
+      // Rank-two logical tails whose padded tile stays inside the profile
+      // volume. Each pair keeps one tailed axis and one power-of-two companion,
+      // so a reduce or broadcast meets a masked axis beside a full one.
+      static const std::array<Shape, 6> tails{
+          Shape{31, 8}, Shape{33, 8}, Shape{8, 31}, Shape{8, 33}, Shape{63, 4}, Shape{4, 65}};
+      return tails[random_() % tails.size()];
+    }
+
     Shape Builder::makeWorkingShape() {
       for (std::uint32_t attempt = 0; attempt < 64; ++attempt) {
         const auto rank = 1 + random_() % maxRank_;
         Shape shape(rank);
-        for (auto &dimension: shape)
-          dimension = chooseExtent(rank == 1);
+        if (rank == 2 && profile_.id == TensorProfileId::V3 && random_() % 3 == 0)
+          shape = chooseTailedShape();
+        else
+          for (auto &dimension: shape)
+            dimension = chooseExtent(rank == 1);
         const bool reducible = std::any_of(shape.begin(), shape.end(), [](std::uint32_t dimension) {
           return dimension > 1;
         });

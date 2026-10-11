@@ -1,5 +1,6 @@
 """Stride-aware storage helpers for single-program tensor cases."""
 
+from dataclasses import dataclass
 from itertools import product
 
 
@@ -143,9 +144,28 @@ def scatter_buffer(
   return bytes(scattered)
 
 
-def changed_canary_slots(before, after, layout, *, element_size, profile="v2"):
-  """Return changed physical slots outside the logical output mapping."""
+def changed_canary_slots(
+  before, after, layout, *, element_size, envelope=None, profile="v2"
+):
+  """Return changed physical slots outside the logical output mapping.
+
+  With a guard envelope the changed slots are named, so a write into a prefix
+  guard, a suffix guard, and an internal gap stay distinguishable.
+  """
   element_size = _element_size(element_size)
+  if envelope is not None:
+    return [
+      name
+      for name in classify_changed_slots(
+        before,
+        after,
+        layout,
+        element_size=element_size,
+        envelope=envelope,
+        profile=profile,
+      )
+      if not name.startswith("input-")
+    ]
   expected_length = layout["storage_span"] * element_size
   if len(before) != expected_length or len(after) != expected_length:
     raise LayoutError("canary buffers do not match storage span")
@@ -157,3 +177,120 @@ def changed_canary_slots(before, after, layout, *, element_size, profile="v2"):
     and before[slot * element_size : (slot + 1) * element_size]
     != after[slot * element_size : (slot + 1) * element_size]
   ]
+
+
+@dataclass(frozen=True)
+class GuardEnvelope:
+  """Allocated element slots around one tensor's storage span.
+
+  The prefix and suffix guards stay outside every recorded address, so a write
+  observed there has left the tensor's own allocation. Together with the
+  internal gaps they form the nonlogical region of the buffer.
+  """
+
+  prefix: int = 0
+  suffix: int = 0
+
+  def __post_init__(self):
+    _integer(self.prefix, "guard prefix", 0)
+    _integer(self.suffix, "guard suffix", 0)
+
+
+def _envelope_slots(layout, envelope):
+  if not isinstance(envelope, GuardEnvelope):
+    raise LayoutError("guard envelope must be a GuardEnvelope")
+  return envelope.prefix + layout["storage_span"] + envelope.suffix
+
+
+def _slot_names(layout, envelope):
+  """Name every physical slot of an enveloped buffer."""
+  logical = logical_addresses(layout)
+  names = []
+  for slot in range(_envelope_slots(layout, envelope)):
+    if slot < envelope.prefix:
+      names.append(f"prefix-guard-{slot}")
+      continue
+    physical = slot - envelope.prefix
+    if physical >= layout["storage_span"]:
+      names.append(f"suffix-guard-{physical - layout['storage_span']}")
+      continue
+    names.append(
+      f"input-{logical.index(physical)}" if physical in logical else f"gap-{physical}"
+    )
+  return names
+
+
+def stage_envelope(
+  logical_bytes, layout, *, element_size, envelope, padding, profile="v2"
+):
+  """Stage logical values inside an allocation with guards and gap padding."""
+  element_size = _element_size(element_size)
+  if not isinstance(padding, bytes) or len(padding) != element_size:
+    raise LayoutError("padding must contain exactly one element")
+  staged = bytearray(padding * _envelope_slots(layout, envelope))
+  staged[
+    envelope.prefix * element_size : (envelope.prefix + layout["storage_span"])
+    * element_size
+  ] = stage_buffer(
+    logical_bytes, layout, element_size=element_size, gap_bytes=padding, profile=profile
+  )
+  return bytes(staged)
+
+
+def gather_envelope(physical_bytes, layout, *, element_size, envelope, profile="v2"):
+  """Gather the logical values out of an enveloped buffer."""
+  element_size = _element_size(element_size)
+  if len(physical_bytes) != _envelope_slots(layout, envelope) * element_size:
+    raise LayoutError("enveloped byte length does not match guards and storage span")
+  begin = envelope.prefix * element_size
+  end = (envelope.prefix + layout["storage_span"]) * element_size
+  return gather_buffer(
+    physical_bytes[begin:end], layout, element_size=element_size, profile=profile
+  )
+
+
+def classify_changed_slots(
+  before, after, layout, *, element_size, envelope, profile="v2"
+):
+  """Name every physical slot whose bytes changed, logical or not."""
+  element_size = _element_size(element_size)
+  expected_length = _envelope_slots(layout, envelope) * element_size
+  if len(before) != expected_length or len(after) != expected_length:
+    raise LayoutError("enveloped buffers do not match guards and storage span")
+  names = _slot_names(layout, envelope)
+  return [
+    names[slot]
+    for slot in range(len(names))
+    if before[slot * element_size : (slot + 1) * element_size]
+    != after[slot * element_size : (slot + 1) * element_size]
+  ]
+
+
+def classify_physical_difference(expected, observed, *, control=None):
+  """Compare logical outputs and classify a difference by its origin.
+
+  A control variant is an intentional mutation the study applies to itself, so
+  a difference it produces is expected and is never a compiler discovery.
+  """
+  if not isinstance(expected, bytes) or not isinstance(observed, bytes):
+    raise LayoutError("logical comparison needs byte buffers")
+  if len(expected) != len(observed):
+    raise LayoutError("logical comparison needs equal-length buffers")
+  lanes = [
+    index
+    for index in range(len(expected) // 4)
+    if expected[index * 4 : (index + 1) * 4] != observed[index * 4 : (index + 1) * 4]
+  ]
+  if not lanes:
+    return {
+      "status": "equal",
+      "classification": "equal",
+      "control": control,
+      "logical_mismatch_lanes": [],
+    }
+  return {
+    "status": "different",
+    "classification": "control_variant" if control else "unexpected",
+    "control": control,
+    "logical_mismatch_lanes": lanes,
+  }
