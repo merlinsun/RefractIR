@@ -7,6 +7,7 @@
 #include "ast/ast.hpp"
 #include "reify/tensor_gen.hpp"
 #include "reify/tensor_region.hpp"
+#include "reify/tensor_region_family.hpp"
 
 namespace refractir::reify {
 
@@ -18,37 +19,6 @@ namespace refractir::reify {
     std::uint32_t maxRank = 2;
     std::uint32_t maxElements = 512;
     std::uint32_t maxOperators = 16;
-  };
-
-  /// Arithmetic sampled at the named roots of a bounded loop-safe region.
-  /// Additive preserves the original generation policy; Mixed places one
-  /// multiplication and one subtraction on the first two roots.
-  enum class TensorRegionArithmeticMode : std::uint8_t {
-    Additive,
-    Subtraction,
-    Multiplication,
-    Mixed,
-  };
-
-  /// Connection skeleton of a bounded loop region. `Fold` is the original
-  /// shared-producer-then-folds shape. The other families place the same
-  /// operation set behind different graph connections, so a pass that folds,
-  /// rematerializes, or converts layouts meets a different neighbourhood
-  /// without changing the admitted arithmetic or the loop skeleton.
-  enum class TensorRegionFamily : std::uint8_t {
-    /// Shared add of the two states, up to two sequential reduction folds, then
-    /// one arithmetic root per state.
-    Fold,
-    /// One shared producer feeding independent reductions on the first two
-    /// axes, each broadcast into a different state root.
-    OrthogonalReductions,
-    /// A reduction feeds bounded arithmetic before it becomes loop state.
-    ReductionArithmetic,
-    /// Each next-state root depends on both current states.
-    CrossState,
-    /// One shared producer has consumers at different depths: a reduction path
-    /// and a later arithmetic join.
-    MixedDepth,
   };
 
   /// Build a straight-line typed tensor dependency graph for the selected

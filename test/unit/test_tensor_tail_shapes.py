@@ -78,6 +78,16 @@ def is_boundary_tail(shape):
   )
 
 
+def tailed_axis(shape):
+  """The axis whose extent is the published boundary length, if there is one."""
+  axes = [
+    index
+    for index, extent in enumerate(shape)
+    if extent >= 17 and extent != next_power_of_two(extent)
+  ]
+  return axes[0] if len(axes) == 1 else None
+
+
 class TensorCompositionalTailTests(unittest.TestCase):
   def setUp(self):
     if not READY:
@@ -142,6 +152,64 @@ class TensorCompositionalTailTests(unittest.TestCase):
         observed_tiles += 1
 
     self.assertGreater(observed_tiles, 0)
+
+  def test_tailed_shapes_cover_both_axis_orientations(self):
+    tails = set()
+    for _dir, manifest, _source, _inputs, _expected in self.generated_cases():
+      shape = tuple(manifest["inputs"][0]["shape"])
+      if is_boundary_tail(shape):
+        tails.add(shape)
+
+    self.assertGreaterEqual(
+      len(tails),
+      2,
+      f"the sweep must reach more than one planned tail pair, observed {sorted(tails)}",
+    )
+    self.assertEqual(
+      {tailed_axis(shape) for shape in tails},
+      {0, 1},
+      f"both tailed-axis orientations must be reachable, observed {sorted(tails)}",
+    )
+
+  def test_tailed_case_padding_stays_out_of_the_logical_payloads(self):
+    tailed = [
+      case
+      for case in self.generated_cases()
+      if is_boundary_tail(tuple(case[1]["inputs"][0]["shape"]))
+    ]
+    self.assertTrue(tailed, "no rank-two tail case was generated")
+
+    for _dir, manifest, source, inputs, expected in tailed:
+      shape = tuple(manifest["inputs"][0]["shape"])
+      record = manifest["inputs"][0]
+      tile = tuple(record["tile_shape"])
+      with self.subTest(shape=shape):
+        self.assertIn(shape, PLANNED_TAILS)
+        self.assertNotEqual(
+          shape,
+          tile,
+          "a logical tail must be padded instead of rounded up in place",
+        )
+        self.assertIn(f"tensor [{shape[0]}, {shape[1]}]", source)
+        output_shape = tuple(manifest["output"]["shape"])
+        # The reference output is written at its logical size too, whatever the
+        # physical tile the kernel stores it through.
+        self.assertEqual(manifest["output"]["byte_length"], len(expected))
+        self.assertEqual(len(expected), math.prod(output_shape) * 4)
+        # The logical payload is the strided sub-region of the padded storage,
+        # so its byte length is the logical element count and never the tile's.
+        self.assertEqual(record["byte_length"], math.prod(shape) * 4)
+        self.assertGreaterEqual(len(inputs), record["byte_length"])
+        self.assertEqual(len(expected), math.prod(shape) * 4)
+        covered = (
+          record["element_offset"]
+          + 1
+          + sum(
+            (extent - 1) * stride
+            for extent, stride in zip(shape, record["element_strides"])
+          )
+        )
+        self.assertLessEqual(covered, record["storage_span"])
 
   def test_tailed_case_reference_is_complete_and_replayable(self):
     if not SYMIRI.is_file():

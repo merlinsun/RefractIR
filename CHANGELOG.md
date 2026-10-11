@@ -72,6 +72,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Gluon layout plans follow the graph and the declared roles: `effective_mapping` builds each element's owner set the way `BlockedLayoutAttr::toLinearLayout` does (declared widths place the lane and warp bits, replication keeps physical lane identities, tile repeats land in registers), so two parameter tuples with the same owners are equivalent while `[4,8]` and `[16,2]` are not; a sum without a consumer override runs in the declared reduction layout instead of the compute layout; and the six families derive their consumers from the typed graph (`region_consumers`) and name every family they omit with a reason. The mapping model was checked against the pinned compiler's own `format_tensor_view` over 5040 combinations with no mismatch, and plan-mode runs of a native exported region match the exact reference.
 
+- The loop-region families are seed-dependent and reachable from the normal generator: `buildRegionFamily` draws its producer operand order, reduced axis, state placement, and operand order from the seeded engine (distinct bodies across eight seeds went from 1 to 6-7 per family, and `mixed` no longer coincides with `additive`), while the fold family's bytes are unchanged. `rysmith --tensor-region-family` selects a family on the tensor-v2 constructor route, refuses routes it cannot honour instead of ignoring the request, and leaves the unnamed draw untouched. Two more genuinely-red tail tests bring that batch's red record to five.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

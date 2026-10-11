@@ -7,6 +7,7 @@
 
 #include "analysis/tensor.hpp"
 #include "reify/tensor_case.hpp"
+#include "reify/tensor_region_family.hpp"
 #include "solver/solver.hpp"
 
 namespace refractir::reify {
@@ -24,6 +25,9 @@ namespace refractir::reify {
     // Mutually exclusive with `propertyTarget`.
     std::vector<TensorOutputElementConstraint> outputElements;
     std::string primaryStratum;
+    /// The loop-region family a caller asked for. An unnamed family leaves the
+    /// constructor route's loop forms, and the frozen fold family, untouched.
+    std::optional<TensorRegionFamily> regionFamily;
     std::string inputPattern;
     std::string dtype = "i32";
     std::string property;

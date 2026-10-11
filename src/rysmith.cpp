@@ -1010,6 +1010,8 @@ optionOccurrences(const cxxopts::ParseResult &result, std::string_view name) {
                             cxxopts::value<std::string>()->default_value("construction"))
       ("tensor-generator",  "Tensor candidate route (constructor or compositional)",
                             cxxopts::value<std::string>()->default_value("constructor"))
+      ("tensor-region-family", "Bounded loop-region family (fold, orthogonal-reductions, reduction-arithmetic, cross-state, mixed-depth)",
+                            cxxopts::value<std::string>())
       ("tensor-input-policy", "Compositional runtime input proposal (ordinary, boundary, or exact)",
                             cxxopts::value<std::string>()->default_value("ordinary"))
       ("tensor-property-target", "Output target the exact input policy solves for",
@@ -1455,6 +1457,16 @@ int main(int argc, char **argv) {
                                  : "";
     tensorOptions.synthesis = result["tensor-synthesis"].as<std::string>();
     tensorOptions.generator = result["tensor-generator"].as<std::string>();
+    if (result.count("tensor-region-family")) {
+      const auto name = result["tensor-region-family"].as<std::string>();
+      const auto family = refractir::reify::parseTensorRegionFamily(name);
+      if (!family) {
+        std::cerr << "error: unknown tensor region family '" << name << "' (expected "
+                  << refractir::reify::tensorRegionFamilyNames << ")\n";
+        return 2;
+      }
+      tensorOptions.regionFamily = *family;
+    }
     tensorOptions.inputPolicy = result["tensor-input-policy"].as<std::string>();
     if (result.count("tensor-property-target"))
       tensorOptions.propertyTarget = result["tensor-property-target"].as<std::int64_t>();

@@ -113,7 +113,9 @@ class TensorRegionGenerationTests(unittest.TestCase):
 
     self.assertEqual(replayed, expected)
     nodes = tensor_region_generation.operation_nodes(source)
-    shared = [node for node in nodes if node[2] == ("acc_x", "acc_y")]
+    # The producer's operand order is one of the seeded choices, so the
+    # contract is which states it reads, not the order it reads them in.
+    shared = [node for node in nodes if set(node[2]) == {"acc_x", "acc_y"}]
     self.assertEqual(len(shared), 1, "one producer must read both current states")
 
   def test_configuration_reproduces_independently_of_launch_settings(self):
@@ -174,12 +176,132 @@ class TensorRegionGenerationTests(unittest.TestCase):
     self.assertEqual(manifest["execution"]["loop_bounds"], [2])
 
 
+class TensorRegionFamilyDiversityTests(unittest.TestCase):
+  """A fixed shape, bound, mode, and family still leaves the body to the seed."""
+
+  def setUp(self):
+    if not EXPORTER_AVAILABLE:
+      self.skipTest("the native graph exporter is supplied by the managed Make target")
+
+  def sources(self, family, *, mode="additive", seeds=range(1, 9), shape=(16, 32)):
+    return {
+      seed: tensor_region_generation.generate_source(
+        RegionConfiguration(
+          seed=seed, shape=shape, iterations=2, family=family, operation_mode=mode
+        )
+      )
+      for seed in seeds
+    }
+
+  def test_each_family_draws_a_different_body_per_seed(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      with self.subTest(family=family):
+        bodies = set(self.sources(family).values())
+
+        self.assertGreaterEqual(
+          len(bodies),
+          3,
+          f"{family} emitted {len(bodies)} distinct bodies across eight seeds",
+        )
+
+  def test_shared_producer_is_not_always_additive(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      with self.subTest(family=family):
+        operations = {
+          tensor_region_generation.producer_operation(source)
+          for mode in ("additive", "subtraction", "multiplication", "mixed")
+          for source in self.sources(family, mode=mode, seeds=range(1, 5)).values()
+        }
+
+        self.assertGreaterEqual(
+          len(operations),
+          2,
+          f"{family} always produces with {sorted(operations)}",
+        )
+
+  def test_reduction_axis_follows_the_seed(self):
+    for family in (
+      "orthogonal-reductions",
+      "reduction-arithmetic",
+      "mixed-depth",
+    ):
+      with self.subTest(family=family):
+        axes = {
+          seed: tensor_region_generation.reduction_axes(source)
+          for seed, source in self.sources(family).items()
+        }
+
+        self.assertGreater(
+          len(set(axes.values())),
+          1,
+          f"{family} keeps one reduction schedule for every seed: {axes}",
+        )
+
+  def test_mixed_arithmetic_differs_from_additive_for_every_family(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      additive = self.sources(family, mode="additive")
+      mixed = self.sources(family, mode="mixed")
+      for seed, source in additive.items():
+        with self.subTest(family=family, seed=seed):
+          self.assertNotEqual(source, mixed[seed])
+          self.assertNotEqual(
+            tensor_region_generation.producer_operation(source),
+            tensor_region_generation.producer_operation(mixed[seed]),
+          )
+
+  def test_producer_order_and_root_joins_follow_the_seed(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      with self.subTest(family=family):
+        patterns = {
+          seed: (
+            tensor_region_generation.producer_operands(source),
+            tensor_region_generation.root_join_patterns(source),
+          )
+          for seed, source in self.sources(family).items()
+        }
+
+        for operands, _joins in patterns.values():
+          self.assertEqual(set(operands), {"acc_x", "acc_y"})
+        self.assertGreater(
+          len(set(patterns.values())),
+          1,
+          f"{family} joins the same states in the same order for every seed",
+        )
+
+
 class TensorRegionGenerationEdgeTests(unittest.TestCase):
   """Degenerate axes and budgets are refused instead of silently weakened."""
 
   def setUp(self):
     if not EXPORTER_AVAILABLE:
       self.skipTest("the native graph exporter is supplied by the managed Make target")
+
+  def test_every_seed_keeps_both_states_live_within_the_budget(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for seed in range(1, 13):
+        with self.subTest(family=family, seed=seed):
+          configuration = RegionConfiguration(
+            seed=seed, shape=(4, 8), iterations=2, family=family
+          )
+          source = tensor_region_generation.generate_source(configuration)
+          dependencies = tensor_region_generation.root_dependencies(source)
+          live = dependencies["acc_x"] | dependencies["acc_y"]
+
+          self.assertIn("acc_x", live)
+          self.assertIn("acc_y", live)
+          self.assertLessEqual(
+            len(tensor_region_generation.operation_nodes(source)),
+            configuration.max_operators,
+          )
+
+  def test_singleton_axis_refusal_does_not_depend_on_the_seed(self):
+    for seed in range(1, 13):
+      configuration = RegionConfiguration(
+        seed=seed, shape=(1, 64), iterations=2, family="orthogonal-reductions"
+      )
+      with self.subTest(seed=seed):
+        with self.assertRaisesRegex(RegionGenerationError, "graph_exhaustion"):
+          tensor_region_generation.generate_source(configuration)
 
   def test_singleton_axis_is_rejected_for_independent_reductions(self):
     configuration = RegionConfiguration(

@@ -51,20 +51,10 @@ namespace {
   }
 
   TensorRegionFamily parseFamily(std::string_view text) {
-    if (text == "fold")
-      return TensorRegionFamily::Fold;
-    if (text == "orthogonal-reductions")
-      return TensorRegionFamily::OrthogonalReductions;
-    if (text == "reduction-arithmetic")
-      return TensorRegionFamily::ReductionArithmetic;
-    if (text == "cross-state")
-      return TensorRegionFamily::CrossState;
-    if (text == "mixed-depth")
-      return TensorRegionFamily::MixedDepth;
-    throw std::invalid_argument(
-        "family must be fold, orthogonal-reductions, reduction-arithmetic, cross-state, or "
-        "mixed-depth"
-    );
+    const auto family = parseTensorRegionFamily(text);
+    if (!family)
+      throw std::invalid_argument("family must be " + std::string(tensorRegionFamilyNames));
+    return *family;
   }
 
   TensorRegionArithmeticMode parseOperationMode(std::string_view text) {

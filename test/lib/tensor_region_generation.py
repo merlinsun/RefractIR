@@ -38,6 +38,9 @@ FAMILIES = (
   "cross-state",
   "mixed-depth",
 )
+# The families that draw their connection skeleton from the seeded engine; the
+# original fold family keeps its frozen policy.
+NEW_FAMILIES = FAMILIES[1:]
 PHYSICAL_LAYOUTS = ("row-major", "column-major", "padded")
 WARP_COUNTS = (1, 2, 4, 8)
 ELEMENT_CAP = 512
@@ -235,6 +238,39 @@ def operation_nodes(source):
     tensor_exact_f32._generated_region_program(source)
   )
   return nodes
+
+
+def shared_producer(source):
+  """The one operation node that reads both loop states, in source order."""
+  states = {"acc_x", "acc_y"}
+  for node in operation_nodes(source):
+    if set(node[2]) == states:
+      return node
+  raise RegionGenerationError("the region has no shared producer over both states")
+
+
+def producer_operation(source):
+  """Operation of the shared producer: the family's arithmetic seed choice."""
+  return shared_producer(source)[1]
+
+
+def producer_operands(source):
+  """Operands of the shared producer, in emitted order."""
+  return shared_producer(source)[2]
+
+
+def reduction_axes(source):
+  """Reduction axes in emission order, one entry per keep-dimension sum."""
+  return tuple(node[3] for node in operation_nodes(source) if node[1] == "sum")
+
+
+def root_join_patterns(source):
+  """(operation, operands) of each named root's producer, in root order."""
+  _shape, _iterations, _types, nodes, updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  producers = {node[0]: node for node in nodes}
+  return tuple((producers[root][1], producers[root][2]) for _state, root in updates)
 
 
 def unroll_source(source, iterations=None):

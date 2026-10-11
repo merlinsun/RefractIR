@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: test-tensor-tail-shapes all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: test-tensor-tail-shapes test-tensor-region-family all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-region-family test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -271,6 +271,13 @@ test-tensor-generated-corpus: $(BIN_DIR)/tensor_graph_region_export
 
 # Explicit long-axis region configurations: reachability, graph families, and
 # the exact certificate each admitted configuration has to carry.
+# The normal generator's loop-region family surface: one option, its wire into
+# the loop-reduction stratum, and its refusals.
+test-tensor-region-family: $(TARGET_RYSMITH) $(TARGET_INTERP) $(TENSOR_GRAPH_REGION_EXPORT)
+	REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
+	  REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
+	  $(PY) -m unittest test.unit.test_tensor_region_family_option
+
 test-tensor-region-generation: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TENSOR_GRAPH_REGION_EXPORT)
 	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
 	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \

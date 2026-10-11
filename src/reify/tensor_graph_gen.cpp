@@ -178,6 +178,15 @@ namespace refractir::reify {
       int emitBroadcast(Graph &graph, int value, const Shape &shape);
       int emitBinaryOp(Graph &graph, int lhs, int rhs, TensorOp op, const Shape &shape);
       void requireNodeBudget(std::uint32_t nodes) const;
+      int emitProducer(Graph &graph, const Shape &shape);
+      int
+      emitPlacement(Graph &graph, int value, int other, std::size_t placement, const Shape &shape);
+      std::vector<std::uint32_t> reducibleAxes(const Shape &shape) const;
+      std::uint32_t
+      chooseAxis(const Shape &shape, std::optional<std::uint32_t> excluded = std::nullopt);
+      TensorOp producerOperation();
+      TensorOp placementOperation(std::size_t placement) const;
+      std::array<std::uint32_t, 2> placementStates();
 
       bool admissible(const Shape &shape) const;
       Shape makeWorkingShape();
@@ -828,6 +837,92 @@ namespace refractir::reify {
       return appendNode(graph, std::move(node), *merged);
     }
 
+    int Builder::emitProducer(Graph &graph, const Shape &shape) {
+      const auto operation = producerOperation();
+      // Subtraction keeps its minuend first: a producer whose operands swap
+      // under a non-commutative operation leaves the nonnegative domain every
+      // exact region certificate is stated over. The commutative producers take
+      // their operand order from the engine.
+      if (operation != TensorOp::Sub && random_() % 2 == 0)
+        return emitBinaryOp(graph, 1, 0, operation, shape);
+      return emitBinaryOp(graph, 0, 1, operation, shape);
+    }
+
+    int Builder::emitPlacement(
+        Graph &graph, int value, int other, std::size_t placement, const Shape &shape
+    ) {
+      const auto operation = placementOperation(placement);
+      if (operation != TensorOp::Sub && random_() % 2 == 0)
+        return emitBinaryOp(graph, other, value, operation, shape);
+      return emitBinaryOp(graph, value, other, operation, shape);
+    }
+
+    std::vector<std::uint32_t> Builder::reducibleAxes(const Shape &shape) const {
+      std::vector<std::uint32_t> axes;
+      for (std::uint32_t axis = 0; axis < shape.size(); ++axis)
+        if (shape[axis] > 1)
+          axes.push_back(axis);
+      return axes;
+    }
+
+    std::uint32_t Builder::chooseAxis(const Shape &shape, std::optional<std::uint32_t> excluded) {
+      std::vector<std::uint32_t> admitted;
+      for (const auto axis: reducibleAxes(shape))
+        if (axis != excluded)
+          admitted.push_back(axis);
+      if (admitted.empty())
+        throw AttemptFailure("every axis is a singleton and carries no reduction");
+      return admitted[random_() % admitted.size()];
+    }
+
+    /// The operation the shared producer uses. Additive keeps the additive
+    /// skeleton the families' exactness certificates are stated over; the two
+    /// single-operator modes place their own operation there, and Mixed draws
+    /// between the remaining two, so a mixed region is never byte-identical to
+    /// the additive one for the same configuration.
+    TensorOp Builder::producerOperation() {
+      switch (regionArithmetic_) {
+        case TensorRegionArithmeticMode::Additive:
+          return TensorOp::Add;
+        case TensorRegionArithmeticMode::Subtraction:
+          return TensorOp::Sub;
+        case TensorRegionArithmeticMode::Multiplication:
+          return TensorOp::Mul;
+        case TensorRegionArithmeticMode::Mixed:
+          return random_() % 2 == 0 ? TensorOp::Sub : TensorOp::Mul;
+      }
+      return TensorOp::Add;
+    }
+
+    /// The operation root placement `placement` joins with. Mixed follows the
+    /// fold family: one multiplication and one subtraction on the first two
+    /// placements, additive afterwards.
+    TensorOp Builder::placementOperation(std::size_t placement) const {
+      switch (regionArithmetic_) {
+        case TensorRegionArithmeticMode::Additive:
+          return TensorOp::Add;
+        case TensorRegionArithmeticMode::Subtraction:
+          return TensorOp::Sub;
+        case TensorRegionArithmeticMode::Multiplication:
+          return TensorOp::Mul;
+        case TensorRegionArithmeticMode::Mixed:
+          return placement == 0 ? TensorOp::Mul : placement == 1 ? TensorOp::Sub : TensorOp::Add;
+      }
+      return TensorOp::Add;
+    }
+
+    /// The state each root placement joins. A subtractive placement keeps the
+    /// assignment that cancels the other state, the only one whose recurrence
+    /// stays inside the nonnegative domain; commutative placements draw the
+    /// assignment from the engine.
+    std::array<std::uint32_t, 2> Builder::placementStates() {
+      static constexpr std::array<std::uint32_t, 2> forward{0, 1};
+      static constexpr std::array<std::uint32_t, 2> reversed{1, 0};
+      if (placementOperation(0) != TensorOp::Sub && random_() % 2 != 0)
+        return forward;
+      return reversed;
+    }
+
     Graph Builder::seedRegion(const std::vector<TensorRegionInput> &inputs) const {
       Graph graph;
       for (const auto &input: inputs) {
@@ -851,9 +946,6 @@ namespace refractir::reify {
         throw std::invalid_argument(
             "a region family connects exactly two states to two named results"
         );
-      const auto first = static_cast<std::uint32_t>(0);
-      const auto second = static_cast<std::uint32_t>(1);
-      const bool orthogonal = shape[first] > 1 && shape[second] > 1;
 
       Graph graph = seedRegion(inputs);
       const auto root = [&](int value, std::size_t index) {
@@ -861,38 +953,42 @@ namespace refractir::reify {
         graph.roots.push_back(value);
         return value;
       };
-      const auto operation = regionArithmetic_ == TensorRegionArithmeticMode::Subtraction
-                                 ? TensorOp::Sub
-                                 : regionArithmetic_ == TensorRegionArithmeticMode::Multiplication
-                                       ? TensorOp::Mul
-                                       : TensorOp::Add;
-      const auto join = [&](int lhs, int rhs) {
-        return emitBinaryOp(graph, lhs, rhs, operation, shape);
+      // The connection skeleton is seeded: which operation produces the shared
+      // value, in which operand order, which axis each reduction uses, and which
+      // state each root joins all come from the engine, so one configuration
+      // reaches many bodies instead of one.
+      const auto states = placementStates();
+      const auto join = [&](int value, std::size_t placement) {
+        return emitPlacement(graph, value, static_cast<int>(states[placement]), placement, shape);
       };
 
       switch (regionFamily_) {
         case TensorRegionFamily::OrthogonalReductions: {
-          if (!orthogonal)
+          const auto axes = reducibleAxes(shape);
+          if (axes.size() < 2)
             throw AttemptFailure(
                 "independent axis reductions need two extents above one, found a singleton axis"
             );
           requireNodeBudget(7);
-          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
-          const auto rows = emitSum(graph, shared, first);
-          const auto columns = emitSum(graph, shared, second);
-          const auto rowView = emitBroadcast(graph, rows, shape);
-          const auto columnView = emitBroadcast(graph, columns, shape);
-          root(join(columnView, 0), 0);
-          root(join(rowView, 1), 1);
+          const auto shared = emitProducer(graph, shape);
+          const auto firstAxis = chooseAxis(shape);
+          const auto firstReduction = emitSum(graph, shared, firstAxis);
+          const auto secondReduction = emitSum(graph, shared, chooseAxis(shape, firstAxis));
+          const auto firstView = emitBroadcast(graph, firstReduction, shape);
+          const auto secondView = emitBroadcast(graph, secondReduction, shape);
+          // Each root takes the reduction the other root leaves alone, so both
+          // reductions stay live without either root being a copy of the other.
+          root(join(secondView, 0), 0);
+          root(join(firstView, 1), 1);
           break;
         }
         case TensorRegionFamily::ReductionArithmetic: {
           requireNodeBudget(5);
-          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
-          const auto reduced = emitSum(graph, shared, shape[first] > 1 ? first : second);
+          const auto shared = emitProducer(graph, shape);
+          const auto reduced = emitSum(graph, shared, chooseAxis(shape));
           // The reduction reaches the state only through a bounded broadcast
-          // multiplication, so the update is not a copy of the reduction.
-          const auto scaled = emitBinaryOp(graph, reduced, 0, TensorOp::Mul, shape);
+          // placement, so the update is not a copy of the reduction.
+          const auto scaled = join(reduced, 0);
           const auto reducedView = emitBroadcast(graph, reduced, shape);
           root(scaled, 0);
           root(join(reducedView, 1), 1);
@@ -902,18 +998,21 @@ namespace refractir::reify {
           requireNodeBudget(3);
           // Both roots read both current states, so neither can be folded into
           // the other's update.
-          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
-          root(join(shared, 1), 0);
-          root(join(shared, 0), 1);
+          const auto shared = emitProducer(graph, shape);
+          root(join(shared, 0), 0);
+          root(join(shared, 1), 1);
           break;
         }
         case TensorRegionFamily::MixedDepth: {
           requireNodeBudget(6);
-          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
-          const auto reduced = emitSum(graph, shared, shape[first] > 1 ? first : second);
-          const auto shallow = emitBinaryOp(graph, shared, 1, TensorOp::Add, shape);
+          const auto shared = emitProducer(graph, shape);
+          const auto reduced = emitSum(graph, shared, chooseAxis(shape));
+          // The producer's shallow consumer joins the reduction path one
+          // broadcast later, so one root sits at a different depth than the
+          // other without changing the admitted operation set.
+          const auto shallow = join(shared, 0);
           const auto view = emitBroadcast(graph, reduced, shape);
-          root(join(view, shallow), 0);
+          root(emitPlacement(graph, view, shallow, 1, shape), 0);
           root(join(shared, 1), 1);
           break;
         }
