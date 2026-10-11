@@ -285,7 +285,8 @@ test-tensor-gluon-layouts:
 	$(PY) -m unittest test.unit.test_tensor_gluon_layouts
 
 test-tensor-gluon-lowering:
-	$(PY) -m unittest test.unit.test_tensor_gluon_lowering test.unit.test_tensor_generated_region_runner
+	$(PY) -m unittest test.unit.test_tensor_gluon_lowering test.unit.test_tensor_gluon_plan \
+	  test.unit.test_tensor_generated_region_runner
 
 test-tensor-compiler-observation:
 	$(PY) -m unittest test.unit.test_tensor_compiler_observation

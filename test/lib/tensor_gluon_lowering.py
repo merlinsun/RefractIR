@@ -1,5 +1,6 @@
 """Lower the admitted generated tensor-region subset into Gluon source."""
 
+import re
 from dataclasses import dataclass
 
 from test.lib.tensor_exact_f32 import _generated_region_program
@@ -66,11 +67,62 @@ def reduction_blocked_layout(shape, reduction_axes, *, num_warps):
   )
 
 
-def render_gluon_kernel(source):
-  """Emit one Gluon kernel from the same typed region parsed by the exact proof."""
+def _layout_identifier(name):
+  """Turn a layout name into the identifier the kernel body can reference."""
+  identifier = re.sub(r"[^0-9a-zA-Z_]", "_", str(name))
+  if not identifier or identifier[0].isdigit():
+    identifier = "layout_" + identifier
+  return identifier
+
+
+def render_gluon_kernel(source, *, plan=None):
+  """Emit one Gluon kernel from the same typed region parsed by the exact proof.
+
+  `plan` states the layout of each role and of each consumer's view. A consumer
+  view is a fresh local, so converting for one consumer never changes the
+  layout another consumer reads; views that ask for a layout a value already
+  has are shared instead of recomputed. Without a plan the kernel keeps one
+  compute layout and the column reduction layout, as before.
+  """
   shape, iterations, tensor_types, nodes, updates = _generated_region_program(source)
   if any(dimension & (dimension - 1) for dimension in shape):
     raise ValueError("Gluon region lowering requires power-of-two dimensions")
+  if plan is not None and tuple(plan.shape) != tuple(shape):
+    raise ValueError("layout plan shape differs from the generated region shape")
+
+  if plan is None:
+    load_layout, compute_layout = "load_layout", "compute_layout"
+    reduction_layout, store_layout = "reduction_layout", "store_layout"
+    state_layout = None
+    constexpr_layouts = [
+      load_layout,
+      compute_layout,
+      reduction_layout,
+      store_layout,
+    ]
+  else:
+    load_layout = _layout_identifier(plan.load.name)
+    compute_layout = _layout_identifier(plan.compute.name)
+    reduction_layout = (
+      _layout_identifier(plan.reduction.name) if plan.reduction else compute_layout
+    )
+    store_layout = _layout_identifier(plan.store.name)
+    state_layout = (
+      _layout_identifier(plan.state_layout.name) if plan.state_layout else None
+    )
+    # Every layout the body names is a constexpr argument, so the caller keeps
+    # control of the plan instead of the emitter inventing one.
+    constexpr_layouts = []
+    for identifier in (
+      load_layout,
+      compute_layout,
+      reduction_layout,
+      store_layout,
+      state_layout,
+      *(_layout_identifier(view.name) for view in plan.consumer_views.values()),
+    ):
+      if identifier is not None and identifier not in constexpr_layouts:
+        constexpr_layouts.append(identifier)
 
   lines = [
     "import triton",
@@ -81,12 +133,9 @@ def render_gluon_kernel(source):
     "def generated_region_kernel(",
     "    input_ptr,",
     "    output_ptr,",
-    "    load_layout: gl.constexpr,",
-    "    compute_layout: gl.constexpr,",
-    "    reduction_layout: gl.constexpr,",
-    "    store_layout: gl.constexpr,",
-    "):",
   ]
+  lines.extend(f"    {identifier}: gl.constexpr," for identifier in constexpr_layouts)
+  lines.append("):")
   conversion_source_lines = {}
 
   def emit(line, *, conversion=None):
@@ -94,14 +143,35 @@ def render_gluon_kernel(source):
     if conversion is not None:
       conversion_source_lines[len(lines)] = conversion
 
+  current_layouts = {"acc_x": compute_layout, "acc_y": compute_layout}
+  view_names = set()
+
+  def use(value, node_index, fallback_layout, label):
+    """Name the local one consumer reads, converting into a view if needed."""
+    wanted = (
+      _layout_identifier(plan.view_for(value, node_index).name)
+      if plan is not None
+      else fallback_layout
+    )
+    if plan is None:
+      emit(f"        {value} = gl.convert_layout({value}, {wanted})", conversion=label)
+      return value
+    if current_layouts.get(value) == wanted:
+      return value
+    name = f"{value}_view_{wanted}"
+    if name not in view_names:
+      emit(f"        {name} = gl.convert_layout({value}, {wanted})", conversion=label)
+      view_names.add(name)
+    return name
+
   rows, columns = shape
   emit(
     f"    load_rows = gl.arange(0, {rows}, "
-    "layout=gl.SliceLayout(1, parent=load_layout))"
+    f"layout=gl.SliceLayout(1, parent={load_layout}))"
   )
   emit(
     f"    load_columns = gl.arange(0, {columns}, "
-    "layout=gl.SliceLayout(0, parent=load_layout))"
+    f"layout=gl.SliceLayout(0, parent={load_layout}))"
   )
   emit(
     "    load_offsets = load_rows[:, None] * "
@@ -109,11 +179,21 @@ def render_gluon_kernel(source):
     + " + load_columns[None, :]"
   )
   emit(
-    "    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets), compute_layout)",
+    f"    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets), {compute_layout})",
     conversion="load_to_compute",
   )
-  emit(f"    acc_y = gl.zeros(({rows}, {columns}), gl.float32, layout=compute_layout)")
+  emit(
+    f"    acc_y = gl.zeros(({rows}, {columns}), gl.float32, layout={compute_layout})"
+  )
   emit(f"    for _ in range({iterations}):")
+
+  if state_layout is not None:
+    for state in ("acc_x", "acc_y"):
+      emit(
+        f"        {state} = gl.convert_layout({state}, {compute_layout})",
+        conversion=f"{state}_from_state_layout",
+      )
+      current_layouts[state] = compute_layout
 
   value_names = {"acc_x": "acc_x", "acc_y": "acc_y"}
   for index, (destination, _operation, _operands, _attribute) in enumerate(nodes):
@@ -124,25 +204,33 @@ def render_gluon_kernel(source):
     result_shape = tensor_types[destination]
     if operation == "sum":
       operand = value_names[operands[0]]
-      reduction_input = f"{operand}_reduction_input_{index}"
       axis = attribute if attribute >= 0 else attribute + len(shape)
-      emit(
-        f"        {reduction_input} = gl.convert_layout({operand}, reduction_layout)",
-        conversion=f"region_sum_{index}_to_reduction",
-      )
+      if plan is None:
+        reduction_input = f"{operand}_reduction_input_{index}"
+        emit(
+          f"        {reduction_input} = gl.convert_layout({operand}, {reduction_layout})",
+          conversion=f"region_sum_{index}_to_reduction",
+        )
+      else:
+        reduction_input = use(
+          operand,
+          index,
+          reduction_layout,
+          f"region_sum_{index}_to_reduction",
+        )
       emit(
         f"        {value} = gl.convert_layout("
-        f"gl.expand_dims(gl.sum({reduction_input}, axis={axis}), {axis}), compute_layout)",
+        f"gl.expand_dims(gl.sum({reduction_input}, axis={axis}), {axis}), {compute_layout})",
         conversion=f"region_sum_{index}_result_layout",
       )
+      current_layouts[value] = compute_layout
     elif operation == "broadcast":
-      operand = value_names[operands[0]]
+      operand_name = value_names[operands[0]]
       operand_shape = tensor_types[operands[0]]
-      operand_layout = _shape_layout(operand_shape, shape, "compute_layout")
-      target_layout = _shape_layout(result_shape, shape, "compute_layout")
-      emit(
-        f"        {operand} = gl.convert_layout({operand}, {operand_layout})",
-        conversion=f"region_broadcast_{index}_source_layout",
+      operand_layout = _shape_layout(operand_shape, shape, compute_layout)
+      target_layout = _shape_layout(result_shape, shape, compute_layout)
+      operand = use(
+        operand_name, index, operand_layout, f"region_broadcast_{index}_source_layout"
       )
       if tuple(result_shape) == shape:
         reference = "acc_x"
@@ -157,45 +245,53 @@ def render_gluon_kernel(source):
         f"        {value} = gl.convert_layout({value}, {target_layout})",
         conversion=f"region_broadcast_{index}_result_layout",
       )
+      current_layouts[value] = target_layout
     else:
-      left, right = (value_names[name] for name in operands)
+      left_name, right_name = (value_names[name] for name in operands)
       left_shape, right_shape = (tensor_types[name] for name in operands)
-      left_layout = _shape_layout(left_shape, shape, "compute_layout")
-      right_layout = _shape_layout(right_shape, shape, "compute_layout")
-      target_layout = _shape_layout(result_shape, shape, "compute_layout")
-      operation_name = operation
-      emit(
-        f"        {left} = gl.convert_layout({left}, {left_layout})",
-        conversion=f"region_{operation_name}_{index}_left_layout",
+      left_layout = _shape_layout(left_shape, shape, compute_layout)
+      right_layout = _shape_layout(right_shape, shape, compute_layout)
+      target_layout = _shape_layout(result_shape, shape, compute_layout)
+      left = use(
+        left_name, index, left_layout, f"region_{operation}_{index}_left_layout"
       )
-      emit(
-        f"        {right} = gl.convert_layout({right}, {right_layout})",
-        conversion=f"region_{operation_name}_{index}_right_layout",
+      right = use(
+        right_name, index, right_layout, f"region_{operation}_{index}_right_layout"
       )
       emit(f"        {value}_left, {value}_right = gl.broadcast({left}, {right})")
       operator = {"add": "+", "sub": "-", "mul": "*"}[operation]
       emit(f"        {value} = {value}_left {operator} {value}_right")
       emit(
         f"        {value} = gl.convert_layout({value}, {target_layout})",
-        conversion=f"region_{operation_name}_{index}_result_layout",
+        conversion=f"region_{operation}_{index}_result_layout",
       )
+      current_layouts[value] = target_layout
 
   for state, root in updates:
     emit(f"        {state} = {value_names[root]}")
+    current_layouts[state] = current_layouts.get(value_names[root], compute_layout)
+
+  if state_layout is not None:
+    for state in ("acc_x", "acc_y"):
+      emit(
+        f"        {state} = gl.convert_layout({state}, {state_layout})",
+        conversion=f"{state}_to_state_layout",
+      )
+      current_layouts[state] = state_layout
 
   emit("    out_left, out_right = gl.broadcast(acc_x, acc_y)")
   emit("    output = out_left + out_right")
   emit(
-    "    output = gl.convert_layout(output, store_layout)",
+    f"    output = gl.convert_layout(output, {store_layout})",
     conversion="compute_to_store",
   )
   emit(
     f"    store_rows = gl.arange(0, {rows}, "
-    "layout=gl.SliceLayout(1, parent=store_layout))"
+    f"layout=gl.SliceLayout(1, parent={store_layout}))"
   )
   emit(
     f"    store_columns = gl.arange(0, {columns}, "
-    "layout=gl.SliceLayout(0, parent=store_layout))"
+    f"layout=gl.SliceLayout(0, parent={store_layout}))"
   )
   emit(
     "    store_offsets = store_rows[:, None] * "

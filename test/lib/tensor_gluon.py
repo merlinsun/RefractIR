@@ -1,7 +1,7 @@
 """Small, validated Gluon layout descriptions for the exact tensor pilot."""
 
 import random
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from functools import reduce
 from operator import mul
 
@@ -31,11 +31,15 @@ class BlockedLayoutPlan:
       raise ValueError("shape must have rank two")
     if any(not _is_power_of_two(dimension) for dimension in shape):
       raise ValueError("shape dimensions must be positive powers of two")
-    for field in (self.size_per_thread, self.threads_per_warp, self.warps_per_cta):
+    for field_value in (
+      self.size_per_thread,
+      self.threads_per_warp,
+      self.warps_per_cta,
+    ):
       if (
-        not isinstance(field, tuple)
-        or len(field) != 2
-        or any(not _is_power_of_two(value) for value in field)
+        not isinstance(field_value, tuple)
+        or len(field_value) != 2
+        or any(not _is_power_of_two(value) for value in field_value)
       ):
         raise ValueError("layout tile dimensions must be rank-two powers of two")
     if _product(self.threads_per_warp) != 32:
@@ -158,3 +162,181 @@ def select_distinct_layouts(required, sampled, *, shape, num_warps, count):
     f"requested {count} distinct layouts, but the required layout and sample "
     f"contain only {len(selected)}"
   )
+
+
+def _bits(value):
+  """Bit width one distribution factor contributes to a lane identifier."""
+  return 0 if value <= 1 else value.bit_length() - 1
+
+
+def _blocked_owner(plan, shape, coordinate):
+  """Return (warp, lane, register) owning one element under a blocked layout.
+
+  Each dimension is covered by a tile of sizePerThread x threadsPerWarp x
+  warpsPerCTA; a larger extent repeats that tile, and the repetition lands in
+  the thread's registers. Bits are concatenated across dimensions in `order`,
+  which lists axes from fastest to slowest.
+  """
+  warp = lane = register = 0
+  lane_stride = warp_stride = register_stride = 1
+  for axis in plan.order:
+    extent = shape[axis]
+    per_thread = min(plan.size_per_thread[axis], extent)
+    per_warp = min(plan.threads_per_warp[axis], max(1, extent // per_thread))
+    per_cta = min(plan.warps_per_cta[axis], max(1, extent // (per_thread * per_warp)))
+    coverage = per_thread * per_warp * per_cta
+    within = coordinate[axis] % coverage
+    tiles = coordinate[axis] // coverage
+    lane += ((within // per_thread) % per_warp) * lane_stride
+    warp += ((within // (per_thread * per_warp)) % per_cta) * warp_stride
+    register += (tiles * per_thread + within % per_thread) * register_stride
+    lane_stride *= max(per_warp, 1)
+    warp_stride *= max(per_cta, 1)
+    register_stride *= -(-extent // coverage) * per_thread
+  return warp, lane, register
+
+
+def effective_mapping(plan, shape):
+  """Return the (warp, lane, register) owner of every element, row-major."""
+  if not isinstance(shape, (tuple, list)) or len(shape) != 2:
+    raise ValueError("effective mapping needs a rank-two shape")
+  return tuple(
+    _blocked_owner(plan, tuple(shape), (row, column))
+    for row in range(shape[0])
+    for column in range(shape[1])
+  )
+
+
+def _layout_identity(plan):
+  return (
+    plan.size_per_thread,
+    plan.threads_per_warp,
+    plan.warps_per_cta,
+    plan.order,
+  )
+
+
+def classify_layout_pair(left, right, *, shape):
+  """Name what a layout change between two plans actually moves."""
+  if not isinstance(left, BlockedLayoutPlan) or not isinstance(
+    right, BlockedLayoutPlan
+  ):
+    raise ValueError("layout classification needs two blocked layout plans")
+  if _layout_identity(left) == _layout_identity(right):
+    return "identical"
+  left_mapping = effective_mapping(left, shape)
+  right_mapping = effective_mapping(right, shape)
+  if left_mapping == right_mapping:
+    return "equivalent"
+  if any(a[0] != b[0] for a, b in zip(left_mapping, right_mapping)):
+    return "cross_warp"
+  if any(a[1] != b[1] for a, b in zip(left_mapping, right_mapping)):
+    return "cross_lane"
+  return "register_only"
+
+
+@dataclass(frozen=True)
+class GluonRegionPlan:
+  """Layout roles and per-consumer views for one generated region.
+
+  A consumer view states the layout one use of a value needs. The emitter
+  converts into a fresh view instead of rebinding the value, so a second
+  consumer keeps the layout its own entry states.
+  """
+
+  name: str
+  shape: tuple[int, int]
+  load: BlockedLayoutPlan
+  compute: BlockedLayoutPlan
+  store: BlockedLayoutPlan
+  reduction: BlockedLayoutPlan | None = None
+  state_layout: BlockedLayoutPlan | None = None
+  consumer_views: dict = field(default_factory=dict)
+
+  def view_for(self, value, node_index):
+    """The layout of one consumer's view, or the compute layout by default."""
+    return self.consumer_views.get((value, node_index), self.compute)
+
+  def as_record(self):
+    return {
+      "name": self.name,
+      "shape": list(self.shape),
+      "load": self.load.name,
+      "compute": self.compute.name,
+      "reduction": self.reduction.name if self.reduction else None,
+      "store": self.store.name,
+      "state_layout": self.state_layout.name if self.state_layout else None,
+      "consumer_views": {
+        f"{value}#{index}": layout.name
+        for (value, index), layout in sorted(self.consumer_views.items())
+      },
+    }
+
+
+def region_plan_families(shape, *, num_warps, layouts):
+  """Build the six layout plan families for one region shape.
+
+  `layouts` holds distinct sampled blocked layouts; the families place them on
+  the load, compute, reduction, per-consumer, loop-state, and store roles.
+  """
+  if not isinstance(layouts, (list, tuple)) or len(layouts) < 2:
+    raise ValueError("plan families need at least two distinct layouts")
+  for layout in layouts:
+    layout.validate(shape, num_warps=num_warps)
+  baseline = layouts[0]
+  second = layouts[1]
+  third = layouts[2 % len(layouts)]
+  fourth = layouts[3 % len(layouts)]
+
+  def region(name, load, compute, store, *, reduction=None, state=None, views=None):
+    return GluonRegionPlan(
+      name,
+      tuple(shape),
+      load,
+      compute,
+      store,
+      reduction=reduction,
+      state_layout=state,
+      consumer_views=dict(views or {}),
+    )
+
+  return {
+    "all-same-layout": region(
+      "all-same-layout", baseline, baseline, baseline, reduction=baseline
+    ),
+    "load-to-compute": region(
+      "load-to-compute", second, baseline, baseline, reduction=baseline
+    ),
+    "shared-value-reused": region(
+      "shared-value-reused",
+      baseline,
+      baseline,
+      second,
+      reduction=baseline,
+      views={("acc_x", 0): second, ("acc_x", 2): second},
+    ),
+    "split-reduction-consumers": region(
+      "split-reduction-consumers",
+      baseline,
+      baseline,
+      second,
+      reduction=second,
+      views={("acc_x", 0): second, ("acc_x", 2): third},
+    ),
+    "reduction-result-expand": region(
+      "reduction-result-expand",
+      baseline,
+      third,
+      second,
+      reduction=second,
+      views={("v1", 2): third, ("v2", 3): third},
+    ),
+    "loop-state-layout": region(
+      "loop-state-layout",
+      baseline,
+      baseline,
+      fourth,
+      reduction=second,
+      state=third,
+    ),
+  }
