@@ -55,6 +55,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - First device evidence for the three compiler-behavior tracks (`test/tensor/campaigns/results/2026-10-11-targeted-compiler-behavior.md`): four configured long-axis families execute against their complete exact references with 8-15 layout conversions removed by `TritonGPURemoveLayoutConversions` and 0-10 PTX warp shuffles; fifteen v3 tail cases (rank-one `17`/`31`/`33` and rank-two `[8,31]`/`[63,4]`) execute with the logical extent surviving into the kernel predicate and nonzero stride offsets; and four Gluon plan families execute with surviving conversions that lower to 2-33 shared-memory transfers. The counted loops in these small cases are unrolled before the device, so no retained-device-loop or rematerialization claim is made.
 
+- Loop retention is a size and bound effect, not a property of the generated family: at the 512-element profile volume the counted loop survives TTGIR (one `scf.for`) with `TritonGPURemoveLayoutConversions` removing 12 conversions while the loop stays, and PTX keeps a real backedge. Two `mixed-depth` `[32, 16]` four-trip cases were built through the exact builder, executed against their complete references, and recorded in `test/tensor/campaigns/results/`.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

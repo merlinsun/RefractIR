@@ -55,6 +55,12 @@ class TensorGraphRegionApiTests(unittest.TestCase):
   def test_mixed_mode_keeps_both_arithmetic_roots_before_writeback(self):
     self.run_contract("region-mixed-arithmetic")
 
+  def test_family_region_emits_two_named_roots(self):
+    self.run_contract("region-family-two-roots")
+
+  def test_family_region_refuses_more_than_two_roots(self):
+    self.run_contract("region-family-three-roots")
+
 
 if __name__ == "__main__":
   unittest.main()

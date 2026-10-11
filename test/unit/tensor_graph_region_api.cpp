@@ -34,6 +34,26 @@ namespace {
     );
   }
 
+  TensorRegion makeFamilyRegion(
+      std::uint32_t seed, TensorRegionFamily family, std::vector<std::string> results,
+      Shape shape = {4, 4}, std::uint32_t maxOperators = 12
+  ) {
+    TensorGenerationOptions options;
+    options.profileVersion = TensorProfileId::V2;
+    options.dtype = "i32";
+    options.seed = seed;
+    TensorGraphLimits limits;
+    limits.maxInputs = 2;
+    limits.maxRank = 2;
+    limits.maxElements = 64;
+    limits.maxOperators = maxOperators;
+    const TensorTypeInfo type{shape, TensorElement::I32};
+    return generateTensorRegion(
+        options, limits, {{"%acc_x", type}, {"%acc_y", type}}, std::move(results),
+        TensorRegionArithmeticMode::Additive, family
+    );
+  }
+
   TensorRegion makeNamedRegion(
       std::uint32_t seed, std::uint32_t maxOperators, std::vector<std::string> results,
       Shape shape = {4, 4}
@@ -169,6 +189,28 @@ namespace {
     requireUniqueInstructionResults(region);
   }
 
+  void familyRegionRefusesMoreThanTwoRoots() {
+    bool rejected = false;
+    try {
+      (void) makeFamilyRegion(3, TensorRegionFamily::CrossState, {"%a", "%b", "%c"});
+    } catch (const std::invalid_argument &error) {
+      rejected = std::string(error.what()).find("two") != std::string::npos;
+    }
+    require(rejected, "a family region must refuse more than two state roots");
+  }
+
+  void familyRegionEmitsTwoNamedRootsFromTwoStates() {
+    const auto region =
+        makeFamilyRegion(5, TensorRegionFamily::OrthogonalReductions, {"%next_x", "%next_y"});
+    const auto body = joined(region.renderBody({{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}}));
+    require(body.find("%next_x =") != std::string::npos, "first family root was lost");
+    require(body.find("%next_y =") != std::string::npos, "second family root was lost");
+    require(
+        body.find("%acc_x = %next_x;") != std::string::npos,
+        "family region must write the first state back"
+    );
+  }
+
   void reservedNamesDoNotDependOnSeed() {
     const auto region = makeNamedRegion(29, 8, {"%t0", "%other"});
     requireUniqueInstructionResults(region);
@@ -251,6 +293,10 @@ int main(int argc, char **argv) {
       adjacentTemporaryNamesAreReserved();
     else if (name == "result-name-t0-three-roots")
       firstResultNameStaysUniqueWithThreeRoots();
+    else if (name == "region-family-two-roots")
+      familyRegionEmitsTwoNamedRootsFromTwoStates();
+    else if (name == "region-family-three-roots")
+      familyRegionRefusesMoreThanTwoRoots();
     else if (name == "result-name-t0-seed-variation")
       reservedNamesDoNotDependOnSeed();
     else if (name == "region-subtraction")

@@ -847,6 +847,10 @@ namespace refractir::reify {
     ) {
       if (shape.size() < 2)
         throw AttemptFailure("region families need a rank-two state shape");
+      if (inputs.size() != 2 || resultNames.size() != 2)
+        throw std::invalid_argument(
+            "a region family connects exactly two states to two named results"
+        );
       const auto first = static_cast<std::uint32_t>(0);
       const auto second = static_cast<std::uint32_t>(1);
       const bool orthogonal = shape[first] > 1 && shape[second] > 1;
