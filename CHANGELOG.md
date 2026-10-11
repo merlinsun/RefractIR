@@ -66,6 +66,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Guarded storage works on logical tails: slot classification carries the tensor profile through, so a guarded v3 tail no longer fails address validation, and the worker saves the observed bytes before judging storage, checks only nonlogical slots for guard writes, and leaves a wrong logical value to the numerical comparator. Six guarded tail cases (three shapes, two padding patterns) pass on the V100 with identical logical output per shape.
 
+- Physical layouts and launch settings were varied independently on one admitted retained-loop region: seven input/output layout combinations (row-major, column-major, padded with offsets) and four warp counts all match the complete reference, with the TTGIR loop present in every run and a PTX loop in all but the eight-warp and padded/padded variants.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

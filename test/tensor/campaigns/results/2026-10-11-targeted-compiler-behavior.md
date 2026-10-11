@@ -84,6 +84,34 @@ narrow (`mixed-depth` at `[32, 16]` reduces a 32-wide axis; `[2, 256]` reduces a
 configurations are recorded with their reason in `sweep2-retained.json` rather
 than relaxed: a 256-wide reduction with four trips over `[0, 2]` is refused.
 
+## Track A, fourth run: physical layouts and launch settings
+
+The retained-loop case was repacked under independent input and output layouts
+and re-run at four warp counts (`track-a-layout-warp-evidence.json`). The
+logical program, inputs, and reference are identical in every run; only the
+recorded physical layout or the launch setting changes.
+
+| Variant | Execution | TTGIR loop | PTX loop cycles | PTX shuffles |
+|---|---|---|---|---|
+| row-major / row-major | pass | 1 | 1 | 12 |
+| row-major / column-major | pass | 1 | 1 | 12 |
+| column-major / row-major | pass | 1 | 1 | 12 |
+| column-major / column-major | pass | 1 | 1 | 12 |
+| padded (stride 18, offset 3) / row-major | pass | 1 | 1 | 12 |
+| row-major / padded (stride 20, offset 1) | pass | 1 | 1 | 12 |
+| padded / padded | pass | 1 | 0 | 4 |
+| one warp | pass | 1 | 1 | 12 |
+| two warps | pass | 1 | 1 | 16 |
+| four warps | pass | 1 | 1 | 20 |
+| eight warps | pass | 1 | 0 | 40 |
+
+Every run matches the complete reference, so the emitted addressing follows
+the recorded layout rather than the identity mapping. Retention is not
+monotone in the launch setting: the loop survives TTGIR everywhere, and LLVM
+keeps a PTX loop at one to four warps and for six of the seven layout
+combinations, but unrolls it at eight warps and for padded/padded. That is an
+observation about the toolchain under these settings, not a defect.
+
 ## Track B: tails and physical layouts
 
 Nine compositional v3 rank-two tails (`[8, 31]`, `[63, 4]`; padded tiles

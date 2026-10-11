@@ -1,0 +1,380 @@
+{
+ "layouts": {
+  "mixed-depth-32x16-it4-w1-column-column": {
+   "combo": "column-column",
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     1,
+     32
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     1,
+     32
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 0,
+    "warp_shuffle_count": 12
+   }
+  },
+  "mixed-depth-32x16-it4-w1-column-row": {
+   "combo": "column-row",
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     1,
+     32
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 32,
+    "warp_shuffle_count": 12
+   }
+  },
+  "mixed-depth-32x16-it4-w1-padded-padded": {
+   "combo": "padded-padded",
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 3,
+    "span": 577,
+    "strides": [
+     18,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 0,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 1,
+    "span": 637,
+    "strides": [
+     20,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 0,
+    "warp_shuffle_count": 4
+   }
+  },
+  "mixed-depth-32x16-it4-w1-padded-row": {
+   "combo": "padded-row",
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 3,
+    "span": 577,
+    "strides": [
+     18,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 0,
+    "warp_shuffle_count": 12
+   }
+  },
+  "mixed-depth-32x16-it4-w1-row-column": {
+   "combo": "row-column",
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     1,
+     32
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 32,
+    "warp_shuffle_count": 12
+   }
+  },
+  "mixed-depth-32x16-it4-w1-row-padded": {
+   "combo": "row-padded",
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 1,
+    "span": 637,
+    "strides": [
+     20,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 8,
+    "warp_shuffle_count": 12
+   }
+  },
+  "mixed-depth-32x16-it4-w1-row-row": {
+   "combo": "row-row",
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 0,
+    "warp_shuffle_count": 12
+   }
+  }
+ },
+ "warps": {
+  "warps-1": {
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 1,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 0,
+    "warp_shuffle_count": 12
+   },
+   "variant": 1
+  },
+  "warps-2": {
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 2,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 2,
+    "warp_shuffle_count": 16
+   },
+   "variant": 2
+  },
+  "warps-4": {
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 1,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 4,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 2,
+    "warp_shuffle_count": 20
+   },
+   "variant": 4
+  },
+  "warps-8": {
+   "execution": {
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "input_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "loops": {
+    "ptx_backedge_cycles": 0,
+    "ttgir_constructs": 1,
+    "ttgir_evidence": "mlir-construct"
+   },
+   "num_warps": 8,
+   "output_layout": {
+    "offset": 0,
+    "span": 512,
+    "strides": [
+     16,
+     1
+    ]
+   },
+   "ptx": {
+    "shared_memory_transfer_count": 16,
+    "warp_shuffle_count": 40
+   },
+   "variant": 8
+  }
+ }
+}
