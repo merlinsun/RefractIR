@@ -64,6 +64,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The LLVM backedge detector matches printed optimized IR: numeric labels count, and every `label %x` operand of a branch is read, so a bottom-tested loop whose exit block is listed first is no longer missed. The Track A matrix (72 configurations, 144 device runs) agrees with the PTX backedge in every run under that reading.
 
+- Guarded storage works on logical tails: slot classification carries the tensor profile through, so a guarded v3 tail no longer fails address validation, and the worker saves the observed bytes before judging storage, checks only nonlogical slots for guard writes, and leaves a wrong logical value to the numerical comparator. Six guarded tail cases (three shapes, two padding patterns) pass on the V100 with identical logical output per shape.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

@@ -202,9 +202,9 @@ def _envelope_slots(layout, envelope):
   return envelope.prefix + layout["storage_span"] + envelope.suffix
 
 
-def _slot_names(layout, envelope):
+def _slot_names(layout, envelope, *, profile="v2"):
   """Name every physical slot of an enveloped buffer."""
-  logical = logical_addresses(layout)
+  logical = logical_addresses(layout, profile=profile)
   names = []
   for slot in range(_envelope_slots(layout, envelope)):
     if slot < envelope.prefix:
@@ -257,7 +257,7 @@ def classify_changed_slots(
   expected_length = _envelope_slots(layout, envelope) * element_size
   if len(before) != expected_length or len(after) != expected_length:
     raise LayoutError("enveloped buffers do not match guards and storage span")
-  names = _slot_names(layout, envelope)
+  names = _slot_names(layout, envelope, profile=profile)
   return [
     names[slot]
     for slot in range(len(names))

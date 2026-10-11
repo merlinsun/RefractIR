@@ -175,18 +175,6 @@ def _initial_output(output_record, canary, envelope, *, profile):
   return canary * output_record["storage_span"]
 
 
-def _output_reference(logical, output_record, envelope, execution, *, profile):
-  """Build the physical output buffer a correct enveloped run must leave."""
-  padding = bytes.fromhex(execution["output_canary_by_dtype"][output_record["dtype"]])
-  return _enveloped_reference(
-    logical,
-    _buffer_layout(output_record, profile),
-    envelope.guards,
-    padding=padding,
-    profile=profile,
-  )
-
-
 def _staging_record(envelope, *, execution, inputs, output):
   """Record the physical allocation so any run stays reproducible."""
   if not envelope.declared:
@@ -215,23 +203,6 @@ def _staging_record(envelope, *, execution, inputs, output):
 def _host_bytes(tensor):
   """Copy one device tensor back as raw bytes."""
   return tensor.detach().to("cpu").contiguous().view(torch.uint8).numpy().tobytes()
-
-
-def _enveloped_reference(logical, layout, envelope, *, padding, profile):
-  """Scatter logical values into a padded allocation.
-
-  The guards and gaps keep the padding, so one comparison against this
-  reference detects a write outside the allocation and a wrong logical value
-  alike: a kernel must leave every nonlogical slot exactly as it was.
-  """
-  slots = envelope.prefix + layout["storage_span"] + envelope.suffix
-  physical = bytearray(padding * slots)
-  addresses = tensor_layout.logical_addresses(layout, profile=profile)
-  for index, address in enumerate(addresses):
-    begin = index * _ELEMENT_SIZE
-    target = (envelope.prefix + address) * _ELEMENT_SIZE
-    physical[target : target + _ELEMENT_SIZE] = logical[begin : begin + _ELEMENT_SIZE]
-  return bytes(physical)
 
 
 def _enveloped_changes(before, after, layout, envelope, *, profile):
@@ -435,25 +406,9 @@ def execute(case_dir, mode, artifacts_dir=None):
       )
       if profile:
         if envelope.declared and output_record["shape"]:
-          begin = output_record["byte_offset"]
-          logical = (case_dir / output_record["file"]).read_bytes()[
-            begin : begin + output_record["byte_length"]
-          ]
-          reference = _output_reference(
-            logical,
-            output_record,
-            envelope,
-            manifest["execution"],
-            profile=profile,
-          )
-          changed = _enveloped_changes(
-            reference, physical, output_layout, envelope.guards, profile=profile
-          )
-          if changed:
-            raise RuntimeError(
-              "kernel wrote outside its logical output mapping: "
-              f"guards, gaps, and input slots differ at {changed[:16]}"
-            )
+          # The observed bytes are saved before any storage verdict: a wrong
+          # logical value belongs to the numerical comparator, and a storage
+          # violation must not cost the run its evidence.
           result = tensor_layout.gather_envelope(
             physical,
             output_layout,
@@ -461,6 +416,23 @@ def execute(case_dir, mode, artifacts_dir=None):
             envelope=envelope.guards,
             profile=profile,
           )
+          (artifacts_dir / "actual-physical.bin").write_bytes(physical)
+          (artifacts_dir / "actual.bin").write_bytes(result)
+          # Every nonlogical slot still holds its canary, so a guarded write
+          # is detected without judging the logical result here.
+          changed = tensor_layout.changed_canary_slots(
+            initial_output,
+            physical,
+            output_layout,
+            element_size=_ELEMENT_SIZE,
+            envelope=envelope.guards,
+            profile=profile,
+          )
+          if changed:
+            raise RuntimeError(
+              "kernel wrote outside its logical output mapping: "
+              f"guards and gaps differ at {changed[:16]}"
+            )
         elif output_record["shape"]:
           changed = tensor_layout.changed_canary_slots(
             initial_output,

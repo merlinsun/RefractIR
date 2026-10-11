@@ -126,6 +126,112 @@ class TensorLayoutGuardTests(unittest.TestCase):
     self.assertEqual(comparison["logical_mismatch_lanes"], [0])
 
 
+TAIL_LAYOUT = {
+  "shape": [3, 2],
+  "element_strides": [2, 1],
+  "element_offset": 1,
+  "storage_span": 10,
+  "axis_order": [1, 0],
+}
+
+
+class TensorLayoutTailGuardTests(unittest.TestCase):
+  """A guarded v3 tail is still a valid allocation."""
+
+  def setUp(self):
+    self.assertIsNotNone(tensor_layout, "missing tensor layout module")
+    self.layout = dict(TAIL_LAYOUT)
+    self.envelope = tensor_layout.GuardEnvelope(prefix=2, suffix=3)
+    self.values = bytes(range(24))
+
+  def test_unchanged_guarded_tail_classifies_no_changes(self):
+    staged = tensor_layout.stage_envelope(
+      self.values,
+      self.layout,
+      element_size=4,
+      envelope=self.envelope,
+      padding=PAD_A,
+      profile="v3",
+    )
+
+    self.assertEqual(
+      tensor_layout.classify_changed_slots(
+        staged,
+        staged,
+        self.layout,
+        element_size=4,
+        envelope=self.envelope,
+        profile="v3",
+      ),
+      [],
+    )
+
+  def test_guarded_tail_names_a_changed_guard_and_gap(self):
+    staged = tensor_layout.stage_envelope(
+      self.values,
+      self.layout,
+      element_size=4,
+      envelope=self.envelope,
+      padding=PAD_A,
+      profile="v3",
+    )
+    overwritten = bytearray(staged)
+    overwritten[0:4] = b"\xde\xad\xbe\xef"
+    overwritten[(2 + 7) * 4 : (2 + 8) * 4] = b"\xde\xad\xbe\xef"
+
+    changed = tensor_layout.classify_changed_slots(
+      staged,
+      bytes(overwritten),
+      self.layout,
+      element_size=4,
+      envelope=self.envelope,
+      profile="v3",
+    )
+
+    self.assertEqual(changed, ["prefix-guard-0", "gap-7"])
+    self.assertEqual(
+      tensor_layout.changed_canary_slots(
+        staged,
+        bytes(overwritten),
+        self.layout,
+        element_size=4,
+        envelope=self.envelope,
+        profile="v3",
+      ),
+      ["prefix-guard-0", "gap-7"],
+    )
+
+  def test_two_padding_patterns_leave_a_guarded_tail_logically_unchanged(self):
+    addresses = tensor_layout.logical_addresses(self.layout, profile="v3")
+    self.assertEqual(len(addresses), 6)
+
+    first = tensor_layout.stage_envelope(
+      self.values,
+      self.layout,
+      element_size=4,
+      envelope=self.envelope,
+      padding=PAD_A,
+      profile="v3",
+    )
+    second = tensor_layout.stage_envelope(
+      self.values,
+      self.layout,
+      element_size=4,
+      envelope=self.envelope,
+      padding=PAD_B,
+      profile="v3",
+    )
+
+    self.assertNotEqual(first, second)
+    for buffer in (first, second):
+      self.assertEqual(
+        tensor_layout.gather_envelope(
+          buffer, self.layout, element_size=4, envelope=self.envelope, profile="v3"
+        ),
+        self.values,
+      )
+
+
 class TensorLayoutGuardEdgeTests(unittest.TestCase):
   def setUp(self):
     self.assertIsNotNone(tensor_layout, "missing tensor layout module")

@@ -213,6 +213,16 @@ labels agrees with the PTX backedge in 144/144 runs. Both the label patterns
 and the branch scanning are fixed, and the helper now reports the backedge where
 it previously reported a null.
 
+## Track B, third run: guarded v3 tails
+
+Six cases (three rank-two tail shapes, each with two padding patterns and a
+`(3, 5)` guard envelope) pass on the device against their complete references
+with `campaign_valid` (`track-b3-tail-guard-evidence.json`). For each shape the
+two padding patterns produce byte-identical logical outputs, which is the
+output-independence check the guard work is for. This closes the combination
+the first guarded run missed: the earlier examples were power-of-two v2 cases,
+so the v3 tail path through slot classification was never exercised.
+
 ## Gaps and controls
 
 * Guard *detection* is verified on the host (a mutated allocation is refused by

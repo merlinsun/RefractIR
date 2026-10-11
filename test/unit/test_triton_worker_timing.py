@@ -342,15 +342,20 @@ class TritonWorkerGuardEnvelopeTests(unittest.TestCase):
       self.run_worker(Path(directory), FakeKernel(accepted, output_corrupt=True))
     self.assertIn("gap-0", self.refusal())
 
+    # A write on a logical output address is the kernel's own result, not a
+    # storage violation: it reaches actual.bin instead of a refusal.
     self.device = []
     self.failure = None
-    accepted_slots = bytearray(accepted)
-    accepted_slots[1 * 4 : 2 * 4] = b"\xde\xad\xbe\xef"
+    logical_write = bytearray(accepted)
+    logical_write[1 * 4 : 2 * 4] = struct.pack("<f", 42.0)
     with tempfile.TemporaryDirectory() as directory:
-      self.run_worker(
-        Path(directory), FakeKernel(bytes(accepted_slots), output_corrupt=True)
-      )
-    self.assertIn("input-0", self.refusal())
+      self.run_worker(Path(directory), FakeKernel(bytes(logical_write)))
+      actual = (self.artifacts / "actual.bin").read_bytes()
+
+    self.assertIsNone(
+      self.failure, "writing a logical output element is not a storage failure"
+    )
+    self.assertEqual(struct.unpack("<8f", actual)[0], 42.0)
 
   def test_staging_record_reports_the_guards_and_padding_used(self):
     with tempfile.TemporaryDirectory() as directory:
@@ -375,6 +380,39 @@ class TritonWorkerGuardEnvelopeTests(unittest.TestCase):
       staging = self.staging()
 
     self.assertEqual(staging["padding_by_dtype"]["f32"], self.gap_sentinel.hex())
+
+  def test_logical_difference_is_left_to_the_comparator_and_outputs_persist(self):
+    # A wrong logical value is the numerical contract's business: the worker
+    # must save what the device produced and only report storage changes.
+    accepted = scatter(self.expected, self.layout, padding=self.canary)
+    wrong = bytearray(accepted)
+    wrong[1 * 4 : 2 * 4] = struct.pack("<f", 123.5)
+    with tempfile.TemporaryDirectory() as directory:
+      self.run_worker(Path(directory), FakeKernel(bytes(wrong)))
+      actual = (self.artifacts / "actual.bin").read_bytes()
+      physical = (self.artifacts / "actual-physical.bin").read_bytes()
+
+    self.assertIsNone(
+      self.failure, "a logical difference must not be reported as a guard failure"
+    )
+    self.assertEqual(
+      actual, struct.pack("<8f", 123.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0)
+    )
+    self.assertEqual(
+      len(physical), (self.prefix + self.layout["storage_span"] + self.suffix) * 4
+    )
+
+  def test_guard_write_is_refused_after_the_outputs_are_persisted(self):
+    accepted = scatter(self.expected, self.layout, padding=self.canary)
+    with tempfile.TemporaryDirectory() as directory:
+      case = self.case_dir(Path(directory))
+      corrupt = bytearray(accepted)
+      corrupt[0:4] = b"\xde\xad\xbe\xef"
+      self.run_case(case, FakeKernel(bytes(corrupt), output_corrupt=True))
+      self.assertIsNotNone(self.failure, "a guard write must still be refused")
+      self.assertIn("gap-0", str(self.failure))
+      self.assertTrue((self.artifacts / "actual.bin").is_file())
+      self.assertTrue((self.artifacts / "actual-physical.bin").is_file())
 
   def test_zero_guards_stage_the_same_bytes_as_no_envelope(self):
     """A declared but empty envelope must reduce to the plain allocation."""

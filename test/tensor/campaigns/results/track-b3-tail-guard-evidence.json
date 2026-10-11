@@ -1,0 +1,200 @@
+{
+ "case_000000-pattern-a": {
+  "actual_sha256": "66a645aebaecbd8320ed4ea2fbb0ed9dba2814858d05da0e2f795bbcfab14f1f",
+  "element_offset": 1,
+  "element_strides": [
+   32,
+   1
+  ],
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "padding_by_dtype": {
+   "f32": "3f800001",
+   "i32": "55555555"
+  },
+  "physical_length": 1056,
+  "profile": "tensor-v3",
+  "shape": [
+   8,
+   31
+  ],
+  "storage_span": 256,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000000-pattern-b": {
+  "actual_sha256": "66a645aebaecbd8320ed4ea2fbb0ed9dba2814858d05da0e2f795bbcfab14f1f",
+  "element_offset": 1,
+  "element_strides": [
+   32,
+   1
+  ],
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "padding_by_dtype": {
+   "f32": "3f800002",
+   "i32": "aaaaaaaa"
+  },
+  "physical_length": 1056,
+  "profile": "tensor-v3",
+  "shape": [
+   8,
+   31
+  ],
+  "storage_span": 256,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000001-pattern-a": {
+  "actual_sha256": "c14456385a8b0bc987ac2bb241256064aa394cb96f5d842243f6bafb9059b9f7",
+  "element_offset": 2,
+  "element_strides": [
+   1,
+   32
+  ],
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "padding_by_dtype": {
+   "f32": "3f800001",
+   "i32": "55555555"
+  },
+  "physical_length": 1060,
+  "profile": "tensor-v3",
+  "shape": [
+   31,
+   8
+  ],
+  "storage_span": 257,
+  "tile_shape": [
+   32,
+   8
+  ]
+ },
+ "case_000001-pattern-b": {
+  "actual_sha256": "c14456385a8b0bc987ac2bb241256064aa394cb96f5d842243f6bafb9059b9f7",
+  "element_offset": 2,
+  "element_strides": [
+   1,
+   32
+  ],
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "padding_by_dtype": {
+   "f32": "3f800002",
+   "i32": "aaaaaaaa"
+  },
+  "physical_length": 1060,
+  "profile": "tensor-v3",
+  "shape": [
+   31,
+   8
+  ],
+  "storage_span": 257,
+  "tile_shape": [
+   32,
+   8
+  ]
+ },
+ "case_000002-pattern-a": {
+  "actual_sha256": "68502d83a1e9a46c2ae6e4f2e86d4d160c444e369de4e85bfd95b5ab7120b738",
+  "element_offset": 2,
+  "element_strides": [
+   1,
+   11
+  ],
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "padding_by_dtype": {
+   "f32": "3f800001",
+   "i32": "55555555"
+  },
+  "physical_length": 1392,
+  "profile": "tensor-v3",
+  "shape": [
+   8,
+   31
+  ],
+  "storage_span": 340,
+  "tile_shape": [
+   8,
+   32
+  ]
+ },
+ "case_000002-pattern-b": {
+  "actual_sha256": "68502d83a1e9a46c2ae6e4f2e86d4d160c444e369de4e85bfd95b5ab7120b738",
+  "element_offset": 2,
+  "element_strides": [
+   1,
+   11
+  ],
+  "execution": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "expected_sha256": null,
+  "guard_envelope": {
+   "prefix": 3,
+   "suffix": 5
+  },
+  "padding_by_dtype": {
+   "f32": "3f800002",
+   "i32": "aaaaaaaa"
+  },
+  "physical_length": 1392,
+  "profile": "tensor-v3",
+  "shape": [
+   8,
+   31
+  ],
+  "storage_span": 340,
+  "tile_shape": [
+   8,
+   32
+  ]
+ }
+}
