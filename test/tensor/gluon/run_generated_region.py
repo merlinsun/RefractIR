@@ -29,8 +29,10 @@ from test.lib.tensor_compiler_observation import (
   observe_pass_dumps,
 )
 from test.lib.tensor_gluon import (
+  PLAN_FAMILY_MINIMUM_LAYOUTS,
   BlockedLayoutPlan,
   generate_layout_plans,
+  region_plan_families,
   select_distinct_layouts,
 )
 from test.lib.tensor_gluon_lowering import (
@@ -169,6 +171,114 @@ def _capture_region_compiler(
   }
 
 
+def region_layout_pool(shape, reduction_layout, *, num_warps, seed, count):
+  """Sample the distinct layouts one run may place on the region roles.
+
+  The required reduction layout comes first so every pool can express the
+  baseline role assignment; the rest is drawn deterministically from the seed.
+  """
+  sampled_plans = (
+    generate_layout_plans(shape, num_warps=num_warps, seed=seed, count=count)
+    if count > 1
+    else ()
+  )
+  return select_distinct_layouts(
+    reduction_layout, sampled_plans, shape=shape, num_warps=num_warps, count=count
+  )
+
+
+def select_plan_family(name, shape, *, num_warps, layouts):
+  """Select one named plan family the sampled layout pool can express.
+
+  A family states its roles from the pool's distinct layouts, so a pool that
+  holds fewer layouts than the family has roles cannot express it. Such a
+  request is refused with the counts instead of silently collapsing roles.
+  """
+  required = PLAN_FAMILY_MINIMUM_LAYOUTS.get(name)
+  if required is None:
+    raise ValueError(
+      f"unknown plan family {name!r}; expected one of "
+      + ", ".join(sorted(PLAN_FAMILY_MINIMUM_LAYOUTS))
+    )
+  if len(layouts) < required:
+    raise ValueError(
+      f"plan family {name!r} places {required} distinct layouts on its roles, "
+      f"but the run sampled {len(layouts)}"
+    )
+  return region_plan_families(shape, num_warps=num_warps, layouts=layouts)[name]
+
+
+def region_launch_arguments(generated, layouts, input_tensor, output_tensor):
+  """The positional plan-mode kernel arguments: two pointers, then layouts.
+
+  The layout objects follow `generated.layout_parameters`, which is the order
+  the emitter wrote into the kernel signature.
+  """
+  return (input_tensor, output_tensor) + tuple(
+    plan.to_gluon_layout() for plan in generated.layout_arguments(layouts)
+  )
+
+
+def plan_launch_record(generated, plan, pool):
+  """The replayable record of one plan-mode launch.
+
+  `roles` names the layout of every role and consumer view, `layouts` gives the
+  physical identity behind each name, and `arguments` lists the layouts the
+  kernel receives in its own signature order.
+  """
+  named = [plan.load, plan.compute, plan.store, plan.reduction, plan.state_layout]
+  named.extend(plan.consumer_views.values())
+  identities = {layout.name: layout.to_dict() for layout in named if layout is not None}
+  return {
+    "family": plan.name,
+    "roles": plan.as_record(),
+    "layouts": {name: identities[name] for name in sorted(identities)},
+    "pool": [layout.to_dict() for layout in pool],
+    "layout_parameters": list(generated.layout_parameters),
+    "arguments": [
+      {"parameter": parameter, "layout": layout.name}
+      for parameter, layout in zip(
+        generated.layout_parameters, generated.layout_arguments(pool), strict=True
+      )
+    ],
+  }
+
+
+def _region_case_record(
+  kernel,
+  args,
+  output_tensor,
+  *,
+  name,
+  layouts,
+  ir_directory,
+  generated,
+  num_warps,
+  expected_bytes,
+):
+  compiled, measurement = _measure_region_kernel(kernel, args, num_warps=num_warps)
+  actual_bytes = output_tensor.view(torch.uint8).cpu().numpy().tobytes()
+  if actual_bytes != expected_bytes:
+    raise AssertionError(
+      f"{name} differs from complete exact output bits: "
+      f"actual={_word_hex(actual_bytes)}, expected={_word_hex(expected_bytes)}"
+    )
+  return {
+    "status": "pass",
+    "layouts": layouts,
+    "actual_output_bits": _word_hex(actual_bytes),
+    "expected_output_bits": _word_hex(expected_bytes),
+    "measurement": measurement,
+    "compiler": _capture_region_compiler(
+      compiled,
+      name,
+      ir_directory,
+      generated.conversion_source_lines,
+      expected_loop=generated.iterations > 0,
+    ),
+  }
+
+
 @_with_generated_pass_observations
 def run_program(
   program_path,
@@ -182,8 +292,14 @@ def run_program(
   layout_seed=20261002,
   num_warps=1,
   layout_count=5,
+  plan_family=None,
 ):
-  """Compare sampled Gluon layouts on one admitted generated-region source."""
+  """Compare sampled Gluon layouts on one admitted generated-region source.
+
+  Without `plan_family` the run samples one layout per role and launches the
+  historical emitter. With one it launches a single plan-mode kernel whose
+  layouts the family names.
+  """
   probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
     raise RuntimeError("CUDA device is unavailable")
@@ -255,62 +371,79 @@ def run_program(
     shape, reduction_axes, num_warps=num_warps
   )
   reduction_layout.validate(shape, num_warps=num_warps)
-  sampled_plans = (
-    generate_layout_plans(
-      shape,
-      num_warps=num_warps,
-      seed=layout_seed,
-      count=layout_count,
-    )
-    if layout_count > 1
-    else ()
-  )
-  plans = select_distinct_layouts(
+  plans = region_layout_pool(
+    shape,
     reduction_layout,
-    sampled_plans,
-    shape=shape,
     num_warps=num_warps,
+    seed=layout_seed,
     count=layout_count,
   )
-  generated = render_gluon_kernel(source)
-  kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
   cases = {}
-  for plan in plans:
-    plan.validate(shape, num_warps=num_warps)
-    args = (
-      input_tensor,
-      output_tensor,
-      plan.to_gluon_layout(),
-      plan.to_gluon_layout(),
-      reduction_layout.to_gluon_layout(),
-      plan.to_gluon_layout(),
-    )
-    compiled, measurement = _measure_region_kernel(kernel, args, num_warps=num_warps)
-    actual_bytes = output_tensor.view(torch.uint8).cpu().numpy().tobytes()
-    if actual_bytes != expected_bytes:
-      raise AssertionError(
-        f"{plan.name} differs from complete exact output bits: "
-        f"actual={_word_hex(actual_bytes)}, expected={_word_hex(expected_bytes)}"
+  if plan_family is None:
+    generated = render_gluon_kernel(source)
+    kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
+    for plan in plans:
+      plan.validate(shape, num_warps=num_warps)
+      args = (
+        input_tensor,
+        output_tensor,
+        plan.to_gluon_layout(),
+        plan.to_gluon_layout(),
+        reduction_layout.to_gluon_layout(),
+        plan.to_gluon_layout(),
       )
-    cases[plan.name] = {
-      "status": "pass",
-      "layouts": {
-        "load": plan.to_dict(),
-        "compute": plan.to_dict(),
-        "reduction": reduction_layout.to_dict(),
-        "store": plan.to_dict(),
+      cases[plan.name] = _region_case_record(
+        kernel,
+        args,
+        output_tensor,
+        name=plan.name,
+        layouts={
+          "load": plan.to_dict(),
+          "compute": plan.to_dict(),
+          "reduction": reduction_layout.to_dict(),
+          "store": plan.to_dict(),
+        },
+        ir_directory=ir_directory,
+        generated=generated,
+        num_warps=num_warps,
+        expected_bytes=expected_bytes,
+      )
+    baseline_case = plans[0].name
+    baseline_layout_arguments = (
+      plans[0].to_gluon_layout(),
+      plans[0].to_gluon_layout(),
+      reduction_layout.to_gluon_layout(),
+      plans[0].to_gluon_layout(),
+    )
+    plan_record = None
+  else:
+    family_plan = select_plan_family(
+      plan_family, shape, num_warps=num_warps, layouts=plans
+    )
+    generated = render_gluon_kernel(source, plan=family_plan)
+    kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
+    arguments = region_launch_arguments(generated, plans, input_tensor, output_tensor)
+    cases[plan_family] = _region_case_record(
+      kernel,
+      arguments,
+      output_tensor,
+      name=plan_family,
+      layouts={
+        "load": family_plan.load.to_dict(),
+        "compute": family_plan.compute.to_dict(),
+        "reduction": (
+          family_plan.reduction.to_dict() if family_plan.reduction else None
+        ),
+        "store": family_plan.store.to_dict(),
       },
-      "actual_output_bits": _word_hex(actual_bytes),
-      "expected_output_bits": _word_hex(expected_bytes),
-      "measurement": measurement,
-      "compiler": _capture_region_compiler(
-        compiled,
-        plan.name,
-        ir_directory,
-        generated.conversion_source_lines,
-        expected_loop=iterations > 0,
-      ),
-    }
+      ir_directory=ir_directory,
+      generated=generated,
+      num_warps=num_warps,
+      expected_bytes=expected_bytes,
+    )
+    baseline_case = plan_family
+    baseline_layout_arguments = tuple(arguments[2:])
+    plan_record = plan_launch_record(generated, family_plan, plans)
 
   store_line = "    gl.store(output_ptr + store_offsets, output)\n"
   if generated.source.count(store_line) != 1:
@@ -324,15 +457,7 @@ def run_program(
   mutant_kernel = _load_kernel(
     mutant, ir_directory / "calibration-add-one-output-mutant.py"
   )
-  baseline_plan = plans[0]
-  mutant_args = (
-    input_tensor,
-    output_tensor,
-    baseline_plan.to_gluon_layout(),
-    baseline_plan.to_gluon_layout(),
-    reduction_layout.to_gluon_layout(),
-    baseline_plan.to_gluon_layout(),
-  )
+  mutant_args = (input_tensor, output_tensor, *baseline_layout_arguments)
   mutant_compiled, mutant_measurement = _measure_region_kernel(
     mutant_kernel, mutant_args, num_warps=num_warps
   )
@@ -348,7 +473,7 @@ def run_program(
     expected_loop=iterations > 0,
   )
   calibration_compiler["measurement"] = mutant_measurement
-  baseline_detected = cases[baseline_plan.name]["actual_output_bits"] != _word_hex(
+  baseline_detected = cases[baseline_case]["actual_output_bits"] != _word_hex(
     expected_bytes
   )
   result = {
@@ -409,6 +534,9 @@ def run_program(
     "cases": cases,
     "_conversion_source_lines": generated.conversion_source_lines,
   }
+  if plan_record is not None:
+    # Only a plan-mode run states a family; no-plan reports keep their keys.
+    result["plan"] = plan_record
   Path(output_path).write_text(
     json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
   )
@@ -620,7 +748,12 @@ def main():
   parser.add_argument("--layout-seed", type=int, default=20261002)
   parser.add_argument("--num-warps", type=int, default=1)
   parser.add_argument("--layout-count", type=int, default=5)
+  parser.add_argument(
+    "--plan-family", choices=sorted(PLAN_FAMILY_MINIMUM_LAYOUTS), default=None
+  )
   args = parser.parse_args()
+  if args.plan_family and not args.program:
+    parser.error("--plan-family requires --program")
   if args.program:
     try:
       input_values = tuple(int(value.strip()) for value in args.input_values.split(","))
@@ -641,6 +774,7 @@ def main():
       layout_seed=args.layout_seed,
       num_warps=args.num_warps,
       layout_count=args.layout_count,
+      plan_family=args.plan_family,
     )
   elif args.case_dir:
     report = run(args.case_dir, args.output, args.ir_dir, symiri=args.symiri)

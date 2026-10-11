@@ -55,6 +55,17 @@ STATE_ONLY_SUBTRACTION_SOURCE = """fun @kernel(%x: tensor [2, 2] f32) : tensor [
 """
 
 
+ORTHOGONAL_REGION_PATH = (
+  ROOT / "test/tensor/gluon/programs/orthogonal-reductions-region-v1.sir"
+)
+NATIVE_SEED_7_PATH = ROOT / "test/tensor/gluon/programs/native-seed-7.sir"
+ORTHOGONAL_REGION_SOURCE = ORTHOGONAL_REGION_PATH.read_text(encoding="utf-8")
+NATIVE_SEED_7_SOURCE = NATIVE_SEED_7_PATH.read_text(encoding="utf-8")
+PLAN_SHAPE = (8, 8)
+NATIVE_SHAPE = (2, 2)
+PLAN_LAYOUT_SEED = 20261002
+
+
 def _load_runner():
   specification = importlib.util.spec_from_file_location(
     "test_tensor_generated_region_runner_target", RUNNER_PATH
@@ -1340,6 +1351,364 @@ class GeneratedRegionRunnerTests(unittest.TestCase):
     self.assertEqual(summary["paired_ratio_median"], 2.0)
     self.assertEqual(summary["paired_overhead_median_percent"], 100.0)
     self.assertEqual(summary["paired_ratio_range"], [2.0, 3.0])
+
+
+def _layout_pool(runner, *, shape=PLAN_SHAPE, count=4, seed=PLAN_LAYOUT_SEED):
+  """The runner's own deterministic layout pool for one region shape."""
+  from test.lib.tensor_gluon_lowering import reduction_blocked_layout
+
+  reduction_layout = reduction_blocked_layout(shape, {0, 1}, num_warps=1)
+  return runner.region_layout_pool(
+    shape, reduction_layout, num_warps=1, seed=seed, count=count
+  )
+
+
+class _RecordedTensor:
+  """A tensor stand-in that reports the bytes the driver's state holds."""
+
+  def __init__(self, state):
+    self.state = state
+
+  def reshape(self, _shape):
+    return self
+
+  def view(self, _dtype):
+    return self
+
+  def cpu(self):
+    return self
+
+  def numpy(self):
+    return self
+
+  def tobytes(self):
+    return self.state["bytes"]
+
+
+def _recording_torch(state):
+  return SimpleNamespace(
+    tensor=lambda *_args, **_kwargs: _RecordedTensor(state),
+    empty=lambda *_args, **_kwargs: _RecordedTensor(state),
+    float32="float32",
+    uint8="uint8",
+    __version__="2.5.0",
+    cuda=SimpleNamespace(
+      is_available=lambda: True,
+      get_device_name=lambda: "NVIDIA V100-SXM2-16GB",
+      get_device_capability=lambda: (7, 0),
+      synchronize=lambda: None,
+    ),
+  )
+
+
+def _add_one_to_first_word(payload):
+  """What the add-one calibration mutant writes into the first output lane."""
+  return struct.pack("<f", struct.unpack("<f", payload[:4])[0] + 1.0) + payload[4:]
+
+
+def _run_generated_region_program(*, plan_family=None, layout_count=1):
+  """Run the generated-region runner against recorded fake launches.
+
+  Only the device and the compiler capture are faked; the exact reference, the
+  layout sampling, and the emitter under test stay real.
+  """
+  from test.lib import tensor_exact_f32
+
+  runner = _load_runner()
+  source = NATIVE_SEED_7_SOURCE
+  input_values = (1, 2, 4, 8)
+  _proof, expected_bytes = tensor_exact_f32.certify(
+    source, struct.pack("<4f", *input_values), (0, 8)
+  )
+  case_count = 1 if plan_family else layout_count
+  launches = []
+  tensor_state = {"bytes": expected_bytes}
+
+  def measure(kernel, args, *, num_warps):
+    (ir_directory / "mlir-pass-dump.txt").write_text("dump", encoding="utf-8")
+    launches.append({"kernel": kernel, "args": args, "num_warps": num_warps})
+    if kernel.name == "calibration-add-one-output-mutant":
+      tensor_state["bytes"] = _add_one_to_first_word(expected_bytes)
+    return SimpleNamespace(asm={}), {"median_gpu_event_ms_per_launch": 0.0}
+
+  def compiler(_compiled, _name, _ir_directory, _source_lines, *, expected_loop):
+    del expected_loop
+    return {
+      "ir_files": {},
+      "observation": {},
+      "num_warps": 1,
+      "registers_per_thread": 0,
+      "spill_bytes": 0,
+    }
+
+  def pass_observation(_text, *, source_lines):
+    del source_lines
+    return {
+      "compilation_count": case_count + 1,
+      "compilations": [{"snapshot_count": 0} for _ in range(case_count + 1)],
+      "interpretation_limit": "test",
+    }
+
+  with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    ir_directory = root / "ir"
+    output_path = root / "report.json"
+    with (
+      mock.patch.object(runner, "torch", _recording_torch(tensor_state)),
+      mock.patch.object(runner, "triton", SimpleNamespace(__version__="3.4.0")),
+      mock.patch.object(runner.probe_triton_env, "require_qualified_triton"),
+      mock.patch.object(
+        runner,
+        "_load_kernel",
+        side_effect=lambda _generated, path: SimpleNamespace(name=Path(path).stem),
+      ),
+      mock.patch.object(runner, "_measure_region_kernel", side_effect=measure),
+      mock.patch.object(runner, "_capture_region_compiler", side_effect=compiler),
+      mock.patch.object(
+        runner, "render_gluon_kernel", wraps=runner.render_gluon_kernel
+      ) as render,
+      mock.patch.object(runner, "observe_pass_dumps", side_effect=pass_observation),
+      mock.patch.object(runner.BlockedLayoutPlan, "to_gluon_layout", lambda self: self),
+    ):
+      result = runner.run_program(
+        NATIVE_SEED_7_PATH,
+        output_path,
+        ir_directory,
+        input_values=input_values,
+        domain=(0, 8),
+        layout_seed=PLAN_LAYOUT_SEED,
+        num_warps=1,
+        layout_count=layout_count,
+        plan_family=plan_family,
+      )
+    return {
+      "result": result,
+      "report": json.loads(output_path.read_text(encoding="utf-8")),
+      "launches": launches,
+      "render": render,
+      "runner": runner,
+      "output_path": output_path,
+    }
+
+
+class GeneratedRegionPlanRunnerTests(unittest.TestCase):
+  """Plan-mode selection and launch stay host-testable and replayable."""
+
+  def test_plan_family_selection_is_reproducible_from_seed_and_shape(self):
+    from test.lib.tensor_gluon_lowering import render_gluon_kernel
+
+    runner = _load_runner()
+    pool = _layout_pool(runner)
+    first = runner.select_plan_family(
+      "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=_layout_pool(runner)
+    )
+    second = runner.select_plan_family(
+      "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=_layout_pool(runner)
+    )
+
+    self.assertEqual(first.name, "loop-state-layout")
+    self.assertEqual(first.as_record(), second.as_record())
+    self.assertEqual(
+      {
+        first.load.name,
+        first.compute.name,
+        first.reduction.name,
+        first.store.name,
+        first.state_layout.name,
+      },
+      {plan.name for plan in pool},
+    )
+    self.assertEqual(
+      render_gluon_kernel(ORTHOGONAL_REGION_SOURCE, plan=first).layout_parameters,
+      render_gluon_kernel(ORTHOGONAL_REGION_SOURCE, plan=second).layout_parameters,
+    )
+
+  def test_unknown_plan_family_is_refused_with_the_known_names(self):
+    runner = _load_runner()
+
+    with self.assertRaisesRegex(ValueError, "unknown plan family") as refusal:
+      runner.select_plan_family(
+        "all-same-layouts", PLAN_SHAPE, num_warps=1, layouts=_layout_pool(runner)
+      )
+
+    for family in (
+      "all-same-layout",
+      "load-to-compute",
+      "shared-value-reused",
+      "split-reduction-consumers",
+      "reduction-result-expand",
+      "loop-state-layout",
+    ):
+      self.assertIn(family, str(refusal.exception))
+
+  def test_plan_family_beyond_the_sampled_pool_is_refused(self):
+    runner = _load_runner()
+    pool = _layout_pool(runner, count=2)
+
+    with self.assertRaisesRegex(ValueError, "loop-state-layout") as refusal:
+      runner.select_plan_family(
+        "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=pool
+      )
+
+    self.assertIn("places 4 distinct layouts", str(refusal.exception))
+    self.assertIn("sampled 2", str(refusal.exception))
+    expressible = runner.select_plan_family(
+      "load-to-compute", PLAN_SHAPE, num_warps=1, layouts=pool
+    )
+    self.assertEqual(
+      [expressible.load.name, expressible.compute.name],
+      [pool[1].name, pool[0].name],
+    )
+
+  def test_plan_launch_arguments_follow_the_kernel_layout_parameters(self):
+    from test.lib.tensor_gluon_lowering import render_gluon_kernel
+
+    runner = _load_runner()
+    pool = _layout_pool(runner)
+    family = runner.select_plan_family(
+      "loop-state-layout", PLAN_SHAPE, num_warps=1, layouts=pool
+    )
+    generated = render_gluon_kernel(ORTHOGONAL_REGION_SOURCE, plan=family)
+
+    with mock.patch.object(
+      runner.BlockedLayoutPlan, "to_gluon_layout", lambda self: self
+    ):
+      arguments = runner.region_launch_arguments(
+        generated, list(reversed(pool)), "input", "output"
+      )
+
+    self.assertEqual(arguments[:2], ("input", "output"))
+    self.assertEqual(
+      [layout.name.replace("-", "_") for layout in arguments[2:]],
+      list(generated.layout_parameters),
+    )
+    self.assertEqual(
+      [layout.name for layout in arguments[2:]],
+      [
+        family.load.name,
+        family.reduction.name,
+        family.store.name,
+        family.state_layout.name,
+      ],
+    )
+    self.assertNotEqual(
+      [layout.name for layout in arguments[2:]],
+      [plan.name for plan in reversed(pool)][: len(arguments) - 2],
+    )
+
+  def test_no_plan_run_keeps_the_role_layout_launch_protocol(self):
+    runner = _load_runner()
+    observation = _run_generated_region_program(layout_count=2)
+    pool = _layout_pool(runner, shape=NATIVE_SHAPE, count=2)
+    launches = observation["launches"]
+    result = observation["result"]
+
+    self.assertEqual(len(launches), 3)
+    self.assertEqual(observation["render"].call_args, mock.call(NATIVE_SEED_7_SOURCE))
+    self.assertEqual(
+      [layout.name for layout in launches[1]["args"][2:]],
+      [pool[1].name, pool[1].name, pool[0].name, pool[1].name],
+    )
+    self.assertEqual(list(result["cases"]), [pool[0].name, pool[1].name])
+    self.assertEqual(result["contract"], "generated-region-exact-f32-layout-study-v1")
+    self.assertNotIn("plan", result)
+    self.assertNotIn("plan", observation["report"])
+    self.assertEqual(result["measurement_protocol"]["expected_layout_count"], 2)
+
+  def test_plan_mode_run_records_the_family_roles_and_launch_order(self):
+    from test.lib.tensor_gluon_lowering import render_gluon_kernel
+
+    runner = _load_runner()
+    observation = _run_generated_region_program(
+      plan_family="loop-state-layout", layout_count=4
+    )
+    result = observation["result"]
+    record = result["plan"]
+    pool = _layout_pool(runner, shape=NATIVE_SHAPE, count=4)
+    family = runner.select_plan_family(
+      "loop-state-layout", NATIVE_SHAPE, num_warps=1, layouts=pool
+    )
+    generated = render_gluon_kernel(NATIVE_SEED_7_SOURCE, plan=family)
+
+    self.assertEqual(list(result["cases"]), ["loop-state-layout"])
+    self.assertEqual(record["family"], "loop-state-layout")
+    self.assertEqual(observation["report"]["plan"]["family"], record["family"])
+    self.assertEqual(observation["report"]["plan"]["arguments"], record["arguments"])
+    self.assertEqual(
+      observation["report"]["plan"]["layout_parameters"], record["layout_parameters"]
+    )
+    self.assertEqual(record["roles"], family.as_record())
+    self.assertEqual(record["layout_parameters"], list(generated.layout_parameters))
+    self.assertEqual(
+      [item["parameter"] for item in record["arguments"]],
+      list(generated.layout_parameters),
+    )
+    self.assertEqual(
+      [item["layout"] for item in record["arguments"]],
+      [layout.name for layout in generated.layout_arguments(pool)],
+    )
+    self.assertEqual(
+      [
+        layout.name.replace("-", "_")
+        for layout in observation["launches"][0]["args"][2:]
+      ],
+      list(generated.layout_parameters),
+    )
+    self.assertEqual(
+      [layout.name for layout in observation["launches"][1]["args"][2:]],
+      [layout.name for layout in observation["launches"][0]["args"][2:]],
+    )
+    named = {
+      record["roles"][role]
+      for role in ("load", "compute", "reduction", "store", "state_layout")
+      if record["roles"][role]
+    }
+    named.update(record["roles"]["consumer_views"].values())
+    self.assertEqual(sorted(record["layouts"]), sorted(named))
+    for name, identity in record["layouts"].items():
+      self.assertEqual(identity["name"], name)
+    self.assertEqual(
+      [layout["name"] for layout in record["pool"]],
+      [plan.name for plan in pool],
+    )
+
+  def test_single_layout_pool_expresses_only_the_same_layout_family(self):
+    runner = _load_runner()
+    pool = _layout_pool(runner, count=1)
+    family = runner.select_plan_family(
+      "all-same-layout", PLAN_SHAPE, num_warps=1, layouts=pool
+    )
+
+    self.assertEqual(
+      {
+        family.load.name,
+        family.compute.name,
+        family.reduction.name,
+        family.store.name,
+      },
+      {pool[0].name},
+    )
+    with self.assertRaisesRegex(ValueError, "load-to-compute"):
+      runner.select_plan_family(
+        "load-to-compute", PLAN_SHAPE, num_warps=1, layouts=pool
+      )
+
+  def test_plan_mode_refuses_an_unqualified_compiler_before_the_device(self):
+    runner = _load_runner()
+    with tempfile.TemporaryDirectory() as temporary:
+      with mock.patch.object(
+        runner.probe_triton_env,
+        "require_qualified_triton",
+        side_effect=RuntimeError("triton source revision is not qualified"),
+      ):
+        with self.assertRaisesRegex(RuntimeError, "source revision"):
+          runner.run_program(
+            NATIVE_SEED_7_PATH,
+            Path(temporary) / "report.json",
+            Path(temporary) / "ir",
+            input_values=(1, 2, 4, 8),
+            plan_family="loop-state-layout",
+          )
 
 
 if __name__ == "__main__":

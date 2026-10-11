@@ -273,18 +273,33 @@ class GluonRegionPlan:
     }
 
 
+# Distinct sampled layouts each family places on its roles. A pool that holds
+# fewer layouts than a family has roles would put one layout on two roles, so
+# the family would silently stop stating the difference its name describes.
+PLAN_FAMILY_MINIMUM_LAYOUTS = {
+  "all-same-layout": 1,
+  "load-to-compute": 2,
+  "shared-value-reused": 2,
+  "split-reduction-consumers": 3,
+  "reduction-result-expand": 3,
+  "loop-state-layout": 4,
+}
+
+
 def region_plan_families(shape, *, num_warps, layouts):
-  """Build the six layout plan families for one region shape.
+  """Build the layout plan families one layout pool can faithfully express.
 
   `layouts` holds distinct sampled blocked layouts; the families place them on
-  the load, compute, reduction, per-consumer, loop-state, and store roles.
+  the load, compute, reduction, per-consumer, loop-state, and store roles. A
+  family that needs more distinct layouts than the pool holds is left out
+  rather than collapsing two of its roles onto one layout.
   """
-  if not isinstance(layouts, (list, tuple)) or len(layouts) < 2:
-    raise ValueError("plan families need at least two distinct layouts")
+  if not isinstance(layouts, (list, tuple)) or not layouts:
+    raise ValueError("plan families need at least one distinct layout")
   for layout in layouts:
     layout.validate(shape, num_warps=num_warps)
   baseline = layouts[0]
-  second = layouts[1]
+  second = layouts[1 % len(layouts)]
   third = layouts[2 % len(layouts)]
   fourth = layouts[3 % len(layouts)]
 
@@ -300,7 +315,7 @@ def region_plan_families(shape, *, num_warps, layouts):
       consumer_views=dict(views or {}),
     )
 
-  return {
+  families = {
     "all-same-layout": region(
       "all-same-layout", baseline, baseline, baseline, reduction=baseline
     ),
@@ -339,4 +354,9 @@ def region_plan_families(shape, *, num_warps, layouts):
       reduction=second,
       state=third,
     ),
+  }
+  return {
+    name: family
+    for name, family in families.items()
+    if len(layouts) >= PLAN_FAMILY_MINIMUM_LAYOUTS[name]
   }
