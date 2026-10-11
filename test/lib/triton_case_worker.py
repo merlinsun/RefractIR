@@ -7,9 +7,31 @@ import runpy
 import sys
 import time
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 
 from test.lib import tensor_layout
+
+_ELEMENT_SIZE = 4
+_LAYOUT_PROFILES = {"tensor-v2": "v2", "tensor-v3": "v3"}
+
+
+@dataclass(frozen=True)
+class Envelope:
+  """The physical allocation a case asks for around one tensor."""
+
+  guards: tensor_layout.GuardEnvelope
+  padding_by_dtype: dict
+  declared: bool
+
+  def padding(self, dtype):
+    return self.padding_by_dtype[dtype]
+
+  def slots(self, record):
+    return self.guards.prefix + record["storage_span"] + self.guards.suffix
+
+  def bytes_length(self, record):
+    return self.slots(record) * _ELEMENT_SIZE
 
 
 def _write_phase(path, phase):
@@ -20,13 +42,77 @@ def _write_timing(path, timing):
   path.write_text(json.dumps(timing, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _read_inputs(case_dir, manifest, *, device):
+def _guard_envelope(execution):
+  declared = execution.get("guard_envelope")
+  if declared is None:
+    return tensor_layout.GuardEnvelope(), False
+  if not isinstance(declared, dict):
+    raise tensor_layout.LayoutError("guard envelope must be an object")
+  return (
+    tensor_layout.GuardEnvelope(
+      prefix=declared.get("prefix", 0), suffix=declared.get("suffix", 0)
+    ),
+    True,
+  )
+
+
+def _padding_by_dtype(execution):
+  """Return the per-variant padding, defaulting to the gap sentinel.
+
+  Guards and internal gaps share one filler, so a case that already declares a
+  gap sentinel gets guards for free; explicit padding keeps the two readable
+  apart when a study wants to attribute a write to one region.
+  """
+  declared = execution.get("padding_by_dtype")
+  if declared is None:
+    return dict(execution["gap_sentinel_by_dtype"])
+  if not isinstance(declared, dict):
+    raise tensor_layout.LayoutError("padding by dtype must be an object")
+  padding = {}
+  for dtype, sentinel in execution["gap_sentinel_by_dtype"].items():
+    value = declared.get(dtype, sentinel)
+    if not isinstance(value, str):
+      raise tensor_layout.LayoutError(f"padding for {dtype} must be hexadecimal")
+    padding[dtype] = value
+  return padding
+
+
+def _envelope(manifest):
+  execution = manifest["execution"]
+  guards, declared = _guard_envelope(execution)
+  if declared and manifest["profile"] not in _LAYOUT_PROFILES:
+    raise tensor_layout.LayoutError(
+      f"a guard envelope requires a physical layout profile, not {manifest['profile']}"
+    )
+  return Envelope(
+    guards=guards,
+    padding_by_dtype=_padding_by_dtype(execution),
+    declared=declared,
+  )
+
+
+def _no_envelope():
+  """The plain allocation: no guards, no padding, no logical input check."""
+  return Envelope(
+    guards=tensor_layout.GuardEnvelope(), padding_by_dtype={}, declared=False
+  )
+
+
+def _buffer_layout(record, profile):
+  return {
+    "shape": record["shape"],
+    "element_strides": record["element_strides"],
+    "element_offset": record["element_offset"],
+    "storage_span": record["storage_span"],
+    "axis_order": record["axis_order"],
+  }
+
+
+def _read_inputs(case_dir, manifest, *, device, envelope, profile):
+  """Stage every input, in an envelope when the case declares guards."""
   raw = (case_dir / "inputs.bin").read_bytes()
   inputs = []
   physical_inputs = []
-  profile = manifest["profile"]
-  has_layout = profile in {"tensor-v2", "tensor-v3"}
-  layout_profile = profile.removeprefix("tensor-")
   for record in manifest["inputs"]:
     begin = record["byte_offset"]
     end = begin + record["byte_length"]
@@ -36,24 +122,135 @@ def _read_inputs(case_dir, manifest, *, device):
     if record["dtype"] == "f32" and not bool(torch.isfinite(host).all()):
       raise ValueError(f"input {record['name']} contains non-finite values")
     physical = raw[begin:end]
-    if has_layout and record["shape"]:
-      execution = manifest["execution"]
-      layout = {
-        "shape": record["shape"],
-        "element_strides": record["element_strides"],
-        "element_offset": record["element_offset"],
-        "storage_span": record["storage_span"],
-        "axis_order": record["axis_order"],
-      }
-      sentinel = bytes.fromhex(execution["gap_sentinel_by_dtype"][record["dtype"]])
-      staged = tensor_layout.stage_buffer(
-        physical, layout, element_size=4, gap_bytes=sentinel, profile=layout_profile
-      )
+    if profile and record["shape"]:
+      layout = _buffer_layout(record, profile)
+      if envelope.declared:
+        staged = tensor_layout.stage_envelope(
+          physical,
+          layout,
+          element_size=_ELEMENT_SIZE,
+          envelope=envelope.guards,
+          padding=bytes.fromhex(envelope.padding(record["dtype"])),
+          profile=profile,
+        )
+      else:
+        sentinel = bytes.fromhex(
+          manifest["execution"]["gap_sentinel_by_dtype"][element]
+        )
+        staged = tensor_layout.stage_buffer(
+          physical,
+          layout,
+          element_size=_ELEMENT_SIZE,
+          gap_bytes=sentinel,
+          profile=profile,
+        )
       host = torch.frombuffer(bytearray(staged), dtype=dtype).clone()
       physical = staged
     inputs.append(host.to(device))
     physical_inputs.append(physical)
   return inputs, physical_inputs
+
+
+def _initial_output(output_record, canary, envelope, *, profile):
+  """Fill every nonlogical slot of the output allocation with the canary."""
+  if envelope.declared and profile and output_record["shape"]:
+    return canary * envelope.slots(output_record)
+  return canary * output_record["storage_span"]
+
+
+def _output_reference(logical, output_record, envelope, execution, *, profile):
+  """Build the physical output buffer a correct enveloped run must leave."""
+  padding = bytes.fromhex(execution["output_canary_by_dtype"][output_record["dtype"]])
+  return _enveloped_reference(
+    logical,
+    _buffer_layout(output_record, profile),
+    envelope.guards,
+    padding=padding,
+    profile=profile,
+  )
+
+
+def _staging_record(envelope, *, execution, inputs, output):
+  """Record the physical allocation so any run stays reproducible."""
+  if not envelope.declared:
+    return {"guard_envelope": None}
+  return {
+    "guard_envelope": {
+      "prefix": envelope.guards.prefix,
+      "suffix": envelope.guards.suffix,
+    },
+    "padding_by_dtype": envelope.padding_by_dtype,
+    "gap_sentinel_by_dtype": execution["gap_sentinel_by_dtype"],
+    "output_canary_by_dtype": execution["output_canary_by_dtype"],
+    "buffers": [
+      {
+        "role": role,
+        "name": record["name"],
+        "storage_span": record["storage_span"],
+        "physical_length": envelope.bytes_length(record) if record["shape"] else None,
+      }
+      for role, records in (("input", inputs), ("output", [output]))
+      for record in records
+    ],
+  }
+
+
+def _host_bytes(tensor):
+  """Copy one device tensor back as raw bytes."""
+  return tensor.detach().to("cpu").contiguous().view(torch.uint8).numpy().tobytes()
+
+
+def _enveloped_reference(logical, layout, envelope, *, padding, profile):
+  """Scatter logical values into a padded allocation.
+
+  The guards and gaps keep the padding, so one comparison against this
+  reference detects a write outside the allocation and a wrong logical value
+  alike: a kernel must leave every nonlogical slot exactly as it was.
+  """
+  slots = envelope.prefix + layout["storage_span"] + envelope.suffix
+  physical = bytearray(padding * slots)
+  addresses = tensor_layout.logical_addresses(layout, profile=profile)
+  for index, address in enumerate(addresses):
+    begin = index * _ELEMENT_SIZE
+    target = (envelope.prefix + address) * _ELEMENT_SIZE
+    physical[target : target + _ELEMENT_SIZE] = logical[begin : begin + _ELEMENT_SIZE]
+  return bytes(physical)
+
+
+def _enveloped_changes(before, after, layout, envelope, *, profile):
+  """Name every changed slot, in the order the physical buffer is laid out.
+
+  A logical slot (`input-N`) carries element N of the tensor, so it may hold a
+  result; a guard or gap slot lies outside every recorded address, so a change
+  there has left the allocation.
+  """
+  return list(
+    tensor_layout.classify_changed_slots(
+      before,
+      after,
+      layout,
+      element_size=_ELEMENT_SIZE,
+      envelope=envelope,
+      profile=profile,
+    )
+  )
+
+
+def _modified_input_slots(record, before, after, envelope, profile):
+  """Name the input slots a kernel has no right to touch.
+
+  The whole allocation is compared, so a write into an input guard or gap is
+  reported with the same slot vocabulary as an output write.
+  """
+  if not profile or not record["shape"]:
+    return []
+  return _enveloped_changes(
+    before,
+    after,
+    _buffer_layout(record, profile),
+    envelope,
+    profile=profile,
+  )
 
 
 def _dump_ir(compiled, artifact_dir):
@@ -79,6 +276,7 @@ def configure_pass_dumps(artifact_dir):
 
 
 def execute(case_dir, mode, artifacts_dir=None):
+  """Run one case, staging and validating its guard envelope when declared."""
   global torch
   worker_started = time.perf_counter()
   import torch as torch_module
@@ -116,24 +314,21 @@ def execute(case_dir, mode, artifacts_dir=None):
 
     stage_started = time.perf_counter()
     try:
-      inputs, initial_inputs = _read_inputs(case_dir, manifest, device=device)
+      envelope = _envelope(manifest) if "execution" in manifest else _no_envelope()
+      profile = _LAYOUT_PROFILES.get(manifest["profile"])
+      inputs, initial_inputs = _read_inputs(
+        case_dir, manifest, device=device, envelope=envelope, profile=profile
+      )
       output_record = manifest["output"]
       output_dtype = {"i32": torch.int32, "f32": torch.float32}[output_record["dtype"]]
-      has_layout = manifest["profile"] in {"tensor-v2", "tensor-v3"}
-      layout_profile = manifest["profile"].removeprefix("tensor-")
-      if has_layout:
-        output_layout = {
-          "shape": output_record["shape"],
-          "element_strides": output_record["element_strides"],
-          "element_offset": output_record["element_offset"],
-          "storage_span": output_record["storage_span"],
-          "axis_order": output_record["axis_order"],
-        }
-        output_count = output_record["storage_span"]
+      if profile:
+        output_layout = _buffer_layout(output_record, profile)
         canary = bytes.fromhex(
           manifest["execution"]["output_canary_by_dtype"][output_record["dtype"]]
         )
-        initial_output = canary * output_count
+        initial_output = _initial_output(
+          output_record, canary, envelope, profile=profile
+        )
         output = (
           torch.frombuffer(bytearray(initial_output), dtype=output_dtype)
           .clone()
@@ -144,6 +339,20 @@ def execute(case_dir, mode, artifacts_dir=None):
         fill_value = _I32_SENTINEL if output_record["dtype"] == "i32" else float("nan")
         output = torch.full(
           (output_count,), fill_value, dtype=output_dtype, device=device
+        )
+      if envelope.declared:
+        (artifacts_dir / "worker-staging.json").write_text(
+          json.dumps(
+            _staging_record(
+              envelope,
+              execution=manifest["execution"],
+              inputs=manifest["inputs"],
+              output=output_record,
+            ),
+            sort_keys=True,
+          )
+          + "\n",
+          encoding="utf-8",
         )
     finally:
       timing["input_staging_s"] = max(0.0, time.perf_counter() - stage_started)
@@ -161,7 +370,7 @@ def execute(case_dir, mode, artifacts_dir=None):
       "enable_fp_fusion": launch["enable_fp_fusion"],
     }
     phase_path = artifacts_dir / "worker-phase.json"
-    grid = (1, 1, 1) if has_layout else (1,)
+    grid = (1, 1, 1) if profile else (1,)
     if mode == "compiled":
       configure_pass_dumps(artifacts_dir)
       _write_phase(phase_path, "compilation")
@@ -191,40 +400,49 @@ def execute(case_dir, mode, artifacts_dir=None):
       timing[execution_field] = execution_time
       save_timing()
 
-    if manifest["profile"] == "tensor-v3":
-      for index, (input_tensor, initial) in enumerate(zip(inputs, initial_inputs)):
-        actual_input = (
-          input_tensor.detach()
-          .to("cpu")
-          .contiguous()
-          .view(torch.uint8)
-          .numpy()
-          .tobytes()
-        )
-        if actual_input != initial:
-          raise RuntimeError(
-            f"kernel modified input allocation or gap canary for input {index}"
-          )
-
     materialize_started = time.perf_counter()
     try:
-      physical = (
-        output.detach().to("cpu").contiguous().view(torch.uint8).numpy().tobytes()
-      )
-      if has_layout:
-        initial_bytes = initial_output
-        if output_record["shape"]:
-          changed = tensor_layout.changed_canary_slots(
-            initial_bytes,
+      physical = _host_bytes(output)
+      if profile:
+        if envelope.declared and output_record["shape"]:
+          begin = output_record["byte_offset"]
+          logical = (case_dir / output_record["file"]).read_bytes()[
+            begin : begin + output_record["byte_length"]
+          ]
+          reference = _output_reference(
+            logical,
+            output_record,
+            envelope,
+            manifest["execution"],
+            profile=profile,
+          )
+          changed = _enveloped_changes(
+            reference, physical, output_layout, envelope.guards, profile=profile
+          )
+          if changed:
+            raise RuntimeError(
+              "kernel wrote outside its logical output mapping: "
+              f"guards, gaps, and input slots differ at {changed[:16]}"
+            )
+          result = tensor_layout.gather_envelope(
             physical,
             output_layout,
-            element_size=4,
-            profile=layout_profile,
+            element_size=_ELEMENT_SIZE,
+            envelope=envelope.guards,
+            profile=profile,
+          )
+        elif output_record["shape"]:
+          changed = tensor_layout.changed_canary_slots(
+            initial_output,
+            physical,
+            output_layout,
+            element_size=_ELEMENT_SIZE,
+            profile=profile,
           )
           if changed:
             raise RuntimeError(f"kernel modified output canary slots: {changed[:16]}")
           result = tensor_layout.gather_buffer(
-            physical, output_layout, element_size=4, profile=layout_profile
+            physical, output_layout, element_size=_ELEMENT_SIZE, profile=profile
           )
         else:
           result = physical[: output_record["byte_length"]]
@@ -232,6 +450,20 @@ def execute(case_dir, mode, artifacts_dir=None):
       else:
         result = physical
       (artifacts_dir / "actual.bin").write_bytes(result)
+      if profile == "v3" or (envelope.declared and profile):
+        for record, (input_tensor, initial) in zip(
+          manifest["inputs"], zip(inputs, initial_inputs)
+        ):
+          actual_input = _host_bytes(input_tensor)
+          if actual_input == initial:
+            continue
+          changed = _modified_input_slots(
+            record, initial, actual_input, envelope.guards, profile
+          )
+          raise RuntimeError(
+            f"kernel modified input allocation or gap canary for {record['name']}: "
+            f"{changed[:16]}"
+          )
     finally:
       timing["output_materialization_s"] = max(
         0.0, time.perf_counter() - materialize_started

@@ -22,6 +22,48 @@ from test.lib.tensor_coverage import source_signature
 
 DOMAIN = (0, 8)
 TIMEOUT_S = 60.0
+GAP_SENTINEL_BY_DTYPE = {"i32": "55555555", "f32": "3f000001"}
+OUTPUT_CANARY_BY_DTYPE = {"i32": "aaaaaaaa", "f32": "3f000002"}
+
+
+def _hex_words(values, name):
+  if not isinstance(values, dict):
+    raise CaseBuildError("invalid_guards", f"{name} must map dtypes to hex words")
+  words = {}
+  for dtype, value in values.items():
+    if (
+      not isinstance(value, str)
+      or len(value) != 8
+      or any(char not in "0123456789abcdefABCDEF" for char in value)
+    ):
+      raise CaseBuildError(
+        "invalid_guards", f"{name} entry {dtype} must be four hexadecimal bytes"
+      )
+    words[dtype] = value.lower()
+  return words
+
+
+def _guard_record(guard_envelope, padding):
+  """Translate a requested guard envelope into the worker's execution record."""
+  if guard_envelope is None:
+    return {}, {}
+  if (
+    not isinstance(guard_envelope, tuple)
+    or len(guard_envelope) != 2
+    or any(type(value) is not int or value < 0 for value in guard_envelope)
+  ):
+    raise CaseBuildError(
+      "invalid_guards", "guard envelope must be a pair of nonnegative integers"
+    )
+  prefix, suffix = guard_envelope
+  if prefix + suffix == 0:
+    raise CaseBuildError(
+      "invalid_guards", "a guard envelope must allocate at least one slot"
+    )
+  envelope = {"prefix": prefix, "suffix": suffix}
+  if padding is None:
+    return envelope, dict(GAP_SENTINEL_BY_DTYPE)
+  return envelope, _hex_words(padding, "padding")
 
 
 def _model_inputs(model_path, count, domain):
@@ -75,13 +117,20 @@ def build_case(
   domain: tuple[int, int] = DOMAIN,
   timeout_s: float = TIMEOUT_S,
   configuration=None,
+  guard_envelope: tuple[int, int] | None = None,
+  padding: dict[str, str] | None = None,
 ) -> Path:
   """Prove bounds, solve an i32 twin, replay f32, then write a tensor-v2 case.
 
   `configuration` is the explicit region request the source was generated from.
   It is recorded so a case keeps the shape, bounds, and graph family that
   produced it instead of only the source bytes.
+
+  `guard_envelope` asks the device route to allocate prefix and suffix guards
+  around every buffer, with `padding` filling the guards and internal gaps. It
+  changes only physical storage, never the logical inputs or reference output.
   """
+  envelope_record, padding_record = _guard_record(guard_envelope, padding)
   directory = Path(output_dir).resolve()
   directory.mkdir(parents=True, exist_ok=False)
   region_record = configuration.as_record() if configuration is not None else None
@@ -273,8 +322,8 @@ def build_case(
         "warp_probe": {"status": "not_probed", "num_warps": 4},
         "loop_bounds": [iterations],
         "total_body_executions": iterations,
-        "gap_sentinel_by_dtype": {"i32": "55555555", "f32": "3f000001"},
-        "output_canary_by_dtype": {"i32": "aaaaaaaa", "f32": "3f000002"},
+        "gap_sentinel_by_dtype": dict(GAP_SENTINEL_BY_DTYPE),
+        "output_canary_by_dtype": dict(OUTPUT_CANARY_BY_DTYPE),
       },
       "coverage": coverage,
       "environment": None,
@@ -304,6 +353,9 @@ def build_case(
       },
       "files": {name: _digest(data) for name, data in files.items()},
     }
+    if envelope_record:
+      manifest["execution"]["guard_envelope"] = envelope_record
+      manifest["execution"]["padding_by_dtype"] = padding_record
     (directory / "case.json").write_text(
       json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
       encoding="utf-8",
@@ -330,6 +382,9 @@ def main(argv=None):
   parser.add_argument("--shape", default=None)
   parser.add_argument("--iterations", type=int, default=None)
   parser.add_argument("--family", default=None)
+  parser.add_argument("--guard-prefix", type=int, default=0)
+  parser.add_argument("--guard-suffix", type=int, default=0)
+  parser.add_argument("--padding", default=None)
   args = parser.parse_args(argv)
   source = Path(args.source).read_text(encoding="utf-8")
   configuration = None
@@ -344,6 +399,17 @@ def main(argv=None):
       iterations=args.iterations,
       family=args.family or "fold",
     )
+  guard_envelope = (args.guard_prefix, args.guard_suffix)
+  if guard_envelope == (0, 0):
+    if args.padding is not None:
+      parser.error("--padding requires --guard-prefix or --guard-suffix")
+    guard_envelope = None
+  padding = None
+  if args.padding is not None:
+    try:
+      padding = dict(pair.split("=", 1) for pair in args.padding.split(","))
+    except ValueError:
+      parser.error("--padding must be a comma-separated list of dtype=hex pairs")
   case = build_case(
     args.output_dir,
     source=source,
@@ -352,6 +418,8 @@ def main(argv=None):
     symirc=args.symirc,
     solver=args.symirsolve,
     configuration=configuration,
+    guard_envelope=guard_envelope,
+    padding=padding,
   )
   print(json.dumps({"case": str(case), "status": "accepted"}))
   return 0

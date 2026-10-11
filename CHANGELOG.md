@@ -57,6 +57,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Loop retention is decided after TTGIR, not inside it: loop detection now recognises a lowered loop by its backedge (PTX `bra`/`bra.uni`/predicated forms and LLVM IR `br label`), so a stage that lowered `scf.for` into branches is no longer reported as loop-free. With that correction the counted loop survives TTIR and TTGIR everywhere, is unrolled by the LLVM pipeline for small constant trip counts, and reaches PTX with a real backedge at the 512-element profile volume (two `mixed-depth` `[32, 16]` four-trip cases, built through the exact builder and executed against their complete references, are recorded in `test/tensor/campaigns/results/`).
 
+- Guarded cases reach the device route: the worker stages inputs inside an allocated envelope, fills guards and internal gaps with the case's padding, allocates the output the same way, compares the whole input allocation, rejects any change to a guard, gap, or logical slot by name, gathers the logical result, and records what it staged (`worker-staging.json`). The exporter writes `execution.guard_envelope` and `execution.padding_by_dtype` when a case asks for guards, and an explicit zero envelope stages byte-identical bytes to no envelope.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

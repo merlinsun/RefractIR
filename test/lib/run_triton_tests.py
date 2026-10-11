@@ -761,6 +761,8 @@ def run_case(
   ]
   if (artifact_dir / "tensor-layout.json").is_file():
     common_artifacts.append(artifact("tensor-layout.json"))
+  if (artifact_dir / "worker-staging.json").is_file():
+    common_artifacts.append(artifact("worker-staging.json"))
   if (artifact_dir / "actual-physical.bin").is_file():
     common_artifacts.append(artifact("actual-physical.bin"))
   if child.returncode != 0:

@@ -101,6 +101,8 @@ class GeneratedRegionCaseTests(unittest.TestCase):
     domain=(0, 8),
     values=(1, 2, 4, 8),
     shape=(2, 2),
+    guard_envelope=None,
+    padding=None,
   ):
     if source is not None:
       self.source = source
@@ -122,6 +124,8 @@ class GeneratedRegionCaseTests(unittest.TestCase):
         solver="symirsolve",
         domain=domain,
         timeout_s=0.1,
+        guard_envelope=guard_envelope,
+        padding=padding,
       )
 
   def _load(self, case):
@@ -210,9 +214,7 @@ class GeneratedRegionCaseTests(unittest.TestCase):
 
     self.assertEqual(loaded.inputs, input_bytes)
     self.assertEqual(loaded.expected, expected)
-    self.assertEqual(
-      loaded.manifest["reference"]["exactness"]["input_domain"], [1, 8]
-    )
+    self.assertEqual(loaded.manifest["reference"]["exactness"]["input_domain"], [1, 8])
 
   def test_exports_a_positive_subdomain_witness(self):
     values = (3, 3, 3, 3)
@@ -309,6 +311,22 @@ class GeneratedRegionCaseTests(unittest.TestCase):
     query = self.exact.render_generated_region_query(self.source, (0, 8), 69)
     self.assertNotIn("0.0", query)
     self.assertIn("= {0, 0, 0, 0};", query)
+
+  def test_export_records_requested_guard_envelope_and_padding(self):
+    padding = {"i32": "55555555", "f32": "3f800001"}
+    with tempfile.TemporaryDirectory() as root:
+      case = self._build(root, guard_envelope=(2, 3), padding=padding)
+      manifest = json.loads((case / "case.json").read_text())
+      unguarded = self._build(Path(root) / "plain")
+      plain = json.loads((unguarded / "case.json").read_text())
+
+    self.assertEqual(
+      manifest["execution"]["guard_envelope"], {"prefix": 2, "suffix": 3}
+    )
+    self.assertEqual(manifest["execution"]["padding_by_dtype"], padding)
+    self.assertNotIn("guard_envelope", plain["execution"])
+    self.assertEqual(manifest["inputs"], plain["inputs"])
+    self.assertEqual(manifest["output"], plain["output"])
 
   @unittest.skipUnless(
     TOOLS_AVAILABLE, "built symiri, symirc and symirsolve are required"
