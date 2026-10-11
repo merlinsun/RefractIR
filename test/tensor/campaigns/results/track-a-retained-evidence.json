@@ -1,11 +1,22 @@
 {
  "mixed-depth-32x16-it4-w1": {
+  "backedges_per_stage": {
+   "llir": 1,
+   "ptx": 1,
+   "source": 0,
+   "ttgir": 0,
+   "ttir": 0
+  },
   "conversions_per_stage": {
    "llir": [
     0,
     0
    ],
    "ptx": [
+    0,
+    0
+   ],
+   "source": [
     0,
     0
    ],
@@ -19,48 +30,29 @@
    ]
   },
   "final_loop_construct_count": 0,
+  "loop_evidence": {
+   "llir": "branch-cycle",
+   "ptx": "branch-cycle",
+   "source": "mlir-construct",
+   "ttgir": "mlir-construct",
+   "ttir": "mlir-construct"
+  },
   "loop_presence": {
-   "llir": false,
-   "ptx": false,
+   "llir": true,
+   "ptx": true,
+   "source": true,
    "ttgir": true,
    "ttir": true
   },
-  "loop_status": "unrolled_or_removed",
+  "loop_status": "retained",
   "loops_per_stage": {
    "llir": 0,
    "ptx": 0,
+   "source": 1,
    "ttgir": 1,
    "ttir": 1
   },
   "notable_transitions": [
-   {
-    "confirmed": 9,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "InlinerPass",
-    "rematerialization": "confirmed_and_unattributed"
-   },
-   {
-    "confirmed": 5,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "CSEPass",
-    "rematerialization": "confirmed_only"
-   },
    {
     "confirmed": 0,
     "conversion_match": {
@@ -132,20 +124,6 @@
     "rematerialization": "none"
    },
    {
-    "confirmed": 3,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "SCCPPass",
-    "rematerialization": "confirmed_only"
-   },
-   {
     "confirmed": 0,
     "conversion_match": {
      "added": 0,
@@ -177,6 +155,20 @@
     "transition_index": 15,
     "transition_indices": [
      15
+    ]
+   },
+   "TritonGPUReduceDataDuplication": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 33
+     }
+    ],
+    "status": "observed",
+    "transition_index": 33,
+    "transition_indices": [
+     33
     ]
    },
    "TritonGPURemoveLayoutConversions": {
@@ -228,12 +220,23 @@
   }
  },
  "mixed-depth-32x16-it4-w4": {
+  "backedges_per_stage": {
+   "llir": 1,
+   "ptx": 1,
+   "source": 0,
+   "ttgir": 0,
+   "ttir": 0
+  },
   "conversions_per_stage": {
    "llir": [
     0,
     0
    ],
    "ptx": [
+    0,
+    0
+   ],
+   "source": [
     0,
     0
    ],
@@ -247,48 +250,29 @@
    ]
   },
   "final_loop_construct_count": 0,
+  "loop_evidence": {
+   "llir": "branch-cycle",
+   "ptx": "branch-cycle",
+   "source": "mlir-construct",
+   "ttgir": "mlir-construct",
+   "ttir": "mlir-construct"
+  },
   "loop_presence": {
-   "llir": false,
-   "ptx": false,
+   "llir": true,
+   "ptx": true,
+   "source": true,
    "ttgir": true,
    "ttir": true
   },
-  "loop_status": "unrolled_or_removed",
+  "loop_status": "retained",
   "loops_per_stage": {
    "llir": 0,
    "ptx": 0,
+   "source": 1,
    "ttgir": 1,
    "ttir": 1
   },
   "notable_transitions": [
-   {
-    "confirmed": 9,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "InlinerPass",
-    "rematerialization": "confirmed_and_unattributed"
-   },
-   {
-    "confirmed": 5,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "CSEPass",
-    "rematerialization": "confirmed_only"
-   },
    {
     "confirmed": 0,
     "conversion_match": {
@@ -360,20 +344,6 @@
     "rematerialization": "none"
    },
    {
-    "confirmed": 3,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "SCCPPass",
-    "rematerialization": "confirmed_only"
-   },
-   {
     "confirmed": 0,
     "conversion_match": {
      "added": 0,
@@ -405,6 +375,20 @@
     "transition_index": 15,
     "transition_indices": [
      15
+    ]
+   },
+   "TritonGPUReduceDataDuplication": {
+    "occurrences": [
+     {
+      "loop_after": true,
+      "loop_before": true,
+      "transition_index": 33
+     }
+    ],
+    "status": "observed",
+    "transition_index": 33,
+    "transition_indices": [
+     33
     ]
    },
    "TritonGPURemoveLayoutConversions": {

@@ -238,7 +238,7 @@ class TensorCompilerLoopStageTests(unittest.TestCase):
 
 
 class TensorCompilerBackedgeTests(unittest.TestCase):
-  """A lowered loop is still a loop: later stages encode it as a backedge."""
+  """A lowered loop is still a loop: later stages encode it as a branch cycle."""
 
   _PTX = """\
 //
@@ -262,7 +262,7 @@ ret;
     self.assertEqual(report["loop_status"], "retained")
     self.assertEqual(report["loop_presence"]["ptx"], True)
     self.assertEqual(report["stages"]["ptx"]["backedge_count"], 2)
-    self.assertEqual(report["loop_evidence"]["ptx"], "backedge")
+    self.assertEqual(report["loop_evidence"]["ptx"], "branch-cycle")
 
   def test_forward_branch_is_not_a_loop(self):
     forward = """\
@@ -311,7 +311,7 @@ module {
     self.assertEqual(report["stages"]["ttgir"]["loop_construct_count"], 0)
     self.assertEqual(report["stages"]["ttgir"]["backedge_count"], 1)
     self.assertEqual(report["loop_status"], "retained")
-    self.assertEqual(report["loop_evidence"]["ttgir"], "backedge")
+    self.assertEqual(report["loop_evidence"]["ttgir"], "branch-cycle")
 
   def test_llvm_numeric_labels_count_as_a_backedge(self):
     # Optimized LLVM IR prints numeric labels, and a bottom-tested loop lists
@@ -333,7 +333,7 @@ entry:
 
     self.assertEqual(report["stages"]["llir"]["backedge_count"], 1)
     self.assertEqual(report["loop_status"], "retained")
-    self.assertEqual(report["loop_evidence"]["llir"], "backedge")
+    self.assertEqual(report["loop_evidence"]["llir"], "branch-cycle")
 
   def test_mlir_construct_reports_its_own_evidence(self):
     report = tensor_compiler_observation.observe_compiler_ir(
@@ -341,6 +341,262 @@ entry:
     )
 
     self.assertEqual(report["loop_evidence"]["ttir"], "mlir-construct")
+
+
+class TensorCompilerBranchCycleTests(unittest.TestCase):
+  """Print position is not a CFG cycle: cycles are found in a branch graph."""
+
+  def test_acyclic_blocks_printed_out_of_execution_order_are_not_a_loop(self):
+    # Review counterexample: entry branches to body, body to exit, but exit is
+    # printed before body, so the branch that reaches it looks backward.
+    llir = """\
+define void @f() {
+entry:
+  br label %body
+exit:
+  ret void
+body:
+  br label %exit
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 0)
+    self.assertEqual(report["loop_evidence"], {"llir": None})
+    self.assertEqual(report["loop_presence"], {"llir": False})
+    self.assertEqual(report["loop_status"], "unrolled_or_removed")
+
+  def test_acyclic_diamond_with_a_conditional_exit_is_not_a_loop(self):
+    llir = """\
+define void @f() {
+entry:
+  br i1 %c, label %exit, label %then
+exit:
+  ret void
+then:
+  br label %exit
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 0)
+    self.assertEqual(report["loop_status"], "unrolled_or_removed")
+
+  def test_same_label_in_two_functions_does_not_merge(self):
+    llir = """\
+define void @first() {
+entry:
+  br label %body
+body:
+  br label %exit
+exit:
+  ret void
+}
+define void @second() {
+entry:
+  br label %body
+body:
+  br label %exit
+exit:
+  ret void
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 0)
+    self.assertEqual(report["loop_status"], "unrolled_or_removed")
+
+  def test_loop_in_one_function_survives_reused_label_names(self):
+    # Scoping must keep a real cycle without importing edges from the sibling
+    # function that reuses the same block names.
+    llir = """\
+define void @plain() {
+entry:
+  br label %body
+body:
+  br label %exit
+exit:
+  ret void
+}
+define void @looping() {
+entry:
+  br label %body
+body:
+  br label %body
+exit:
+  ret void
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 1)
+    self.assertEqual(report["stages"]["llir"]["unparsed_branch_count"], 0)
+    self.assertEqual(report["loop_status"], "retained")
+
+  def test_two_block_loop_counts_every_cyclic_branch(self):
+    llir = """\
+define void @k() {
+entry:
+  br label %header
+header:
+  br i1 %c, label %body, label %exit
+body:
+  br label %header
+exit:
+  ret void
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 2)
+    self.assertEqual(report["loop_evidence"]["llir"], "branch-cycle")
+    self.assertEqual(report["loop_status"], "retained")
+
+  def test_single_block_self_loop_is_a_branch_cycle(self):
+    llir = """\
+define void @k() {
+entry:
+  br label %loop
+loop:
+  br label %loop
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["backedge_count"], 1)
+    self.assertEqual(report["loop_evidence"]["llir"], "branch-cycle")
+    self.assertEqual(report["loop_status"], "retained")
+
+  def test_lowered_scf_for_is_a_branch_cycle(self):
+    lowered = """\
+module {
+  tt.func public @k(%n: i32) {
+    cf.br ^bb1(%n : i32)
+  ^bb1(%i: i32):
+    %0 = arith.addi %i, %c1 : i32
+    cf.cond_br %1, ^bb1(%0 : i32), ^bb2
+  ^bb2:
+    tt.return
+  }
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ttgir": lowered}, expected_loop=True, loop_required_stages=("ttgir",)
+    )
+
+    self.assertEqual(report["stages"]["ttgir"]["loop_construct_count"], 0)
+    self.assertEqual(report["stages"]["ttgir"]["backedge_count"], 1)
+    self.assertEqual(report["loop_evidence"]["ttgir"], "branch-cycle")
+    self.assertEqual(report["loop_status"], "retained")
+
+  def test_generic_form_mlir_branch_is_a_branch_cycle(self):
+    # Generic-form syntax prints the same branch op with its block operands in
+    # a successor list instead of the custom form.
+    lowered = """\
+module {
+  func.func @k() {
+    "cf.br"(%c)[^bb1] : (i32) -> ()
+  ^bb1:
+    "cf.br"(%c)[^bb1] : (i32) -> ()
+  }
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ttgir": lowered}, expected_loop=True, loop_required_stages=("ttgir",)
+    )
+
+    self.assertEqual(report["stages"]["ttgir"]["backedge_count"], 1)
+    self.assertEqual(report["stages"]["ttgir"]["unparsed_branch_count"], 0)
+    self.assertEqual(report["loop_status"], "retained")
+
+  def test_unparsed_ptx_branch_leaves_the_stage_unavailable(self):
+    ptx = """\
+.visible .entry k() {
+$L__BB0_1:
+  bra $L__BB0_2;
+$L__BB0_2:
+  brx.idx.uni %r1, %tbl;
+  ret;
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ptx": ptx}, expected_loop=True, loop_required_stages=("ptx",)
+    )
+
+    self.assertEqual(report["stages"]["ptx"]["unparsed_branch_count"], 1)
+    self.assertEqual(report["loop_evidence"], {"ptx": None})
+    self.assertIsNone(report["loop_presence"]["ptx"])
+    self.assertEqual(report["loop_status"], "unavailable")
+
+  def test_unparsed_llvm_branch_leaves_the_stage_unavailable(self):
+    llir = """\
+define void @k() {
+entry:
+  indirectbr ptr %p, [label %a, label %b]
+a:
+  ret void
+b:
+  ret void
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"llir": llir}, expected_loop=True, loop_required_stages=("llir",)
+    )
+
+    self.assertEqual(report["stages"]["llir"]["unparsed_branch_count"], 1)
+    self.assertIsNone(report["loop_presence"]["llir"])
+    self.assertEqual(report["loop_status"], "unavailable")
+
+  def test_ptx_fall_through_closes_a_loop_through_the_next_block(self):
+    # PTX blocks need no terminator: the first block reaches the second one by
+    # falling into it, and the branch of the second one closes the cycle.
+    ptx = """\
+.visible .entry k() {
+$L__BB0_1:
+  add.f32 %f1, %f2, %f3;
+$L__BB0_2:
+  @%p1 bra $L__BB0_1;
+  ret;
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ptx": ptx}, expected_loop=True, loop_required_stages=("ptx",)
+    )
+
+    self.assertEqual(report["stages"]["ptx"]["backedge_count"], 1)
+    self.assertEqual(report["loop_evidence"]["ptx"], "branch-cycle")
+    self.assertEqual(report["loop_status"], "retained")
+
+  def test_ptx_return_ends_a_block_without_falling_through(self):
+    # A backward branch into a block that returns closes no cycle, because the
+    # returning block does not fall into the block printed after it.
+    ptx = """\
+.visible .entry k() {
+$L__BB0_1:
+  ret;
+$L__BB0_2:
+  bra $L__BB0_1;
+}
+"""
+    report = tensor_compiler_observation.observe_compiler_ir(
+      {"ptx": ptx}, expected_loop=True, loop_required_stages=("ptx",)
+    )
+
+    self.assertEqual(report["stages"]["ptx"]["backedge_count"], 0)
+    self.assertEqual(report["loop_presence"], {"ptx": False})
+    self.assertEqual(report["loop_status"], "unrolled_or_removed")
 
 
 class TensorCompilerConversionIdentityTests(unittest.TestCase):
@@ -466,6 +722,119 @@ module {
 }
 """
     report = tensor_compiler_observation.observe_rematerialization(self._BEFORE, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_renamed_counterexample_is_not_rematerialization(self):
+    # Review counterexample: the same two operations are printed with new SSA
+    # numbers. Nothing was recomputed, and the old name did not lose a use.
+    before = "%0 = arith.addf %a, %b : f32\n%1 = arith.mulf %0, %c : f32\n"
+    after = "%10 = arith.addf %a, %b : f32\n%11 = arith.mulf %10, %c : f32\n"
+
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["status"], "none")
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+
+  def test_renumbered_snapshot_with_an_extra_copy_stays_unattributed(self):
+    # An extra definition exists, but the original name is gone: which copy
+    # continues which producer is ambiguous, so no use is attributed.
+    after = """\
+module {
+  %7 = arith.addf %a, %b : tensor<4xf32>
+  %8 = arith.addf %a, %b : tensor<4xf32>
+  %9 = arith.mulf %8, %c : tensor<4xf32>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(self._BEFORE, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_two_recomputed_candidates_stay_unattributed(self):
+    # Two equivalent copies took over consumers of one original: the producer
+    # correspondence is ambiguous, so neither copy is confirmed by name.
+    after = """\
+module {
+  %1 = arith.addf %a, %b : tensor<4xf32>
+  %7 = arith.addf %a, %b : tensor<4xf32>
+  %2 = arith.mulf %7, %c : tensor<4xf32>
+  %8 = arith.addf %a, %b : tensor<4xf32>
+  %9 = arith.mulf %8, %c : tensor<4xf32>
+  %10 = arith.addf %2, %9 : tensor<4xf32>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(self._BEFORE, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_reused_ssa_name_for_a_different_definition_is_not_correspondence(self):
+    # %1 survives the pass but now denotes a load. A name that changed meaning
+    # is not the original producer, and the addf definition was not duplicated.
+    after = """\
+module {
+  %1 = tt.load %p : tensor<4xf32>
+  %10 = arith.addf %a, %b : tensor<4xf32>
+  %11 = arith.mulf %10, %c : tensor<4xf32>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(self._BEFORE, after)
+
+    self.assertEqual(report["status"], "none")
+    self.assertEqual(report["confirmed_count"], 0)
+
+  def test_renamed_duplicate_without_an_extra_definition_is_not_confirmed(self):
+    # The snapshot holds the same number of addf definitions before and after,
+    # so a redirected-looking use is a rename of one duplicate, not extra work.
+    before = """\
+module {
+  %1 = arith.addf %a, %b : tensor<4xf32>
+  %4 = arith.addf %a, %b : tensor<4xf32>
+  %2 = arith.mulf %1, %c : tensor<4xf32>
+  %5 = arith.mulf %4, %d : tensor<4xf32>
+}
+"""
+    after = """\
+module {
+  %10 = arith.addf %a, %b : tensor<4xf32>
+  %4 = arith.addf %a, %b : tensor<4xf32>
+  %11 = arith.mulf %10, %c : tensor<4xf32>
+  %5 = arith.mulf %4, %d : tensor<4xf32>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_one_copy_claimed_by_two_producers_stays_unattributed(self):
+    # A single new copy serves a former consumer of each of two equivalent
+    # producers: which producer it recomputes is ambiguous, so neither is named.
+    before = """\
+module {
+  %1 = arith.addf %a, %b : tensor<4xf32>
+  %4 = arith.addf %a, %b : tensor<4xf32>
+  %2 = arith.mulf %1, %c : tensor<4xf32>
+  %5 = arith.mulf %4, %d : tensor<4xf32>
+}
+"""
+    after = """\
+module {
+  %1 = arith.addf %a, %b : tensor<4xf32>
+  %4 = arith.addf %a, %b : tensor<4xf32>
+  %7 = arith.addf %a, %b : tensor<4xf32>
+  %2 = arith.mulf %7, %c : tensor<4xf32>
+  %5 = arith.mulf %7, %d : tensor<4xf32>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
 
     self.assertEqual(report["confirmed_count"], 0)
     self.assertEqual(report["unattributed_count"], 1)

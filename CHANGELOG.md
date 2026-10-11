@@ -68,6 +68,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Physical layouts and launch settings were varied independently on one admitted retained-loop region: seven input/output layout combinations (row-major, column-major, padded with offsets) and four warp counts all match the complete reference, with the TTGIR loop present in every run and a PTX loop in all but the eight-warp and padded/padded variants.
 
+- The observer no longer confirms a rematerialization from SSA renaming: a candidate needs an equal canonical expression, strictly more pure definitions with that expression after the pass, a lost consumer, a structurally matching redirected consumer, and a surviving original; ambiguity confirms nothing. Loop retention is decided by a per-function branch graph (PTX fall-through included) and cycle membership rather than by print order, and unreadable branches leave a stage unavailable. Reclassifying the preserved IR withdraws every recorded rematerialization (102 events) and changes no loop classification.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

@@ -7,11 +7,7 @@
    "ttgir": 0,
    "ttir": 0
   },
-  "confirmed_rematerialization_passes": [
-   "InlinerPass",
-   "CSEPass",
-   "SCCPPass"
-  ],
+  "confirmed_rematerialization_passes": [],
   "conversion_moves": [],
   "conversion_removals": [
    {
@@ -58,34 +54,6 @@
   },
   "loop_status_by_required_stage": "unrolled_or_removed",
   "passes_with_observable_effect": [
-   {
-    "confirmed_rematerializations": 9,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "InlinerPass",
-    "rematerialization": "confirmed_and_unattributed"
-   },
-   {
-    "confirmed_rematerializations": 5,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "CSEPass",
-    "rematerialization": "confirmed_only"
-   },
    {
     "confirmed_rematerializations": 0,
     "conversion_match": {
@@ -155,20 +123,6 @@
     "moved": [],
     "pass": "TritonGPURemoveLayoutConversions",
     "rematerialization": "none"
-   },
-   {
-    "confirmed_rematerializations": 3,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "SCCPPass",
-    "rematerialization": "confirmed_only"
    },
    {
     "confirmed_rematerializations": 0,
@@ -281,11 +235,7 @@
    "ttgir": 0,
    "ttir": 0
   },
-  "confirmed_rematerialization_passes": [
-   "InlinerPass",
-   "CSEPass",
-   "SCCPPass"
-  ],
+  "confirmed_rematerialization_passes": [],
   "conversion_moves": [],
   "conversion_removals": [
    {
@@ -332,34 +282,6 @@
   },
   "loop_status_by_required_stage": "unrolled_or_removed",
   "passes_with_observable_effect": [
-   {
-    "confirmed_rematerializations": 9,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "InlinerPass",
-    "rematerialization": "confirmed_and_unattributed"
-   },
-   {
-    "confirmed_rematerializations": 5,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "CSEPass",
-    "rematerialization": "confirmed_only"
-   },
    {
     "confirmed_rematerializations": 0,
     "conversion_match": {
@@ -429,20 +351,6 @@
     "moved": [],
     "pass": "TritonGPURemoveLayoutConversions",
     "rematerialization": "none"
-   },
-   {
-    "confirmed_rematerializations": 3,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "SCCPPass",
-    "rematerialization": "confirmed_only"
    },
    {
     "confirmed_rematerializations": 0,
@@ -555,11 +463,7 @@
    "ttgir": 0,
    "ttir": 0
   },
-  "confirmed_rematerialization_passes": [
-   "InlinerPass",
-   "CSEPass",
-   "SCCPPass"
-  ],
+  "confirmed_rematerialization_passes": [],
   "conversion_moves": [],
   "conversion_removals": [
    {
@@ -606,34 +510,6 @@
   },
   "loop_status_by_required_stage": "unrolled_or_removed",
   "passes_with_observable_effect": [
-   {
-    "confirmed_rematerializations": 9,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "InlinerPass",
-    "rematerialization": "confirmed_and_unattributed"
-   },
-   {
-    "confirmed_rematerializations": 5,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "CSEPass",
-    "rematerialization": "confirmed_only"
-   },
    {
     "confirmed_rematerializations": 0,
     "conversion_match": {
@@ -703,20 +579,6 @@
     "moved": [],
     "pass": "TritonGPURemoveLayoutConversions",
     "rematerialization": "none"
-   },
-   {
-    "confirmed_rematerializations": 3,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "SCCPPass",
-    "rematerialization": "confirmed_only"
    },
    {
     "confirmed_rematerializations": 0,
@@ -829,11 +691,7 @@
    "ttgir": 0,
    "ttir": 0
   },
-  "confirmed_rematerialization_passes": [
-   "InlinerPass",
-   "CSEPass",
-   "SCCPPass"
-  ],
+  "confirmed_rematerialization_passes": [],
   "conversion_moves": [],
   "conversion_removals": [
    {
@@ -880,34 +738,6 @@
   },
   "loop_status_by_required_stage": "unrolled_or_removed",
   "passes_with_observable_effect": [
-   {
-    "confirmed_rematerializations": 9,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "InlinerPass",
-    "rematerialization": "confirmed_and_unattributed"
-   },
-   {
-    "confirmed_rematerializations": 5,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "CSEPass",
-    "rematerialization": "confirmed_only"
-   },
    {
     "confirmed_rematerializations": 0,
     "conversion_match": {
@@ -977,20 +807,6 @@
     "moved": [],
     "pass": "TritonGPURemoveLayoutConversions",
     "rematerialization": "none"
-   },
-   {
-    "confirmed_rematerializations": 3,
-    "conversion_match": {
-     "added": 0,
-     "matched": 0,
-     "moved": 0,
-     "preserved": 0,
-     "removed": 0
-    },
-    "loop_delta": 0,
-    "moved": [],
-    "pass": "SCCPPass",
-    "rematerialization": "confirmed_only"
    },
    {
     "confirmed_rematerializations": 0,

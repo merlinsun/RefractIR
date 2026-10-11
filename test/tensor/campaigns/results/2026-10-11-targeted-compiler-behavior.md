@@ -34,17 +34,20 @@ Observations:
 * `TritonGPUReduceDataDuplication`, `TritonGPUOptimizeThreadLocality`, and
   `TritonLoopInvariantCodeMotion` each report one measurable transition per
   compilation (`target_pass_evidence` in `track-a-evidence.json`).
-* No rematerialization is attributable to a layout pass. Matched recomputation
-  with redirected uses appears only in `InlinerPass`, `CSEPass`, and `SCCPPass`.
-  Per the plan, a layout result without rematerialization is useful evidence but
-  does not satisfy a rematerialization claim.
+* No rematerialization is attributable to any pass. An earlier reading of this
+  record reported matched recomputation in `InlinerPass`, `CSEPass`, and
+  `SCCPPass`; those were SSA renames that the matcher mistook for redirected
+  uses, and the corrected matcher confirms none. The record has been
+  regenerated: the conversion removals above stand, and every
+  `confirmed_rematerialization_passes` entry is now empty.
 * In these small cases the counted loop survives TTIR and TTGIR (one `scf.for`
-  in each) and is gone by LLIR: `SCFToControlFlow` lowers it and the LLVM
-  pipeline then fully unrolls it, so the PTX has no backedge. An earlier
-  reading of this record said the loop was already removed before TTGIR; that
-  was an observer defect (loop detection only recognised structured MLIR
-  operations, so any lowered stage counted as loop-free) and is corrected here.
-  The next section shows a configuration that reaches PTX with a backedge.
+  in each, `mlir-construct` evidence) and is gone by LLIR: `SCFToControlFlow`
+  lowers it and the LLVM pipeline then fully unrolls it, so no branch cycle
+  remains in LLIR or PTX. An earlier reading said the loop was already removed
+  before TTGIR; that was an observer defect (loop detection only recognised
+  structured MLIR operations, so any lowered stage counted as loop-free) and is
+  corrected here. The next section shows a configuration that keeps a cycle all
+  the way to PTX.
 
 ## Track A, second run: a retained loop with a layout decision inside it
 
@@ -65,10 +68,10 @@ their complete 2048-byte references: both pass, both `campaign_valid`
 | TTGIR / TTIR loop constructs | 1 / 1 (`mlir-construct` evidence) |
 | `RemoveLayoutConversions` occurrences | 4, loop present before and after every one |
 | Conversions removed by that pass | 12, with `loop_construct_delta` 0 |
-| Loop removal | `SCFToControlFlowPass`, `loop_construct_delta` -1 |
-| PTX backedge | one, `bra $L__BB0_1` to a label defined 132 lines earlier |
+| Loop removal from MLIR | `SCFToControlFlowPass`, `loop_construct_delta` -1 (a lowering; the cycle then lives in LLIR and PTX) |
+| PTX loop | one branch cycle, `bra`/`bra.uni` back to the loop header (`branch-cycle`) |
 | PTX shuffles / shared transfers | 12 / 0 (one warp), 20 / 2 (four warps) |
-| Rematerialization | none attributable to a layout pass |
+| Rematerialization | none attributable to any pass (the earlier "matches" in the inliner, CSE, and SCCP were renames) |
 
 So a layout decision is eliminated inside a loop that survives the layout
 passes and reaches PTX as a genuine backedge. The structured loop disappears at
@@ -236,10 +239,13 @@ families reaching PTX with shuffles and shared-memory transfers (928/114,
 
 This run also caught a second observer defect: optimized LLVM IR prints numeric
 labels and lists a bottom-tested loop's exit block first, so the LLVM backedge
-detector missed real loops. Counting every `label %x` operand with numeric
-labels agrees with the PTX backedge in 144/144 runs. Both the label patterns
-and the branch scanning are fixed, and the helper now reports the backedge where
-it previously reported a null.
+detector missed real loops. A third correction followed from the review: a
+branch to an earlier *printed* block is not a cycle, so the detector now builds
+a per-function branch graph (including PTX fall-through edges) and reports the
+branches that participate in a genuine cycle; a stage whose branches cannot be
+read stays unavailable rather than loop-free. Under that reading the matrix
+device-loop claim holds unchanged (39 runs, 23 configurations, 11 admitted, and
+7 at both warp counts).
 
 ## Track B, third run: guarded v3 tails
 

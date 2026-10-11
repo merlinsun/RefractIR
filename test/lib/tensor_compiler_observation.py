@@ -126,47 +126,284 @@ def _region_map(text):
   return regions
 
 
-_PTX_LABEL = re.compile(r"^\s*(\$[\w$.]+):")
+_ENTRY_BLOCK = "<entry>"
+_LLVM_MARKER = re.compile(r"^\s*define\b", re.MULTILINE)
+_PTX_MARKER = re.compile(
+  r"^\s*(?:\.(?:version|target|address_size|visible|extern|weak)\b|\$[\w$.]+:)",
+  re.MULTILINE,
+)
+_PTX_SCOPE = re.compile(r"^\s*(?:\.(?:visible|extern|weak)\s+)*\.(?:entry|func)\b")
+_PTX_LABEL = re.compile(r"^\s*(\$?[\w$.]+):(?:\s|$)")
+_PTX_BRANCH = re.compile(r"^\s*(?:@[!\w$.%]+\s+)?bra(?:\.uni)?\s+([^\s,;]+)")
+_PTX_BRANCH_PREFIX = re.compile(r"^\s*(?:@[!\w$.%]+\s+)?br[ax]\b")
+_PTX_PREDICATED = re.compile(r"^\s*@")
+_PTX_TERMINATOR = re.compile(r"^\s*(?:@[!\w$.%]+\s+)?(?:ret|exit|trap)\b")
+_PTX_TARGET = re.compile(r"^\$?[\w$.]+$")
+_LLVM_SCOPE = re.compile(r"^\s*define\b")
+_LLVM_SCOPE_END = re.compile(r"^\}")
 _LLVM_LABEL = re.compile(r"^\s*([A-Za-z_0-9][\w.$]*):")
-_PTX_BRANCH = re.compile(r"^\s*(?:@[%!]?[\w$.]+\s+)?bra(?:\.uni)?\s+(\$[\w$.]+)")
-_LLVM_BRANCH = re.compile(r"\blabel\s+%([\w.$]+)")
-_MLIR_LABEL = re.compile(r"^\s*(\^[\w$.]+):")
-_MLIR_BRANCH = re.compile(r"\b(?:cf\.)?br\s+(\^[\w$.]+)")
+_LLVM_TERMINATOR = re.compile(r"^\s*(br|switch|indirectbr|callbr|invoke)\b")
+_LLVM_TARGET = re.compile(r"\blabel\s+%([\w.$]+)")
+_MLIR_LABEL = re.compile(r"^\s*(\^[\w$.]+)(?:\([^)]*\))?:")
+_MLIR_TERMINATOR = re.compile(r"^\s*(?:(?:cf|llvm)\.)?(br|cond_br|switch)\b")
+_MLIR_GENERIC_TERMINATOR = re.compile(r'^\s*"(?:(?:cf|llvm)\.)?(br|cond_br|switch)"')
+_MLIR_TARGET = re.compile(r"\^[\w$.]+")
 
 
-def _backedge_count(text):
-  """Count branches whose target label is already defined earlier in the text.
+def _ptx_branch_graph(lines):
+  """Collect PTX branch edges, one scope per `.entry`/`.func` body.
 
-  PTX and LLVM IR encode a loop as a backward branch, and a lowered MLIR stage
-  encodes it as a branch to an earlier block. Counting only structured MLIR
-  operations would report a device loop as removed the moment it is lowered out
-  of `scf`, which is a lowering rather than an unrolling decision.
+  PTX blocks need no terminator, so a block that does not end in an
+  unconditional transfer also reaches the next block in program order. Those
+  implicit edges are returned separately: they close cycles, but they are not
+  branches and must not be counted as such.
   """
-  definitions = {}
-  backedges = 0
-  for index, line in enumerate(text.splitlines()):
-    ptx_label = _PTX_LABEL.match(line)
-    llvm_label = _LLVM_LABEL.match(line)
-    mlir_label = _MLIR_LABEL.match(line)
-    if ptx_label:
-      definitions.setdefault(("ptx", ptx_label[1]), index)
-    elif mlir_label:
-      definitions.setdefault(("mlir", mlir_label[1]), index)
-    elif llvm_label and not line.strip().startswith("//"):
-      definitions.setdefault(("llvm", llvm_label[1]), index)
-    ptx_branch = _PTX_BRANCH.match(line)
-    if ptx_branch and definitions.get(("ptx", ptx_branch[1]), index) < index:
-      backedges += 1
+  edges, fallthrough, unparsed = [], [], 0
+  defined = collections.defaultdict(set)
+  blocks = collections.defaultdict(lambda: _ENTRY_BLOCK)
+  closed = {}
+  scope = "ptx:0"
+  count = 0
+  for line in lines:
+    if _PTX_SCOPE.match(line):
+      count += 1
+      scope = f"ptx:{count}"
+      closed.pop(scope, None)
       continue
-    for target in _MLIR_BRANCH.findall(line):
-      if definitions.get(("mlir", target), index) < index:
-        backedges += 1
-        break
-    else:
-      for target in _LLVM_BRANCH.findall(line):
-        if definitions.get(("llvm", target), index) < index:
-          backedges += 1
-  return backedges
+    label = _PTX_LABEL.match(line)
+    if label:
+      previous = closed.get(scope)
+      if previous is not None and previous[1]:
+        fallthrough.append((scope, previous[0], label[1]))
+      blocks[scope] = label[1]
+      closed[scope] = (label[1], True)
+      defined[scope].add(label[1])
+      continue
+    branch = _PTX_BRANCH.match(line)
+    if branch:
+      target = branch[1]
+      if _PTX_TARGET.match(target):
+        edges.append((scope, blocks[scope], target))
+        if not _PTX_PREDICATED.match(line):
+          closed[scope] = (blocks[scope], False)
+      else:
+        # A register or table operand names no block in this text.
+        unparsed += 1
+      continue
+    if _PTX_BRANCH_PREFIX.match(line):
+      # `brx.idx` and truncated `bra` lines reach a destination we cannot read.
+      unparsed += 1
+      continue
+    if _PTX_TERMINATOR.match(line) and not _PTX_PREDICATED.match(line):
+      closed[scope] = (blocks[scope], False)
+  return edges, fallthrough, defined, unparsed
+
+
+def _llvm_scopes(lines):
+  """Assign each line to the innermost enclosing `define` body."""
+  scopes = []
+  scope = "llvm:0"
+  count = 0
+  for line in lines:
+    if _LLVM_SCOPE.match(line):
+      count += 1
+      scope = f"llvm:{count}"
+    scopes.append(scope)
+    if _LLVM_SCOPE_END.match(line):
+      scope = "llvm:0"
+  return scopes
+
+
+def _llvm_branch_graph(lines):
+  """Collect LLVM IR branch edges, one scope per `define` body."""
+  edges, unparsed = [], 0
+  defined = collections.defaultdict(set)
+  blocks = collections.defaultdict(lambda: _ENTRY_BLOCK)
+  scopes = _llvm_scopes(lines)
+  in_switch = False
+  for index, line in enumerate(lines):
+    stripped = line.strip()
+    if stripped.startswith(";") or stripped.startswith("//"):
+      continue
+    scope = scopes[index]
+    if in_switch:
+      for target in _LLVM_TARGET.findall(line):
+        edges.append((scope, blocks[scope], target))
+      if "]" in line:
+        in_switch = False
+      continue
+    label = _LLVM_LABEL.match(line)
+    if label:
+      blocks[scope] = label[1]
+      defined[scope].add(label[1])
+      continue
+    terminator = _LLVM_TERMINATOR.match(line)
+    if terminator is None:
+      continue
+    operation = terminator[1]
+    targets = _LLVM_TARGET.findall(line)
+    if operation in ("indirectbr", "callbr") or not targets:
+      # An indirect destination, a computed transfer, or a truncated line.
+      unparsed += 1
+      continue
+    for target in targets:
+      edges.append((scope, blocks[scope], target))
+    if operation == "switch" and "]" not in line:
+      in_switch = True
+  return edges, [], defined, unparsed
+
+
+def _mlir_scopes(lines):
+  """Assign each line to the innermost enclosing MLIR region."""
+  scopes = []
+  stack = ["mlir:0"]
+  count = 0
+  for line in lines:
+    stripped = line.strip()
+    while stripped.startswith("}"):
+      if len(stack) > 1:
+        stack.pop()
+      stripped = stripped[1:].strip()
+    scopes.append(stack[-1])
+    if stripped.endswith("{"):
+      count += 1
+      stack.append(f"mlir:{count}")
+  return scopes
+
+
+def _mlir_branch_graph(lines):
+  """Collect lowered MLIR branch edges, one scope per region."""
+  edges, unparsed = [], 0
+  defined = collections.defaultdict(set)
+  blocks = collections.defaultdict(lambda: _ENTRY_BLOCK)
+  scopes = _mlir_scopes(lines)
+  in_switch = False
+  for index, line in enumerate(lines):
+    if line.strip().startswith("//"):
+      continue
+    scope = scopes[index]
+    if in_switch:
+      for target in _MLIR_TARGET.findall(line):
+        edges.append((scope, blocks[scope], target))
+      if "]" in line:
+        in_switch = False
+      continue
+    label = _MLIR_LABEL.match(line)
+    if label:
+      blocks[scope] = label[1]
+      defined[scope].add(label[1])
+      continue
+    terminator = _MLIR_TERMINATOR.match(line) or _MLIR_GENERIC_TERMINATOR.match(line)
+    if terminator is None:
+      continue
+    targets = _MLIR_TARGET.findall(line)
+    if not targets:
+      unparsed += 1
+      continue
+    for target in targets:
+      edges.append((scope, blocks[scope], target))
+    if terminator[1] == "switch" and "]" not in line:
+      in_switch = True
+  return edges, [], defined, unparsed
+
+
+def _strongly_connected_components(nodes, adjacency):
+  """Tarjan's algorithm, iteratively, so a deep CFG cannot exhaust the stack."""
+  visited = {}
+  low = {}
+  on_stack = set()
+  stack = []
+  components = {}
+  counter = 0
+  for root in nodes:
+    if root in visited:
+      continue
+    visited[root] = low[root] = counter
+    counter += 1
+    stack.append(root)
+    on_stack.add(root)
+    work = [(root, iter(adjacency.get(root, ())))]
+    while work:
+      node, neighbours = work[-1]
+      descended = False
+      for neighbour in neighbours:
+        if neighbour not in visited:
+          visited[neighbour] = low[neighbour] = counter
+          counter += 1
+          stack.append(neighbour)
+          on_stack.add(neighbour)
+          work.append((neighbour, iter(adjacency.get(neighbour, ()))))
+          descended = True
+          break
+        if neighbour in on_stack:
+          low[node] = min(low[node], visited[neighbour])
+      if descended:
+        continue
+      work.pop()
+      if low[node] == visited[node]:
+        component = set()
+        while True:
+          member = stack.pop()
+          on_stack.discard(member)
+          component.add(member)
+          if member == node:
+            break
+        for member in component:
+          components[member] = component
+      if work:
+        parent = work[-1][0]
+        low[parent] = min(low[parent], low[node])
+  return components
+
+
+def _branch_cycle_evidence(text):
+  """Count branches on a CFG cycle and branches whose target is unreadable.
+
+  A branch participates in a cycle when its source and target blocks belong to
+  the same strongly connected component of the control-flow graph of their
+  function. Text order says nothing about dominance, so a block printed before
+  its predecessor is not a loop. Edges and block names are scoped per function,
+  so the same label text in two functions never merges. Implicit fall-through
+  edges complete the graph but are never counted: only branch instructions are.
+  A branch whose target is not a block of its own function is unreadable
+  evidence: it is counted, and the caller must treat the stage as unavailable
+  rather than loop-free.
+  """
+  lines = text.splitlines()
+  if _LLVM_MARKER.search(text):
+    graphs = (_llvm_branch_graph(lines),)
+  elif _PTX_MARKER.search(text):
+    graphs = (_ptx_branch_graph(lines),)
+  else:
+    graphs = (_mlir_branch_graph(lines),)
+  edges, fallthrough, defined, unparsed = [], [], {}, 0
+  for found, implicit, blocks, unknown in graphs:
+    edges.extend(found)
+    fallthrough.extend(implicit)
+    for scope, labels in blocks.items():
+      defined.setdefault(scope, set()).update(labels)
+    unparsed += unknown
+  readable = []
+  for scope, source, target in edges:
+    if target not in defined.get(scope, ()):
+      unparsed += 1
+      continue
+    readable.append((scope, source, target))
+  adjacency = collections.defaultdict(set)
+  nodes = {}
+  for scope, source, target in readable + [
+    edge for edge in fallthrough if edge[2] in defined.get(edge[0], ())
+  ]:
+    nodes.setdefault((scope, source))
+    nodes.setdefault((scope, target))
+    adjacency[(scope, source)].add((scope, target))
+  components = _strongly_connected_components(nodes, adjacency)
+  cycles = 0
+  for scope, source, target in readable:
+    component = components.get((scope, source))
+    if component is not None and component is components.get((scope, target)):
+      cycles += 1
+  return cycles, unparsed
 
 
 def _stage_observation(text):
@@ -246,6 +483,7 @@ def _stage_observation(text):
     )
 
   loops = _LOOP.findall(text)
+  branch_cycles, unparsed_branches = _branch_cycle_evidence(text)
   return {
     "defined_value_count": len(definitions),
     "operation_counts": dict(sorted(operation_counts.items())),
@@ -253,7 +491,8 @@ def _stage_observation(text):
     "duplicate_expressions": duplicates,
     "loop_construct_count": len(loops),
     "loop_constructs": loops,
-    "backedge_count": _backedge_count(text),
+    "backedge_count": branch_cycles,
+    "unparsed_branch_count": unparsed_branches,
     "layout_conversions": conversions,
   }
 
@@ -276,6 +515,9 @@ def observe_compiler_ir(
   `loop_required_stages` names the stages that must still contain a loop. It
   defaults to every supplied stage; a loop that survives only in an earlier
   stage such as TTIR therefore does not satisfy a later-stage requirement.
+  A stage holds a loop when it keeps a structured loop construct (`mlir-construct`)
+  or when its branch graph has a cycle (`branch-cycle`); a stage with a branch
+  whose target cannot be read stays unavailable rather than loop-free.
   """
   if not isinstance(artifacts, dict) or not artifacts:
     raise ValueError("compiler artifacts must be a nonempty stage mapping")
@@ -357,10 +599,17 @@ def observe_compiler_ir(
     if stages[stage]["loop_construct_count"] > 0:
       loop_evidence[stage] = "mlir-construct"
     elif stages[stage]["backedge_count"] > 0:
-      loop_evidence[stage] = "backedge"
+      loop_evidence[stage] = "branch-cycle"
     else:
       loop_evidence[stage] = None
-    loop_presence[stage] = loop_evidence[stage] is not None
+    if loop_evidence[stage] is not None:
+      loop_presence[stage] = True
+    elif stages[stage]["unparsed_branch_count"] > 0:
+      # Part of the CFG could not be read, so "no cycle found" is not
+      # evidence that the stage is loop-free.
+      loop_presence[stage] = None
+    else:
+      loop_presence[stage] = False
   required_presence = [loop_presence[stage] for stage in required_stages]
   if not expected_loop:
     loop_status = "not_applicable"
@@ -542,13 +791,31 @@ def _canonical_expression(name, definitions, depth=4):
   return re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
 
 
+def _pure_expression_counts(canonical):
+  """Count the pure definitions that share each canonical expression.
+
+  An impure or unparsed definition canonicalizes to its own name, so counting
+  by canonical expression only ever groups equal pure computations.
+  """
+  counts = collections.Counter()
+  for name, expression in canonical.items():
+    if expression != name:
+      counts[expression] += 1
+  return counts
+
+
 def observe_rematerialization(before_text, after_text, *, source_lines=None):
   """Match recomputed values whose original uses were redirected.
 
-  A candidate needs all three of: an equivalent pure definition, at least one
-  consumer that stopped using the original, and at least one consumer of the
-  recomputed value that structurally matches a former consumer of the original.
-  Duplicate expressions alone are reported as unattributed work.
+  A candidate needs all of: an equivalent pure definition (a), strictly more
+  pure definitions with that canonical expression after the pass than before it
+  (b), at least one consumer the original lost (c), at least one consumer of the
+  recomputed value that structurally matches a former consumer of the original
+  (d), and the original producer still present after the pass (e). Requirement
+  (b) is what separates a recomputation from a rename, and (e) is what ties a
+  recomputed value to a producer that survived the pass: renumbering alone, an
+  unchanged graph, and ambiguous correspondences stay unconfirmed. Duplicate
+  expressions alone are reported as unattributed work.
   """
   if source_lines is None:
     source_lines = {}
@@ -568,10 +835,19 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     before_canonical[name] = _canonical_expression(name, before_definitions)
   for name in after_definitions:
     after_canonical[name] = _canonical_expression(name, after_definitions)
+  before_expressions = _pure_expression_counts(before_canonical)
+  after_expressions = _pure_expression_counts(after_canonical)
 
-  candidates = collections.defaultdict(lambda: {"redirected": [], "consumers": []})
+  candidates = collections.defaultdict(lambda: {"recomputed": [], "redirected": []})
   for original, canonical in sorted(before_canonical.items()):
     if canonical == original:
+      continue
+    if original not in after_definitions:
+      # The producer did not survive: a surviving name that now means something
+      # else is not the original definition.
+      continue
+    if after_expressions[canonical] <= before_expressions[canonical]:
+      # No additional computation exists, so this is a rename, not a copy.
       continue
     before_uses = sorted(set(before_consumers.get(original, [])))
     after_uses = sorted(set(after_consumers.get(original, [])))
@@ -589,22 +865,32 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
       if not redirected:
         continue
       entry = candidates[original]
-      entry["recomputed"] = recomputed
+      entry["recomputed"].append(recomputed)
       entry["redirected"] = sorted(set(entry["redirected"]) | set(redirected))
       entry["consumers"] = after_uses
       entry["expression"] = after_definitions[recomputed]
 
   confirmed = []
-  claimed = set()
+  claims = collections.Counter(
+    entry["recomputed"][0]
+    for entry in candidates.values()
+    if len(entry["recomputed"]) == 1
+  )
   for original in sorted(candidates):
     entry = candidates[original]
-    if entry["recomputed"] in claimed:
+    if len(entry["recomputed"]) != 1:
+      # Several equivalent copies took over the original's consumers, so no
+      # single copy can be called its recomputation.
       continue
-    claimed.add(entry["recomputed"])
+    recomputed = entry["recomputed"][0]
+    if claims[recomputed] > 1:
+      # Several producers lost consumers to this one copy: which of them it
+      # recomputes is ambiguous, so none of them is confirmed.
+      continue
     confirmed.append(
       {
         "original_value": original,
-        "recomputed_values": [entry["recomputed"]],
+        "recomputed_values": [recomputed],
         "expression": entry["expression"],
         "redirected_consumers": entry["redirected"],
         "remaining_consumers": entry["consumers"],
@@ -640,8 +926,9 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     "unattributed": unattributed,
     "unattributed_count": len(unattributed),
     "interpretation_limit": (
-      "matched recomputation with redirected uses; duplicate expressions alone "
-      "are reported as unattributed work"
+      "a confirmed recomputation needs the surviving producer, an additional "
+      "pure definition, and a redirected former consumer; duplicate "
+      "expressions alone are reported as unattributed work"
     ),
   }
 
