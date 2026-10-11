@@ -30,6 +30,27 @@ namespace refractir::reify {
     Mixed,
   };
 
+  /// Connection skeleton of a bounded loop region. `Fold` is the original
+  /// shared-producer-then-folds shape. The other families place the same
+  /// operation set behind different graph connections, so a pass that folds,
+  /// rematerializes, or converts layouts meets a different neighbourhood
+  /// without changing the admitted arithmetic or the loop skeleton.
+  enum class TensorRegionFamily : std::uint8_t {
+    /// Shared add of the two states, up to two sequential reduction folds, then
+    /// one arithmetic root per state.
+    Fold,
+    /// One shared producer feeding independent reductions on the first two
+    /// axes, each broadcast into a different state root.
+    OrthogonalReductions,
+    /// A reduction feeds bounded arithmetic before it becomes loop state.
+    ReductionArithmetic,
+    /// Each next-state root depends on both current states.
+    CrossState,
+    /// One shared producer has consumers at different depths: a reduction path
+    /// and a later arithmetic join.
+    MixedDepth,
+  };
+
   /// Build a straight-line typed tensor dependency graph for the selected
   /// tensor profile and return it as an ordinary unchecked Program. Every
   /// parameter and computation of the result lies in the return value's
@@ -45,7 +66,8 @@ namespace refractir::reify {
   TensorRegion generateTensorRegion(
       const TensorGenerationOptions &options, const TensorGraphLimits &limits,
       std::vector<TensorRegionInput> inputs, std::vector<std::string> results,
-      TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive
+      TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive,
+      TensorRegionFamily family = TensorRegionFamily::Fold
   );
 
 } // namespace refractir::reify

@@ -20,7 +20,12 @@ namespace {
     std::uint32_t iterations = 2;
     bool hasSeed = false;
     TensorRegionArithmeticMode operationMode = TensorRegionArithmeticMode::Additive;
+    TensorRegionFamily family = TensorRegionFamily::Fold;
+    std::uint32_t maxOperators = 10;
   };
+
+  /// Element cap of the tensor profile the emitted region is typed against.
+  constexpr std::uint32_t profileElements = 512;
 
   std::uint32_t parseUnsigned(std::string_view text, std::string_view name) {
     std::uint32_t value = 0;
@@ -37,10 +42,29 @@ namespace {
     Shape shape{
         parseUnsigned(text.substr(0, comma), "shape dimension"),
         parseUnsigned(text.substr(comma + 1), "shape dimension")};
-    if (shape[0] == 0 || shape[1] == 0 || shape[0] > 64 || shape[1] > 64 ||
-        static_cast<std::uint64_t>(shape[0]) * shape[1] > 64)
-      throw std::invalid_argument("shape must contain between one and 64 elements");
+    if (shape[0] == 0 || shape[1] == 0 ||
+        static_cast<std::uint64_t>(shape[0]) * shape[1] > profileElements)
+      throw std::invalid_argument(
+          "shape must contain between one and " + std::to_string(profileElements) + " elements"
+      );
     return shape;
+  }
+
+  TensorRegionFamily parseFamily(std::string_view text) {
+    if (text == "fold")
+      return TensorRegionFamily::Fold;
+    if (text == "orthogonal-reductions")
+      return TensorRegionFamily::OrthogonalReductions;
+    if (text == "reduction-arithmetic")
+      return TensorRegionFamily::ReductionArithmetic;
+    if (text == "cross-state")
+      return TensorRegionFamily::CrossState;
+    if (text == "mixed-depth")
+      return TensorRegionFamily::MixedDepth;
+    throw std::invalid_argument(
+        "family must be fold, orthogonal-reductions, reduction-arithmetic, cross-state, or "
+        "mixed-depth"
+    );
   }
 
   TensorRegionArithmeticMode parseOperationMode(std::string_view text) {
@@ -62,6 +86,8 @@ namespace {
     bool hasShape = false;
     bool hasIterations = false;
     bool hasOperationMode = false;
+    bool hasFamily = false;
+    bool hasMaxOperators = false;
     for (int index = 1; index < argc; ++index) {
       const std::string_view name(argv[index]);
       if (index + 1 >= argc)
@@ -89,6 +115,18 @@ namespace {
           throw std::invalid_argument("--operation-mode may be specified only once");
         options.operationMode = parseOperationMode(value);
         hasOperationMode = true;
+      } else if (name == "--max-operators") {
+        if (hasMaxOperators)
+          throw std::invalid_argument("--max-operators may be specified only once");
+        options.maxOperators = parseUnsigned(value, "max-operators");
+        if (options.maxOperators < 1 || options.maxOperators > 64)
+          throw std::invalid_argument("max-operators must be in [1,64]");
+        hasMaxOperators = true;
+      } else if (name == "--family") {
+        if (hasFamily)
+          throw std::invalid_argument("--family may be specified only once");
+        options.family = parseFamily(value);
+        hasFamily = true;
       } else {
         throw std::invalid_argument("unknown option: " + std::string(name));
       }
@@ -128,13 +166,15 @@ namespace {
     TensorGraphLimits limits;
     limits.maxInputs = 2;
     limits.maxRank = 2;
-    limits.maxElements = 64;
-    limits.maxOperators = 10;
+    // The volume cap belongs to the tensor profile, not to this exporter: a
+    // region wider than the profile's element budget would not be typable.
+    limits.maxElements = profileElements;
+    limits.maxOperators = configuration.maxOperators;
 
     const TensorTypeInfo type{configuration.shape, TensorElement::F32};
     const auto region = generateTensorRegion(
         options, limits, {{"%acc_x", type}, {"%acc_y", type}}, {"%next_x", "%next_y"},
-        configuration.operationMode
+        configuration.operationMode, configuration.family
     );
     const std::vector<std::pair<std::string, std::string>> updates{
         {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
@@ -166,7 +206,9 @@ int main(int argc, char **argv) {
     std::cerr << error.what() << '\n'
               << "usage: tensor_graph_region_export --seed <uint32> "
                  "[--shape <rows,columns>] [--iterations <1..8>] "
-                 "[--operation-mode <additive|subtraction|multiplication|mixed>]\n";
+                 "[--operation-mode <additive|subtraction|multiplication|mixed>] "
+                 "[--family <fold|orthogonal-reductions|reduction-arithmetic|cross-state|"
+                 "mixed-depth>] [--max-operators <1..64>]\n";
     return 2;
   }
 }

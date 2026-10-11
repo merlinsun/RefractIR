@@ -136,12 +136,14 @@ namespace refractir::reify {
       Builder(
           std::mt19937 &random, const TensorGenerationOptions &options,
           const TensorGraphLimits &limits,
-          TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive
+          TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive,
+          TensorRegionFamily family = TensorRegionFamily::Fold
       ) :
           random_(random),
           profile_(tensorProfile(options.profileVersion)),
           element_(options.dtype == "i32" ? TensorElement::I32 : TensorElement::F32),
-          regionArithmetic_(arithmetic) {
+          regionArithmetic_(arithmetic),
+          regionFamily_(family) {
         if (options.profileVersion != TensorProfileId::V2 &&
             options.profileVersion != TensorProfileId::V3)
           throw std::runtime_error("compositional generation supports tensor-v2 and tensor-v3 only"
@@ -160,6 +162,23 @@ namespace refractir::reify {
       );
 
     private:
+      Shape validateRegion(
+          const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames
+      );
+      Graph seedRegion(const std::vector<TensorRegionInput> &inputs) const;
+      Graph buildRegionFolds(
+          const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames,
+          const Shape &shape
+      );
+      Graph buildRegionFamily(
+          const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames,
+          const Shape &shape
+      );
+      int emitSum(Graph &graph, int value, std::uint32_t axis);
+      int emitBroadcast(Graph &graph, int value, const Shape &shape);
+      int emitBinaryOp(Graph &graph, int lhs, int rhs, TensorOp op, const Shape &shape);
+      void requireNodeBudget(std::uint32_t nodes) const;
+
       bool admissible(const Shape &shape) const;
       Shape makeWorkingShape();
       Shape makeInputShape(const Shape &working);
@@ -191,6 +210,7 @@ namespace refractir::reify {
       std::uint32_t temporaries_ = 0;
       std::uint32_t multiplications_ = 0;
       TensorRegionArithmeticMode regionArithmetic_ = TensorRegionArithmeticMode::Additive;
+      TensorRegionFamily regionFamily_ = TensorRegionFamily::Fold;
       std::vector<std::string> reservedNames_;
     };
 
@@ -747,7 +767,159 @@ namespace refractir::reify {
       return graph;
     }
 
+    void Builder::requireNodeBudget(std::uint32_t nodes) const {
+      if (budget_ < nodes)
+        throw AttemptFailure("operator budget cannot host the requested region family");
+    }
+
+    int Builder::emitSum(Graph &graph, int value, std::uint32_t axis) {
+      const Shape shape = graph.values[static_cast<std::size_t>(value)].shape;
+      if (axis >= shape.size())
+        throw AttemptFailure("reduction axis is outside the region rank");
+      if (shape[axis] < 2)
+        throw AttemptFailure("reduction axis is a singleton and carries no reduction");
+      GraphNode reduction;
+      reduction.op = TensorOp::Sum;
+      reduction.operands = {value};
+      reduction.axis = static_cast<std::int64_t>(axis);
+      reduction.keepDims = true;
+      Shape reduced = shape;
+      reduced[axis] = 1;
+      return appendNode(graph, std::move(reduction), reduced);
+    }
+
+    int Builder::emitBroadcast(Graph &graph, int value, const Shape &shape) {
+      const Shape current = graph.values[static_cast<std::size_t>(value)].shape;
+      if (current == shape)
+        throw AttemptFailure("broadcast target equals the operand shape");
+      if (applyBinary(current, shape) != shape)
+        throw AttemptFailure("broadcast target is not a superset of the operand shape");
+      GraphNode broadcast;
+      broadcast.op = TensorOp::Broadcast;
+      broadcast.operands = {value};
+      broadcast.attribute = shape;
+      return appendNode(graph, std::move(broadcast), shape);
+    }
+
+    int Builder::emitBinaryOp(Graph &graph, int lhs, int rhs, TensorOp op, const Shape &shape) {
+      const auto merged = applyBinary(
+          graph.values[static_cast<std::size_t>(lhs)].shape,
+          graph.values[static_cast<std::size_t>(rhs)].shape
+      );
+      if (!merged || *merged != shape)
+        throw AttemptFailure("region family binary result is not the state shape");
+      GraphNode node;
+      node.op = op;
+      node.operands = {lhs, rhs};
+      node.literals = {0.0, 0.0};
+      return appendNode(graph, std::move(node), *merged);
+    }
+
+    Graph Builder::seedRegion(const std::vector<TensorRegionInput> &inputs) const {
+      Graph graph;
+      for (const auto &input: inputs) {
+        GraphValue value;
+        value.name = input.name;
+        value.shape = input.type.shape;
+        value.element = input.type.element;
+        value.type = tensorType(value.shape, value.element);
+        graph.values.push_back(std::move(value));
+      }
+      return graph;
+    }
+
+    Graph Builder::buildRegionFamily(
+        const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames,
+        const Shape &shape
+    ) {
+      if (shape.size() < 2)
+        throw AttemptFailure("region families need a rank-two state shape");
+      const auto first = static_cast<std::uint32_t>(0);
+      const auto second = static_cast<std::uint32_t>(1);
+      const bool orthogonal = shape[first] > 1 && shape[second] > 1;
+
+      Graph graph = seedRegion(inputs);
+      const auto root = [&](int value, std::size_t index) {
+        graph.values[static_cast<std::size_t>(value)].name = resultNames[index];
+        graph.roots.push_back(value);
+        return value;
+      };
+      const auto operation = regionArithmetic_ == TensorRegionArithmeticMode::Subtraction
+                                 ? TensorOp::Sub
+                                 : regionArithmetic_ == TensorRegionArithmeticMode::Multiplication
+                                       ? TensorOp::Mul
+                                       : TensorOp::Add;
+      const auto join = [&](int lhs, int rhs) {
+        return emitBinaryOp(graph, lhs, rhs, operation, shape);
+      };
+
+      switch (regionFamily_) {
+        case TensorRegionFamily::OrthogonalReductions: {
+          if (!orthogonal)
+            throw AttemptFailure(
+                "independent axis reductions need two extents above one, found a singleton axis"
+            );
+          requireNodeBudget(7);
+          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
+          const auto rows = emitSum(graph, shared, first);
+          const auto columns = emitSum(graph, shared, second);
+          const auto rowView = emitBroadcast(graph, rows, shape);
+          const auto columnView = emitBroadcast(graph, columns, shape);
+          root(join(columnView, 0), 0);
+          root(join(rowView, 1), 1);
+          break;
+        }
+        case TensorRegionFamily::ReductionArithmetic: {
+          requireNodeBudget(5);
+          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
+          const auto reduced = emitSum(graph, shared, shape[first] > 1 ? first : second);
+          // The reduction reaches the state only through a bounded broadcast
+          // multiplication, so the update is not a copy of the reduction.
+          const auto scaled = emitBinaryOp(graph, reduced, 0, TensorOp::Mul, shape);
+          const auto reducedView = emitBroadcast(graph, reduced, shape);
+          root(scaled, 0);
+          root(join(reducedView, 1), 1);
+          break;
+        }
+        case TensorRegionFamily::CrossState: {
+          requireNodeBudget(3);
+          // Both roots read both current states, so neither can be folded into
+          // the other's update.
+          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
+          root(join(shared, 1), 0);
+          root(join(shared, 0), 1);
+          break;
+        }
+        case TensorRegionFamily::MixedDepth: {
+          requireNodeBudget(6);
+          const auto shared = emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
+          const auto reduced = emitSum(graph, shared, shape[first] > 1 ? first : second);
+          const auto shallow = emitBinaryOp(graph, shared, 1, TensorOp::Add, shape);
+          const auto view = emitBroadcast(graph, reduced, shape);
+          root(join(view, shallow), 0);
+          root(join(shared, 1), 1);
+          break;
+        }
+        case TensorRegionFamily::Fold:
+          throw std::logic_error("fold regions are built by the fold path");
+      }
+
+      prune(graph);
+      if (graph.roots.size() != resultNames.size())
+        throw std::logic_error("region family lost a named result root");
+      return graph;
+    }
+
     Graph Builder::buildRegion(
+        const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames
+    ) {
+      const Shape shape = validateRegion(inputs, resultNames);
+      if (regionFamily_ != TensorRegionFamily::Fold)
+        return buildRegionFamily(inputs, resultNames, shape);
+      return buildRegionFolds(inputs, resultNames, shape);
+    }
+
+    Shape Builder::validateRegion(
         const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames
     ) {
       if (inputs.size() < 2 || inputs.size() > maxInputs_)
@@ -790,16 +962,15 @@ namespace refractir::reify {
             "graph_exhaustion: operator budget cannot host the shared producer and every root"
         );
 
-      Graph graph;
-      for (const auto &input: inputs) {
-        GraphValue value;
-        value.name = input.name;
-        value.shape = input.type.shape;
-        value.element = input.type.element;
-        value.type = tensorType(value.shape, value.element);
-        graph.values.push_back(std::move(value));
-      }
+      return shape;
+    }
 
+    Graph Builder::buildRegionFolds(
+        const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames,
+        const Shape &shape
+    ) {
+      const auto minimumNodes = static_cast<std::uint32_t>(1 + resultNames.size());
+      Graph graph = seedRegion(inputs);
       int current = emitPair(graph, 0, 1, 0.0, TensorOp::Add);
       const auto availableFolds = std::min<std::uint32_t>(2, (budget_ - minimumNodes) / 3);
       const auto foldCount = availableFolds == 0 ? 0 : 1 + random_() % availableFolds;
@@ -994,7 +1165,7 @@ namespace refractir::reify {
   TensorRegion generateTensorRegion(
       const TensorGenerationOptions &options, const TensorGraphLimits &limits,
       std::vector<TensorRegionInput> inputs, std::vector<std::string> results,
-      TensorRegionArithmeticMode arithmetic
+      TensorRegionArithmeticMode arithmetic, TensorRegionFamily family
   ) {
     switch (arithmetic) {
       case TensorRegionArithmeticMode::Additive:
@@ -1005,10 +1176,20 @@ namespace refractir::reify {
       default:
         throw std::invalid_argument("unknown tensor region arithmetic mode");
     }
+    switch (family) {
+      case TensorRegionFamily::Fold:
+      case TensorRegionFamily::OrthogonalReductions:
+      case TensorRegionFamily::ReductionArithmetic:
+      case TensorRegionFamily::CrossState:
+      case TensorRegionFamily::MixedDepth:
+        break;
+      default:
+        throw std::invalid_argument("unknown tensor region family");
+    }
     for (std::uint32_t attempt = 0; attempt < constructAttempts; ++attempt) {
       std::mt19937 random(options.seed ^ (0x9e3779b9u * (attempt + 1)));
       try {
-        Builder builder(random, options, limits, arithmetic);
+        Builder builder(random, options, limits, arithmetic, family);
         const auto graph = builder.buildRegion(inputs, results);
         return emitRegion(graph, std::move(inputs), results);
       } catch (const AttemptFailure &) {

@@ -74,10 +74,18 @@ def build_case(
   solver: str | Path = "symirsolve",
   domain: tuple[int, int] = DOMAIN,
   timeout_s: float = TIMEOUT_S,
+  configuration=None,
 ) -> Path:
-  """Prove bounds, solve an i32 twin, replay f32, then write a tensor-v2 case."""
+  """Prove bounds, solve an i32 twin, replay f32, then write a tensor-v2 case.
+
+  `configuration` is the explicit region request the source was generated from.
+  It is recorded so a case keeps the shape, bounds, and graph family that
+  produced it instead of only the source bytes.
+  """
   directory = Path(output_dir).resolve()
   directory.mkdir(parents=True, exist_ok=False)
+  region_record = configuration.as_record() if configuration is not None else None
+  region_seed = configuration.seed if configuration is not None else 0
   ledger: list[dict] = []
   deadline = time.monotonic() + timeout_s
   source_path = directory / "program.sir"
@@ -89,6 +97,10 @@ def build_case(
   kernel_path = directory / "kernel.py"
   try:
     shape, iterations, _, _, _ = tensor_exact_f32._generated_region_program(source)
+    if configuration is not None:
+      from test.lib import tensor_region_generation
+
+      tensor_region_generation.validate_source(source, configuration)
     if type(target) is not int:
       raise CaseBuildError("unsupported_region", "target must be an integer")
     preflight_value = float(domain[0])
@@ -232,7 +244,7 @@ def build_case(
         "file": "program.sir",
         "sha256": _digest(files["program.sir"])["sha256"],
         "generator": "generated-bounded-region",
-        "seed": 0,
+        "seed": region_seed,
       },
       "inputs": [_record("x", "f32", list(shape), "inputs.bin", len(input_bytes))],
       "output": _record("return", "f32", list(shape), "expected.bin", len(expected)),
@@ -270,7 +282,8 @@ def build_case(
       "shape_axes": [],
       "generator": {
         "version": "generated-bounded-region-v1",
-        "seed": 0,
+        "seed": region_seed,
+        "region": region_record,
         "input_mode": "bounded-integer-twin-smt",
         "input_policy": "exact",
         "input_domain": {"lo": domain[0], "hi": domain[1]},
@@ -313,8 +326,24 @@ def main(argv=None):
   parser.add_argument("--symiri", default="symiri")
   parser.add_argument("--symirc", default="symirc")
   parser.add_argument("--symirsolve", default="symirsolve")
+  parser.add_argument("--seed", type=int, default=None)
+  parser.add_argument("--shape", default=None)
+  parser.add_argument("--iterations", type=int, default=None)
+  parser.add_argument("--family", default=None)
   args = parser.parse_args(argv)
   source = Path(args.source).read_text(encoding="utf-8")
+  configuration = None
+  if args.seed is not None:
+    from test.lib import tensor_region_generation
+
+    if args.shape is None or args.iterations is None:
+      parser.error("--seed requires --shape and --iterations")
+    configuration = tensor_region_generation.RegionConfiguration(
+      seed=args.seed,
+      shape=tuple(int(value) for value in args.shape.split(",")),
+      iterations=args.iterations,
+      family=args.family or "fold",
+    )
   case = build_case(
     args.output_dir,
     source=source,
@@ -322,6 +351,7 @@ def main(argv=None):
     symiri=args.symiri,
     symirc=args.symirc,
     solver=args.symirsolve,
+    configuration=configuration,
   )
   print(json.dumps({"case": str(case), "status": "accepted"}))
   return 0

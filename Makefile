@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-input-policy test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-boundary-sensitivity test-tensor-campaign-summary test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -268,6 +268,15 @@ test-tensor-graph-region: $(TENSOR_GRAPH_REGION_API)
 
 test-tensor-generated-corpus: $(BIN_DIR)/tensor_graph_region_export
 	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) $(PY) -m unittest test.unit.test_tensor_generated_region_corpus
+
+# Explicit long-axis region configurations: reachability, graph families, and
+# the exact certificate each admitted configuration has to carry.
+test-tensor-region-generation: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TENSOR_GRAPH_REGION_EXPORT)
+	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
+	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) \
+	  $(PY) -m unittest test.unit.test_tensor_region_generation \
+	    test.unit.test_tensor_region_exact_family
 
 test-tensor-fpsan-model:
 	$(PY) -m unittest test.unit.test_tensor_fpsan_model
@@ -489,7 +498,7 @@ test-tensor-graph-audit:
 
 # Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
 test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
-	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study test-tensor-boundary-sensitivity test-tensor-campaign-summary test-tensor-layout test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
 	  test-tensor-solver test-tensor-emit test-tensor-regressions \
 	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
 	  test-tensor-reducer test-tensor-property-pilot
