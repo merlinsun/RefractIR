@@ -1012,6 +1012,12 @@ optionOccurrences(const cxxopts::ParseResult &result, std::string_view name) {
                             cxxopts::value<std::string>()->default_value("constructor"))
       ("tensor-region-family", "Bounded loop-region family (fold, orthogonal-reductions, reduction-arithmetic, cross-state, mixed-depth)",
                             cxxopts::value<std::string>())
+      ("tensor-region-shape", "Bounded loop-region shape as rows,columns: two powers of two of at least two, at most 512 elements in total",
+                            cxxopts::value<std::string>())
+      ("tensor-region-iterations", "Bounded loop-region trip count (1 through 8)",
+                            cxxopts::value<std::uint32_t>())
+      ("tensor-region-arithmetic", "Bounded loop-region root arithmetic (additive, subtraction, multiplication, mixed)",
+                            cxxopts::value<std::string>())
       ("tensor-input-policy", "Compositional runtime input proposal (ordinary, boundary, or exact)",
                             cxxopts::value<std::string>()->default_value("ordinary"))
       ("tensor-property-target", "Output target the exact input policy solves for",
@@ -1466,6 +1472,34 @@ int main(int argc, char **argv) {
         return 2;
       }
       tensorOptions.regionFamily = *family;
+    }
+    if (result.count("tensor-region-arithmetic")) {
+      const auto name = result["tensor-region-arithmetic"].as<std::string>();
+      const auto mode = refractir::reify::parseTensorRegionArithmeticMode(name);
+      if (!mode) {
+        std::cerr << "error: unknown tensor region arithmetic '" << name << "' (expected "
+                  << refractir::reify::tensorRegionArithmeticNames << ")\n";
+        return 2;
+      }
+      tensorOptions.regionArithmetic = *mode;
+    }
+    if (result.count("tensor-region-shape")) {
+      try {
+        tensorOptions.regionShape = refractir::reify::parseTensorRegionShape(
+            result["tensor-region-shape"].as<std::string>()
+        );
+      } catch (const std::invalid_argument &error) {
+        std::cerr << "error: " << error.what() << "\n";
+        return 2;
+      }
+    }
+    if (result.count("tensor-region-iterations"))
+      tensorOptions.regionIterations = result["tensor-region-iterations"].as<std::uint32_t>();
+    try {
+      refractir::reify::validateTensorRegionRequest(tensorOptions);
+    } catch (const std::invalid_argument &error) {
+      std::cerr << "error: " << error.what() << "\n";
+      return 2;
     }
     tensorOptions.inputPolicy = result["tensor-input-policy"].as<std::string>();
     if (result.count("tensor-property-target"))

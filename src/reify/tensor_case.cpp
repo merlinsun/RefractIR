@@ -701,6 +701,17 @@ std::string buildManifestV2(const TensorCase &testCase,
       << testCase.seed << ",\"synthesis\":" << jsonString(testCase.synthesis)
       << ",\"primary_stratum\":" << jsonString(testCase.primaryStratum)
       << ",\"node_limit\":12";
+  if (testCase.region) {
+    // The loop-region configuration the request used, written the way the
+    // exporter's case record states the same choices, so a reader sees the
+    // shape, bound, family, and arithmetic instead of only the seed.
+    out << ",\"region\":{\"shape\":";
+    writeShape(out, testCase.region->shape);
+    out << ",\"iterations\":" << testCase.region->iterations
+        << ",\"family\":" << jsonString(tensorRegionFamilyName(testCase.region->family))
+        << ",\"operation_mode\":"
+        << jsonString(tensorRegionArithmeticName(testCase.region->arithmetic)) << '}';
+  }
   if (!testCase.inputPattern.empty())
     out << ",\"input_pattern\":" << jsonString(testCase.inputPattern);
   if (!testCase.inputPolicy.empty())

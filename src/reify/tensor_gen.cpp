@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -159,6 +161,8 @@ namespace refractir::reify {
       std::uint32_t totalBodyExecutions = 0;
       std::vector<Shape> fullShapes;
       std::vector<Shape> rangeExtents;
+      // The loop-region choices a named request used, for the manifest.
+      std::optional<TensorRegionConfiguration> region;
       std::optional<std::uint32_t> caseSeed;
     };
 
@@ -533,6 +537,38 @@ namespace refractir::reify {
       }
       text << ']';
       return text.str();
+    }
+
+    /// Dimensions without SIR brackets, so a manifest sentence and an error
+    /// message can name a shape the way the command line states it.
+    std::string regionShapeText(const Shape &shape) {
+      std::ostringstream text;
+      for (std::size_t i = 0; i < shape.size(); ++i) {
+        if (i)
+          text << ',';
+        text << shape[i];
+      }
+      return text.str();
+    }
+
+    /// Why a loop-region shape is outside the tensor-v2 profile domain, or an
+    /// empty string when it is admitted. The region is two-dimensional, every
+    /// extent is a power of two of at least two - the generator's own loop
+    /// shapes all are - and the volume stays inside the profile's element cap.
+    std::string regionShapeRefusal(const Shape &shape) {
+      if (shape.size() != 2)
+        return "tensor region shape must be two comma-separated dimensions, for example "
+               "2,2 or 32,16";
+      for (const auto extent: shape)
+        if (extent < 2 || (extent & (extent - 1)) != 0)
+          return "tensor region shape '" + regionShapeText(shape) +
+                 "' must be two powers of two of at least 2";
+      const auto elements = static_cast<std::uint64_t>(shape[0]) * shape[1];
+      const auto cap = tensorProfile(TensorProfileId::V2).maxElements;
+      if (elements > cap)
+        return "tensor region shape '" + regionShapeText(shape) + "' exceeds the " +
+               std::to_string(cap) + "-element tensor profile cap";
+      return {};
     }
 
     std::string sirCoordinates(const Shape &coordinates) { return sirShape(coordinates); }
@@ -1467,15 +1503,19 @@ namespace refractir::reify {
       const std::array<Shape, 4> shapes{Shape{256, 2}, Shape{128, 4}, Shape{64, 2}, Shape{64, 4}};
       std::mt19937 structureRandom(streamSeed(seed, 0x6c6f6f702d737472ULL));
       std::uniform_int_distribution<std::uint32_t> chooseLoopForm(0, 7);
-      // A named region family asks for the loop-region form. The other loop
+      // A named region option asks for the loop-region form. The other loop
       // forms carry no region, so drawing one would silently drop the request.
-      const bool regional = options.regionFamily.has_value();
+      const bool regional = options.regionRequested();
       const std::uint32_t loopForm = regional ? 7 : chooseLoopForm(structureRandom);
       const bool nested = loopForm == 0;
       const std::uint32_t variant = nested ? 0 : loopForm - 1;
       std::uniform_int_distribution<std::size_t> chooseShape(0, shapes.size() - 1);
       Shape inputShape;
-      if (!nested && variant == 0)
+      if (regional) {
+        // A requested shape replaces the region policy's own 2x2 body; an
+        // unnamed request keeps it. Both are inside the same admitted domain.
+        inputShape = options.regionShape.value_or(Shape{2, 2});
+      } else if (!nested && variant == 0)
         inputShape = {256, 2};
       else if (!nested && variant == 4)
         inputShape = {8, 8};
@@ -1493,7 +1533,9 @@ namespace refractir::reify {
       std::uniform_int_distribution<std::int32_t> chooseSingleTripCount(2, 4);
       std::uniform_int_distribution<std::int32_t> chooseInnerTripCount(2, 3);
       const std::int32_t singleTripCount =
-          !nested && (variant == 0 || variant == 6) ? 2 : chooseSingleTripCount(structureRandom);
+          regional ? static_cast<std::int32_t>(options.regionIterations.value_or(2))
+          : !nested && (variant == 0 || variant == 6) ? 2
+                                                      : chooseSingleTripCount(structureRandom);
       const std::int32_t innerTripCount = chooseInnerTripCount(structureRandom);
       const std::string element = options.dtype;
       const std::string inputType = "tensor " + sirShape(inputShape) + " " + element;
@@ -1533,6 +1575,9 @@ namespace refractir::reify {
       std::vector<std::string> regionInstructions;
       if (variant == 6) {
         const auto tensorElement = options.dtype == "f32" ? TensorElement::F32 : TensorElement::I32;
+        const auto regionFamily = options.regionFamily.value_or(TensorRegionFamily::Fold);
+        const auto regionArithmetic =
+            options.regionArithmetic.value_or(TensorRegionArithmeticMode::Additive);
         TensorGenerationOptions regionOptions = options;
         regionOptions.seed = streamSeed(seed, 0x6c6f6f702d726567ULL);
         TensorGraphLimits regionLimits;
@@ -1544,14 +1589,20 @@ namespace refractir::reify {
             regionOptions, regionLimits,
             {{"%acc_x", TensorTypeInfo{inputShape, tensorElement}},
              {"%acc_y", TensorTypeInfo{inputShape, tensorElement}}},
-            {"%next_x", "%next_y"}, TensorRegionArithmeticMode::Additive,
-            options.regionFamily.value_or(TensorRegionFamily::Fold)
+            {"%next_x", "%next_y"}, regionArithmetic, regionFamily
         );
         const std::vector<std::pair<std::string, std::string>> stateUpdates{
             {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
         const std::vector<std::string> reservedNames{"%i", "%out"};
         regionDeclarations = region.renderDeclarations(stateUpdates, reservedNames);
         regionInstructions = region.renderBody(stateUpdates, reservedNames);
+        // Only a named request records its configuration: an unnamed region
+        // keeps the manifest it had, so the frozen cases stay byte-identical.
+        if (regional)
+          candidate.region = TensorRegionConfiguration{
+              inputShape, static_cast<std::uint32_t>(singleTripCount), regionFamily,
+              regionArithmetic
+          };
       }
 
       std::ostringstream source;
@@ -1729,7 +1780,8 @@ namespace refractir::reify {
             "defined without i32 overflow.";
       if (variant == 6)
         candidate.propertySource =
-            "A shape-[2,2] runtime tensor and a zero-initialized state tensor feed "
+            "A shape-[" + regionShapeText(inputShape) +
+            "] runtime tensor and a zero-initialized state tensor feed "
             "a seeded bounded multi-output DAG inside the loop. Every generated "
             "root is computed from the old state before either result is written back.";
       candidate.caseSeed = seed;
@@ -2330,6 +2382,7 @@ namespace refractir::reify {
       testCase.totalBodyExecutions = candidate.totalBodyExecutions;
       testCase.fullShapes = std::move(candidate.fullShapes);
       testCase.rangeExtents = std::move(candidate.rangeExtents);
+      testCase.region = std::move(candidate.region);
       testCase.numericComparison =
           testCase.outputElement == TensorElement::F32 && testCase.exactnessKind.empty();
       if (testCase.numericComparison)
@@ -2493,6 +2546,40 @@ namespace refractir::reify {
 
   } // namespace
 
+  Shape parseTensorRegionShape(std::string_view text) {
+    const auto comma = text.find(',');
+    if (comma == std::string_view::npos || text.find(',', comma + 1) != std::string_view::npos)
+      throw std::invalid_argument(
+          "tensor region shape must be two comma-separated dimensions, for example 2,2 or 32,16"
+      );
+    Shape shape;
+    for (const auto part: {text.substr(0, comma), text.substr(comma + 1)}) {
+      std::uint32_t extent = 0;
+      const auto [end, error] = std::from_chars(part.data(), part.data() + part.size(), extent);
+      if (error != std::errc{} || end != part.data() + part.size())
+        throw std::invalid_argument(
+            "tensor region shape '" + std::string(text) + "' must be two decimal dimensions"
+        );
+      shape.push_back(extent);
+    }
+    if (const auto reason = regionShapeRefusal(shape); !reason.empty())
+      throw std::invalid_argument(reason);
+    return shape;
+  }
+
+  void validateTensorRegionRequest(const TensorGenerationOptions &options) {
+    if (options.regionShape)
+      if (const auto reason = regionShapeRefusal(*options.regionShape); !reason.empty())
+        throw std::invalid_argument(reason);
+    if (options.regionIterations) {
+      const auto limit = tensorProfile(TensorProfileId::V2).maxLoopBodyExecutions;
+      if (*options.regionIterations < 1 || *options.regionIterations > limit)
+        throw std::invalid_argument(
+            "tensor region iterations must be in [1," + std::to_string(limit) + "]"
+        );
+    }
+  }
+
   TensorGenerationResult generateTensorCases(const TensorGenerationOptions &options) {
     TensorGenerationResult result;
     result.requested = options.count;
@@ -2530,22 +2617,30 @@ namespace refractir::reify {
       return failRoute(
           "unsupported_route", "compositional generation requires construction synthesis"
       );
-    if (options.regionFamily) {
+    if (options.regionRequested()) {
+      // The stated values come first: a request outside the profile's domain is
+      // refused with the rule it breaks rather than adjusted to something
+      // admitted, and it is refused the same way whoever states it.
+      try {
+        validateTensorRegionRequest(options);
+      } catch (const std::invalid_argument &error) {
+        return failRoute("invalid_profile", error.what());
+      }
       // Only the constructor route's loop-reduction stratum builds a region, so
       // every other route would accept the option and silently ignore it.
       if (options.generator != "constructor")
         return failRoute(
             "unsupported_route",
-            "a named tensor region family needs the constructor route: the compositional "
+            "a named tensor region option needs the constructor route: the compositional "
             "builder does not build loop regions"
         );
       if (options.profileVersion != TensorProfileId::V2)
         return failRoute(
-            "unsupported_route", "a named tensor region family needs tensor-v2 loop regions"
+            "unsupported_route", "a named tensor region option needs tensor-v2 loop regions"
         );
       if (!options.primaryStratum.empty() && options.primaryStratum != "loop-reduction")
         return failRoute(
-            "unsupported_route", "a named tensor region family uses the loop-reduction stratum"
+            "unsupported_route", "a named tensor region option uses the loop-reduction stratum"
         );
     }
     try {
@@ -2674,8 +2769,8 @@ namespace refractir::reify {
       // caller may still name one to label the run.
       const bool compositional = options.generator == "compositional";
       const std::string caseStratum =
-          options.regionFamily ? "loop-reduction"
-          : compositional      ? options.primaryStratum
+          options.regionRequested() ? "loop-reduction"
+          : compositional           ? options.primaryStratum
           : options.profileVersion == TensorProfileId::V2
               ? (options.primaryStratum.empty() ? v2StratumForCase(caseIndex)
                                                 : options.primaryStratum)

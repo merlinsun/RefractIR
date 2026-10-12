@@ -9,6 +9,7 @@
 
 #include "analysis/tensor.hpp"
 #include "ast/tensor.hpp"
+#include "reify/tensor_region_family.hpp"
 
 namespace refractir::reify {
 
@@ -18,6 +19,18 @@ namespace refractir::reify {
 struct TensorOutputElementConstraint {
   std::vector<std::uint32_t> index;
   std::int32_t value = 0;
+};
+
+/// The bounded loop-region choices one case was generated from: the two-state
+/// shape, the counted trip count, the connection family, and the arithmetic
+/// its roots use. It is written to the manifest whenever a caller named a
+/// region option, so a reader sees the values that were used instead of
+/// having to infer them from the seed.
+struct TensorRegionConfiguration {
+  Shape shape;
+  std::uint32_t iterations = 0;
+  TensorRegionFamily family = TensorRegionFamily::Fold;
+  TensorRegionArithmeticMode arithmetic = TensorRegionArithmeticMode::Additive;
 };
 
 struct TensorCaseBuffer {
@@ -43,6 +56,9 @@ struct TensorCaseBuffer {
 struct TensorCase {
   TensorProfileId profileVersion = TensorProfileId::V1;
   std::string primaryStratum;
+  // The loop-region request this case was generated from. Unset for a case
+  // whose caller named no region option, which keeps its manifest unchanged.
+  std::optional<TensorRegionConfiguration> region;
   std::string source;
   std::string target = "sir";
   std::uint32_t seed = 0;

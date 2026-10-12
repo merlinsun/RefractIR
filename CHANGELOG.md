@@ -88,6 +88,10 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Rematerialization correspondence follows what a leaf computes, not how it is printed: a load is identified by its pointer's own definition, resolved through pure and impure text alike, so swapping two loads' names no longer makes an unrelated computation look like a moved one, and a merely renamed pointer no longer hides a genuine one. A leaf that cannot be resolved the same way on both sides leaves the candidate unconfirmed.
 
+- The build targets a pending feature names stay out of the committed Makefile while its recipes are uncommitted; the targets this work owns are present and wired into `test-tensor`. Region shape, trip count, and arithmetic reach the normal generator through `--tensor-region-shape`, `--tensor-region-iterations`, and `--tensor-region-arithmetic`, any of which forces the loop-region form, records the values in `generator.region`, and refuses an out-of-domain request with its reason; an unnamed request keeps every emitted byte.
+
+- The evidence-record check ignores the AppleDouble companions (`._name.json`) a copy through a non-native filesystem leaves beside a record; they are metadata, not evidence, and reading one aborted the check.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

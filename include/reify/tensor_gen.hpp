@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "analysis/tensor.hpp"
 #include "reify/tensor_case.hpp"
@@ -28,6 +29,14 @@ namespace refractir::reify {
     /// The loop-region family a caller asked for. An unnamed family leaves the
     /// constructor route's loop forms, and the frozen fold family, untouched.
     std::optional<TensorRegionFamily> regionFamily;
+    /// The two-dimensional shape of the region's two states. Unset keeps the
+    /// region policy's own 2x2 body.
+    std::optional<Shape> regionShape;
+    /// The region loop's counted trip count. Unset keeps the region policy's
+    /// own two iterations.
+    std::optional<std::uint32_t> regionIterations;
+    /// The arithmetic the region's named roots use. Unset keeps `Additive`.
+    std::optional<TensorRegionArithmeticMode> regionArithmetic;
     std::string inputPattern;
     std::string dtype = "i32";
     std::string property;
@@ -50,7 +59,28 @@ namespace refractir::reify {
     /// itself so selection can be terminated without ending the tool; empty
     /// keeps selection in this process.
     std::filesystem::path selectionWorker;
+
+    /// Whether any loop-region option was named. A named request forces the
+    /// loop-region form of the loop-reduction stratum; an unnamed request keeps
+    /// every route, draw, and emitted byte as they were.
+    [[nodiscard]] bool regionRequested() const noexcept {
+      return regionFamily.has_value() || regionShape.has_value() || regionIterations.has_value() ||
+             regionArithmetic.has_value();
+    }
   };
+
+  /// Parse `rows,columns` into the two-dimensional loop-region shape domain:
+  /// both extents are powers of two of at least two and the shape holds at most
+  /// the tensor-v2 profile's 512 elements. Outside that domain the request
+  /// throws std::invalid_argument naming the value and the rule it breaks.
+  [[nodiscard]] Shape parseTensorRegionShape(std::string_view text);
+
+  /// Refuse a stated loop-region request the tensor-v2 profile cannot admit,
+  /// with the reason. An admitted request returns normally, and a request that
+  /// names no region option is always admitted. The command line calls this
+  /// before generation and the generator calls it again, so no route can reach
+  /// the builder with a request it would refuse.
+  void validateTensorRegionRequest(const TensorGenerationOptions &options);
 
   struct TensorGenerationResult {
     std::uint32_t requested = 0;

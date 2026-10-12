@@ -14,7 +14,9 @@ class TensorEvidenceRecordTests(unittest.TestCase):
 
   def records(self):
     self.assertTrue(RESULTS.is_dir(), f"missing results directory: {RESULTS}")
-    return sorted(RESULTS.glob("*.json"))
+    # A copy through a non-native filesystem can leave AppleDouble companions
+    # (`._name.json`) beside the records; they are metadata, not evidence.
+    return sorted(path for path in RESULTS.glob("*.json") if not path.name.startswith("._"))
 
   def test_every_record_parses_as_json(self):
     files = self.records()
