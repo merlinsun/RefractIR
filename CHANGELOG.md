@@ -82,6 +82,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Region families stay meaningful in every arithmetic mode: the shared producer is the additive join of the two states in every mode, a multiplicative placement reads the input-carrying state, and a product that would join the zero-initialized state adds instead. Before this, `multiplication` and `mixed` returned a constant zero for all four configured families (128 of 256 measured configurations); now no family and mode combination measured constant, `fold`'s certified additive bodies are byte-identical, and `orthogonal-reductions` in subtraction mode is certifiable again.
 
+- Make targets stop hiding what they claim to run: `make test-tensor-gluon-lowering` builds the native exporter it needs and passes it explicitly, so the generated-region tests run instead of skipping, and `make test-tensor-compiler-observation` runs the evidence-record check that keeps a committed device record machine-readable.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: test-tensor-tail-shapes test-tensor-region-family all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-region-family test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: test-tensor-tail-shapes test-tensor-region-family all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-input-policy test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-boundary-sensitivity test-tensor-campaign-summary test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -238,6 +238,24 @@ TENSOR_EMIT_API = $(BIN_DIR)/tensor_emit_api
 $(TENSOR_EMIT_API): test/unit/tensor_emit_api.cpp $(COMMON_OBJS) $(BACKEND_SRCS:.cpp=.o) src/reify/tensor_case.o
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+TENSOR_INPUT_POLICY_API = $(BIN_DIR)/tensor_input_policy_api
+TENSOR_INPUT_POLICY_OBJS = $(COMMON_OBJS) $(filter-out src/rysmith.o,$(RYSMITH_OBJS))
+
+$(TENSOR_INPUT_POLICY_API): test/unit/tensor_input_policy_api.cpp $(TENSOR_INPUT_POLICY_OBJS)
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+test-tensor-input-policy: $(TARGET_INTERP) $(TENSOR_INPUT_POLICY_API)
+	REFRACTIR_TENSOR_INPUT_POLICY_API=$(TENSOR_INPUT_POLICY_API) \
+	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
+	  $(PY) -m unittest \
+	    test.unit.test_tensor_generation.TensorInputPolicyTests.test_boundary_same_shape_parameters_have_independent_samples \
+	    test.unit.test_tensor_generation.TensorInputPolicyTests.test_boundary_equal_element_count_different_shapes_are_independent \
+	    test.unit.test_tensor_generation.TensorInputPolicyTests.test_boundary_rows_do_not_repeat_every_four_elements \
+	    test.unit.test_tensor_generation.TensorInputPolicyTests.test_boundary_seed_does_not_repeat_on_a_four_seed_cycle \
+	    test.unit.test_tensor_generation.TensorInputPolicyTests.test_boundary_proposals_distinguish_replaced_operands_for_i32_and_f32 \
+	    test.unit.test_tensor_generation.TensorInputPolicyTests.test_boundary_singleton_is_reproducible_and_in_domain
 
 TENSOR_REGION_API = $(BIN_DIR)/tensor_region_api
 
@@ -255,11 +273,11 @@ TENSOR_GRAPH_REGION_EXPORT = $(BIN_DIR)/tensor_graph_region_export
 
 TENSOR_GRAPH_REGION_SRCS = src/reify/tensor_graph_gen.cpp src/reify/tensor_region.cpp src/analysis/tensor.cpp src/analysis/type_utils.cpp src/analysis/cfgbuilder.cpp src/analysis/reducibility.cpp src/analysis/dominators.cpp src/analysis/loop_info.cpp src/frontend/diagnostics.cpp
 
-$(TENSOR_GRAPH_REGION_API): test/unit/tensor_graph_region_api.cpp $(TENSOR_GRAPH_REGION_SRCS) include/reify/tensor_graph_gen.hpp include/reify/tensor_region.hpp
+$(TENSOR_GRAPH_REGION_API): test/unit/tensor_graph_region_api.cpp $(TENSOR_GRAPH_REGION_SRCS) include/reify/tensor_graph_gen.hpp include/reify/tensor_region.hpp include/reify/tensor_region_family.hpp
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_graph_region_api.cpp $(TENSOR_GRAPH_REGION_SRCS)
 
-$(TENSOR_GRAPH_REGION_EXPORT): test/unit/tensor_graph_region_export.cpp $(TENSOR_GRAPH_REGION_SRCS) include/reify/tensor_graph_gen.hpp include/reify/tensor_region.hpp
+$(TENSOR_GRAPH_REGION_EXPORT): test/unit/tensor_graph_region_export.cpp $(TENSOR_GRAPH_REGION_SRCS) include/reify/tensor_graph_gen.hpp include/reify/tensor_region.hpp include/reify/tensor_region_family.hpp
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_graph_region_export.cpp $(TENSOR_GRAPH_REGION_SRCS)
 
@@ -271,13 +289,6 @@ test-tensor-generated-corpus: $(BIN_DIR)/tensor_graph_region_export
 
 # Explicit long-axis region configurations: reachability, graph families, and
 # the exact certificate each admitted configuration has to carry.
-# The normal generator's loop-region family surface: one option, its wire into
-# the loop-reduction stratum, and its refusals.
-test-tensor-region-family: $(TARGET_RYSMITH) $(TARGET_INTERP) $(TENSOR_GRAPH_REGION_EXPORT)
-	REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
-	  REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
-	  $(PY) -m unittest test.unit.test_tensor_region_family_option
-
 test-tensor-region-generation: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TENSOR_GRAPH_REGION_EXPORT)
 	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
 	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
@@ -291,13 +302,15 @@ test-tensor-fpsan-model:
 test-tensor-gluon-layouts:
 	$(PY) -m unittest test.unit.test_tensor_gluon_layouts
 
-test-tensor-gluon-lowering:
-	$(PY) -m unittest test.unit.test_tensor_gluon_lowering test.unit.test_tensor_gluon_plan \
-	  test.unit.test_tensor_gluon_generated_region \
-	  test.unit.test_tensor_generated_region_runner
+test-tensor-gluon-lowering: $(TENSOR_GRAPH_REGION_EXPORT)
+	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
+	  $(PY) -m unittest test.unit.test_tensor_gluon_lowering test.unit.test_tensor_gluon_plan \
+	    test.unit.test_tensor_gluon_generated_region \
+	    test.unit.test_tensor_generated_region_runner
 
 test-tensor-compiler-observation:
-	$(PY) -m unittest test.unit.test_tensor_compiler_observation
+	$(PY) -m unittest test.unit.test_tensor_compiler_observation \
+	  test.unit.test_tensor_evidence_records
 
 test-tensor-fp-contracts:
 	REFRACTIR_TEST_CXX="$(CXX)" $(PY) -m unittest test.unit.test_ast_type_construction test.unit.test_tensor_fp32_reference test.unit.test_tensor_fp32_edge_contract test.unit.test_tensor_ordinary_fp_controls test.unit.test_tensor_route_protocol
@@ -446,6 +459,13 @@ test-tensor-tail-shapes: $(TARGET_RYSMITH) $(TARGET_INTERP) $(TARGET_COMPILER)
 	  REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  $(PY) -m unittest test.unit.test_tensor_tail_shapes
 
+# Normal-generator access to the bounded loop-region families: the CLI option,
+# its refusals, and the effect on the emitted source.
+test-tensor-region-family: $(TARGET_RYSMITH) $(TARGET_INTERP) $(TENSOR_GRAPH_REGION_EXPORT)
+	REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
+	  REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
+	  $(PY) -m unittest test.unit.test_tensor_region_family_option
+
 test-tensor-probe:
 	$(PY) -m unittest test.unit.test_tensor_probe
 
@@ -453,9 +473,9 @@ test-tensor-profile: $(TARGET_INTERP) $(TARGET_COMPILER)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  $(PY) -m unittest test.unit.test_tensor_profile
 
-test-tensor-v2-profile: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_RYSMITH)
-	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
-	  REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) \
+test-tensor-v2-profile: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_RYSMITH) $(TENSOR_INPUT_POLICY_API)
+	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
+	  REFRACTIR_RYSMITH=./$(TARGET_RYSMITH) REFRACTIR_TENSOR_INPUT_POLICY_API=$(TENSOR_INPUT_POLICY_API) \
 	  $(PY) -m unittest test.unit.test_tensor_profile test.unit.test_tensor_generation \
 	    test.unit.test_tensor_case.TensorV3CaseTests test.unit.test_tensor_runner \
 	    test.unit.test_tensor_selection
@@ -514,7 +534,7 @@ test-tensor-graph-audit:
 
 # Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
 test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
-	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-region-family test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study test-tensor-layout test-tensor-tail-shapes test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study test-tensor-boundary-sensitivity test-tensor-campaign-summary test-tensor-layout test-tensor-tail-shapes test-tensor-region-family test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
 	  test-tensor-solver test-tensor-emit test-tensor-regressions \
 	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
 	  test-tensor-reducer test-tensor-property-pilot
@@ -530,6 +550,15 @@ test-tensor-evaluation:
 
 test-tensor-fixed-study:
 	$(PY) -m unittest test.unit.test_tensor_fixed_study test.unit.test_tensor_fixed_selection test.unit.test_tensor_generated_selection_study
+
+test-tensor-boundary-sensitivity: $(TARGET_INTERP) $(TENSOR_INPUT_POLICY_API)
+	REFRACTIR_TENSOR_INPUT_POLICY_API=$(TENSOR_INPUT_POLICY_API) \
+	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
+	  $(PY) -m unittest test.unit.test_tensor_boundary_sensitivity \
+	    test.unit.test_tensor_boundary_sensitivity_driver
+
+test-tensor-campaign-summary:
+	$(PY) -m unittest test.unit.test_continuous_tensor_campaign
 
 test-tensor-reducer:
 	$(PY) -m unittest test.unit.test_tensor_reducer
