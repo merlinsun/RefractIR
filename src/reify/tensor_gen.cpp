@@ -1467,7 +1467,10 @@ namespace refractir::reify {
       const std::array<Shape, 4> shapes{Shape{256, 2}, Shape{128, 4}, Shape{64, 2}, Shape{64, 4}};
       std::mt19937 structureRandom(streamSeed(seed, 0x6c6f6f702d737472ULL));
       std::uniform_int_distribution<std::uint32_t> chooseLoopForm(0, 7);
-      const std::uint32_t loopForm = chooseLoopForm(structureRandom);
+      // A named region family asks for the loop-region form. The other loop
+      // forms carry no region, so drawing one would silently drop the request.
+      const bool regional = options.regionFamily.has_value();
+      const std::uint32_t loopForm = regional ? 7 : chooseLoopForm(structureRandom);
       const bool nested = loopForm == 0;
       const std::uint32_t variant = nested ? 0 : loopForm - 1;
       std::uniform_int_distribution<std::size_t> chooseShape(0, shapes.size() - 1);
@@ -1541,7 +1544,8 @@ namespace refractir::reify {
             regionOptions, regionLimits,
             {{"%acc_x", TensorTypeInfo{inputShape, tensorElement}},
              {"%acc_y", TensorTypeInfo{inputShape, tensorElement}}},
-            {"%next_x", "%next_y"}
+            {"%next_x", "%next_y"}, TensorRegionArithmeticMode::Additive,
+            options.regionFamily.value_or(TensorRegionFamily::Fold)
         );
         const std::vector<std::pair<std::string, std::string>> stateUpdates{
             {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
@@ -2526,6 +2530,24 @@ namespace refractir::reify {
       return failRoute(
           "unsupported_route", "compositional generation requires construction synthesis"
       );
+    if (options.regionFamily) {
+      // Only the constructor route's loop-reduction stratum builds a region, so
+      // every other route would accept the option and silently ignore it.
+      if (options.generator != "constructor")
+        return failRoute(
+            "unsupported_route",
+            "a named tensor region family needs the constructor route: the compositional "
+            "builder does not build loop regions"
+        );
+      if (options.profileVersion != TensorProfileId::V2)
+        return failRoute(
+            "unsupported_route", "a named tensor region family needs tensor-v2 loop regions"
+        );
+      if (!options.primaryStratum.empty() && options.primaryStratum != "loop-reduction")
+        return failRoute(
+            "unsupported_route", "a named tensor region family uses the loop-reduction stratum"
+        );
+    }
     try {
       parseTensorInputPolicy(options.inputPolicy);
     } catch (const std::invalid_argument &) {
@@ -2652,7 +2674,8 @@ namespace refractir::reify {
       // caller may still name one to label the run.
       const bool compositional = options.generator == "compositional";
       const std::string caseStratum =
-          compositional ? options.primaryStratum
+          options.regionFamily ? "loop-reduction"
+          : compositional      ? options.primaryStratum
           : options.profileVersion == TensorProfileId::V2
               ? (options.primaryStratum.empty() ? v2StratumForCase(caseIndex)
                                                 : options.primaryStratum)

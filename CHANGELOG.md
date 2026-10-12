@@ -76,6 +76,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Evidence hygiene: the two retained-loop sweep records keep their structured-loop counts and drop the PTX column that came from an earlier branch heuristic, because those sweeps' raw IR was not archived; the cycle-based records are named in their place.
 
+- The named region family is complete in the committed tree: the generator dispatch, its route validation, and the forwarding to `generateTensorRegion` are committed rather than left in the working tree, so a clean checkout honours `--tensor-region-family`. `make test-tensor` now runs the option's integration target, and `make test-tensor-gluon-lowering` runs the native-generated-region module, so neither route can pass unexercised. A device-evidence record is checked for being machine-readable rather than prose.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
