@@ -240,6 +240,17 @@ def operation_nodes(source):
   return nodes
 
 
+def arithmetic_operations(source):
+  """Element-wise arithmetic the body uses: `add`, `sub`, and `mul` only.
+
+  Reductions and broadcasts are structural, so they are not part of the
+  arithmetic a `TensorRegionArithmeticMode` selects.
+  """
+  return {
+    node[1] for node in operation_nodes(source) if node[1] in {"add", "sub", "mul"}
+  }
+
+
 def shared_producer(source):
   """The one operation node that reads both loop states, in source order."""
   states = {"acc_x", "acc_y"}

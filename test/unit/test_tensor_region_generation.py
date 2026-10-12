@@ -204,20 +204,65 @@ class TensorRegionFamilyDiversityTests(unittest.TestCase):
           f"{family} emitted {len(bodies)} distinct bodies across eight seeds",
         )
 
-  def test_shared_producer_is_not_always_additive(self):
-    for family in tensor_region_generation.NEW_FAMILIES:
-      with self.subTest(family=family):
-        operations = {
-          tensor_region_generation.producer_operation(source)
-          for mode in ("additive", "subtraction", "multiplication", "mixed")
-          for source in self.sources(family, mode=mode, seeds=range(1, 5)).values()
-        }
+  def test_shared_producer_is_never_multiplied_against_the_zero_state(self):
+    """Every mode leaves the body a real computation, not a constant.
 
-        self.assertGreaterEqual(
-          len(operations),
-          2,
-          f"{family} always produces with {sorted(operations)}",
-        )
+    The shared producer reads both loop states and the second one is
+    initialized to zero, so a product there is a constant zero on every trip:
+    the producer must use another operation, and the requested mode stays
+    visible on the root placements instead.
+    """
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for mode in ("additive", "subtraction", "multiplication", "mixed"):
+        for seed in range(1, 5):
+          with self.subTest(family=family, mode=mode, seed=seed):
+            source = self.sources(family, mode=mode, seeds=(seed,))[seed]
+
+            self.assertEqual(
+              set(tensor_region_generation.producer_operands(source)),
+              {"acc_x", "acc_y"},
+              "the shared producer is the operation that reads both states",
+            )
+            self.assertNotEqual(
+              tensor_region_generation.producer_operation(source),
+              "mul",
+              f"{family} in {mode} mode multiplies the zero-initialized state",
+            )
+
+  def test_every_mode_is_visible_in_the_emitted_arithmetic(self):
+    """Each mode selects arithmetic the emitted body actually performs."""
+    expected = {
+      "additive": {"add"},
+      "subtraction": {"add", "sub"},
+      "multiplication": {"add", "mul"},
+      "mixed": {"add", "mul", "sub"},
+    }
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for mode, operations in expected.items():
+        with self.subTest(family=family, mode=mode):
+          observed = {
+            frozenset(tensor_region_generation.arithmetic_operations(source))
+            for source in self.sources(family, mode=mode, seeds=range(1, 5)).values()
+          }
+
+          self.assertEqual(observed, {frozenset(operations)})
+
+  def test_mixed_arithmetic_differs_from_additive_for_every_family(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      additive = self.sources(family, mode="additive")
+      mixed = self.sources(family, mode="mixed")
+      for seed, source in additive.items():
+        with self.subTest(family=family, seed=seed):
+          self.assertNotEqual(source, mixed[seed])
+          # The mode is carried by the root placements: additive adds at every
+          # root, mixed multiplies at one placement and subtracts at another.
+          self.assertEqual(
+            tensor_region_generation.arithmetic_operations(source), {"add"}
+          )
+          self.assertEqual(
+            tensor_region_generation.arithmetic_operations(mixed[seed]),
+            {"add", "mul", "sub"},
+          )
 
   def test_reduction_axis_follows_the_seed(self):
     for family in (
@@ -237,18 +282,6 @@ class TensorRegionFamilyDiversityTests(unittest.TestCase):
           f"{family} keeps one reduction schedule for every seed: {axes}",
         )
 
-  def test_mixed_arithmetic_differs_from_additive_for_every_family(self):
-    for family in tensor_region_generation.NEW_FAMILIES:
-      additive = self.sources(family, mode="additive")
-      mixed = self.sources(family, mode="mixed")
-      for seed, source in additive.items():
-        with self.subTest(family=family, seed=seed):
-          self.assertNotEqual(source, mixed[seed])
-          self.assertNotEqual(
-            tensor_region_generation.producer_operation(source),
-            tensor_region_generation.producer_operation(mixed[seed]),
-          )
-
   def test_producer_order_and_root_joins_follow_the_seed(self):
     for family in tensor_region_generation.NEW_FAMILIES:
       with self.subTest(family=family):
@@ -267,6 +300,117 @@ class TensorRegionFamilyDiversityTests(unittest.TestCase):
           1,
           f"{family} joins the same states in the same order for every seed",
         )
+
+
+class TensorRegionModeSensitivityTests(unittest.TestCase):
+  """No mode may leave a family with an output that ignores its input.
+
+  Every check runs the emitted region over one explicitly stated input, the
+  2x2 tensor `[1, 2, 4, 8]` (f32, complete output read through the reference
+  interpreter): its lanes, rows, and columns all differ, so a body that
+  collapses to a constant, or to zero, cannot pass. A second input differs
+  only in its last lane, so a body that ignores the input cannot tell them
+  apart.
+  """
+
+  SHAPE = (2, 2)
+  ITERATIONS = 2
+  INPUT = struct.pack("<4f", 1.0, 2.0, 4.0, 8.0)
+  OTHER_INPUT = struct.pack("<4f", 1.0, 2.0, 4.0, 9.0)
+  DOMAIN = (0, 8)
+  MODES = ("additive", "subtraction", "multiplication", "mixed")
+  SEEDS = (1, 2)
+
+  def setUp(self):
+    if not EXPORTER_AVAILABLE:
+      self.skipTest("the native graph exporter is supplied by the managed Make target")
+    if not SYMIRI.is_file():
+      self.skipTest("the reference interpreter is supplied by the managed Make target")
+
+  def source_for(self, family, mode, seed):
+    return tensor_region_generation.generate_source(
+      RegionConfiguration(
+        seed=seed,
+        shape=self.SHAPE,
+        iterations=self.ITERATIONS,
+        family=family,
+        operation_mode=mode,
+      )
+    )
+
+  def output_for(self, source, input_bytes):
+    return struct.unpack("<4f", _replay(source, input_bytes))
+
+  def assert_not_identically_constant(self, family, mode, seed):
+    output = self.output_for(self.source_for(family, mode, seed), self.INPUT)
+
+    self.assertGreater(
+      len(set(output)),
+      1,
+      f"{family} in {mode} mode emitted the constant output {output}",
+    )
+    self.assertTrue(
+      any(output),
+      f"{family} in {mode} mode emitted the all-zero output {output}",
+    )
+
+  def test_multiplication_mode_is_not_identically_constant(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for seed in self.SEEDS:
+        with self.subTest(family=family, seed=seed):
+          self.assert_not_identically_constant(family, "multiplication", seed)
+
+  def test_mixed_mode_is_not_identically_constant(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for seed in self.SEEDS:
+        with self.subTest(family=family, seed=seed):
+          self.assert_not_identically_constant(family, "mixed", seed)
+
+  def test_every_family_and_mode_output_follows_the_input(self):
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for mode in self.MODES:
+        for seed in self.SEEDS:
+          with self.subTest(family=family, mode=mode, seed=seed):
+            source = self.source_for(family, mode, seed)
+
+            self.assertNotEqual(
+              self.output_for(source, self.INPUT),
+              self.output_for(source, self.OTHER_INPUT),
+              f"{family} in {mode} mode returns the same output for two inputs",
+            )
+
+  def test_multiplication_keeps_the_second_state_live(self):
+    """A state whose update cannot reach the output is not loop-carried.
+
+    The region is replayed once as emitted and once with the second state's
+    write-back replaced by a self-copy. Multiplication mode is the smallest
+    case that distinguishes a live update from a dead one: its product is the
+    one operation the zero-initialized state annihilates.
+    """
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for seed in self.SEEDS:
+        with self.subTest(family=family, seed=seed):
+          source = self.source_for(family, "multiplication", seed)
+          muted = source.replace("  %acc_y = %next_y;", "  %acc_y = %acc_y;")
+
+          self.assertNotEqual(muted, source, "the region must update both loop states")
+          self.assertNotEqual(
+            self.output_for(muted, self.INPUT),
+            self.output_for(source, self.INPUT),
+            f"{family} drops the second state's contribution to the output",
+          )
+
+  def test_every_family_receives_an_exact_subtraction_certificate(self):
+    """The mode's subtraction must stay inside the exact certificate."""
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for seed in self.SEEDS:
+        with self.subTest(family=family, seed=seed):
+          source = self.source_for(family, "subtraction", seed)
+
+          proof, output = tensor_exact_f32.certify(source, self.INPUT, self.DOMAIN)
+
+          self.assertIn("sub", proof["allowed_operations"])
+          self.assertEqual(_replay(source, self.INPUT), output)
 
 
 class TensorRegionGenerationEdgeTests(unittest.TestCase):

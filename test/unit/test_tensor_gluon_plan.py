@@ -101,6 +101,123 @@ class TensorGluonPlanMappingTests(unittest.TestCase):
     self.assertEqual(classify_layout_pair(single, single, shape=(2, 4)), "identical")
 
 
+class TensorGluonPlanOwnershipTests(unittest.TestCase):
+  """What a layout change requires of ownership, replicated copies included.
+
+  A destination holder that already holds the element needs no transfer: the
+  register that holds it can serve the new view. Only a destination holder the
+  source does not have at all asks for communication, and the kind of movement
+  follows the warp or lane the element has to reach.
+  """
+
+  def test_dropped_warp_replication_needs_no_movement(self):
+    replicated = BlockedLayoutPlan("replicated", (1, 1), (1, 32), (1, 4), (1, 0))
+    narrow = BlockedLayoutPlan("narrow", (1, 1), (1, 32), (4, 1), (1, 0))
+    source = effective_mapping(replicated, (2, 1))
+    destination = effective_mapping(narrow, (2, 1))
+
+    self.assertTrue(
+      all(
+        any(source_owner[:2] == destination_owner[:2] for source_owner in source_owners)
+        for source_owners, destination_owners in zip(source, destination)
+        for destination_owner in destination_owners
+      ),
+      "every destination holder must already hold the element it must own",
+    )
+    self.assertEqual(classify_layout_pair(replicated, narrow, shape=(2, 1)), "subsumed")
+
+  def test_dropped_replication_is_directional(self):
+    replicated = BlockedLayoutPlan("replicated", (1, 1), (1, 32), (1, 4), (1, 0))
+    narrow = BlockedLayoutPlan("narrow", (1, 1), (1, 32), (4, 1), (1, 0))
+
+    self.assertEqual(classify_layout_pair(replicated, narrow, shape=(2, 1)), "subsumed")
+    self.assertEqual(
+      classify_layout_pair(narrow, replicated, shape=(2, 1)), "cross_warp"
+    )
+
+  def test_dropped_lane_replication_needs_no_movement(self):
+    every_lane = plan("every-lane", (1, 1), (1, 32))
+    split_lanes = plan("split-lanes", (1, 1), (32, 1))
+
+    self.assertEqual(
+      classify_layout_pair(every_lane, split_lanes, shape=(2, 1)), "subsumed"
+    )
+
+  def test_a_lane_change_that_needs_a_new_lane_stays_cross_lane(self):
+    every_lane = plan("every-lane", (1, 1), (1, 32))
+    split_lanes = plan("split-lanes", (1, 1), (32, 1))
+
+    self.assertEqual(
+      classify_layout_pair(split_lanes, every_lane, shape=(2, 4)), "cross_lane"
+    )
+
+  def test_a_missing_lane_in_a_warp_that_holds_the_element_is_cross_lane(self):
+    split_lanes = BlockedLayoutPlan("split-lanes", (1, 1), (32, 1), (4, 1), (0, 1))
+    every_lane = BlockedLayoutPlan("every-lane", (1, 1), (1, 32), (4, 1), (0, 1))
+
+    # Every destination warp already holds the element on another lane, so the
+    # new lanes are a shuffle inside a warp rather than inter-warp movement,
+    # even though the source spreads the element over more warps.
+    self.assertEqual(
+      classify_layout_pair(split_lanes, every_lane, shape=(2, 1)), "cross_lane"
+    )
+
+  def test_a_warp_change_that_needs_a_new_warp_stays_cross_warp(self):
+    replicated = BlockedLayoutPlan("replicated", (1, 1), (1, 32), (1, 4), (1, 0))
+    narrow = BlockedLayoutPlan("narrow", (1, 1), (1, 32), (4, 1), (1, 0))
+
+    # A shape wide enough to keep the declared warp bits spreads the tile over
+    # the warps, so the destination asks warps the source does not use to hold
+    # elements they never held.
+    self.assertEqual(
+      classify_layout_pair(replicated, narrow, shape=(2, 64)), "cross_warp"
+    )
+
+  def test_matching_parameters_are_identical(self):
+    left = plan("left", (2, 1), (1, 32))
+    right = plan("right", (2, 1), (1, 32))
+
+    self.assertEqual(classify_layout_pair(left, right, shape=(2, 2)), "identical")
+
+  def test_equal_owner_sets_are_equivalent(self):
+    rows = plan("rows", (1, 1), (32, 1), order=(1, 0))
+    columns = plan("columns", (1, 1), (32, 1), order=(0, 1))
+
+    self.assertEqual(
+      effective_mapping(rows, (2, 1)), effective_mapping(columns, (2, 1))
+    )
+    self.assertEqual(classify_layout_pair(rows, columns, shape=(2, 1)), "equivalent")
+
+  def test_the_same_holders_in_another_register_stay_register_only(self):
+    left = BlockedLayoutPlan("left", (1, 2), (1, 32), (1, 1), (0, 1))
+    right = BlockedLayoutPlan("right", (2, 1), (32, 1), (1, 1), (0, 1))
+
+    self.assertEqual(classify_layout_pair(left, right, shape=(2, 2)), "register_only")
+
+  def test_a_shape_the_source_cannot_place_is_not_movement_free(self):
+    gapped = plan("gapped", (1, 1), (1, 32))
+    placed = plan("placed", (1, 1), (32, 1))
+
+    self.assertEqual(effective_mapping(gapped, (3, 1))[2], ())
+    self.assertEqual(classify_layout_pair(gapped, placed, shape=(3, 1)), "cross_warp")
+
+  def test_a_shape_the_destination_cannot_place_is_not_movement_free(self):
+    gapped = plan("gapped", (1, 1), (1, 32))
+    placed = plan("placed", (1, 1), (32, 1))
+
+    self.assertEqual(effective_mapping(gapped, (3, 1))[2], ())
+    self.assertEqual(classify_layout_pair(placed, gapped, shape=(3, 1)), "cross_warp")
+
+  def test_equal_mappings_that_both_leave_an_element_unowned_are_not_free(self):
+    first = plan("first", (1, 1), (1, 32), order=(1, 0))
+    second = plan("second", (1, 1), (1, 32), order=(0, 1))
+
+    self.assertEqual(
+      effective_mapping(first, (3, 1)), effective_mapping(second, (3, 1))
+    )
+    self.assertEqual(classify_layout_pair(first, second, shape=(3, 1)), "cross_warp")
+
+
 class TensorGluonRegionPlanTests(unittest.TestCase):
   """Each family states the roles and the per-consumer views it needs."""
 

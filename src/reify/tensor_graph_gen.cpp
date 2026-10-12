@@ -162,6 +162,13 @@ namespace refractir::reify {
       );
 
     private:
+      /// The region's two loop states, in the order the caller supplies them:
+      /// the first carries the runtime input, the second starts at zero. The
+      /// families' additive producer, nonnegative subtraction, and live state
+      /// updates are stated over that contract.
+      static constexpr std::uint32_t inputState = 0;
+      static constexpr std::uint32_t zeroState = 1;
+
       Shape validateRegion(
           const std::vector<TensorRegionInput> &inputs, const std::vector<std::string> &resultNames
       );
@@ -184,7 +191,6 @@ namespace refractir::reify {
       std::vector<std::uint32_t> reducibleAxes(const Shape &shape) const;
       std::uint32_t
       chooseAxis(const Shape &shape, std::optional<std::uint32_t> excluded = std::nullopt);
-      TensorOp producerOperation();
       TensorOp placementOperation(std::size_t placement) const;
       std::array<std::uint32_t, 2> placementStates();
 
@@ -838,20 +844,29 @@ namespace refractir::reify {
     }
 
     int Builder::emitProducer(Graph &graph, const Shape &shape) {
-      const auto operation = producerOperation();
-      // Subtraction keeps its minuend first: a producer whose operands swap
-      // under a non-commutative operation leaves the nonnegative domain every
-      // exact region certificate is stated over. The commutative producers take
-      // their operand order from the engine.
-      if (operation != TensorOp::Sub && random_() % 2 == 0)
-        return emitBinaryOp(graph, 1, 0, operation, shape);
-      return emitBinaryOp(graph, 0, 1, operation, shape);
+      // The producer reads both states, and the second one starts at zero: a
+      // product with it is a constant zero on every trip, and a difference
+      // cancels one state out of the update. It therefore stays additive, which
+      // is also the skeleton every exact region certificate is stated over. The
+      // requested mode is carried by the root placements instead.
+      if (random_() % 2 == 0)
+        return emitBinaryOp(graph, 1, 0, TensorOp::Add, shape);
+      return emitBinaryOp(graph, 0, 1, TensorOp::Add, shape);
     }
 
     int Builder::emitPlacement(
         Graph &graph, int value, int other, std::size_t placement, const Shape &shape
     ) {
-      const auto operation = placementOperation(placement);
+      auto operation = placementOperation(placement);
+      // A product that would still join the zero-initialized state is a
+      // constant zero, which would leave that root's update dead: the placement
+      // adds instead, and the state it writes stays live.
+      if (operation == TensorOp::Mul && other == static_cast<int>(zeroState))
+        operation = TensorOp::Add;
+      // A subtractive placement keeps its minuend first: a placement whose
+      // operands swap under a non-commutative operation leaves the nonnegative
+      // domain every exact certificate is stated over. The commutative
+      // placements take their operand order from the engine.
       if (operation != TensorOp::Sub && random_() % 2 == 0)
         return emitBinaryOp(graph, other, value, operation, shape);
       return emitBinaryOp(graph, value, other, operation, shape);
@@ -875,25 +890,6 @@ namespace refractir::reify {
       return admitted[random_() % admitted.size()];
     }
 
-    /// The operation the shared producer uses. Additive keeps the additive
-    /// skeleton the families' exactness certificates are stated over; the two
-    /// single-operator modes place their own operation there, and Mixed draws
-    /// between the remaining two, so a mixed region is never byte-identical to
-    /// the additive one for the same configuration.
-    TensorOp Builder::producerOperation() {
-      switch (regionArithmetic_) {
-        case TensorRegionArithmeticMode::Additive:
-          return TensorOp::Add;
-        case TensorRegionArithmeticMode::Subtraction:
-          return TensorOp::Sub;
-        case TensorRegionArithmeticMode::Multiplication:
-          return TensorOp::Mul;
-        case TensorRegionArithmeticMode::Mixed:
-          return random_() % 2 == 0 ? TensorOp::Sub : TensorOp::Mul;
-      }
-      return TensorOp::Add;
-    }
-
     /// The operation root placement `placement` joins with. Mixed follows the
     /// fold family: one multiplication and one subtraction on the first two
     /// placements, additive afterwards.
@@ -913,14 +909,18 @@ namespace refractir::reify {
 
     /// The state each root placement joins. A subtractive placement keeps the
     /// assignment that cancels the other state, the only one whose recurrence
-    /// stays inside the nonnegative domain; commutative placements draw the
-    /// assignment from the engine.
+    /// stays inside the nonnegative domain; a multiplicative placement joins
+    /// the state that carries the runtime input, so the mode's product is not
+    /// annihilated by the zero-initialized state and stays visible in the body;
+    /// an additive placement draws its assignment from the engine.
     std::array<std::uint32_t, 2> Builder::placementStates() {
-      static constexpr std::array<std::uint32_t, 2> forward{0, 1};
-      static constexpr std::array<std::uint32_t, 2> reversed{1, 0};
-      if (placementOperation(0) != TensorOp::Sub && random_() % 2 != 0)
-        return forward;
-      return reversed;
+      static constexpr std::array<std::uint32_t, 2> inputFirst{inputState, zeroState};
+      static constexpr std::array<std::uint32_t, 2> zeroFirst{zeroState, inputState};
+      if (placementOperation(0) == TensorOp::Sub)
+        return zeroFirst;
+      if (placementOperation(0) == TensorOp::Mul)
+        return inputFirst;
+      return random_() % 2 != 0 ? inputFirst : zeroFirst;
     }
 
     Graph Builder::seedRegion(const std::vector<TensorRegionInput> &inputs) const {

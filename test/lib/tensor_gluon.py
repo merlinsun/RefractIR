@@ -229,7 +229,9 @@ def effective_mapping(plan, shape):
 
   An owner is a `(warp, lane, register)` triple. A tensor smaller than the
   layout tile gives one element several owners, because the unused lane and
-  warp bits repeat it across the hardware instead of renumbering it.
+  warp bits repeat it across the hardware instead of renumbering it. An
+  element the tile does not place has no owner at all, which the empty set
+  states instead of hiding.
   """
   if not isinstance(shape, (tuple, list)) or len(shape) != 2:
     raise ValueError("effective mapping needs a rank-two shape")
@@ -248,7 +250,7 @@ def effective_mapping(plan, shape):
         )
         owners.setdefault(coordinate, []).append((warp, lane, register))
   return tuple(
-    tuple(sorted(owners[(row, column)]))
+    tuple(sorted(owners.get((row, column), ())))
     for row in range(shape[0])
     for column in range(shape[1])
   )
@@ -267,11 +269,71 @@ def _owner_field(owners, field_index):
   return {owner[field_index] for owner in owners}
 
 
-def classify_layout_pair(left, right, *, shape):
-  """Name what a layout change between two plans actually moves.
+def _holders(owners):
+  """The `(warp, lane)` holders of an element, whose local register is free."""
+  return {(warp, lane) for warp, lane, _register in owners}
 
-  Two parameter tuples are equivalent only when every element has the same
-  owners in both, replicated owners included.
+
+# What one element requires of a layout change, weakest first. A pair needs
+# whatever its most demanding element needs: a register renumbering outranks a
+# dropped replicated copy, and a movement outranks both.
+_REQUIREMENT_RANK = {
+  "equivalent": 0,
+  "subsumed": 1,
+  "register_only": 2,
+  "cross_lane": 3,
+  "cross_warp": 4,
+}
+
+
+def _element_requirement(source_owners, destination_owners):
+  """Name what the owners of one element require of a layout change.
+
+  A destination holder that also holds the element in the source needs no
+  transfer, because the register a value sits in is local to its holder. One
+  that does not hold it names the movement: another warp has to send the
+  value, or another lane of a warp the source already uses has to.
+  """
+  if destination_owners == source_owners:
+    return "equivalent"
+  source_holders = _holders(source_owners)
+  destination_holders = _holders(destination_owners)
+  missing = destination_holders - source_holders
+  if not missing:
+    # Every destination holder already holds the element: a destination that
+    # keeps fewer holders drops replicated copies, and one that keeps them all
+    # asks for the same holders in another local register.
+    return "subsumed" if destination_holders < source_holders else "register_only"
+  if any(warp not in _owner_field(source_owners, 0) for warp, _lane in missing):
+    return "cross_warp"
+  if any(lane not in _owner_field(source_owners, 1) for _warp, lane in missing):
+    return "cross_lane"
+  # Both the warp and the lane are owners already, so only the register differs.
+  return "register_only"
+
+
+def classify_layout_pair(left, right, *, shape):
+  """Name what a layout change between two plans requires of ownership.
+
+  Owners are the `(warp, lane, register)` triples `effective_mapping` reports,
+  and the verdict is the strongest requirement any element states.
+
+  `identical` means the plan parameters match and `equivalent` means every
+  element has the same owners in both plans. `subsumed` means every
+  destination holder already holds the element it must own: replication is
+  dropped and the register that holds a value serves the destination view, so
+  no value has to cross the hardware. `register_only` keeps exactly the
+  source's holders and renumbers the local register they use. A destination
+  holder the source does not have at all has to receive the value, named
+  `cross_warp` when the missing holder sits in another warp and `cross_lane`
+  when it is another lane of a warp the source already uses.
+
+  The verdict states what ownership requires, not what a conversion costs. A
+  `subsumed` or `register_only` pair still needs lowering evidence before it
+  can be called free, because this classifier models who holds a value, not
+  the instructions a backend emits for it. An element no owner places is
+  never reported as movement-free, because such a layout cannot be shown to
+  need nothing.
   """
   if not isinstance(left, BlockedLayoutPlan) or not isinstance(
     right, BlockedLayoutPlan
@@ -279,17 +341,17 @@ def classify_layout_pair(left, right, *, shape):
     raise ValueError("layout classification needs two blocked layout plans")
   if _layout_identity(left) == _layout_identity(right):
     return "identical"
-  left_mapping = effective_mapping(left, shape)
-  right_mapping = effective_mapping(right, shape)
-  if left_mapping == right_mapping:
-    return "equivalent"
-  for field_index, verdict in ((0, "cross_warp"), (1, "cross_lane")):
-    if any(
-      _owner_field(left_owners, field_index) != _owner_field(right_owners, field_index)
-      for left_owners, right_owners in zip(left_mapping, right_mapping)
-    ):
-      return verdict
-  return "register_only"
+  source = effective_mapping(left, shape)
+  destination = effective_mapping(right, shape)
+  if any(not owners for owners in source) or any(not owners for owners in destination):
+    return "cross_warp"
+  return max(
+    (
+      _element_requirement(source_owners, destination_owners)
+      for source_owners, destination_owners in zip(source, destination)
+    ),
+    key=_REQUIREMENT_RANK.__getitem__,
+  )
 
 
 @dataclass(frozen=True)

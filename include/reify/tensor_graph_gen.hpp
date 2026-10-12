@@ -33,6 +33,10 @@ namespace refractir::reify {
   /// inputs. Its bounded loop-safe subset uses add, sub, mul, keep-dimension
   /// sum and broadcast. Result names are also the graph roots, so dead branches
   /// are excluded and the dependency union of every loop-carried result is kept.
+  /// The states are supplied in a fixed order: the caller initializes the first
+  /// to the runtime input and the second to zero. The families' additive
+  /// producer, nonnegative subtraction, and live state updates are stated over
+  /// that contract; another initialization changes what the region computes.
   TensorRegion generateTensorRegion(
       const TensorGenerationOptions &options, const TensorGraphLimits &limits,
       std::vector<TensorRegionInput> inputs, std::vector<std::string> results,
