@@ -772,21 +772,71 @@ def _normalized_expression(rhs):
   return re.sub(r"\s+", " ", stripped).strip()
 
 
+def _is_pure_definition(expression):
+  """Report whether a definition denotes a computation this module can compare."""
+  return bool(_OPCODE.search(expression)) and not _IMPURE_OPCODE.search(expression)
+
+
 def _canonical_expression(name, definitions, depth=4):
-  """Inline pure definitions so renamed SSA values still compare equal."""
+  """Inline pure definitions so renamed SSA values still compare equal.
+
+  Only the root keeps this contract: an impure or unparsed definition denotes no
+  structure of its own, so it canonicalizes to its printed name. Operands are
+  substituted with the identity their own definition supplies instead, so that
+  leaves compare by what they compute rather than by how they are printed.
+  """
   if depth <= 0:
     return name
   expression = definitions.get(name)
-  if expression is None or _IMPURE_OPCODE.search(expression):
-    return name
-  if not _OPCODE.search(expression):
+  if expression is None or not _is_pure_definition(expression):
     return name
 
   def substitute(match):
     operand = match.group(0)
     if operand == name:
       return operand
-    return "(" + _canonical_expression(operand, definitions, depth - 1) + ")"
+    identity = _operand_identity(operand, definitions, depth - 1)
+    if identity is None:
+      # The snapshot defines nothing here, so the printed name is all there is.
+      return operand
+    return "(" + identity + ")"
+
+  return re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
+
+
+def _operand_identity(operand, definitions, depth):
+  """Return what one operand denotes, or None when only its name denotes it.
+
+  A definition in the same snapshot is what the operand computes: its text when
+  the definition is impure or unparsed, and its recursively canonicalized
+  expression when it is pure. The operands printed inside a text definition are
+  resolved the same way, so a pointer whose own computation changed is not the
+  same pointer, and one that was merely renamed still is. An operand with no
+  definition in the snapshot (an argument, or a value defined outside it) has no
+  identity beyond its printed name. Callers wrap a returned identity in
+  parentheses, so an operand that a definition identifies never compares equal
+  to one that only a name identifies: a leaf that cannot be resolved the same
+  way on both sides leaves the correspondence unproven.
+  """
+  expression = definitions.get(operand)
+  if expression is None:
+    return None
+  if not _is_pure_definition(expression) or depth <= 0:
+    # Impure, unparsed, or past the inline budget: the definition text says what
+    # the operand computes, while its printed name would not.
+    return _resolved_definition_text(expression, operand, definitions, depth)
+  return _canonical_expression(operand, definitions, depth)
+
+
+def _resolved_definition_text(expression, name, definitions, depth):
+  """Substitute the operands a definition text prints with their identities."""
+
+  def substitute(match):
+    inner = match.group(0)
+    if inner == name or depth <= 0:
+      return inner
+    identity = _operand_identity(inner, definitions, depth - 1)
+    return inner if identity is None else "(" + identity + ")"
 
   return re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
 
@@ -825,12 +875,19 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
   (b), at least one consumer the original lost (c), at least one consumer of the
   recomputed value that structurally matches a former consumer of the original
   (d), and the original producer still present after the pass under the same
-  name with the same canonical expression (e). Requirement (b) is what separates
-  a recomputation from a rename, and (e) is what ties a recomputed value to a
-  producer that survived the pass: renumbering alone, an unchanged graph, a name
-  rebound to a load, a call, or any different definition, and ambiguous
-  correspondences stay unconfirmed. Duplicate expressions alone are reported as
-  unattributed work.
+  name with the same canonical expression (e).
+
+  Correspondence is decided by canonical expressions in which every operand is
+  replaced by the identity its own definition supplies: the definition text when
+  that definition is impure or unparsed, the recursively canonicalized
+  expression when it is pure, and the printed name when the snapshot defines the
+  operand nowhere. Two defined leaves are therefore never equated by their
+  printed names, and a leaf that resolves on one side but not the other leaves
+  the correspondence unproven. Requirement (b) is what separates a recomputation
+  from a rename, and (e) is what ties a recomputed value to a producer that
+  survived the pass: renumbering alone, an unchanged graph, a name rebound to a
+  load, a call, or any different definition, and ambiguous correspondences stay
+  unconfirmed. Duplicate expressions alone are reported as unattributed work.
   """
   if source_lines is None:
     source_lines = {}

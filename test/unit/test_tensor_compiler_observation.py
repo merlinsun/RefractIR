@@ -945,6 +945,267 @@ module {
     self.assertEqual(report["unattributed_count"], 1)
     self.assertEqual(report["status"], "unattributed_only")
 
+  def test_reviewer_alpha_renaming_pair_is_not_rematerialization(self):
+    # Review counterexample: one simultaneous bijective renaming of the printed
+    # names changes neither the operations nor the def-use edges, but it does
+    # swap which pointer each load result reads. The addition that appears to
+    # have survived no longer computes what the original computed, so no use was
+    # redirected to a recomputation.
+    before = """\
+%lx = tt.load %p : f32
+%ly = tt.load %q : f32
+%0 = arith.addf %lx, %c : f32
+%1 = arith.mulf %0, %d : f32
+%8 = arith.mulf %0, %g : f32
+%2 = arith.addf %ly, %c : f32
+%3 = arith.mulf %2, %d : f32
+%4 = arith.addf %ly, %c : f32
+%5 = arith.mulf %4, %e : f32
+%6 = arith.addf %ly, %c : f32
+%7 = arith.mulf %6, %f : f32
+tt.return %1, %8, %3, %5, %7 : f32, f32, f32, f32, f32
+"""
+    after = """\
+%ly = tt.load %p : f32
+%lx = tt.load %q : f32
+%20 = arith.addf %ly, %c : f32
+%21 = arith.mulf %20, %d : f32
+%28 = arith.mulf %20, %g : f32
+%10 = arith.addf %lx, %c : f32
+%11 = arith.mulf %10, %d : f32
+%12 = arith.addf %lx, %c : f32
+%13 = arith.mulf %12, %e : f32
+%0 = arith.addf %lx, %c : f32
+%14 = arith.mulf %0, %f : f32
+tt.return %21, %28, %11, %13, %14 : f32, f32, f32, f32, f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_swapped_loads_of_different_pointers_are_not_interchangeable(self):
+    # The two load results exchange their pointers and nothing else changes, so
+    # the addition that looks like a surviving producer now reads %q: neither it
+    # nor its printed twin computes the value the original computed.
+    before = """\
+%lx = tt.load %p : f32
+%ly = tt.load %q : f32
+%0 = arith.addf %lx, %c : f32
+%1 = arith.mulf %0, %d : f32
+%2 = arith.addf %ly, %c : f32
+%3 = arith.mulf %2, %d : f32
+"""
+    after = """\
+%lx = tt.load %q : f32
+%ly = tt.load %p : f32
+%0 = arith.addf %lx, %c : f32
+%10 = arith.addf %lx, %c : f32
+%11 = arith.mulf %10, %d : f32
+%2 = arith.addf %ly, %c : f32
+%3 = arith.mulf %2, %d : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_leaf_defined_in_only_one_snapshot_is_unproven(self):
+    # A leaf that a definition names on one side and that has no definition on
+    # the other (an argument, or a value defined outside the snapshot) cannot be
+    # resolved the same way twice, so neither direction confirms a copy.
+    defined_before = """\
+%a = tt.load %p : f32
+%0 = arith.addf %a, %c : f32
+%1 = arith.mulf %0, %d : f32
+"""
+    undefined_before = """\
+%0 = arith.addf %a, %c : f32
+%1 = arith.mulf %0, %d : f32
+"""
+    redirected = """\
+%0 = arith.addf %a, %c : f32
+%10 = arith.addf %a, %c : f32
+%11 = arith.mulf %10, %d : f32
+"""
+    defined_after = "%a = tt.load %p : f32\n" + redirected
+
+    for label, before, after in (
+      ("defined before only", defined_before, redirected),
+      ("defined after only", undefined_before, defined_after),
+    ):
+      with self.subTest(case=label):
+        report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+        self.assertEqual(report["confirmed_count"], 0)
+        self.assertEqual(report["unattributed_count"], 1)
+        self.assertEqual(report["status"], "unattributed_only")
+
+  def test_changed_leaf_definition_is_not_the_same_computation(self):
+    # The load now reads a different pointer: the surviving addition and its
+    # copy still print the same names, but they no longer compute the value the
+    # original computed, so the redirected consumer is not a recomputation.
+    before = """\
+%a = tt.load %p : f32
+%0 = arith.addf %a, %c : f32
+%1 = arith.mulf %0, %d : f32
+"""
+    after = """\
+%a = tt.load %q : f32
+%0 = arith.addf %a, %c : f32
+%10 = arith.addf %a, %c : f32
+%11 = arith.mulf %10, %d : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_renamed_pure_chain_with_a_renamed_leaf_still_confirms(self):
+    # The whole chain feeding the surviving producer was renumbered, including
+    # the load result at its leaf. The chain computes the same value, so the
+    # copy that took over its consumer is a confirmed recomputation.
+    before = """\
+%lx = tt.load %p : f32
+%1 = arith.addf %lx, %c : f32
+%2 = arith.mulf %1, %d : f32
+%3 = arith.addf %2, %e : f32
+%4 = arith.mulf %3, %f : f32
+"""
+    after = """\
+%lz = tt.load %p : f32
+%11 = arith.addf %lz, %c : f32
+%12 = arith.mulf %11, %d : f32
+%3 = arith.addf %12, %e : f32
+%13 = arith.addf %12, %e : f32
+%14 = arith.mulf %13, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%3")
+    self.assertEqual(candidate["recomputed_values"], ["%13"])
+    self.assertEqual(candidate["redirected_consumers"], ["%14"])
+    self.assertEqual(candidate["remaining_consumers"], [])
+
+  def test_leaf_resolution_differs_between_snapshots_is_unproven(self):
+    # The operand is named %y on both sides, but a definition identifies it on
+    # one side only: before the pass %x is an unparsed definition whose text is
+    # %y, after it %y is an argument. A defined leaf is substituted inside
+    # parentheses and an undefined one is not, so the two are never confused.
+    before = """\
+%x = %y
+%0 = arith.addf %x, %c : f32
+%1 = arith.mulf %0, %d : f32
+"""
+    after = """\
+%0 = arith.addf %y, %c : f32
+%10 = arith.addf %y, %c : f32
+%11 = arith.mulf %10, %d : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_two_loads_of_the_same_pointer_swapped_are_not_a_difference(self):
+    # Both load results read %p, so exchanging their names leaves every
+    # computation unchanged: the copy that took over the consumer is still a
+    # recomputation of the addition that survived, exactly as without the swap.
+    before = """\
+%lx = tt.load %p : f32
+%ly = tt.load %p : f32
+%0 = arith.addf %lx, %c : f32
+%1 = arith.mulf %0, %d : f32
+%2 = arith.mulf %ly, %e : f32
+"""
+    after = """\
+%ly = tt.load %p : f32
+%lx = tt.load %p : f32
+%0 = arith.addf %ly, %c : f32
+%10 = arith.addf %ly, %c : f32
+%11 = arith.mulf %10, %d : f32
+%2 = arith.mulf %lx, %e : f32
+"""
+    unswapped = """\
+%lx = tt.load %p : f32
+%ly = tt.load %p : f32
+%0 = arith.addf %lx, %c : f32
+%10 = arith.addf %lx, %c : f32
+%11 = arith.mulf %10, %d : f32
+%2 = arith.mulf %ly, %e : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+    control = tensor_compiler_observation.observe_rematerialization(before, unswapped)
+
+    self.assertEqual(control["confirmed_count"], 1)
+    self.assertEqual(report["confirmed_count"], 1)
+    for observation in (control, report):
+      candidate = observation["confirmed"][0]
+      self.assertEqual(candidate["original_value"], "%0")
+      self.assertEqual(candidate["recomputed_values"], ["%10"])
+      self.assertEqual(candidate["redirected_consumers"], ["%11"])
+      self.assertEqual(candidate["remaining_consumers"], [])
+
+
+  def test_a_pointer_whose_computation_changed_is_not_the_same_pointer(self):
+    """A load denotes its pointer's computation, not the pointer's name.
+
+    The pointer keeps its printed name while its definition changes, so a load
+    of it computes something else. The two additions below are textually equal
+    and are not the same computation, and the observer has to say so.
+    """
+    before = """\
+%p = arith.addi %a, %b : i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%2 = arith.mulf %c, %f : f32
+"""
+    after = """\
+%p = arith.subi %a, %b : i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%c2 = arith.addf %lx, %d : f32
+%2 = arith.mulf %c2, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+
+  def test_a_renamed_pointer_keeps_a_genuine_recomputation_confirmable(self):
+    """Resolution follows the computation, so a renamed pointer still matches."""
+    before = """\
+%p = arith.addi %a, %b : i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%2 = arith.mulf %c, %f : f32
+"""
+    after = """\
+%p9 = arith.addi %a, %b : i32
+%lx = tt.load %p9 : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%c2 = arith.addf %lx, %d : f32
+%2 = arith.mulf %c2, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    self.assertEqual(report["confirmed"][0]["original_value"], "%c")
+    self.assertEqual(report["confirmed"][0]["recomputed_values"], ["%c2"])
+
 
 class TensorCompilerNestedSnapshotTests(unittest.TestCase):
   """Nested pipelines dump their own snapshots inside a module-level one."""

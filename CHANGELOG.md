@@ -86,6 +86,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - A region's output is checked against the loop's trip count, not only against its input: every family and mode changes its result between one, two, and three trips except `cross-state` with subtraction, which writes each state to the other's value and is therefore trip-invariant. That combination stays admitted because the exact certificate's subtraction obligations are stated over it, and the test names it so the exception cannot spread.
 
+- Rematerialization correspondence follows what a leaf computes, not how it is printed: a load is identified by its pointer's own definition, resolved through pure and impure text alike, so swapping two loads' names no longer makes an unrelated computation look like a moved one, and a merely renamed pointer no longer hides a genuine one. A leaf that cannot be resolved the same way on both sides leaves the candidate unconfirmed.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
