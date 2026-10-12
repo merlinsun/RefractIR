@@ -327,12 +327,12 @@ class TensorRegionModeSensitivityTests(unittest.TestCase):
     if not SYMIRI.is_file():
       self.skipTest("the reference interpreter is supplied by the managed Make target")
 
-  def source_for(self, family, mode, seed):
+  def source_for(self, family, mode, seed, *, iterations=None):
     return tensor_region_generation.generate_source(
       RegionConfiguration(
         seed=seed,
         shape=self.SHAPE,
-        iterations=self.ITERATIONS,
+        iterations=self.ITERATIONS if iterations is None else iterations,
         family=family,
         operation_mode=mode,
       )
@@ -365,6 +365,46 @@ class TensorRegionModeSensitivityTests(unittest.TestCase):
       for seed in self.SEEDS:
         with self.subTest(family=family, seed=seed):
           self.assert_not_identically_constant(family, "mixed", seed)
+
+  def test_every_family_and_mode_output_follows_the_trip_count(self):
+    """A body that ignores the trip count is not a loop body.
+
+    The output is read after one, two, and three trips: a region whose result
+    is the same at every count computes nothing across the backedge, which no
+    amount of input sensitivity can establish. A body that alternates is
+    sensitive, so the check compares the whole set of outputs rather than
+    consecutive pairs.
+
+    One combination is trip-invariant by construction and stays admitted:
+    `cross-state` with subtraction writes each state to the other's value,
+    because the producer adds the two states and subtracting one from that sum
+    leaves the other. The exact certificate's subtraction obligations are
+    stated over exactly that configuration, so it is named here rather than
+    refused, and a region with that shape studies the compiler's loop machinery
+    without carrying a loop-dependent value.
+    """
+    trip_invariant = {("cross-state", "subtraction")}
+    insensitive = set()
+    for family in tensor_region_generation.NEW_FAMILIES:
+      for mode in self.MODES:
+        for seed in self.SEEDS:
+          outputs = {
+            count: self.output_for(
+              self.source_for(family, mode, seed, iterations=count), self.INPUT
+            )
+            for count in (1, 2, 3)
+          }
+          if len(set(outputs.values())) == 1:
+            insensitive.add((family, mode))
+            continue
+          with self.subTest(family=family, mode=mode, seed=seed):
+            self.assertGreater(len(set(outputs.values())), 1)
+
+    self.assertEqual(
+      insensitive,
+      trip_invariant,
+      "the set of trip-invariant family and mode combinations changed",
+    )
 
   def test_every_family_and_mode_output_follows_the_input(self):
     for family in tensor_region_generation.NEW_FAMILIES:

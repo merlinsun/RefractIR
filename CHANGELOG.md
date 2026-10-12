@@ -84,6 +84,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Make targets stop hiding what they claim to run: `make test-tensor-gluon-lowering` builds the native exporter it needs and passes it explicitly, so the generated-region tests run instead of skipping, and `make test-tensor-compiler-observation` runs the evidence-record check that keeps a committed device record machine-readable.
 
+- A region's output is checked against the loop's trip count, not only against its input: every family and mode changes its result between one, two, and three trips except `cross-state` with subtraction, which writes each state to the other's value and is therefore trip-invariant. That combination stays admitted because the exact certificate's subtraction obligations are stated over it, and the test names it so the exception cannot spread.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
