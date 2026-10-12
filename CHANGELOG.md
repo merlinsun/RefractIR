@@ -94,6 +94,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The tensor loop-region options are documented in `docs/reify.md` on their own, so the reference does not wait for the pending tensor documentation.
 
+- The reference documents all four tensor loop-region options in one place, with their domains, the manifest record a named request writes, and what an unnamed request keeps. The committed document no longer carries the pending tensor documentation it was staged with.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
