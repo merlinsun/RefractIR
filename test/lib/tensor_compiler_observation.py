@@ -791,6 +791,19 @@ def _canonical_expression(name, definitions, depth=4):
   return re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
 
 
+def _denoted_expression(name, canonical):
+  """Return the computation a name denotes, or None when it is only a name.
+
+  An impure or unparsed definition canonicalizes to its own name, so it carries
+  no structure to compare, and snapshot names are rebound freely. Such a
+  definition cannot establish that two snapshots hold the same computation.
+  """
+  expression = canonical.get(name)
+  if expression is None or expression == name:
+    return None
+  return expression
+
+
 def _pure_expression_counts(canonical):
   """Count the pure definitions that share each canonical expression.
 
@@ -811,11 +824,13 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
   pure definitions with that canonical expression after the pass than before it
   (b), at least one consumer the original lost (c), at least one consumer of the
   recomputed value that structurally matches a former consumer of the original
-  (d), and the original producer still present after the pass (e). Requirement
-  (b) is what separates a recomputation from a rename, and (e) is what ties a
-  recomputed value to a producer that survived the pass: renumbering alone, an
-  unchanged graph, and ambiguous correspondences stay unconfirmed. Duplicate
-  expressions alone are reported as unattributed work.
+  (d), and the original producer still present after the pass under the same
+  name with the same canonical expression (e). Requirement (b) is what separates
+  a recomputation from a rename, and (e) is what ties a recomputed value to a
+  producer that survived the pass: renumbering alone, an unchanged graph, a name
+  rebound to a load, a call, or any different definition, and ambiguous
+  correspondences stay unconfirmed. Duplicate expressions alone are reported as
+  unattributed work.
   """
   if source_lines is None:
     source_lines = {}
@@ -842,9 +857,10 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
   for original, canonical in sorted(before_canonical.items()):
     if canonical == original:
       continue
-    if original not in after_definitions:
-      # The producer did not survive: a surviving name that now means something
-      # else is not the original definition.
+    if _denoted_expression(original, after_canonical) != canonical:
+      # The producer survived only if the name still denotes the same pure
+      # computation: a name rebound to a load, a call, or any different
+      # definition is not the original.
       continue
     if after_expressions[canonical] <= before_expressions[canonical]:
       # No additional computation exists, so this is a rename, not a copy.
@@ -853,7 +869,11 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     after_uses = sorted(set(after_consumers.get(original, [])))
     if len(after_uses) >= len(before_uses):
       continue
-    former_consumers = {before_canonical.get(consumer) for consumer in before_uses}
+    former_consumers = set()
+    for consumer in before_uses:
+      expression = _denoted_expression(consumer, before_canonical)
+      if expression is not None:
+        former_consumers.add(expression)
     for recomputed, recomputed_canonical in sorted(after_canonical.items()):
       if recomputed == original or recomputed_canonical != canonical:
         continue
@@ -926,8 +946,8 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     "unattributed": unattributed,
     "unattributed_count": len(unattributed),
     "interpretation_limit": (
-      "a confirmed recomputation needs the surviving producer, an additional "
-      "pure definition, and a redirected former consumer; duplicate "
+      "a confirmed recomputation needs an equivalent surviving producer, an "
+      "additional pure definition, and a redirected former consumer; duplicate "
       "expressions alone are reported as unattributed work"
     ),
   }

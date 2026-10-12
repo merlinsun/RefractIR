@@ -78,6 +78,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The named region family is complete in the committed tree: the generator dispatch, its route validation, and the forwarding to `generateTensorRegion` are committed rather than left in the working tree, so a clean checkout honours `--tensor-region-family`. `make test-tensor` now runs the option's integration target, and `make test-tensor-gluon-lowering` runs the native-generated-region module, so neither route can pass unexercised. A device-evidence record is checked for being machine-readable rather than prose.
 
+- Rematerialization needs a surviving *definition*, not a surviving SSA name: an original whose name is rebound to a load, a call, or a different expression no longer counts as the producer, and the same standard applies to the consumer correspondence, so a renamed pair plus an unrelated equivalent computation is reported as unattributed work instead of a confirmed recomputation.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

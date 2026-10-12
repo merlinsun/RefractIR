@@ -814,6 +814,111 @@ module {
     self.assertEqual(report["unattributed_count"], 1)
     self.assertEqual(report["status"], "unattributed_only")
 
+  def test_review_counterexample_with_a_rebound_name_stays_unattributed(self):
+    # Review counterexample: the add and its consumer are renumbered, %0 now
+    # holds a load, and an unrelated but equal add feeds a different consumer.
+    # The reused name does not denote the original producer, so the duplicate is
+    # unattributed work rather than a confirmed recomputation.
+    before = "%0 = arith.addf %a, %b : f32\n%1 = arith.mulf %0, %c : f32\n"
+    after = """\
+%0 = tt.load %p : f32
+%10 = arith.addf %a, %b : f32
+%11 = arith.mulf %10, %c : f32
+%12 = arith.addf %a, %b : f32
+%13 = arith.mulf %12, %d : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["unattributed"][0]["values"], ["%10", "%12"])
+
+  def test_reused_name_holding_a_different_pure_expression_is_not_the_producer(self):
+    # %0 survives the pass but now computes a subtraction. A definition that
+    # differs from the original canonical expression is not a correspondence,
+    # even though the name is unchanged.
+    before = "%0 = arith.addf %a, %b : f32\n%1 = arith.mulf %0, %c : f32\n"
+    after = """\
+%0 = arith.subf %a, %b : f32
+%10 = arith.addf %a, %b : f32
+%11 = arith.mulf %10, %c : f32
+%12 = arith.addf %a, %b : f32
+%13 = arith.mulf %12, %d : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_reused_name_holding_an_impure_producer_is_not_the_producer(self):
+    # %0 survives the pass but now holds a call. An impure definition has no
+    # canonical expression to compare, so it cannot be the original producer.
+    before = "%0 = arith.addf %a, %b : f32\n%1 = arith.mulf %0, %c : f32\n"
+    after = """\
+%0 = tt.call @helper(%a) : (f32) -> f32
+%10 = arith.addf %a, %b : f32
+%11 = arith.mulf %10, %c : f32
+%12 = arith.addf %a, %b : f32
+%13 = arith.mulf %12, %d : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_equivalent_surviving_producer_still_confirms_rematerialization(self):
+    # The review counterexample with %0 still computing the add: the producer
+    # survived with the same definition, so the copy and its redirected
+    # consumer are a genuine recomputation.
+    before = "%0 = arith.addf %a, %b : f32\n%1 = arith.mulf %0, %c : f32\n"
+    after = """\
+%0 = arith.addf %a, %b : f32
+%10 = arith.addf %a, %b : f32
+%11 = arith.mulf %10, %c : f32
+%12 = arith.addf %a, %b : f32
+%13 = arith.mulf %12, %d : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%0")
+    self.assertEqual(candidate["recomputed_values"], ["%10"])
+    self.assertEqual(candidate["redirected_consumers"], ["%11"])
+
+  def test_renumbered_graph_with_a_surviving_name_is_not_rematerialization(self):
+    # Only the consumer is renumbered. No definition was added, so the graph is
+    # unchanged and nothing was recomputed, even though the surviving name
+    # %0 appears to have lost its use.
+    before = "%0 = arith.addf %a, %b : f32\n%1 = arith.mulf %0, %c : f32\n"
+    after = "%0 = arith.addf %a, %b : f32\n%11 = arith.mulf %0, %c : f32\n"
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 0)
+    self.assertEqual(report["status"], "none")
+
+  def test_reused_consumer_name_is_not_a_matching_consumer(self):
+    # The former consumer is a call that %0 fed; after the pass the printed name
+    # %1 holds a load of the copy. Names are rebound freely across snapshots, so
+    # an impure definition, which canonicalizes to its own name, cannot witness
+    # a redirected use by name coincidence.
+    before = """\
+%0 = arith.addf %a, %b : f32
+%1 = tt.call @consume(%0) : (f32) -> f32
+"""
+    after = """\
+%0 = arith.addf %a, %b : f32
+%10 = arith.addf %a, %b : f32
+%1 = tt.load %10 : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
   def test_one_copy_claimed_by_two_producers_stays_unattributed(self):
     # A single new copy serves a former consumer of each of two equivalent
     # producers: which producer it recomputes is ambiguous, so neither is named.
