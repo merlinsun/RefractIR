@@ -92,6 +92,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The evidence-record check ignores the AppleDouble companions (`._name.json`) a copy through a non-native filesystem leaves beside a record; they are metadata, not evidence, and reading one aborted the check.
 
+- The tensor loop-region options are documented in `docs/reify.md` on their own, so the reference does not wait for the pending tensor documentation.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
