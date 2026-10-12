@@ -74,6 +74,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The loop-region families are seed-dependent and reachable from the normal generator: `buildRegionFamily` draws its producer operand order, reduced axis, state placement, and operand order from the seeded engine (distinct bodies across eight seeds went from 1 to 6-7 per family, and `mixed` no longer coincides with `additive`), while the fold family's bytes are unchanged. `rysmith --tensor-region-family` selects a family on the tensor-v2 constructor route, refuses routes it cannot honour instead of ignoring the request, and leaves the unnamed draw untouched. Two more genuinely-red tail tests bring that batch's red record to five.
 
+- Evidence hygiene: the two retained-loop sweep records keep their structured-loop counts and drop the PTX column that came from an earlier branch heuristic, because those sweeps' raw IR was not archived; the cycle-based records are named in their place.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

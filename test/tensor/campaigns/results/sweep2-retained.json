@@ -1,242 +1,242 @@
 [
  {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
   "family": "reduction-arithmetic",
-  "shape": [
-   2,
-   256
-  ],
   "iterations": 4,
-  "num_warps": 1,
-  "ttgir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge": false,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
- },
- {
-  "family": "reduction-arithmetic",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    2,
    256
   ],
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "family": "reduction-arithmetic",
   "iterations": 4,
-  "num_warps": 4,
-  "ttgir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge": false,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
- },
- {
-  "family": "reduction-arithmetic",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    2,
    256
   ],
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "family": "reduction-arithmetic",
   "iterations": 8,
+  "loop_status": "retained",
   "num_warps": 1,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": false,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
- },
- {
-  "family": "reduction-arithmetic",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    2,
    256
   ],
-  "iterations": 8,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": false,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
+  "ttgir_loops": 1
  },
  {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
   "family": "reduction-arithmetic",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
+  "shape": [
+   2,
+   256
+  ],
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "family": "reduction-arithmetic",
+  "iterations": 4,
+  "loop_status": "retained",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    32,
    16
   ],
-  "iterations": 4,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
+  "ttgir_loops": 1
  },
  {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
   "family": "reduction-arithmetic",
-  "shape": [
-   32,
-   16
-  ],
   "iterations": 4,
+  "loop_status": "retained",
   "num_warps": 4,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
- },
- {
-  "family": "reduction-arithmetic",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    32,
    16
   ],
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "family": "reduction-arithmetic",
   "iterations": 8,
+  "loop_status": "retained",
   "num_warps": 1,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
- },
- {
-  "family": "reduction-arithmetic",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    32,
    16
   ],
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
+  "exact_admitted": false,
+  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
+  "family": "reduction-arithmetic",
   "iterations": 8,
+  "loop_status": "retained",
   "num_warps": 4,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
-  "exact_admitted": false,
-  "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
+  "shape": [
+   32,
+   16
+  ],
+  "ttgir_loops": 1
  },
  {
-  "family": "mixed-depth",
-  "shape": [
-   2,
-   256
-  ],
-  "iterations": 4,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": false,
+  "conversions_ttgir": 0,
   "exact_admitted": true,
   "exact_reason": "",
-  "conversions_ttgir": 0
- },
- {
   "family": "mixed-depth",
+  "iterations": 4,
+  "loop_status": "retained",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    2,
    256
   ],
-  "iterations": 4,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": false,
-  "exact_admitted": true,
-  "exact_reason": "",
-  "conversions_ttgir": 0
+  "ttgir_loops": 1
  },
  {
+  "conversions_ttgir": 0,
+  "exact_admitted": true,
+  "exact_reason": "",
   "family": "mixed-depth",
+  "iterations": 4,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    2,
    256
   ],
-  "iterations": 8,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": false,
-  "exact_admitted": true,
-  "exact_reason": "",
-  "conversions_ttgir": 0
+  "ttgir_loops": 1
  },
  {
+  "conversions_ttgir": 0,
+  "exact_admitted": true,
+  "exact_reason": "",
   "family": "mixed-depth",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    2,
    256
   ],
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "family": "mixed-depth",
   "iterations": 8,
+  "loop_status": "retained",
   "num_warps": 4,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": false,
-  "exact_admitted": true,
-  "exact_reason": "",
-  "conversions_ttgir": 0
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
+  "shape": [
+   2,
+   256
+  ],
+  "ttgir_loops": 1
  },
  {
+  "conversions_ttgir": 0,
+  "exact_admitted": true,
+  "exact_reason": "",
   "family": "mixed-depth",
-  "shape": [
-   32,
-   16
-  ],
   "iterations": 4,
+  "loop_status": "retained",
   "num_warps": 1,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
-  "exact_admitted": true,
-  "exact_reason": "",
-  "conversions_ttgir": 0
- },
- {
-  "family": "mixed-depth",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    32,
    16
   ],
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
+  "exact_admitted": true,
+  "exact_reason": "",
+  "family": "mixed-depth",
   "iterations": 4,
+  "loop_status": "retained",
   "num_warps": 4,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
-  "exact_admitted": true,
-  "exact_reason": "",
-  "conversions_ttgir": 0
- },
- {
-  "family": "mixed-depth",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    32,
    16
   ],
-  "iterations": 8,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
   "exact_admitted": false,
   "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
- },
- {
   "family": "mixed-depth",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    32,
    16
   ],
-  "iterations": 8,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge": true,
+  "ttgir_loops": 1
+ },
+ {
+  "conversions_ttgir": 0,
   "exact_admitted": false,
   "exact_reason": "ValueError: materialized value or reduction partial sum exceeds exact range",
-  "conversions_ttgir": 0
+  "family": "mixed-depth",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
+  "shape": [
+   32,
+   16
+  ],
+  "ttgir_loops": 1
  }
 ]

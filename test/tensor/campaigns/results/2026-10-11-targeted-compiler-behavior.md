@@ -54,7 +54,11 @@ Observations:
 Configurations at the profile volume retain the loop. The sweep
 (`sweep-retained.json`, `sweep2-retained.json`) shows one `scf.for` in TTGIR at
 `[256, 2]` and `[128, 4]` for 2–8 iterations and at `[32, 16]` for 4–8, for both
-the default and the orthogonal-reduction families, at one and four warps.
+the default and the orthogonal-reduction families, at one and four warps. Those
+two files record the structured-loop count only: their PTX column came from an
+earlier branch heuristic and has been removed rather than corrected, because the
+sweep's raw IR was not archived. The cycle-based records are
+`track-a-retained-evidence.json` and `track-a-layout-warp-evidence.json`.
 Among these, `mixed-depth` at `[32, 16]` with four iterations is also admitted
 by the exact f32 reference, so it can carry a full certificate.
 

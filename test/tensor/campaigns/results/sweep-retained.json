@@ -1,314 +1,314 @@
 [
  {
   "family": "fold",
-  "shape": [
-   256,
-   2
-  ],
   "iterations": 2,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": 0
- },
- {
-  "family": "fold",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "fold",
   "iterations": 2,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": 0
- },
- {
-  "family": "fold",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "fold",
   "iterations": 4,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "fold",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "fold",
   "iterations": 4,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "fold",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "fold",
   "iterations": 8,
+  "loop_status": "retained",
   "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "fold",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
-  "iterations": 8,
-  "num_warps": 4,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
+  "ttir_loops": 1
  },
  {
   "family": "fold",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
-   128,
-   4
+   256,
+   2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "fold",
   "iterations": 2,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": 0
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
+  "shape": [
+   128,
+   4
+  ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
  },
  {
   "family": "fold",
+  "iterations": 2,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
-  "iterations": 2,
-  "num_warps": 4,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": 0
+  "ttir_loops": 1
  },
  {
   "family": "fold",
+  "iterations": 4,
+  "loop_status": "retained",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
-  "iterations": 4,
-  "num_warps": 1,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
+  "ttir_loops": 1
  },
  {
   "family": "fold",
+  "iterations": 4,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
-  "iterations": 4,
-  "num_warps": 4,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
+  "ttir_loops": 1
  },
  {
   "family": "fold",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
-  "iterations": 8,
-  "num_warps": 1,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
+  "ttir_loops": 1
  },
  {
   "family": "fold",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
-  "iterations": 8,
-  "num_warps": 4,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
+  "ttir_loops": 1
  },
  {
   "family": "orthogonal-reductions",
-  "shape": [
-   256,
-   2
-  ],
   "iterations": 2,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": 0
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 2,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": 0
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 4,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 4,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 8,
+  "loop_status": "retained",
   "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "orthogonal-reductions",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    256,
    2
   ],
-  "iterations": 8,
-  "num_warps": 4,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
+  "ttir_loops": 1
  },
  {
   "family": "orthogonal-reductions",
+  "iterations": 8,
+  "loop_status": "retained",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
-   128,
-   4
+   256,
+   2
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 2,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": 0
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 2,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": 0
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 4,
-  "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 1,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 4,
-  "num_warps": 4,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
   "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "orthogonal-reductions",
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
   "iterations": 8,
+  "loop_status": "retained",
   "num_warps": 1,
-  "ttgir_loops": 1,
-  "ttir_loops": 1,
-  "loop_status": "retained",
-  "ptx_backedge_candidates": true
- },
- {
-  "family": "orthogonal-reductions",
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
   "shape": [
    128,
    4
   ],
-  "iterations": 8,
-  "num_warps": 4,
   "ttgir_loops": 1,
-  "ttir_loops": 1,
+  "ttir_loops": 1
+ },
+ {
+  "family": "orthogonal-reductions",
+  "iterations": 8,
   "loop_status": "retained",
-  "ptx_backedge_candidates": true
+  "num_warps": 4,
+  "ptx_loop_measure": "not measured by the cycle-based detector; this sweep's IR was not archived. The authoritative retained-loop evidence is track-a-retained-evidence.json and track-a-layout-warp-evidence.json",
+  "shape": [
+   128,
+   4
+  ],
+  "ttgir_loops": 1,
+  "ttir_loops": 1
  }
 ]
