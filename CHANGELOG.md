@@ -96,6 +96,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The reference documents all four tensor loop-region options in one place, with their domains, the manifest record a named request writes, and what an unnamed request keeps. The committed document no longer carries the pending tensor documentation it was staged with.
 
+- Rematerialization correspondence no longer treats a depth-truncated expression as an identity: when the resolution budget is spent at a name the snapshot does define, the expression is unresolved and any candidate that would compare it stays unconfirmed, while a name the snapshot defines nowhere is still compared by its printed name. The budget is unchanged, and a sweep over chain lengths and depths shows no truncated identity, so the boundary does not move with the budget.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

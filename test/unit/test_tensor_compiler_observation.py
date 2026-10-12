@@ -1155,7 +1155,6 @@ tt.return %21, %28, %11, %13, %14 : f32, f32, f32, f32, f32
       self.assertEqual(candidate["redirected_consumers"], ["%11"])
       self.assertEqual(candidate["remaining_consumers"], [])
 
-
   def test_a_pointer_whose_computation_changed_is_not_the_same_pointer(self):
     """A load denotes its pointer's computation, not the pointer's name.
 
@@ -1205,6 +1204,308 @@ tt.return %21, %28, %11, %13, %14 : f32, f32, f32, f32, f32
     self.assertEqual(report["confirmed_count"], 1)
     self.assertEqual(report["confirmed"][0]["original_value"], "%c")
     self.assertEqual(report["confirmed"][0]["recomputed_values"], ["%c2"])
+
+  def test_reviewer_chain_pair_is_not_rematerialization(self):
+    """The reviewed counterexample: four pointer steps and one bijective renaming.
+
+    The graph keeps every operation and every def-use edge; only the printed
+    names change, and the renaming swaps which pointer each load reads. The
+    resolution budget cannot complete a four-step chain here, so the leftover
+    definition text prints a name the snapshot defines, and that name is not an
+    identity: neither addition is a recomputation of the other.
+    """
+    before = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%q0 = tt.addptr %ptrq, %off : !tt.ptr<f32>, i32
+%q1 = tt.addptr %q0, %off : !tt.ptr<f32>, i32
+%q2 = tt.addptr %q1, %off : !tt.ptr<f32>, i32
+%q = tt.addptr %q2, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%ly = tt.load %q : f32
+%0 = arith.addf %lx, %c : f32
+%1 = arith.mulf %0, %d : f32
+%8 = arith.mulf %0, %g : f32
+%2 = arith.addf %ly, %c : f32
+%3 = arith.mulf %2, %d : f32
+%4 = arith.addf %ly, %c : f32
+%5 = arith.mulf %4, %e : f32
+%6 = arith.addf %ly, %c : f32
+%7 = arith.mulf %6, %f : f32
+tt.return %1, %8, %3, %5, %7 : f32, f32, f32, f32, f32
+"""
+    after = """\
+%q0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%q1 = tt.addptr %q0, %off : !tt.ptr<f32>, i32
+%q2 = tt.addptr %q1, %off : !tt.ptr<f32>, i32
+%q = tt.addptr %q2, %off : !tt.ptr<f32>, i32
+%p0 = tt.addptr %ptrq, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%ly = tt.load %q : f32
+%lx = tt.load %p : f32
+%20 = arith.addf %ly, %c : f32
+%21 = arith.mulf %20, %d : f32
+%28 = arith.mulf %20, %g : f32
+%10 = arith.addf %lx, %c : f32
+%11 = arith.mulf %10, %d : f32
+%12 = arith.addf %lx, %c : f32
+%13 = arith.mulf %12, %e : f32
+%0 = arith.addf %lx, %c : f32
+%14 = arith.mulf %0, %f : f32
+tt.return %21, %28, %11, %13, %14 : f32, f32, f32, f32, f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_deeper_reviewer_chain_pair_is_not_rematerialization(self):
+    """The same unchanged graph with one more pointer step per chain.
+
+    The reviewed reproduction also confirmed at five steps. Refusal must not
+    depend on how far past the budget the chain reaches, so the same bijective
+    renaming over a five-step chain stays unconfirmed as well.
+    """
+    before = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p3 = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p3, %off : !tt.ptr<f32>, i32
+%q0 = tt.addptr %ptrq, %off : !tt.ptr<f32>, i32
+%q1 = tt.addptr %q0, %off : !tt.ptr<f32>, i32
+%q2 = tt.addptr %q1, %off : !tt.ptr<f32>, i32
+%q3 = tt.addptr %q2, %off : !tt.ptr<f32>, i32
+%q = tt.addptr %q3, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%ly = tt.load %q : f32
+%0 = arith.addf %lx, %c : f32
+%1 = arith.mulf %0, %d : f32
+%8 = arith.mulf %0, %g : f32
+%2 = arith.addf %ly, %c : f32
+%3 = arith.mulf %2, %d : f32
+%4 = arith.addf %ly, %c : f32
+%5 = arith.mulf %4, %e : f32
+%6 = arith.addf %ly, %c : f32
+%7 = arith.mulf %6, %f : f32
+tt.return %1, %8, %3, %5, %7 : f32, f32, f32, f32, f32
+"""
+    after = """\
+%q0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%q1 = tt.addptr %q0, %off : !tt.ptr<f32>, i32
+%q2 = tt.addptr %q1, %off : !tt.ptr<f32>, i32
+%q3 = tt.addptr %q2, %off : !tt.ptr<f32>, i32
+%q = tt.addptr %q3, %off : !tt.ptr<f32>, i32
+%p0 = tt.addptr %ptrq, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p3 = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p3, %off : !tt.ptr<f32>, i32
+%ly = tt.load %q : f32
+%lx = tt.load %p : f32
+%20 = arith.addf %ly, %c : f32
+%21 = arith.mulf %20, %d : f32
+%28 = arith.mulf %20, %g : f32
+%10 = arith.addf %lx, %c : f32
+%11 = arith.mulf %10, %d : f32
+%12 = arith.addf %lx, %c : f32
+%13 = arith.mulf %12, %e : f32
+%0 = arith.addf %lx, %c : f32
+%14 = arith.mulf %0, %f : f32
+tt.return %21, %28, %11, %13, %14 : f32, f32, f32, f32, f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_chain_one_step_past_the_budget_stays_unconfirmed(self):
+    """A copy behind a chain the budget cannot resolve is never confirmed.
+
+    In this shape the budget completes two pointer steps from the consumer that
+    has to be matched, so this three-step chain runs out at a definition the
+    snapshot holds. The pointer computations are then not compared at all, and
+    the copy stays unconfirmed even though it looks like a recomputation.
+    """
+    before = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%2 = arith.mulf %c, %f : f32
+"""
+    after = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%c2 = arith.addf %lx, %d : f32
+%2 = arith.mulf %c2, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_chain_at_the_budget_still_confirms_a_genuine_copy(self):
+    """A chain the budget completes still resolves, including a renamed one.
+
+    Two pointer steps are the deepest this shape resolves end to end. The whole
+    chain and the load result are renumbered, and the copy that took over a
+    consumer is confirmed: resolution still follows the computation rather than
+    the printed names wherever the budget reaches it.
+    """
+    before = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%2 = arith.mulf %c, %f : f32
+"""
+    after = """\
+%p9 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p9, %off : !tt.ptr<f32>, i32
+%lz = tt.load %p : f32
+%c = arith.addf %lz, %d : f32
+%1 = arith.mulf %c, %e : f32
+%c2 = arith.addf %lz, %d : f32
+%2 = arith.mulf %c2, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%c")
+    self.assertEqual(candidate["recomputed_values"], ["%c2"])
+    self.assertEqual(candidate["redirected_consumers"], ["%2"])
+    self.assertEqual(candidate["remaining_consumers"], ["%1"])
+
+  def test_an_impure_chain_past_the_budget_stays_unconfirmed(self):
+    """A load whose pointer chain runs past the budget is not a resolved leaf.
+
+    Only the deepest pointer step differs between the snapshots, and the budget
+    cannot reach it: the load therefore computes a different address while its
+    remaining text still matches, so no copy of it is confirmed.
+    """
+    before = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%2 = arith.mulf %c, %f : f32
+"""
+    after = """\
+%p0 = tt.addptr %ptrp, %off2 : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%c2 = arith.addf %lx, %d : f32
+%2 = arith.mulf %c2, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_rematerialization_behind_a_short_chain_still_confirms(self):
+    """A short chain stays inside the budget, so a resolved copy confirms."""
+    before = """\
+%p = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%2 = arith.mulf %c, %f : f32
+"""
+    after = """\
+%p = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%c = arith.addf %lx, %d : f32
+%1 = arith.mulf %c, %e : f32
+%c2 = arith.addf %lx, %d : f32
+%2 = arith.mulf %c2, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%c")
+    self.assertEqual(candidate["recomputed_values"], ["%c2"])
+    self.assertEqual(candidate["redirected_consumers"], ["%2"])
+    self.assertEqual(candidate["remaining_consumers"], ["%1"])
+
+  def test_two_equal_chains_past_the_budget_stay_unconfirmed(self):
+    """Equal but unresolvable pointer chains confirm neither copy.
+
+    Both pointer chains are printed identically before and after, and the copy
+    over %ly looks exactly like a genuine recomputation. The budget cannot
+    establish what either load reads, so equality of the remaining text is not
+    evidence and nothing is confirmed.
+    """
+    before = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%q0 = tt.addptr %ptrq, %off : !tt.ptr<f32>, i32
+%q1 = tt.addptr %q0, %off : !tt.ptr<f32>, i32
+%q2 = tt.addptr %q1, %off : !tt.ptr<f32>, i32
+%q = tt.addptr %q2, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%ly = tt.load %q : f32
+%cx = arith.addf %lx, %d : f32
+%1 = arith.mulf %cx, %e : f32
+%2 = arith.mulf %cx, %f : f32
+%cy = arith.addf %ly, %d : f32
+%3 = arith.mulf %cy, %e : f32
+%4 = arith.mulf %cy, %f : f32
+"""
+    after = """\
+%p0 = tt.addptr %ptrp, %off : !tt.ptr<f32>, i32
+%p1 = tt.addptr %p0, %off : !tt.ptr<f32>, i32
+%p2 = tt.addptr %p1, %off : !tt.ptr<f32>, i32
+%p = tt.addptr %p2, %off : !tt.ptr<f32>, i32
+%q0 = tt.addptr %ptrq, %off : !tt.ptr<f32>, i32
+%q1 = tt.addptr %q0, %off : !tt.ptr<f32>, i32
+%q2 = tt.addptr %q1, %off : !tt.ptr<f32>, i32
+%q = tt.addptr %q2, %off : !tt.ptr<f32>, i32
+%lx = tt.load %p : f32
+%ly = tt.load %q : f32
+%cx = arith.addf %lx, %d : f32
+%1 = arith.mulf %cx, %e : f32
+%2 = arith.mulf %cx, %f : f32
+%cy = arith.addf %ly, %d : f32
+%3 = arith.mulf %cy, %e : f32
+%cy2 = arith.addf %ly, %d : f32
+%4 = arith.mulf %cy2, %f : f32
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["status"], "unattributed_only")
 
 
 class TensorCompilerNestedSnapshotTests(unittest.TestCase):

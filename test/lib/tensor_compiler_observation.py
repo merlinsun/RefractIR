@@ -30,6 +30,8 @@ _IMPURE_OPCODE = re.compile(
   r"\b(?:tt\.(?:load|store|atomic[\w.]*|print|assert|call)|"
   r"ttg\.(?:local_alloc|local_load|local_store|async_[\w.]*)|memref\.[\w.]+)\b"
 )
+_RESOLUTION_DEPTH = 4
+_UNRESOLVED = object()
 
 
 def _location_definitions(text):
@@ -777,31 +779,41 @@ def _is_pure_definition(expression):
   return bool(_OPCODE.search(expression)) and not _IMPURE_OPCODE.search(expression)
 
 
-def _canonical_expression(name, definitions, depth=4):
+def _canonical_expression(name, definitions, depth=_RESOLUTION_DEPTH):
   """Inline pure definitions so renamed SSA values still compare equal.
 
   Only the root keeps this contract: an impure or unparsed definition denotes no
   structure of its own, so it canonicalizes to its printed name. Operands are
   substituted with the identity their own definition supplies instead, so that
-  leaves compare by what they compute rather than by how they are printed.
+  leaves compare by what they compute rather than by how they are printed. An
+  operand whose identity the budget cannot establish leaves the whole expression
+  without one, so a truncated expression is never compared as if it were whole.
   """
   if depth <= 0:
-    return name
+    # The budget was spent before this definition could be inlined. A value the
+    # snapshot defines has no identity in its printed name.
+    return name if name not in definitions else _UNRESOLVED
   expression = definitions.get(name)
   if expression is None or not _is_pure_definition(expression):
     return name
+  unresolved = False
 
   def substitute(match):
+    nonlocal unresolved
     operand = match.group(0)
     if operand == name:
       return operand
     identity = _operand_identity(operand, definitions, depth - 1)
+    if identity is _UNRESOLVED:
+      unresolved = True
+      return operand
     if identity is None:
       # The snapshot defines nothing here, so the printed name is all there is.
       return operand
     return "(" + identity + ")"
 
-  return re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
+  text = re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
+  return _UNRESOLVED if unresolved else text
 
 
 def _operand_identity(operand, definitions, depth):
@@ -816,7 +828,10 @@ def _operand_identity(operand, definitions, depth):
   identity beyond its printed name. Callers wrap a returned identity in
   parentheses, so an operand that a definition identifies never compares equal
   to one that only a name identifies: a leaf that cannot be resolved the same
-  way on both sides leaves the correspondence unproven.
+  way on both sides leaves the correspondence unproven. That includes a leaf the
+  snapshot does define but the inline budget cannot reach, for which _UNRESOLVED
+  is returned instead: its printed name is not its identity, so neither the leaf
+  nor any expression containing it may be compared by text.
   """
   expression = definitions.get(operand)
   if expression is None:
@@ -829,24 +844,53 @@ def _operand_identity(operand, definitions, depth):
 
 
 def _resolved_definition_text(expression, name, definitions, depth):
-  """Substitute the operands a definition text prints with their identities."""
+  """Substitute the operands a definition text prints with their identities.
+
+  The text is an identity only while every operand it prints is either resolved
+  or left as the printed name of a value the snapshot defines nowhere. Once the
+  budget is spent, an operand the snapshot does define is a correspondence the
+  text cannot show: the snapshot may have changed what that name computes, so
+  the whole text counts as unresolved rather than as the name it prints.
+  """
+  unresolved = False
 
   def substitute(match):
+    nonlocal unresolved
     inner = match.group(0)
-    if inner == name or depth <= 0:
+    if inner == name:
+      return inner
+    if depth <= 0:
+      if inner in definitions:
+        unresolved = True
       return inner
     identity = _operand_identity(inner, definitions, depth - 1)
+    if identity is _UNRESOLVED:
+      unresolved = True
+      return inner
     return inner if identity is None else "(" + identity + ")"
 
-  return re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
+  text = re.sub(r"\s+", " ", _SSA.sub(substitute, expression)).strip()
+  return _UNRESOLVED if unresolved else text
+
+
+def _comparable_expression(name, definitions):
+  """Return the expression a name denotes, or None when it has no identity.
+
+  A definition whose resolution ran out at a leaf the snapshot defines carries
+  no identity to compare: the pass may have changed what that leaf computes, so
+  the containing expression must not be matched by the text that remains.
+  """
+  expression = _canonical_expression(name, definitions)
+  return None if expression is _UNRESOLVED else expression
 
 
 def _denoted_expression(name, canonical):
   """Return the computation a name denotes, or None when it is only a name.
 
-  An impure or unparsed definition canonicalizes to its own name, so it carries
-  no structure to compare, and snapshot names are rebound freely. Such a
-  definition cannot establish that two snapshots hold the same computation.
+  An impure or unparsed definition canonicalizes to its own name, and an
+  unresolved one is None, so neither carries structure to compare, and snapshot
+  names are rebound freely. Such a definition cannot establish that two
+  snapshots hold the same computation.
   """
   expression = canonical.get(name)
   if expression is None or expression == name:
@@ -857,12 +901,13 @@ def _denoted_expression(name, canonical):
 def _pure_expression_counts(canonical):
   """Count the pure definitions that share each canonical expression.
 
-  An impure or unparsed definition canonicalizes to its own name, so counting
-  by canonical expression only ever groups equal pure computations.
+  An impure or unparsed definition canonicalizes to its own name and an
+  unresolved one to None, so counting by canonical expression only ever groups
+  equal resolved pure computations.
   """
   counts = collections.Counter()
   for name, expression in canonical.items():
-    if expression != name:
+    if expression is not None and expression != name:
       counts[expression] += 1
   return counts
 
@@ -883,11 +928,16 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
   expression when it is pure, and the printed name when the snapshot defines the
   operand nowhere. Two defined leaves are therefore never equated by their
   printed names, and a leaf that resolves on one side but not the other leaves
-  the correspondence unproven. Requirement (b) is what separates a recomputation
-  from a rename, and (e) is what ties a recomputed value to a producer that
-  survived the pass: renumbering alone, an unchanged graph, a name rebound to a
-  load, a call, or any different definition, and ambiguous correspondences stay
-  unconfirmed. Duplicate expressions alone are reported as unattributed work.
+  the correspondence unproven. A definition whose resolution budget runs out at
+  a leaf the snapshot does define has no identity at all: the text that remains
+  prints a name whose computation the pass may have changed, so no candidate
+  that would compare it is confirmed. That refusal does not depend on how large
+  the budget is, only on whether the resolution completed. Requirement (b) is
+  what separates a recomputation from a rename, and (e) is what ties a
+  recomputed value to a producer that survived the pass: renumbering alone, an
+  unchanged graph, a name rebound to a load, a call, or any different
+  definition, and ambiguous correspondences stay unconfirmed. Duplicate
+  expressions alone are reported as unattributed work.
   """
   if source_lines is None:
     source_lines = {}
@@ -904,15 +954,17 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
   before_canonical = {}
   after_canonical = {}
   for name in before_definitions:
-    before_canonical[name] = _canonical_expression(name, before_definitions)
+    before_canonical[name] = _comparable_expression(name, before_definitions)
   for name in after_definitions:
-    after_canonical[name] = _canonical_expression(name, after_definitions)
+    after_canonical[name] = _comparable_expression(name, after_definitions)
   before_expressions = _pure_expression_counts(before_canonical)
   after_expressions = _pure_expression_counts(after_canonical)
 
   candidates = collections.defaultdict(lambda: {"recomputed": [], "redirected": []})
   for original, canonical in sorted(before_canonical.items()):
-    if canonical == original:
+    if canonical is None or canonical == original:
+      # An unresolved original has no identity to compare, and an impure or
+      # unparsed one canonicalizes to its own name.
       continue
     if _denoted_expression(original, after_canonical) != canonical:
       # The producer survived only if the name still denotes the same pure
