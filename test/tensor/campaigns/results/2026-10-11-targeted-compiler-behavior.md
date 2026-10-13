@@ -261,6 +261,36 @@ output-independence check the guard work is for. This closes the combination
 the first guarded run missed: the earlier examples were power-of-two v2 cases,
 so the v3 tail path through slot classification was never exercised.
 
+## Track A, fifth run: a counted region against its unrolled twin
+
+The plan asks for paired counted and unrolled forms of one representative, on
+the device, with complete references (`track-a-paired-unrolled-device.json`).
+The representative is a `mixed-depth` region over a `[32, 16]` state with four
+trips (seed 9, additive, input domain `[0, 8]`), certified through a concrete
+in-domain input whose output becomes the case's target.
+
+| Form | Program | TTIR/TTGIR | LLIR/PTX | Execution | Output |
+|---|---|---|---|---|---|
+| counted | `638322a9…` | one `scf.for` | one branch cycle | pass, 0 mismatches | `f5826a57…` |
+| unrolled | `359b755b…` | none | none | pass, 0 mismatches | `f5826a57…` |
+
+The unrolled companion is built by `test.lib.tensor_unrolled_companion`: the
+counted program is unrolled, its Triton kernel is re-emitted for the
+straight-line program, and its reference is an interpreter replay of the
+unrolled program over the counted inputs, which must equal the counted
+`expected.bin` at 128 and 256 reference bits. Copying the counted case and
+rewriting `program.sir` is not enough: the loader refuses that with "generated
+region writes an undeclared or loop-carried value", because the proof, the
+selection artifacts, and the kernel still describe the counted program.
+
+Two readings. The same computation keeps a loop in every stage when it is
+counted and has none when it is unrolled, so a loop-targeting observation on
+this program is attributable to the loop rather than to the arithmetic. And both
+forms produce the identical complete output on the device, which is the
+equivalence the pair exists to show. The companion carries an interpreter-replay
+reference rather than a region certificate, so its run is not campaign-valid;
+the comparison is still over the complete output with zero tolerance.
+
 ## Gaps and controls
 
 * Guard *detection* is verified on the host (a mutated allocation is refused by

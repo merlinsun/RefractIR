@@ -490,13 +490,15 @@ test-tensor-frontend: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) $(PY) -m unittest test.unit.test_tensor_frontend
 
-test-tensor-exact: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER)
+test-tensor-exact: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TENSOR_GRAPH_REGION_EXPORT)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) $(PY) -m unittest \
 	  test.unit.test_tensor_exact_cli test.unit.test_tensor_exact_composed \
 	  test.unit.test_tensor_exact_builder \
 	  test.unit.test_tensor_exact_selection_evidence \
-	  test.unit.test_tensor_exact_region_case test.unit.test_tensor_semantics.TensorExactTests
+	  test.unit.test_tensor_exact_region_case \
+	  test.unit.test_tensor_unrolled_companion \
+	  test.unit.test_tensor_semantics.TensorExactTests
 
 test-tensor-numeric: $(TARGET_INTERP)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) $(PY) -m unittest test.unit.test_tensor_semantics.TensorNumericTests

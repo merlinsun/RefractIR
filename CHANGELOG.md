@@ -100,6 +100,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - A run states the route and the region it used: naming a region option records the `loop-reduction` stratum the generation actually forced, so the summary's quotas and the emitted cases agree, and the resolved shape, trip count, family, and mode are recorded before any candidate is built, so a run that admits nothing still says what was asked for. An unnamed request is unchanged.
 
+- A counted loop region and its mechanically unrolled twin are paired on the device: a new `test/lib/tensor_unrolled_companion.py` builds the companion by unrolling the counted program, re-emitting its Triton kernel, and deriving its reference from an interpreter replay that must equal the counted expected bytes, and a test module covers the construction and its refusals. The counted form keeps one `scf.for` and one branch cycle to PTX, the unrolled form has neither, and both produce the identical complete output.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

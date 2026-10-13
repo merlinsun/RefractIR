@@ -1,0 +1,82 @@
+{
+ "case": {
+  "certified_target": 12005000,
+  "family": "mixed-depth",
+  "generator_seed": 9,
+  "input_domain": [
+   0,
+   8
+  ],
+  "iterations": 4,
+  "operation_mode": "additive",
+  "shape": [
+   32,
+   16
+  ],
+  "target_source": "the certificate of a concrete in-domain input (every lane at the domain's upper bound); the builder solves for a target and requires the selected output to equal it, so an unreachable target reports UNSAT for a program that is admitted"
+ },
+ "counted": {
+  "actual_equals_expected": true,
+  "comparison": "pass",
+  "loop_presence": {
+   "llir": true,
+   "ptx": true,
+   "ttgir": true,
+   "ttir": true
+  },
+  "mismatches": 0,
+  "program_sha256_prefix": "638322a9be95072a",
+  "stages": {
+   "llir": {
+    "cycles": 1,
+    "evidence": "branch-cycle"
+   },
+   "ptx": {
+    "cycles": 1,
+    "evidence": "branch-cycle"
+   },
+   "ttgir": {
+    "constructs": 1,
+    "evidence": "mlir-construct"
+   },
+   "ttir": {
+    "constructs": 1,
+    "evidence": "mlir-construct"
+   }
+  },
+  "status": "pass"
+ },
+ "environment": {
+  "device": "Tesla V100-SXM2-32GB (sm_70)",
+  "python": "3.12.15",
+  "torch": "2.5.1+cu121",
+  "triton": "3.9.0 at 32f06df4bf1c30885ff61ee3488836ca81ed65f0"
+ },
+ "paired": {
+  "actual_sha256_prefix_both": "f5826a578a9ae11e",
+  "kernels_differ": true,
+  "outputs_identical": true,
+  "reading": "the same computation with the counted loop keeps one scf.for in TTIR and TTGIR and one branch cycle in LLIR and PTX; the mechanically unrolled form of the same program has neither, and both produce the identical complete output on the device"
+ },
+ "schema": "refractir.paired-unrolled-device.v1",
+ "unrolled": {
+  "actual_equals_expected": true,
+  "comparison": "pass",
+  "construction": "test.lib.tensor_unrolled_companion.build_companion: the counted case's program is unrolled, the Triton kernel is re-emitted for the straight-line program, and the reference is the interpreter replay of the unrolled program over the counted inputs, which must equal the counted expected.bin at 128 and 256 reference bits",
+  "loop_presence": {
+   "llir": false,
+   "ptx": false,
+   "ttgir": false,
+   "ttir": false
+  },
+  "mismatches": 0,
+  "program_sha256_prefix": "359b755b92e760cc",
+  "status": "pass"
+ },
+ "verification": {
+  "campaign_valid": false,
+  "campaign_valid_reason": "the companion states an interpreter-replay reference, not a region certificate",
+  "module_tests": "test.unit.test_tensor_unrolled_companion: 7 tests OK on the GPU host",
+  "runner_mode": "compiled"
+ }
+}
