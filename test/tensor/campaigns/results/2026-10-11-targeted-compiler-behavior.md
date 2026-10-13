@@ -287,9 +287,14 @@ Two readings. The same computation keeps a loop in every stage when it is
 counted and has none when it is unrolled, so a loop-targeting observation on
 this program is attributable to the loop rather than to the arithmetic. And both
 forms produce the identical complete output on the device, which is the
-equivalence the pair exists to show. The companion carries an interpreter-replay
-reference rather than a region certificate, so its run is not campaign-valid;
-the comparison is still over the complete output with zero tolerance.
+equivalence the pair exists to show.
+
+Both arms are campaign-valid: each run names the source revision
+`4f99a892…`, the compiler flags, the Triton source revision, and the package
+lock, which is what the runner derives that flag from. The companion's
+reference is an interpreter replay of the unrolled program rather than a region
+certificate, because no proof family accepts an unrolled body; that is a
+limitation of the reference kind and is stated separately from qualification.
 
 ## Gaps and controls
 

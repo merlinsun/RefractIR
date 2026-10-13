@@ -52,11 +52,32 @@
   "torch": "2.5.1+cu121",
   "triton": "3.9.0 at 32f06df4bf1c30885ff61ee3488836ca81ed65f0"
  },
+ "oracle": {
+  "counted": "the case's own exact f32 region certificate",
+  "limitation": "the companion carries no region certificate because no proof family accepts an unrolled body. That is a limitation of its reference kind and is stated separately from qualification; the comparison itself is over the complete output.",
+  "unrolled": "an interpreter replay of the unrolled program over the counted inputs at 128 and 256 reference bits, required to equal the counted expected bytes"
+ },
  "paired": {
   "actual_sha256_prefix_both": "f5826a578a9ae11e",
   "kernels_differ": true,
   "outputs_identical": true,
   "reading": "the same computation with the counted loop keeps one scf.for in TTIR and TTGIR and one branch cycle in LLIR and PTX; the mechanically unrolled form of the same program has neither, and both produce the identical complete output on the device"
+ },
+ "qualification": {
+  "compiler_flags_recorded": true,
+  "counted": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "note": "campaign validity is derived from provenance, not from the presence of an exactness certificate: both arms name the source revision, the compiler flags, the Triton source revision, and the package lock. An earlier run of this pair recorded no revision and no compiler flags, so both arms were campaign-invalid for that reason; the certificate was never the cause.",
+  "refractir_revision": "4f99a89293472003ae2e5c52d19005ccbce28abe",
+  "unrolled": {
+   "campaign_valid": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "working_tree_dirty": true
  },
  "schema": "refractir.paired-unrolled-device.v1",
  "unrolled": {
@@ -74,8 +95,7 @@
   "status": "pass"
  },
  "verification": {
-  "campaign_valid": false,
-  "campaign_valid_reason": "the companion states an interpreter-replay reference, not a region certificate",
+  "campaign_valid": true,
   "module_tests": "test.unit.test_tensor_unrolled_companion: 7 tests OK on the GPU host",
   "runner_mode": "compiled"
  }

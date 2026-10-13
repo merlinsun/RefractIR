@@ -102,6 +102,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - A counted loop region and its mechanically unrolled twin are paired on the device: a new `test/lib/tensor_unrolled_companion.py` builds the companion by unrolling the counted program, re-emitting its Triton kernel, and deriving its reference from an interpreter replay that must equal the counted expected bytes, and a test module covers the construction and its refusals. The counted form keeps one `scf.for` and one branch cycle to PTX, the unrolled form has neither, and both produce the identical complete output.
 
+- The paired counted/unrolled evidence records what qualifies each arm: both name the source revision, the compiler flags, the Triton source revision, and the package lock, so qualification no longer depends on an earlier run's missing provenance, and the companion's replay reference is described as a limitation of its reference kind rather than as the cause.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
