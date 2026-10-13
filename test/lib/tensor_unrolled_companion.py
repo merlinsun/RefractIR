@@ -12,9 +12,13 @@ program over the counted case's inputs, checked at both supported reference
 precisions and against the counted case's own expected bytes. It carries no
 region certificate: the exact-region recogniser describes the counted loop, and
 a mechanically unrolled body writes each temporary once per copy, which that
-recogniser refuses by design. The manifest therefore states its replay
-reference plainly and declares numerical comparison with zero tolerances, so
-the complete output is still compared bit for bit.
+recogniser refuses by design. Instead of proving the unrolled body exact, the
+manifest records how the reference was derived -- the counted case, its
+certificate, the unrolled source digest, and the replays that had to agree -- and
+the loader grants a bit-exact comparison only to a reference derived that way.
+Zero tolerance alone is not bit-exact: ``+0.0`` and ``-0.0`` differ in bits but
+compare equal, so the comparison states signed-zero exactness as well, which
+compares every zero lane by word.
 """
 
 from __future__ import annotations
@@ -116,6 +120,33 @@ def _profile_version(manifest):
     ) from error
 
 
+def _canonical_digest(value):
+  """Digest a manifest fragment the way the case writer serialises it."""
+  canonical = json.dumps(
+    value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+  )
+  return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _counted_certificate(case):
+  """The counted case's whole-output certificate, or a refusal naming why none.
+
+  A companion earns its bit-exact comparison by deriving it from the counted
+  case's certificate, so a counted case without one leaves nothing to derive
+  from.
+  """
+  certificate = case.manifest.get("reference", {}).get("exactness")
+  if case.manifest.get("comparison", {}).get("mode") != "exact" or not isinstance(
+    certificate, dict
+  ):
+    raise CompanionError(
+      "uncertified_counted_case",
+      "a bit-exact companion is derived from a counted exactness certificate, "
+      "and this counted case carries none",
+    )
+  return certificate
+
+
 def _emit_companion_kernel(directory, manifest, symirc):
   """Emit the companion's kernel through the runner's own emission route.
 
@@ -182,7 +213,9 @@ def _manifest_records(manifest, names):
   return {name: manifest[name] for name in names if name in manifest}
 
 
-def _companion_manifest(case, counted_dir, unrolled, counted_bound, files, replays):
+def _companion_manifest(
+  case, counted_dir, unrolled, counted_bound, files, replays, certificate
+):
   counted = case.manifest
   counted_behavior = counted.get("coverage", {}).get("input_behavior", {})
   inherited_execution = _manifest_records(
@@ -200,8 +233,9 @@ def _companion_manifest(case, counted_dir, unrolled, counted_bound, files, repla
       "generator": "unrolled-companion",
       "seed": counted.get("source", {}).get("seed", 0),
     },
-    # Everything below describes this companion: what it was derived from, and
-    # that its reference is a replay rather than a region certificate.
+    # Everything below states the derivation the bit-exact comparison rests on:
+    # what the companion was derived from, and the replays that had to agree with
+    # the counted reference for the derivation to hold.
     "companion": {
       "of": {
         "entry": counted["entry"],
@@ -210,11 +244,14 @@ def _companion_manifest(case, counted_dir, unrolled, counted_bound, files, repla
         "manifest_sha256": hashlib.sha256(
           (counted_dir / "case.json").read_bytes()
         ).hexdigest(),
+        "certificate_sha256": _canonical_digest(certificate),
+        "reference_sha256": hashlib.sha256(case.expected).hexdigest(),
       },
       "transformation": UNROLLER,
       "counted_trips": counted_bound,
       "unrolled_trips": bound,
       "unrolled_body_copies": counted_bound,
+      "unrolled_source_sha256": _digest(files["program.sir"])["sha256"],
       "inherited_files": ["inputs.bin"],
       "reference": "interpreter-replay-unrolled",
       "replays": [
@@ -240,13 +277,15 @@ def _companion_manifest(case, counted_dir, unrolled, counted_bound, files, repla
       "status": "numerical_reference_checked",
       "artifacts": sorted(files),
     },
-    # A companion holds no exactness certificate, so it compares numerically;
-    # zero tolerances keep the complete-output check bit for bit.
+    # A companion holds no exactness proof of its own, so it compares
+    # numerically; the derivation above is what makes that comparison bit-exact,
+    # which is why zero tolerance comes with signed-zero exactness.
     "comparison": {
       "mode": "numeric",
-      "policy": "companion-replay-exact-bytes",
+      "policy": "derived-counted-certificate-bit-exact",
       "atol": [0, 1],
       "rtol": [0, 1],
+      "zero_sign_exact": True,
     },
     "reference": {
       "defined": True,
@@ -257,7 +296,10 @@ def _companion_manifest(case, counted_dir, unrolled, counted_bound, files, repla
       "note": (
         "Expected bytes are a reference-interpreter replay of the unrolled "
         "program over the counted case's inputs, replayed at every supported "
-        "reference precision and checked against the counted reference bytes."
+        "reference precision and required to reproduce the counted "
+        "certificate's reference bytes. The companion record names the counted "
+        "case, its certificate, the unrolled source, and those replays; the "
+        "comparison is bit-exact because zero lanes are compared by word."
       ),
     },
     "execution": {
@@ -309,6 +351,7 @@ def build_companion(
   counted_dir = Path(counted_case_dir).resolve()
   directory = Path(destination).resolve()
   case = _load(counted_dir, symiri, "invalid_counted_case")
+  certificate = _counted_certificate(case)
   source = case.program.decode("utf-8")
   counted_bound = _loop_bound(source, "the counted source")
   if iterations is not None and iterations != counted_bound:
@@ -336,7 +379,7 @@ def build_companion(
     (directory / "expected.bin").write_bytes(replays[0]["data"])
     files = {name: (directory / name).read_bytes() for name in ARTIFACT_NAMES}
     manifest = _companion_manifest(
-      case, counted_dir, unrolled, counted_bound, files, replays
+      case, counted_dir, unrolled, counted_bound, files, replays, certificate
     )
     (directory / "case.json").write_text(
       json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",

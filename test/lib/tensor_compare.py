@@ -89,6 +89,11 @@ def compare(
       "mismatching_indices": mismatches,
     }
 
+  # Zero tolerance plus the signed-zero rule is a bit-exact contract: two
+  # distinct f32 bit patterns are two distinct values except for the two zeros,
+  # which the rule compares by word. A failure is then an exact mismatch, and
+  # saying so keeps the verdict vocabulary equal to the contract.
+  bit_exact = zero_sign_exact and atol == 0 and rtol == 0
   mismatches = []
   max_absolute = Fraction(0)
   max_relative = Fraction(0)
@@ -108,8 +113,14 @@ def compare(
     if r != 0.0:
       max_relative = max(max_relative, absolute / abs(Fraction.from_float(r)))
 
+  if not mismatches:
+    status = "pass"
+  elif bit_exact:
+    status = "exact_mismatch"
+  else:
+    status = "numeric_mismatch"
   return {
-    "status": ("pass" if not mismatches else "numeric_mismatch"),
+    "status": status,
     "mismatching_indices": mismatches,
     "max_absolute_error": _as_pair(max_absolute),
     "max_relative_error": _as_pair(max_relative),

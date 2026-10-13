@@ -4,6 +4,7 @@ import hashlib
 import importlib
 import json
 import os
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -41,8 +42,11 @@ def _interpreter_available():
 
 
 SHAPE = (8, 8)
-ITERATIONS = 2
+ITERATIONS = 3
 DOMAIN = (0, 8)
+# Seed 1's certified reference keeps zero lanes (24 of 64), which the signed-zero
+# probes below need: they flip one zero lane's sign and compare a genuine output.
+SEED = 1
 
 
 def _inputs(shape, value):
@@ -71,7 +75,7 @@ class UnrolledCompanionTests(unittest.TestCase):
     cls.tensor_case = importlib.import_module("test.lib.tensor_case")
     cls.fixtures = tempfile.TemporaryDirectory()
     cls.configuration = cls.regions.RegionConfiguration(
-      seed=9, shape=SHAPE, iterations=ITERATIONS, family="mixed-depth"
+      seed=SEED, shape=SHAPE, iterations=ITERATIONS, family="mixed-depth"
     )
     cls.source = cls.regions.generate_source(cls.configuration)
     cls.counted = cls.builder.build_case(
@@ -125,6 +129,31 @@ class UnrolledCompanionTests(unittest.TestCase):
     )
     self.assertEqual(result.returncode, 0, result.stderr)
     return output.read_bytes()
+
+  def _zero_sign_probe(self, case_dir):
+    """Compare a genuine output against a reference with one zero lane flipped.
+
+    The genuine bytes are the case's own reference: what a run has to produce.
+    Only the reference's first positive-zero lane is tampered with, exactly as in
+    the review's probe, so the verdict is a statement about the case's policy
+    rather than about the buffers.
+    """
+    loaded = self.tensor_case.load_case(case_dir, symiri=SYMIRI)
+    words = struct.unpack(f"<{len(loaded.expected) // 4}I", loaded.expected)
+    lanes = [index for index, word in enumerate(words) if word == 0]
+    self.assertTrue(lanes, "the fixture reference has no positive-zero lane")
+    index = lanes[0]
+    tampered = bytearray(loaded.expected)
+    tampered[index * 4 : index * 4 + 4] = struct.pack("<I", 0x80000000)
+    runner = importlib.import_module("test.lib.run_triton_tests")
+    report = runner.compare_outputs(
+      loaded.expected,
+      bytes(tampered),
+      loaded.manifest["output"]["dtype"],
+      loaded.manifest["output"]["shape"],
+      loaded.manifest["comparison"],
+    )
+    return index, report
 
   def test_companion_loads_through_the_case_loader(self):
     companion = self._companion()
@@ -245,6 +274,156 @@ class UnrolledCompanionTests(unittest.TestCase):
       )
 
     self.assertEqual(raised.exception.status, "unroll_is_identity")
+    self.assertFalse(destination.exists())
+
+  def test_a_flipped_zero_sign_in_the_reference_is_a_companion_mismatch(self):
+    """The reviewer's probe: a zero lane's sign is part of the contract."""
+    index, report = self._zero_sign_probe(self._companion())
+
+    self.assertEqual(report["status"], "exact_mismatch")
+    self.assertEqual([item["index"] for item in report["mismatches"]], [index])
+    self.assertEqual(report["mismatches"][0]["expected_bits"], "0x80000000")
+    self.assertEqual(report["mismatches"][0]["actual_bits"], "0x00000000")
+
+  def test_the_counted_case_control_rejects_the_same_flipped_zero_reference(self):
+    """The counted case is the control: both policies must reach one verdict."""
+    counted_index, counted_report = self._zero_sign_probe(self.counted)
+    companion_index, companion_report = self._zero_sign_probe(self._companion())
+
+    self.assertEqual(counted_index, companion_index)
+    self.assertEqual(counted_report["status"], "exact_mismatch")
+    self.assertEqual(companion_report["status"], counted_report["status"])
+
+  def test_a_genuine_companion_run_passes_byte_identically(self):
+    """The bit-exact contract still admits the genuine complete output."""
+    companion = self._companion()
+    loaded = self.tensor_case.load_case(companion, symiri=SYMIRI)
+    counted_expected = (self.counted / "expected.bin").read_bytes()
+
+    self.assertTrue(loaded.manifest["comparison"].get("zero_sign_exact"))
+    self.assertEqual(loaded.manifest["comparison"]["atol"], [0, 1])
+    self.assertEqual(loaded.manifest["comparison"]["rtol"], [0, 1])
+    if not _interpreter_available():
+      self.skipTest(
+        "an importable triton and torch are required for an interpreter run"
+      )
+    runner = importlib.import_module("test.lib.run_triton_tests")
+    report = runner.run_case(
+      companion, "interpret", timeout_s=600, symiri=SYMIRI, symirc=SYMIRC
+    )
+    actual = (companion / "runs" / "interpret" / "actual.bin").read_bytes()
+
+    self.assertEqual(report["status"], "pass", report.get("reason"))
+    self.assertEqual(report["comparison"]["status"], "pass")
+    self.assertEqual(actual, counted_expected)
+    self.assertEqual(actual, loaded.expected)
+
+  def test_a_derivation_that_does_not_match_its_bytes_is_refused(self):
+    """The loader checks every link the derivation record names."""
+    companion = self._companion()
+    manifest = json.loads((companion / "case.json").read_text(encoding="utf-8"))
+    self.assertIsInstance(manifest.get("companion"), dict)
+    path = companion / "case.json"
+
+    def refusal(change):
+      tampered = json.loads(json.dumps(manifest))
+      change(tampered)
+      path.write_text(json.dumps(tampered), encoding="utf-8")
+      with self.assertRaises(self.tensor_case.CaseValidationError) as raised:
+        self.tensor_case.load_case(companion, symiri=SYMIRI)
+      return str(raised.exception)
+
+    with self.subTest(field="counted reference digest"):
+      self.assertIn(
+        "counted reference",
+        refusal(lambda data: data["companion"]["of"].update(reference_sha256="0" * 64)),
+      )
+    with self.subTest(field="replay digest"):
+      self.assertIn(
+        "replay 0",
+        refusal(lambda data: data["companion"]["replays"][0].update(sha256="0" * 64)),
+      )
+    with self.subTest(field="unrolled source digest"):
+      self.assertIn(
+        "unrolled source",
+        refusal(lambda data: data["companion"].update(unrolled_source_sha256="0" * 64)),
+      )
+    with self.subTest(field="trip counts"):
+      self.assertIn(
+        "trip counts",
+        refusal(lambda data: data["companion"].update(unrolled_body_copies=1)),
+      )
+
+  def test_a_companion_without_a_derivation_cannot_claim_the_bit_exact_contract(
+    self,
+  ):
+    """The flag is the derivation's to grant, not any v2 case's to state."""
+    companion = self._companion()
+    manifest = json.loads((companion / "case.json").read_text(encoding="utf-8"))
+    manifest["comparison"]["zero_sign_exact"] = True
+    del manifest["companion"]
+    (companion / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with self.assertRaisesRegex(self.tensor_case.CaseValidationError, "derivation"):
+      self.tensor_case.load_case(companion, symiri=SYMIRI)
+
+    counted_copy = Path(self.workspace.name) / "counted-copy"
+    shutil.copytree(self.counted, counted_copy)
+    counted = json.loads((counted_copy / "case.json").read_text(encoding="utf-8"))
+    counted["comparison"]["zero_sign_exact"] = True
+    (counted_copy / "case.json").write_text(json.dumps(counted), encoding="utf-8")
+    with self.assertRaisesRegex(self.tensor_case.CaseValidationError, "derivation"):
+      self.tensor_case.load_case(counted_copy, symiri=SYMIRI)
+
+  def test_a_reference_whose_only_zero_lane_is_negative_zero_still_matches(self):
+    """The smallest edge case: signed-zero equality survives the flag."""
+    loaded = self.tensor_case.load_case(self._companion(), symiri=SYMIRI)
+    shape = loaded.manifest["output"]["shape"]
+    count = 1
+    for size in shape:
+      count *= size
+    values = [float(index + 1) for index in range(count)]
+    values[count // 2] = -0.0
+    reference = struct.pack(f"<{count}f", *values)
+
+    self.assertEqual(
+      [index for index, value in enumerate(values) if value == 0.0], [count // 2]
+    )
+    self.assertEqual(
+      struct.unpack("<I", reference[count // 2 * 4 : count // 2 * 4 + 4])[0],
+      0x80000000,
+    )
+    runner = importlib.import_module("test.lib.run_triton_tests")
+    report = runner.compare_outputs(
+      reference, reference, "f32", shape, loaded.manifest["comparison"]
+    )
+    self.assertEqual(report["status"], "pass")
+
+  def test_an_uncertified_counted_case_is_refused(self):
+    """No counted certificate means there is no derivation to compare with."""
+    uncertified = Path(self.workspace.name) / "uncertified-counted"
+    shutil.copytree(self.counted, uncertified)
+    manifest = json.loads((uncertified / "case.json").read_text(encoding="utf-8"))
+    # The same program and reference, with the certificate replaced by a plain
+    # numerical reference: still a loadable counted case, but nothing to derive
+    # a bit-exact companion from.
+    manifest["comparison"] = {"mode": "numeric", "atol": [0, 1], "rtol": [0, 1]}
+    manifest["reference"] = {
+      "defined": True,
+      "stable": True,
+      "precisions": [128, 256],
+      "exactness": None,
+    }
+    (uncertified / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+    self.tensor_case.load_case(uncertified, symiri=SYMIRI)
+    destination = Path(self.workspace.name) / "uncertified-companion"
+
+    with self.assertRaises(self.companion_module.CompanionError) as raised:
+      self.companion_module.build_companion(
+        uncertified, destination, symiri=SYMIRI, symirc=SYMIRC
+      )
+
+    self.assertEqual(raised.exception.status, "uncertified_counted_case")
     self.assertFalse(destination.exists())
 
 

@@ -23,6 +23,8 @@ PROFILE_V2 = "tensor-v2"
 PROFILE_V3 = "tensor-v3"
 PROFILE_V4 = "tensor-v4"
 _DTYPE_SIZE = {"i32": 4, "f32": 4}
+# The reference-interpreter precisions every numerical reference is replayed at.
+NUMERIC_PRECISIONS = [128, 256]
 
 
 class CaseValidationError(ValueError):
@@ -674,6 +676,122 @@ def _validate_exact_f32_output_proof(
   )
 
 
+def _validate_companion_derivation(manifest, artifacts):
+  """Check the derivation a bit-exact companion states instead of a proof.
+
+  The unrolled body has no whole-output exactness proof of its own, so the
+  companion's bit-exact contract is only as good as its record of where the
+  reference came from: the counted case and its certificate, the unrolled source
+  digest, and the replays that had to reproduce the counted reference. Every link
+  the companion carries bytes for is checked here, so the record has to
+  correspond to the case it is written into. The counted program and manifest
+  digests are the identity of the derivation; recomputing them needs the counted
+  case directory, which a standalone case does not carry.
+  """
+  derivation = manifest.get("companion")
+  _require(
+    isinstance(derivation, dict),
+    "a bit-exact comparison requires a companion derivation record",
+  )
+  counted = derivation.get("of")
+  _require(isinstance(counted, dict), "the derivation must name its counted case")
+  _require(
+    counted.get("entry") == manifest["entry"]
+    and counted.get("profile") == manifest["profile"],
+    "the derivation names a counted case with another entry or profile",
+  )
+  for field in ("program_sha256", "manifest_sha256", "certificate_sha256"):
+    digest = counted.get(field)
+    _require(
+      isinstance(digest, str)
+      and len(digest) == 64
+      and all(char in "0123456789abcdef" for char in digest),
+      f"the derivation's counted {field} must be a SHA-256 digest",
+    )
+  _require(
+    counted.get("reference_sha256")
+    == hashlib.sha256(artifacts["expected.bin"]).hexdigest(),
+    "the derived reference is not the counted reference it claims",
+  )
+  transformation = derivation.get("transformation")
+  _require(
+    isinstance(transformation, str) and bool(transformation),
+    "the derivation must name the unrolling transformation",
+  )
+  _require(
+    derivation.get("unrolled_source_sha256")
+    == hashlib.sha256(artifacts["program.sir"]).hexdigest(),
+    "the derivation does not digest the unrolled source it carries",
+  )
+  for field in ("counted_trips", "unrolled_trips", "unrolled_body_copies"):
+    _integer(derivation.get(field), f"derivation {field}", 1)
+  _require(
+    derivation["unrolled_body_copies"] == derivation["counted_trips"]
+    and derivation["unrolled_trips"] == 1
+    and derivation["counted_trips"] >= 2,
+    "the derivation's trip counts do not describe a counted loop unrolled once",
+  )
+  inherited = derivation.get("inherited_files")
+  _require(
+    isinstance(inherited, list)
+    and "inputs.bin" in inherited
+    and all(name in artifacts for name in inherited),
+    "the derivation must inherit the counted runtime inputs this case carries",
+  )
+  replays = derivation.get("replays")
+  _require(
+    isinstance(replays, list) and all(isinstance(replay, dict) for replay in replays),
+    "the derivation must record one object per replay",
+  )
+  _require(
+    [replay.get("reference_bits") for replay in replays] == NUMERIC_PRECISIONS,
+    "the derivation must record one replay per reference precision",
+  )
+  for index, replay in enumerate(replays):
+    name = replay.get("file")
+    _require(
+      isinstance(name, str) and name in artifacts,
+      f"replay {index} names a file the case does not carry",
+    )
+    _require(
+      replay.get("sha256") == hashlib.sha256(artifacts[name]).hexdigest(),
+      f"replay {index} does not match the file it names",
+    )
+    _require(
+      artifacts[name] == artifacts["expected.bin"],
+      f"replay {index} does not reproduce the reference",
+    )
+    command = replay.get("command")
+    _require(
+      isinstance(command, list)
+      and bool(command)
+      and all(isinstance(part, str) for part in command),
+      f"replay {index} must record the command that produced it",
+    )
+
+
+def _validate_bit_exact_companion_comparison(manifest, artifacts, mode, comparison):
+  """Admit a signed-zero-exact comparison only for a derived companion.
+
+  An ordinary tensor-v2 case compares numerically, and a zero tolerance does not
+  make that bit-exact: `+0.0` and `-0.0` differ in bits but not in value, so the
+  comparator's signed-zero rule is what turns a zero-tolerance comparison into a
+  bit-exact contract -- every other pair of distinct f32 bit patterns is a pair
+  of distinct values, and the rule compares the two zeros by word. A companion's
+  unrolled body has no whole-output exactness proof, so it earns the rule the
+  other way round, by recording a derivation from a counted case's certificate.
+  """
+  _require(
+    mode == "numeric" and comparison.get("zero_sign_exact") is True,
+    "zero_sign_exact is reserved for tensor-v4 or a companion derivation",
+  )
+  _require(
+    comparison["atol"] == [0, 1] and comparison["rtol"] == [0, 1],
+    "a companion derivation must compare at zero tolerances",
+  )
+  _validate_companion_derivation(manifest, artifacts)
+
+
 def load_case(case_path, *, symiri=DEFAULT_SYMIRI):
   """Load and cross-check a tensor case before any target process starts."""
   root = Path(case_path).resolve()
@@ -925,18 +1043,15 @@ def load_case(case_path, *, symiri=DEFAULT_SYMIRI):
       "tensor-v4 requires exact signed-zero handling in both comparison modes",
     )
     _validate_v4_remainder_inputs(artifacts, described_inputs, output)
-  else:
-    _require(
-      "zero_sign_exact" not in comparison,
-      "zero_sign_exact is reserved for tensor-v4",
-    )
+  elif "zero_sign_exact" in comparison:
+    _validate_bit_exact_companion_comparison(manifest, artifacts, mode, comparison)
   reference = manifest.get("reference")
   _require(
     isinstance(reference, dict) and type(reference.get("stable")) is bool,
     "reference stability metadata is required",
   )
   _require(reference["stable"] is True, "unstable references cannot be executed")
-  expected_precisions = [128, 256] if mode == "numeric" else []
+  expected_precisions = NUMERIC_PRECISIONS if mode == "numeric" else []
   _require(
     reference.get("precisions") == expected_precisions,
     "reference precision metadata does not match comparison mode",
