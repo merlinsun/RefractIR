@@ -98,6 +98,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Rematerialization correspondence no longer treats a depth-truncated expression as an identity: when the resolution budget is spent at a name the snapshot does define, the expression is unresolved and any candidate that would compare it stays unconfirmed, while a name the snapshot defines nowhere is still compared by its printed name. The budget is unchanged, and a sweep over chain lengths and depths shows no truncated identity, so the boundary does not move with the budget.
 
+- A run states the route and the region it used: naming a region option records the `loop-reduction` stratum the generation actually forced, so the summary's quotas and the emitted cases agree, and the resolved shape, trip count, family, and mode are recorded before any candidate is built, so a run that admits nothing still says what was asked for. An unnamed request is unchanged.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

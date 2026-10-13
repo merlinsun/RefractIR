@@ -237,7 +237,8 @@ namespace refractir::reify {
 
     void writeSummary(
         const std::filesystem::path &path, const TensorGenerationOptions &options,
-        const TensorGenerationResult &result, const std::vector<AttemptRecord> &attempts
+        const TensorGenerationResult &result, const std::vector<AttemptRecord> &attempts,
+        const std::optional<TensorRegionConfiguration> &region
     ) {
       std::ofstream out(path, std::ios::binary | std::ios::trunc);
       if (!out)
@@ -256,8 +257,24 @@ namespace refractir::reify {
           << ",\"property\":" << jsonString(options.property)
           << ",\"primary_stratum\":" << jsonString(options.primaryStratum)
           << ",\"synthesis\":" << jsonString(options.synthesis)
-          << ",\"generator\":" << jsonString(options.generator)
-          << ",\"input_policy\":" << jsonString(options.inputPolicy)
+          << ",\"generator\":" << jsonString(options.generator);
+      if (region) {
+        // The values the admitted region request resolved to, written before any
+        // candidate is built so a run that admits nothing still states what was
+        // asked for. The field names match the case manifest's
+        // `generator.region` record, so a run and each of its cases read alike.
+        out << ",\"region\":{\"shape\":[";
+        for (std::size_t axis = 0; axis < region->shape.size(); ++axis) {
+          if (axis)
+            out << ',';
+          out << region->shape[axis];
+        }
+        out << "],\"iterations\":" << region->iterations
+            << ",\"family\":" << jsonString(tensorRegionFamilyName(region->family))
+            << ",\"operation_mode\":" << jsonString(tensorRegionArithmeticName(region->arithmetic))
+            << '}';
+      }
+      out << ",\"input_policy\":" << jsonString(options.inputPolicy)
           << ",\"target\":" << jsonString(options.target)
           << ",\"attempt_budget\":" << options.attemptBudget;
       if (options.propertyTarget)
@@ -569,6 +586,20 @@ namespace refractir::reify {
         return "tensor region shape '" + regionShapeText(shape) + "' exceeds the " +
                std::to_string(cap) + "-element tensor profile cap";
       return {};
+    }
+
+    /// The bounded loop-region configuration a request resolves to: the choices
+    /// the caller stated and the region policy's own defaults for the rest.
+    /// Generation and the run summary both read one derivation, so the record
+    /// cannot state values other than the ones the body was built with.
+    TensorRegionConfiguration effectiveRegionConfiguration(
+        const TensorGenerationOptions &options
+    ) {
+      return {
+          options.regionShape.value_or(Shape{2, 2}),
+          options.regionIterations.value_or(2),
+          options.regionFamily.value_or(TensorRegionFamily::Fold),
+          options.regionArithmetic.value_or(TensorRegionArithmeticMode::Additive)};
     }
 
     std::string sirCoordinates(const Shape &coordinates) { return sirShape(coordinates); }
@@ -1506,6 +1537,9 @@ namespace refractir::reify {
       // A named region option asks for the loop-region form. The other loop
       // forms carry no region, so drawing one would silently drop the request.
       const bool regional = options.regionRequested();
+      // One derivation of the resolved request feeds the body, the manifest,
+      // and the run summary, so none of them can state different values.
+      const TensorRegionConfiguration configuration = effectiveRegionConfiguration(options);
       const std::uint32_t loopForm = regional ? 7 : chooseLoopForm(structureRandom);
       const bool nested = loopForm == 0;
       const std::uint32_t variant = nested ? 0 : loopForm - 1;
@@ -1514,7 +1548,7 @@ namespace refractir::reify {
       if (regional) {
         // A requested shape replaces the region policy's own 2x2 body; an
         // unnamed request keeps it. Both are inside the same admitted domain.
-        inputShape = options.regionShape.value_or(Shape{2, 2});
+        inputShape = configuration.shape;
       } else if (!nested && variant == 0)
         inputShape = {256, 2};
       else if (!nested && variant == 4)
@@ -1533,7 +1567,7 @@ namespace refractir::reify {
       std::uniform_int_distribution<std::int32_t> chooseSingleTripCount(2, 4);
       std::uniform_int_distribution<std::int32_t> chooseInnerTripCount(2, 3);
       const std::int32_t singleTripCount =
-          regional ? static_cast<std::int32_t>(options.regionIterations.value_or(2))
+          regional ? static_cast<std::int32_t>(configuration.iterations)
           : !nested && (variant == 0 || variant == 6) ? 2
                                                       : chooseSingleTripCount(structureRandom);
       const std::int32_t innerTripCount = chooseInnerTripCount(structureRandom);
@@ -1575,9 +1609,6 @@ namespace refractir::reify {
       std::vector<std::string> regionInstructions;
       if (variant == 6) {
         const auto tensorElement = options.dtype == "f32" ? TensorElement::F32 : TensorElement::I32;
-        const auto regionFamily = options.regionFamily.value_or(TensorRegionFamily::Fold);
-        const auto regionArithmetic =
-            options.regionArithmetic.value_or(TensorRegionArithmeticMode::Additive);
         TensorGenerationOptions regionOptions = options;
         regionOptions.seed = streamSeed(seed, 0x6c6f6f702d726567ULL);
         TensorGraphLimits regionLimits;
@@ -1589,7 +1620,7 @@ namespace refractir::reify {
             regionOptions, regionLimits,
             {{"%acc_x", TensorTypeInfo{inputShape, tensorElement}},
              {"%acc_y", TensorTypeInfo{inputShape, tensorElement}}},
-            {"%next_x", "%next_y"}, regionArithmetic, regionFamily
+            {"%next_x", "%next_y"}, configuration.arithmetic, configuration.family
         );
         const std::vector<std::pair<std::string, std::string>> stateUpdates{
             {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
@@ -1599,10 +1630,7 @@ namespace refractir::reify {
         // Only a named request records its configuration: an unnamed region
         // keeps the manifest it had, so the frozen cases stay byte-identical.
         if (regional)
-          candidate.region = TensorRegionConfiguration{
-              inputShape, static_cast<std::uint32_t>(singleTripCount), regionFamily,
-              regionArithmetic
-          };
+          candidate.region = configuration;
       }
 
       std::ostringstream source;
@@ -2588,6 +2616,10 @@ namespace refractir::reify {
     const std::string property = inferredProperty(options);
     TensorGenerationOptions recordedOptions = options;
     recordedOptions.property = property;
+    // The loop-region configuration this run resolved to once its route was
+    // admitted, or unset when no region option was named or the route refused
+    // one: a refused request states its reason rather than values it never used.
+    std::optional<TensorRegionConfiguration> recordedRegion;
     if (options.profileVersion == TensorProfileId::V4) {
       if (recordedOptions.primaryStratum.empty())
         recordedOptions.primaryStratum = "f32-remainder";
@@ -2598,7 +2630,10 @@ namespace refractir::reify {
     auto failRoute = [&](std::string status, std::string reason) {
       result.status = std::move(status);
       result.reason = std::move(reason);
-      writeSummary(options.outputDirectory / "generation.json", recordedOptions, result, attempts);
+      writeSummary(
+          options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+          recordedRegion
+      );
       return result;
     };
 
@@ -2642,6 +2677,13 @@ namespace refractir::reify {
         return failRoute(
             "unsupported_route", "a named tensor region option uses the loop-reduction stratum"
         );
+      // Generation and reporting share one effective route: the loop-reduction
+      // stratum builds the request, so the summary schedules that stratum's
+      // quota instead of the profile's default schedule, and it records the
+      // request before the first candidate is built so a run that admits
+      // nothing still states the configuration it asked for.
+      recordedOptions.primaryStratum = "loop-reduction";
+      recordedRegion = effectiveRegionConfiguration(options);
     }
     try {
       parseTensorInputPolicy(options.inputPolicy);
@@ -2798,7 +2840,8 @@ namespace refractir::reify {
             result.reason
         ));
         writeSummary(
-            options.outputDirectory / "generation.json", recordedOptions, result, attempts
+            options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+            recordedRegion
         );
         return result;
       }
@@ -2838,7 +2881,8 @@ namespace refractir::reify {
                 result.reason
             ));
             writeSummary(
-                options.outputDirectory / "generation.json", recordedOptions, result, attempts
+                options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+                recordedRegion
             );
             return result;
           }
@@ -2865,7 +2909,8 @@ namespace refractir::reify {
                                                                       : "exact_smt_failure";
             result.reason = message;
             writeSummary(
-                options.outputDirectory / "generation.json", recordedOptions, result, attempts
+                options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+                recordedRegion
             );
             return result;
           }
@@ -2893,7 +2938,8 @@ namespace refractir::reify {
             }
             attempts.push_back(std::move(record));
             writeSummary(
-                options.outputDirectory / "generation.json", recordedOptions, result, attempts
+                options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+                recordedRegion
             );
             return result;
           }
@@ -2910,7 +2956,8 @@ namespace refractir::reify {
             result.status = "generation_error";
             result.reason = message;
             writeSummary(
-                options.outputDirectory / "generation.json", recordedOptions, result, attempts
+                options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+                recordedRegion
             );
             return result;
           }
@@ -2929,13 +2976,17 @@ namespace refractir::reify {
                                   std::to_string(result.emitted) + " within attempt budget " +
                                   std::to_string(options.attemptBudget);
         writeSummary(
-            options.outputDirectory / "generation.json", recordedOptions, result, attempts
+            options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+            recordedRegion
         );
         return result;
       }
     }
     result.status = "complete";
-    writeSummary(options.outputDirectory / "generation.json", recordedOptions, result, attempts);
+    writeSummary(
+        options.outputDirectory / "generation.json", recordedOptions, result, attempts,
+        recordedRegion
+    );
     return result;
   }
 
