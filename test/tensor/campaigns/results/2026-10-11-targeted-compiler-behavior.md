@@ -289,12 +289,20 @@ this program is attributable to the loop rather than to the arithmetic. And both
 forms produce the identical complete output on the device, which is the
 equivalence the pair exists to show.
 
-Both arms are campaign-valid: each run names the source revision
-`4f99a892…`, the compiler flags, the Triton source revision, and the package
-lock, which is what the runner derives that flag from. The companion's
-reference is an interpreter replay of the unrolled program rather than a region
-certificate, because no proof family accepts an unrolled body; that is a
-limitation of the reference kind and is stated separately from qualification.
+Both arms are campaign-valid: each run names the source revision `1c09c9a5…`,
+the compiler flags, the Triton source revision, and the package lock, which is
+what the runner derives that flag from. The companion's reference is an
+interpreter replay of the unrolled program rather than a region certificate,
+because no proof family accepts an unrolled body; that is a limitation of the
+reference kind and is stated separately from qualification.
+
+The two comparison policies agree on signed zeros: the counted case compares
+exactly, and the companion states unsigned-zero exactness and earns it through a
+derivation checked against the counted case - its identity, its reference
+digest, the unrolled source digest, the trip accounting, the inherited inputs,
+and one replay per precision that reproduces the reference. Flipping the sign of
+one zero lane makes both policies report `exact_mismatch`; the genuine bytes
+pass.
 
 ## Gaps and controls
 

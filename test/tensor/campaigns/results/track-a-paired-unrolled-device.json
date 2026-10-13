@@ -15,6 +15,34 @@
   ],
   "target_source": "the certificate of a concrete in-domain input (every lane at the domain's upper bound); the builder solves for a target and requires the selected output to equal it, so an unreachable target reports UNSAT for a program that is admitted"
  },
+ "comparison_contract": {
+  "counted": {
+   "atol": [
+    0,
+    1
+   ],
+   "mode": "exact",
+   "rtol": [
+    0,
+    1
+   ]
+  },
+  "probe": "flipping the sign of one zero lane makes both policies report exact_mismatch, while the genuine bytes pass",
+  "unrolled": {
+   "atol": [
+    0,
+    1
+   ],
+   "mode": "numeric",
+   "policy": "derived-counted-certificate-bit-exact",
+   "rtol": [
+    0,
+    1
+   ],
+   "zero_sign_exact": true
+  },
+  "why": "zero tolerance alone treats +0.0 and -0.0 as equal, and the reference has 128 zero lanes. The companion states signed-zero exactness and earns it through a checked derivation from the counted case: counted identity and profile, the counted reference digest equal to its own expected bytes, the unrolled source digest, the trip accounting, the inherited inputs, and one replay per precision whose digest and bytes reproduce the reference."
+ },
  "counted": {
   "actual_equals_expected": true,
   "comparison": "pass",
@@ -70,8 +98,8 @@
    "comparison": "pass",
    "status": "pass"
   },
-  "note": "campaign validity is derived from provenance, not from the presence of an exactness certificate: both arms name the source revision, the compiler flags, the Triton source revision, and the package lock. An earlier run of this pair recorded no revision and no compiler flags, so both arms were campaign-invalid for that reason; the certificate was never the cause.",
-  "refractir_revision": "4f99a89293472003ae2e5c52d19005ccbce28abe",
+  "note": "campaign validity comes from provenance, not from an exactness certificate: both arms name the source revision, the compiler flags, the Triton source revision, and the package lock. An earlier run recorded neither revision nor compiler flags, so both arms were invalid for that reason.",
+  "refractir_revision": "1c09c9a593cc",
   "unrolled": {
    "campaign_valid": true,
    "comparison": "pass",
@@ -96,7 +124,7 @@
  },
  "verification": {
   "campaign_valid": true,
-  "module_tests": "test.unit.test_tensor_unrolled_companion: 7 tests OK on the GPU host",
+  "module_tests": "test.unit.test_tensor_unrolled_companion: 14 tests OK on the GPU host, and 134 tests across the neighbouring exact suites",
   "runner_mode": "compiled"
  }
 }

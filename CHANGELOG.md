@@ -106,6 +106,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - An unrolled companion keeps a bit-exact comparison contract: zero tolerance alone treats `+0.0` and `-0.0` as equal, so the companion states signed-zero exactness and earns it only through a checked derivation from the counted case's certificate - the counted identity, its reference digest, the unrolled source digest, the trip accounting, the inherited inputs, and one replay per precision that reproduces the reference. A flipped zero lane is an `exact_mismatch` on both arms, and an ordinary tensor-v2 case still cannot state the flag.
 
+- The paired counted/unrolled device evidence is rebuilt on the committed companion: both arms pass with complete-output comparison and campaign-valid provenance (source revision, compiler flags, Triton source revision, package lock), and the two comparison policies now agree on signed zeros.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
