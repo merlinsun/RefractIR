@@ -296,6 +296,17 @@ interpreter replay of the unrolled program rather than a region certificate,
 because no proof family accepts an unrolled body; that is a limitation of the
 reference kind and is stated separately from qualification.
 
+The pair was rebuilt from the counted configuration and the committed companion
+builder under the tightened derivation check and re-run on the device: both arms
+pass with `actual == expected`, and the rebuilt artifacts reproduce the reviewed
+hashes exactly (`f5826a57…` for the reference, `f60bb874…` for the inputs,
+`359b755b…` for the unrolled program, `638322a9…` for the carried counted
+program). Changing an inherited input and refreshing its digest is refused at
+load time, so a stale reference cannot be dressed up as a companion. One
+environment note: a rebuild raises the builder's per-stage solve budget, because
+this 512-lane integer-twin query needs about six minutes and the library's own
+cap is sixty seconds.
+
 The two comparison policies agree on signed zeros: the counted case compares
 exactly, and the companion states unsigned-zero exactness and earns it through a
 derivation checked against the counted case - its identity, its reference

@@ -107,6 +107,22 @@
   },
   "working_tree_dirty": true
  },
+ "reproduction": {
+  "attack_on_the_rebuilt_companion": "changing an inherited input and refreshing its digest is refused at load time: the companion's runtime inputs are not the counted runtime inputs",
+  "both_arms": {
+   "actual_equals_expected": true,
+   "comparison": "pass",
+   "status": "pass"
+  },
+  "environment_note": "the builder caps every stage at its own TIMEOUT_S of 60 s and this 512-lane integer-twin query needs about six minutes of solver time, so a rebuild raises that constant for the driver; the library default is unchanged",
+  "hashes_match_reviewed_evidence": {
+   "carried counted program.sir": "638322a9be95072a",
+   "companion program.sir": "359b755b92e760cc",
+   "counted and companion expected.bin": "f5826a578a9ae11e",
+   "counted and companion inputs.bin": "f60bb874d66083b2"
+  },
+  "what": "the pair was rebuilt from the counted configuration and the committed companion builder, then re-run on the V100 under the tightened derivation check"
+ },
  "schema": "refractir.paired-unrolled-device.v1",
  "unrolled": {
   "actual_equals_expected": true,

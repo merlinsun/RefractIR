@@ -110,6 +110,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - A companion's derivation is checked against the counted case rather than against itself: the companion carries the counted program, inputs, and reference as digested artifacts of its own case, the loader compares the inherited inputs and reference byte for byte, reproduces the unrolling with the same library function it names, and validates the carried certificate with the counted path's own check. Changing an inherited input or the loop bound and refreshing digests is refused, while a genuine companion still loads and keeps its bit-exact comparison.
 
+- The paired counted/unrolled evidence is reproduced under the tightened derivation check: the pair rebuilt from its recorded configuration matches the reviewed hashes artifact for artifact, both arms pass on the device, and the input attack on the rebuilt companion is refused at load time.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
