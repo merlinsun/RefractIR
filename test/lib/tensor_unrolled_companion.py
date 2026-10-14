@@ -16,9 +16,17 @@ recogniser refuses by design. Instead of proving the unrolled body exact, the
 manifest records how the reference was derived -- the counted case, its
 certificate, the unrolled source digest, and the replays that had to agree -- and
 the loader grants a bit-exact comparison only to a reference derived that way.
-Zero tolerance alone is not bit-exact: ``+0.0`` and ``-0.0`` differ in bits but
-compare equal, so the comparison states signed-zero exactness as well, which
-compares every zero lane by word.
+
+That derivation is a relationship, so the companion carries the counted artifacts
+the loader checks it against: the counted program, its runtime input and
+reference, and the certificate's own solver artifacts, each a digested file of
+the companion's case. The loader compares the inherited input and reference bytes
+with them, reproduces the unrolled source with
+`test.lib.tensor_region_generation.unroll_source`, and validates the counted
+certificate the way the counted path validates it. Zero tolerance alone is not
+bit-exact: ``+0.0`` and ``-0.0`` differ in bits but compare equal, so the
+comparison states signed-zero exactness as well, which compares every zero lane
+by word.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -213,8 +222,61 @@ def _manifest_records(manifest, names):
   return {name: manifest[name] for name in names if name in manifest}
 
 
+def _counted_files(certificate):
+  """Counted artifact names the certificate's own records refer to."""
+  names = set()
+
+  def walk(item):
+    if isinstance(item, dict):
+      for key, entry in item.items():
+        if key.endswith("_file"):
+          names.add(entry)
+        elif not isinstance(entry, str):
+          walk(entry)
+    elif isinstance(item, list):
+      for entry in item:
+        walk(entry)
+
+  walk(certificate)
+  return names
+
+
+def _carry_counted_files(counted_dir, directory, certificate):
+  """Copy the counted artifacts a derivation depends on into the companion.
+
+  A companion has to be checkable on its own, so the counted program, the
+  certificate's solver artifacts and the counted runtime bytes are digested
+  artifacts of the companion's own case. The counted program keeps its own name
+  under ``counted/``; the certificate's selection artifacts keep theirs, so the
+  certificate's records resolve against the carried copies unchanged.
+  """
+  counted_dir = Path(counted_dir)
+  directory = Path(directory)
+  names = {"program.sir", "inputs.bin", "expected.bin"} | _counted_files(certificate)
+  carried = {}
+  for name in sorted(names):
+    source = counted_dir / name
+    if not source.is_file():
+      raise CompanionError(
+        "missing_counted_artifact",
+        f"the counted case does not carry {name}, which the derivation needs",
+      )
+    target = directory / "counted" / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+    carried[name] = str(target.relative_to(directory))
+  return carried
+
+
 def _companion_manifest(
-  case, counted_dir, unrolled, counted_bound, files, replays, certificate
+  case,
+  counted_dir,
+  unrolled,
+  counted_bound,
+  files,
+  replays,
+  certificate,
+  carried,
 ):
   counted = case.manifest
   counted_behavior = counted.get("coverage", {}).get("input_behavior", {})
@@ -234,8 +296,10 @@ def _companion_manifest(
       "seed": counted.get("source", {}).get("seed", 0),
     },
     # Everything below states the derivation the bit-exact comparison rests on:
-    # what the companion was derived from, and the replays that had to agree with
-    # the counted reference for the derivation to hold.
+    # what the companion was derived from, the counted certificate itself, the
+    # carried copies of the counted artifacts that make it checkable, and the
+    # replays that had to agree with the counted reference for the derivation to
+    # hold.
     "companion": {
       "of": {
         "entry": counted["entry"],
@@ -246,6 +310,12 @@ def _companion_manifest(
         ).hexdigest(),
         "certificate_sha256": _canonical_digest(certificate),
         "reference_sha256": hashlib.sha256(case.expected).hexdigest(),
+        "certificate": certificate,
+        # The counted case's own operation list: the certificate was written for
+        # that program, and an unrolled source need not list the same operations
+        # the same way, so the derivation carries the counted claim itself.
+        "operator_coverage": counted.get("operator_coverage"),
+        "files": carried,
       },
       "transformation": UNROLLER,
       "counted_trips": counted_bound,
@@ -377,9 +447,20 @@ def build_companion(
           "bits does not reproduce the counted expected bytes",
         )
     (directory / "expected.bin").write_bytes(replays[0]["data"])
-    files = {name: (directory / name).read_bytes() for name in ARTIFACT_NAMES}
+    carried = _carry_counted_files(counted_dir, directory, certificate)
+    files = {
+      name: (directory / Path(name)).read_bytes()
+      for name in (*ARTIFACT_NAMES, *carried.values())
+    }
     manifest = _companion_manifest(
-      case, counted_dir, unrolled, counted_bound, files, replays, certificate
+      case,
+      counted_dir,
+      unrolled,
+      counted_bound,
+      files,
+      replays,
+      certificate,
+      carried,
     )
     (directory / "case.json").write_text(
       json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",

@@ -4,6 +4,7 @@ import hashlib
 import importlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -171,6 +172,25 @@ class UnrolledCompanionTests(unittest.TestCase):
     )
     self.assertEqual(loaded.inputs, (self.counted / "inputs.bin").read_bytes())
     self.assertEqual(loaded.expected, (self.counted / "expected.bin").read_bytes())
+    # The derivation is checkable on its own: every counted artifact it depends
+    # on is a digested file of the companion's case.
+    carried = loaded.manifest["companion"]["of"]["files"]
+    self.assertEqual(carried["program.sir"], "counted/program.sir")
+    self.assertEqual(
+      (companion / "counted" / "program.sir").read_bytes(),
+      (self.counted / "program.sir").read_bytes(),
+    )
+    counted_manifest = json.loads(
+      (self.counted / "case.json").read_text(encoding="utf-8")
+    )
+    self.assertEqual(
+      loaded.manifest["companion"]["of"]["certificate"],
+      counted_manifest["reference"]["exactness"],
+    )
+    for name in ("inputs.bin", "expected.bin"):
+      record = loaded.manifest["files"][carried[name]]
+      data = (companion / carried[name]).read_bytes()
+      self.assertEqual(record["sha256"], hashlib.sha256(data).hexdigest(), name)
 
   def test_companion_replay_equals_the_counted_expected_bytes(self):
     companion = self._companion()
@@ -353,6 +373,112 @@ class UnrolledCompanionTests(unittest.TestCase):
         "trip counts",
         refusal(lambda data: data["companion"].update(unrolled_body_copies=1)),
       )
+
+  def _refresh(self, companion, manifest, name):
+    """Re-digest one artifact after the attack has rewritten it."""
+    data = (companion / name).read_bytes()
+    manifest["files"][name] = {
+      "bytes": len(data),
+      "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+  def test_a_changed_inherited_input_is_refused_by_the_real_loader(self):
+    """The reviewer's attack on a companion the shipped builder wrote."""
+    companion = self._companion()
+    manifest = json.loads((companion / "case.json").read_text(encoding="utf-8"))
+    data = bytearray((companion / "inputs.bin").read_bytes())
+    self.assertNotEqual(struct.unpack("<f", data[0:4])[0], 7.0)
+    data[0:4] = struct.pack("<f", 7.0)
+    (companion / "inputs.bin").write_bytes(bytes(data))
+    self._refresh(companion, manifest, "inputs.bin")
+    (companion / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with self.assertRaisesRegex(
+      self.tensor_case.CaseValidationError, "not the counted runtime inputs"
+    ):
+      self.tensor_case.load_case(companion, symiri=SYMIRI)
+
+  def test_a_changed_loop_bound_is_refused_by_the_real_loader(self):
+    """The second reviewer attack: the bound changes, every hash is refreshed."""
+    companion = self._companion()
+    manifest = json.loads((companion / "case.json").read_text(encoding="utf-8"))
+    source = (companion / "program.sir").read_text(encoding="utf-8")
+    changed = re.sub(r"(?m)^(\s*br %i < )1(, \^body)", r"\g<1>2\g<2>", source)
+    self.assertNotEqual(changed, source)
+    (companion / "program.sir").write_text(changed, encoding="utf-8")
+    self._refresh(companion, manifest, "program.sir")
+    digest = manifest["files"]["program.sir"]["sha256"]
+    manifest["source"]["sha256"] = digest
+    manifest["companion"]["unrolled_source_sha256"] = digest
+    (companion / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with self.assertRaisesRegex(
+      self.tensor_case.CaseValidationError, "mechanical unrolling"
+    ):
+      self.tensor_case.load_case(companion, symiri=SYMIRI)
+
+  def test_a_wrong_certificate_is_refused_by_the_real_loader(self):
+    """A syntactically valid certificate that does not certify the source."""
+    companion = self._companion()
+    manifest = json.loads((companion / "case.json").read_text(encoding="utf-8"))
+    certificate = manifest["companion"]["of"]["certificate"]
+    certificate["bounds"][0]["max_value"] = 999
+    manifest["companion"]["of"]["certificate_sha256"] = hashlib.sha256(
+      json.dumps(
+        certificate, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+      ).encode("utf-8")
+    ).hexdigest()
+    (companion / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with self.assertRaisesRegex(
+      self.tensor_case.CaseValidationError, "counted certificate is not valid"
+    ):
+      self.tensor_case.load_case(companion, symiri=SYMIRI)
+
+  def test_a_corrupted_carried_selection_artifact_is_refused(self):
+    """The certificate check reads the carried solver artifacts, not their names."""
+    companion = self._companion()
+    manifest = json.loads((companion / "case.json").read_text(encoding="utf-8"))
+    name = manifest["companion"]["of"]["files"]["selection-model.json"]
+    model = json.loads((companion / name).read_text(encoding="utf-8"))
+    model["@kernel"]["%?x"][0] = 0
+    (companion / name).write_text(json.dumps(model), encoding="utf-8")
+    self._refresh(companion, manifest, name)
+    (companion / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with self.assertRaisesRegex(
+      self.tensor_case.CaseValidationError, "counted certificate is not valid"
+    ):
+      self.tensor_case.load_case(companion, symiri=SYMIRI)
+
+  def test_a_companion_without_its_counted_artifacts_is_refused(self):
+    """The smallest edge case: the carried counted copy is gone entirely."""
+    companion = self._companion()
+    manifest = json.loads((companion / "case.json").read_text(encoding="utf-8"))
+    shutil.rmtree(companion / "counted")
+    for name in list(manifest["files"]):
+      if name.startswith("counted/"):
+        del manifest["files"][name]
+    (companion / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with self.assertRaisesRegex(
+      self.tensor_case.CaseValidationError, "counted artifacts"
+    ):
+      self.tensor_case.load_case(companion, symiri=SYMIRI)
+
+  def test_the_counted_case_control_refuses_the_same_input_change(self):
+    """The counted loader rejects it too, so both contracts now agree."""
+    counted = Path(self.workspace.name) / "attacked-counted"
+    shutil.copytree(self.counted, counted)
+    manifest = json.loads((counted / "case.json").read_text(encoding="utf-8"))
+    data = bytearray((counted / "inputs.bin").read_bytes())
+    data[0:4] = struct.pack("<f", 7.0)
+    (counted / "inputs.bin").write_bytes(bytes(data))
+    self._refresh(counted, manifest, "inputs.bin")
+    (counted / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with self.assertRaises(self.tensor_case.CaseValidationError):
+      self.tensor_case.load_case(counted, symiri=SYMIRI)
 
   def test_a_companion_without_a_derivation_cannot_claim_the_bit_exact_contract(
     self,

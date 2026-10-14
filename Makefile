@@ -497,6 +497,7 @@ test-tensor-exact: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TENSOR
 	  test.unit.test_tensor_exact_builder \
 	  test.unit.test_tensor_exact_selection_evidence \
 	  test.unit.test_tensor_exact_region_case \
+	  test.unit.test_tensor_companion_derivation \
 	  test.unit.test_tensor_unrolled_companion \
 	  test.unit.test_tensor_semantics.TensorExactTests
 

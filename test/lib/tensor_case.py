@@ -1,4 +1,10 @@
-"""Strict loader for reproducible tensor case directories."""
+"""Strict loader for reproducible tensor case directories.
+
+A companion of a counted loop region earns its bit-exact comparison here, so
+this loader depends on `test.lib.tensor_region_generation.unroll_source`: the
+mechanical unrolling of the counted program is the only companion source the
+derivation check admits.
+"""
 
 import hashlib
 import json
@@ -22,6 +28,10 @@ PROFILE_V1 = "tensor-v1"
 PROFILE_V2 = "tensor-v2"
 PROFILE_V3 = "tensor-v3"
 PROFILE_V4 = "tensor-v4"
+# The one transformation a companion's derivation may name, and the name the
+# carried copy of the counted program is written under.
+COMPANION_TRANSFORMATION = "test.lib.tensor_region_generation.unroll_source"
+COUNTED_PROGRAM = "counted/program.sir"
 _DTYPE_SIZE = {"i32": 4, "f32": 4}
 # The reference-interpreter precisions every numerical reference is replayed at.
 NUMERIC_PRECISIONS = [128, 256]
@@ -527,6 +537,175 @@ def _signature_record(record):
   return {key: record.get(key) for key in ("name", "dtype", "shape", "byte_length")}
 
 
+def _certificate_files(value):
+  """Counted artifact names a certificate's records refer to.
+
+  The exact-f32 validator reads the counted runtime buffers through the records
+  its caller resolves, and the recorded solver selection by name, so the files a
+  certificate depends on are exactly the names those records state.
+  """
+  names = set()
+
+  def walk(item):
+    if isinstance(item, dict):
+      for key, entry in item.items():
+        if key.endswith("_file"):
+          names.add(entry)
+        elif not isinstance(entry, str):
+          walk(entry)
+    elif isinstance(item, list):
+      for entry in item:
+        walk(entry)
+
+  walk(value)
+  return names
+
+
+def _counted_derivation_files(certificate):
+  """The counted artifact names a companion has to carry for its derivation.
+
+  The counted program proves the certificate was written for the program the
+  companion unrolls, the buffers the certificate is checked against are the
+  counted runtime bytes, and the selection artifacts are what a checked solver
+  witness is made of. Requiring them as digested artifacts of the companion's own
+  case leaves the relationship checkable without the counted directory.
+  """
+  return sorted(
+    {"program.sir", "inputs.bin", "expected.bin"} | _certificate_files(certificate)
+  )
+
+
+def _verified_counted_artifacts(manifest, artifacts, derivation):
+  """Resolve the carried counted artifacts and check them against their records.
+
+  Every carried artifact has to be declared by the companion's own file map, so
+  the bytes this check reads are the digested bytes the loader verified.
+  """
+  name_map = derivation["of"].get("files")
+  _require(
+    isinstance(name_map, dict)
+    and bool(name_map)
+    and all(isinstance(key, str) and key for key in name_map)
+    and all(isinstance(value, str) and value for value in name_map.values()),
+    "the derivation's counted artifacts must map counted names to carried files",
+  )
+  certificate = derivation["of"].get("certificate")
+  required = _counted_derivation_files(
+    certificate if isinstance(certificate, dict) else {}
+  )
+  _require(
+    set(name_map) == set(required),
+    "the derivation must carry the counted artifacts it depends on, and only "
+    "those: " + ", ".join(required),
+  )
+  carried = {}
+  for name in required:
+    path = name_map[name]
+    _require(
+      path in artifacts,
+      f"the derivation's counted artifacts must carry {name} as a file of the case",
+    )
+    record = manifest["files"].get(path)
+    _require(
+      isinstance(record, dict)
+      and record.get("bytes") == len(artifacts[path])
+      and record.get("sha256") == hashlib.sha256(artifacts[path]).hexdigest(),
+      f"the derivation's counted artifact {name} does not match its file record",
+    )
+    carried[name] = artifacts[path]
+  return carried
+
+
+def _compare_counted_bytes(carried, artifacts, manifest):
+  """Require the companion's inherited runtime bytes to be the counted ones.
+
+  `inputs` is the companion's whole runtime input record, checked here against
+  the carried counted bytes; `load_case` has already made it a single contiguous
+  buffer that spans `inputs.bin`, so comparing the file compares what a run
+  stages.
+  """
+  _require(
+    carried["inputs.bin"] == artifacts["inputs.bin"],
+    "the companion's runtime inputs are not the counted runtime inputs",
+  )
+  _require(
+    carried["expected.bin"] == artifacts["expected.bin"],
+    "the companion's reference is not the counted reference",
+  )
+  inputs = manifest.get("inputs")
+  _require(
+    isinstance(inputs, list)
+    and len(inputs) == 1
+    and inputs[0].get("file") == "inputs.bin",
+    "the companion must stage the counted runtime input as its one input buffer",
+  )
+
+
+def _validate_mechanical_unrolling(derivation, carried):
+  """Check the companion source is the supported unrolling of the counted one."""
+  from test.lib import tensor_region_generation
+
+  try:
+    counted_source = carried["program.sir"].decode("utf-8")
+    expected = tensor_region_generation.unroll_source(counted_source)
+  except (UnicodeDecodeError, ValueError) as error:
+    raise CaseValidationError(
+      f"the counted source does not support the derivation's unrolling: {error}"
+    ) from error
+  _require(
+    derivation["unrolled_source_sha256"]
+    == hashlib.sha256(expected.encode("utf-8")).hexdigest(),
+    "the companion source is not the mechanical unrolling of the counted source",
+  )
+
+
+def _validate_counted_certificate(manifest, derivation, carried, artifacts, output):
+  """Validate the carried counted certificate the way the counted path does.
+
+  The counted loader proves a counted case by checking the whole-output
+  certificate against the counted source, its runtime input bytes and its
+  reference; a companion's derivation stands only if the certificate it carries
+  passes that same check. The view below is the counted case that derivation
+  describes: the counted program, the companion's input and reference bytes,
+  which the byte comparison has already shown to be the counted ones.
+  """
+  certificate = derivation["of"].get("certificate")
+  _require(
+    isinstance(certificate, dict),
+    "a bit-exact comparison requires the counted certificate it derives from",
+  )
+  _require(
+    manifest["comparison"].get("policy") == "derived-counted-certificate-bit-exact",
+    "a bit-exact companion derivation must record its comparison policy",
+  )
+  mirror = {"program.sir": carried["program.sir"]}
+  for name in _certificate_files(certificate):
+    mirror[name] = carried[name]
+  mirror["inputs.bin"] = artifacts["inputs.bin"]
+  mirror["expected.bin"] = artifacts["expected.bin"]
+  # The counted source's operations are the certificate's own claim about the
+  # program it certifies, so they are carried beside the certificate rather than
+  # taken from the unrolled source, whose operations need not be listed the same
+  # way.
+  counted_view = {
+    "reference": {"exactness": certificate},
+    "operator_coverage": derivation["of"].get("operator_coverage"),
+  }
+  try:
+    _validate_exact_f32_output_proof(
+      carried["program.sir"].decode("utf-8"),
+      counted_view,
+      output,
+      "exact",
+      mirror,
+      manifest["inputs"],
+    )
+  except (UnicodeDecodeError, ValueError) as error:
+    raise CaseValidationError(
+      f"the counted certificate is not valid for the counted source: {error}"
+    ) from error
+
+
 def _validate_exact_f32_output_proof(
   source, manifest, output, mode, artifacts, described_inputs
 ):
@@ -676,17 +855,24 @@ def _validate_exact_f32_output_proof(
   )
 
 
-def _validate_companion_derivation(manifest, artifacts):
+def _validate_companion_derivation(manifest, artifacts, output):
   """Check the derivation a bit-exact companion states instead of a proof.
 
   The unrolled body has no whole-output exactness proof of its own, so the
-  companion's bit-exact contract is only as good as its record of where the
-  reference came from: the counted case and its certificate, the unrolled source
-  digest, and the replays that had to reproduce the counted reference. Every link
-  the companion carries bytes for is checked here, so the record has to
-  correspond to the case it is written into. The counted program and manifest
-  digests are the identity of the derivation; recomputing them needs the counted
-  case directory, which a standalone case does not carry.
+  companion's bit-exact contract is only as good as its derivation from the
+  counted case it unrolls. The derivation has to be checkable from the companion
+  alone, which is why the companion carries the counted program, its runtime
+  bytes, and its certificate as digested artifacts of its own case. Four
+  relationships are then established here: those artifacts match their records,
+  the inherited runtime input and reference bytes are the counted ones, the
+  companion source is the supported mechanical unrolling of the counted program,
+  and the counted certificate validates against the counted source the way the
+  counted loader validates it. A derivation that cannot show all four is refused,
+  and the bit-exact comparison is not granted.
+
+  The counted program and manifest digests are the identity of the counted case;
+  a standalone companion cannot recompute the manifest digest, so it is checked
+  for syntax and cross-checked through the artifacts above.
   """
   derivation = manifest.get("companion")
   _require(
@@ -715,8 +901,8 @@ def _validate_companion_derivation(manifest, artifacts):
   )
   transformation = derivation.get("transformation")
   _require(
-    isinstance(transformation, str) and bool(transformation),
-    "the derivation must name the unrolling transformation",
+    transformation == COMPANION_TRANSFORMATION,
+    "the derivation must name the supported mechanical unrolling",
   )
   _require(
     derivation.get("unrolled_source_sha256")
@@ -738,6 +924,10 @@ def _validate_companion_derivation(manifest, artifacts):
     and all(name in artifacts for name in inherited),
     "the derivation must inherit the counted runtime inputs this case carries",
   )
+  carried = _verified_counted_artifacts(manifest, artifacts, derivation)
+  _compare_counted_bytes(carried, artifacts, manifest)
+  _validate_mechanical_unrolling(derivation, carried)
+  _validate_counted_certificate(manifest, derivation, carried, artifacts, output)
   replays = derivation.get("replays")
   _require(
     isinstance(replays, list) and all(isinstance(replay, dict) for replay in replays),
@@ -770,7 +960,9 @@ def _validate_companion_derivation(manifest, artifacts):
     )
 
 
-def _validate_bit_exact_companion_comparison(manifest, artifacts, mode, comparison):
+def _validate_bit_exact_companion_comparison(
+  manifest, artifacts, mode, comparison, output
+):
   """Admit a signed-zero-exact comparison only for a derived companion.
 
   An ordinary tensor-v2 case compares numerically, and a zero tolerance does not
@@ -789,7 +981,7 @@ def _validate_bit_exact_companion_comparison(manifest, artifacts, mode, comparis
     comparison["atol"] == [0, 1] and comparison["rtol"] == [0, 1],
     "a companion derivation must compare at zero tolerances",
   )
-  _validate_companion_derivation(manifest, artifacts)
+  _validate_companion_derivation(manifest, artifacts, output)
 
 
 def load_case(case_path, *, symiri=DEFAULT_SYMIRI):
@@ -1044,7 +1236,14 @@ def load_case(case_path, *, symiri=DEFAULT_SYMIRI):
     )
     _validate_v4_remainder_inputs(artifacts, described_inputs, output)
   elif "zero_sign_exact" in comparison:
-    _validate_bit_exact_companion_comparison(manifest, artifacts, mode, comparison)
+    _validate_bit_exact_companion_comparison(
+      manifest, artifacts, mode, comparison, output
+    )
+  else:
+    _require(
+      "companion" not in manifest,
+      "a companion record needs the bit-exact comparison its derivation grants",
+    )
   reference = manifest.get("reference")
   _require(
     isinstance(reference, dict) and type(reference.get("stable")) is bool,
