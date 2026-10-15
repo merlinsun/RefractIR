@@ -529,7 +529,7 @@ test-tensor-graph-audit:
 
 # Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
 test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
-	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study   test-tensor-layout test-tensor-tail-shapes test-tensor-region-family test-tensor-region-options test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-discovery-batch test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study   test-tensor-layout test-tensor-tail-shapes test-tensor-region-family test-tensor-region-options test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
 	  test-tensor-solver test-tensor-emit test-tensor-regressions \
 	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
 	  test-tensor-reducer test-tensor-property-pilot
