@@ -141,6 +141,64 @@ fun @kernel(%x: tensor [{rows}, {columns}] f32) : tensor [{rows}, {columns}] f32
 """
 
 
+def chained_region_source(shape=(8, 31), *, axes=(1, 1), bridge=False, iterations=1):
+  """One canonical bounded region whose reduction feeds a second reduction.
+
+  `axes` states the axis of each reduction in order, so the intermediate tensor
+  the second one reads is smaller than the region whenever the first reduction
+  collapsed an extent. `bridge` gives that intermediate a second consumer: a
+  broadcast that restates its own extent. The final broadcast returns the
+  chained result to the full logical extent the loop states carry.
+  """
+  rows, columns = shape
+  zeros = ", ".join(["0.0"] * (rows * columns))
+  extents = [rows, columns]
+  shapes = []
+  for axis in axes:
+    extents[axis] = 1
+    shapes.append(f"[{extents[0]}, {extents[1]}]")
+  bridge_declaration = (
+    f"  let mut %t1b: tensor {shapes[0]} f32 = undef;\n" if bridge else ""
+  )
+  bridge_line = f"  %t1b = tensor broadcast %t1, {shapes[0]};\n" if bridge else ""
+  return f"""\
+fun @kernel(%x: tensor [{rows}, {columns}] f32) : tensor [{rows}, {columns}] f32 {{
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [{rows}, {columns}] f32 = undef;
+  let mut %acc_y: tensor [{rows}, {columns}] f32 = {{{zeros}}};
+  let mut %t0: tensor [{rows}, {columns}] f32 = undef;
+  let mut %t1: tensor {shapes[0]} f32 = undef;
+{bridge_declaration}  let mut %t2: tensor {shapes[1]} f32 = undef;
+  let mut %t3: tensor [{rows}, {columns}] f32 = undef;
+  let mut %t4: tensor [{rows}, {columns}] f32 = undef;
+  let mut %next_x: tensor [{rows}, {columns}] f32 = undef;
+  let mut %next_y: tensor [{rows}, {columns}] f32 = undef;
+  let mut %out: tensor [{rows}, {columns}] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < {iterations}, ^body, ^exit;
+^body:
+  %t0 = tensor add %acc_x, %acc_y;
+  %t1 = tensor sum %t0, {axes[0]}, keep;
+{bridge_line}  %t2 = tensor sum {"%t1b" if bridge else "%t1"}, {axes[1]}, keep;
+  %t3 = tensor broadcast %t2, [{rows}, {columns}];
+  %t4 = tensor add %t0, %t3;
+  %next_x = tensor add %acc_x, %t4;
+  %next_y = tensor add %acc_y, %t4;
+  %acc_x = %next_x;
+  %acc_y = %next_y;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}}
+"""
+
+
 def generated_region_source(axis=1, iterations=2):
   reduced_shape = "[2, 1]" if axis == 1 else "[1, 2]"
   return f"""\

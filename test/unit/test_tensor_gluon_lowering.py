@@ -1,10 +1,12 @@
-"""Shared generated-region graphs lower to inspectable Gluon source."""
+"""Shared generated-region graphs lower to Gluon source and run on the CPU."""
 
 import ast
 import re
+import struct
 import unittest
 from pathlib import Path
 
+from test.lib.tensor_exact_f32 import certify
 from test.lib.tensor_gluon import (
   BlockedLayoutPlan,
   GluonRegionPlan,
@@ -14,7 +16,9 @@ from test.lib.tensor_gluon_lowering import (
   cross_lane_threads_per_warp,
   render_gluon_kernel,
 )
+from test.lib.tensor_gluon_replay import replay_gluon_kernel
 from test.unit.test_tensor_exact_composed import (
+  chained_region_source,
   generated_region_source,
   generated_sequential_region_source,
   tailed_region_source,
@@ -23,6 +27,11 @@ from test.unit.test_tensor_exact_composed import (
 ORTHOGONAL_PROGRAM_PATH = (
   Path(__file__).resolve().parents[1]
   / "tensor/gluon/programs/orthogonal-reductions-region-v1.sir"
+)
+
+TAIL_PROGRAM_PATH = (
+  Path(__file__).resolve().parents[1]
+  / "tensor/gluon/programs/padded-tail-8x31-region-v1.sir"
 )
 
 LOAD = BlockedLayoutPlan("load-a", (1, 1), (1, 32), (1, 1), (1, 0))
@@ -181,6 +190,29 @@ TAIL_TILE = (8, 32)
 def tile_layout(name, order=(1, 0)):
   """One rank-two blocked layout that a single warp can place on any tile."""
   return BlockedLayoutPlan(name, (1, 1), (1, 32), (1, 1), order)
+
+
+def replay_region(source, *, shape, tile=None, plan=None, input_value=1.0):
+  """One region's independent exact reference and the replay of its emission."""
+  values = [input_value] * (shape[0] * shape[1])
+  proof, expected = certify(source, struct.pack(f"<{len(values)}f", *values), (0, 2))
+  generated = render_gluon_kernel(source, plan=plan, tile=tile)
+  return proof, expected, replay_gluon_kernel(generated, values)
+
+
+def replay_words(output):
+  """The replayed output as one buffer of f32 words."""
+  return b"".join(struct.pack("<f", value) for value in output)
+
+
+def reference_words(expected):
+  """An exact reference buffer as one f32 word per logical lane."""
+  return [expected[offset : offset + 4] for offset in range(0, len(expected), 4)]
+
+
+def lane_values(expected):
+  """The distinct f32 values one exact reference buffer states."""
+  return [struct.unpack("<f", word)[0] for word in reference_words(expected)]
 
 
 class TensorGluonPaddedTailTests(unittest.TestCase):
@@ -364,6 +396,113 @@ class TensorGluonDeclaredRoleTests(unittest.TestCase):
     self.assertIn("gl.sum(acc_x, axis=1)", generated.source)
     self.assertIn("gl.sum(acc_x, axis=0)", generated.source)
     self.assertNotIn(f"acc_x_view_{identifier(COMPUTE)}", generated.source)
+
+
+class TensorGluonChainedReductionTests(unittest.TestCase):
+  """A reduction masks its own operand's extent, not the region tile.
+
+  Every test here compares the kernel's replayed output bits against the
+  independent exact reference of the same program, and every mask it observes
+  must be exactly as wide as the operand that mask guards.
+  """
+
+  def assert_replays_exactly(self, replay, expected):
+    self.assertEqual(replay_words(replay.output), expected)
+    self.assertTrue(replay.masks_match_operands(), replay.where_calls)
+
+  def test_a_chained_reduction_sums_its_reduced_operand_once(self):
+    # The reviewer's case: the second axis-1 sum reads the [8, 1] result of the
+    # first, so a tile-shaped mask counts each of its lanes once per padded
+    # column and the recurrence grows by that factor on every lane.
+    source = chained_region_source(TAIL_SHAPE, axes=(1, 1))
+    proof, expected, replay = replay_region(source, shape=TAIL_SHAPE, tile=TAIL_TILE)
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(set(lane_values(expected)), {65.0})
+    self.assert_replays_exactly(replay, expected)
+    # Only the first reduction reads a padded operand, so the second one carries
+    # no mask at all instead of the full tile's.
+    self.assertEqual(replay.where_calls, (((8, 32), (8, 32)),))
+
+  def test_a_single_reduction_tail_is_unchanged(self):
+    # The committed padded-tail program: one reduction over the padded axis, on
+    # the tile the device evidence ran. Its mask is the region's own predicate.
+    source = TAIL_PROGRAM_PATH.read_text(encoding="utf-8")
+    proof, expected, replay = replay_region(source, shape=TAIL_SHAPE, tile=TAIL_TILE)
+
+    self.assertTrue(proof["complete_output"])
+    self.assert_replays_exactly(replay, expected)
+    self.assertEqual(replay.where_calls, (((8, 32), (8, 32)),))
+
+  def test_a_chained_reduction_on_the_other_axis_counts_each_lane_once(self):
+    # The chain collapses the rows, so the second operand keeps one logical row
+    # and its mask must state that extent rather than the region's eight rows.
+    source = chained_region_source(TAIL_SHAPE, axes=(0, 0))
+    proof, expected, replay = replay_region(source, shape=TAIL_SHAPE, tile=TAIL_TILE)
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(set(lane_values(expected)), {19.0})
+    self.assert_replays_exactly(replay, expected)
+    self.assertEqual(replay.where_calls, (((8, 32), (8, 32)), ((1, 32), (1, 32))))
+
+  def test_a_chain_whose_intermediate_is_later_broadcast_keeps_its_extent(self):
+    # The intermediate feeds a broadcast that restates its own extent before the
+    # second reduction reads it, so the emitted value has to carry the padded
+    # extent of that shape and not the region's.
+    source = chained_region_source(TAIL_SHAPE, axes=(0, 0), bridge=True)
+    proof, expected, replay = replay_region(source, shape=TAIL_SHAPE, tile=TAIL_TILE)
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(set(lane_values(expected)), {19.0})
+    self.assert_replays_exactly(replay, expected)
+    self.assertEqual(replay.where_calls, (((8, 32), (8, 32)), ((1, 32), (1, 32))))
+
+  def test_two_reductions_sharing_one_layout_get_their_own_masks(self):
+    # One layout for every role, so both reductions read the same layout at
+    # different shapes: the mask cache is keyed by the operand, not the layout.
+    shared = tile_layout("chain-shared")
+    plan = GluonRegionPlan(
+      "chain-shared-plan",
+      TAIL_SHAPE,
+      shared,
+      shared,
+      shared,
+      reduction=shared,
+      tile=TAIL_TILE,
+    )
+    source = chained_region_source(TAIL_SHAPE, axes=(1, 1))
+    proof, expected, replay = replay_region(source, shape=TAIL_SHAPE, plan=plan)
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(set(lane_values(expected)), {65.0})
+    self.assert_replays_exactly(replay, expected)
+    self.assertEqual(replay.where_calls, (((8, 32), (8, 32)),))
+
+  def test_a_chain_whose_second_operand_needs_no_mask_guards_only_the_padded_one(
+    self,
+  ):
+    # The smallest padded chain: the reduced operand's extent is already its own
+    # tile, so no predicate guards it and only the full-shaped operand has one.
+    shape, tile = (2, 3), (2, 4)
+    source = chained_region_source(shape, axes=(1, 1))
+    proof, expected, replay = replay_region(source, shape=shape, tile=tile)
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(set(lane_values(expected)), {9.0})
+    self.assert_replays_exactly(replay, expected)
+    self.assertEqual(replay.where_calls, (((2, 4), (2, 4)),))
+
+  def test_a_chain_without_padding_emits_no_mask(self):
+    # The other extreme: every extent is a power of two, so every operand is
+    # exactly its own tile and no predicate is needed anywhere.
+    shape = (2, 2)
+    source = chained_region_source(shape, axes=(1, 1))
+    proof, expected, replay = replay_region(source, shape=shape)
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(set(lane_values(expected)), {7.0})
+    self.assert_replays_exactly(replay, expected)
+    self.assertEqual(replay.where_calls, ())
 
 
 if __name__ == "__main__":

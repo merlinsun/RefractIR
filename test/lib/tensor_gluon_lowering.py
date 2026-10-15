@@ -4,7 +4,11 @@ import re
 from dataclasses import dataclass
 
 from test.lib.tensor_exact_f32 import _generated_region_program
-from test.lib.tensor_gluon import BlockedLayoutPlan, execution_tile
+from test.lib.tensor_gluon import (
+  BlockedLayoutPlan,
+  execution_tile,
+  padded_execution_tile,
+)
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,30 @@ def _layout_identifier(name):
   return identifier
 
 
+def _reduced_extent(emitted, axis):
+  """The emitted shape one reduction leaves behind: the axis kept at extent one."""
+  return tuple(1 if index == axis else extent for index, extent in enumerate(emitted))
+
+
+def _broadcast_extent(left, right):
+  """The emitted shape two values of a broadcast pair actually carry."""
+  return tuple(max(a, b) for a, b in zip(left, right))
+
+
+def _mask_label(layout, emitted, logical, region):
+  """The identifier one mask and its index vectors are named after.
+
+  A mask exists only where a logical extent is padded, so a value that is not
+  the region's own tile is named by the extent it stands for: two operands of one
+  layout at different extents then read two differently named predicates. The
+  region's tile keeps the layout's plain name, which is the name the committed
+  padded-tail evidence recorded.
+  """
+  if (tuple(emitted), tuple(logical)) == region:
+    return layout
+  return f"{layout}_{logical[0]}x{logical[1]}"
+
+
 def render_gluon_kernel(source, *, plan=None, tile=None):
   """Emit one Gluon kernel from the same typed region parsed by the exact proof.
 
@@ -106,8 +134,9 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
   extent that is already a power of two is its own tile and emits no mask. A
   tailed extent states its tile explicitly (or through its plan) and the
   emitter keeps that tile while honouring the logical extent: the load and the
-  store carry the tile-shaped validity predicate, and a reduction zeroes the
-  padded lanes before it sums, so no padded lane can reach a stored value.
+  store carry the tile's validity predicate, and every value states the shape it
+  actually has, so a reduction zeroes exactly its own operand's padded lanes
+  before it sums and no padded lane can reach a stored value.
   """
   shape, iterations, tensor_types, nodes, updates = _generated_region_program(source)
   if plan is not None and tuple(plan.shape) != tuple(shape):
@@ -122,7 +151,6 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
     tile = shape
   else:
     tile = execution_tile(shape, tile=declared)
-  padded = tuple(tile) != tuple(shape)
 
   if plan is None:
     load_layout, compute_layout = "load_layout", "compute_layout"
@@ -180,10 +208,19 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
   current_layouts = {"acc_x": compute_layout, "acc_y": compute_layout}
   view_names = set()
   plan_uses = []
-  # One validity predicate per layout that reads it. The predicate is built
-  # from that layout's own index vectors, so the mask never has to change
-  # layout itself; the scopes stay apart because a name bound inside the loop
-  # body is not visible to the store after it.
+  # The logical extent and the emitted shape of every value the body binds. A
+  # mask is stated for the value it guards, so a reduction whose operand a
+  # previous reduction already collapsed masks that operand's own extent: a
+  # tile-shaped predicate would broadcast the operand back across the lanes the
+  # sum must not count.
+  value_extents = {
+    "acc_x": (tuple(shape), tuple(tile)),
+    "acc_y": (tuple(shape), tuple(tile)),
+  }
+  # One validity predicate per (layout, emitted shape, logical extent) triple in
+  # each scope. The predicate is built from that value's own index vectors, so
+  # the mask never has to change layout itself; the scopes stay apart because a
+  # name bound inside the loop body is not visible to the store after it.
   masks = {}
   loop_masks = {}
 
@@ -211,44 +248,46 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
       view_names.add(name)
     return name, wanted
 
-  def mask_in(layout, *, indent, rows_name=None, columns_name=None):
-    """The tile-shaped predicate that marks the logical elements of one layout.
+  def mask_in(layout, *, indent, logical, emitted, rows_name=None, columns_name=None):
+    """The predicate that marks one value's logical elements in one layout.
 
-    The predicate is built from index vectors in the layout that reads it, so
-    the mask itself never has to change layout. A role that already emitted its
-    index vectors passes their names in; any other layout gets its own. The
-    predicate is emitted once per layout and scope and reused after that, so a
-    plan that sends several consumers through one view pays for its mask once.
-    Without padding there is no predicate, and every mask user then keeps the
-    unmasked form.
+    `emitted` is the shape the value carries in the kernel and `logical` the
+    extent it stands for, so the predicate is exactly as wide as the value it
+    guards. A value whose extent is already its emitted shape is not padded and
+    needs no predicate at all. The predicate is emitted once per value shape and
+    scope and reused after that, so a plan that sends several consumers through
+    one view at one shape pays for that predicate once. A caller that already
+    emitted this value's index vectors passes their names in.
     """
-    if not padded:
+    if tuple(logical) == tuple(emitted):
       return None
     names = loop_masks if indent > 4 else masks
-    if layout in names:
-      return names[layout]
+    key = (layout, tuple(emitted), tuple(logical))
+    if key in names:
+      return names[key]
     if (rows_name is None) != (columns_name is None):
       raise ValueError("a mask either reuses both index vectors or emits its own")
+    label = _mask_label(layout, emitted, logical, (tuple(tile), tuple(shape)))
     if rows_name is None:
-      rows_name = f"{layout}_rows"
-      columns_name = f"{layout}_columns"
+      rows_name = f"{label}_rows"
+      columns_name = f"{label}_columns"
       emit(
-        f"{rows_name} = gl.arange(0, {tile[0]}, "
+        f"{rows_name} = gl.arange(0, {emitted[0]}, "
         f"layout=gl.SliceLayout(1, parent={layout}))",
         indent=indent,
       )
       emit(
-        f"{columns_name} = gl.arange(0, {tile[1]}, "
+        f"{columns_name} = gl.arange(0, {emitted[1]}, "
         f"layout=gl.SliceLayout(0, parent={layout}))",
         indent=indent,
       )
-    name = f"valid_{layout}"
+    name = f"valid_{label}"
     emit(
-      f"{name} = ({rows_name}[:, None] < {shape[0]}) & "
-      f"({columns_name}[None, :] < {shape[1]})",
+      f"{name} = ({rows_name}[:, None] < {logical[0]}) & "
+      f"({columns_name}[None, :] < {logical[1]})",
       indent=indent,
     )
-    names[layout] = name
+    names[key] = name
     return name
 
   rows, columns = tile
@@ -265,6 +304,8 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
   load_mask = mask_in(
     load_layout,
     indent=4,
+    logical=shape,
+    emitted=tile,
     rows_name="load_rows",
     columns_name="load_columns",
   )
@@ -297,6 +338,7 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
     result_shape = tensor_types[destination]
     if operation == "sum":
       operand = value_names[operands[0]]
+      operand_logical, operand_emitted = value_extents[operands[0]]
       axis = attribute if attribute >= 0 else attribute + len(shape)
       if plan is None:
         reduction_input = f"{operand}_reduction_input_{index}"
@@ -314,11 +356,18 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
           f"region_sum_{index}_to_reduction",
         )
       # A reduction never sees a padded lane: the mask zeroes them in the
-      # operand's own layout, so whatever the padding holds cannot join the
-      # partial sums (and a sum of zeros is exactly what the logical extent
-      # reduces over).
+      # operand's own layout and at the operand's own extent, so whatever the
+      # padding holds cannot join the partial sums (and a sum of zeros is
+      # exactly what the logical extent reduces over). An operand a previous
+      # reduction already collapsed is smaller than the tile, and a tile-shaped
+      # mask would broadcast it back across the lanes this sum must count once.
       summand = reduction_input
-      reduction_mask = mask_in(reduction_input_layout, indent=8)
+      reduction_mask = mask_in(
+        reduction_input_layout,
+        indent=8,
+        logical=operand_logical,
+        emitted=operand_emitted,
+      )
       if reduction_mask is not None:
         summand = f"{reduction_input}_masked"
         emit(
@@ -332,9 +381,14 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
         conversion=f"region_sum_{index}_result_layout",
       )
       current_layouts[value] = compute_layout
+      value_extents[destination] = (
+        tuple(result_shape),
+        _reduced_extent(operand_emitted, axis),
+      )
     elif operation == "broadcast":
       operand_name = value_names[operands[0]]
       operand_shape = tensor_types[operands[0]]
+      operand_emitted = value_extents[operands[0]][1]
       operand_layout = _shape_layout(operand_shape, shape, compute_layout)
       target_layout = _shape_layout(result_shape, shape, compute_layout)
       operand, _operand_layout = use(
@@ -342,6 +396,7 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
       )
       if tuple(result_shape) == shape:
         reference = "acc_x"
+        reference_emitted = tuple(tile)
         if plan is not None and current_layouts.get("acc_x") != target_layout:
           # The broadcast reference is a value, not just a shape, so it has to
           # carry the layout the result will have.
@@ -354,8 +409,11 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
             )
             view_names.add(reference)
       else:
+        # A reference stands for the padded extent of the shape it states, so
+        # the broadcast meets a value that already carries that padding.
+        reference_emitted = padded_execution_tile(result_shape)
         emit(
-          f"{value}_reference = gl.zeros({tuple(result_shape)!r}, "
+          f"{value}_reference = gl.zeros({reference_emitted!r}, "
           f"gl.float32, layout={target_layout})",
           indent=8,
         )
@@ -367,6 +425,10 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
         conversion=f"region_broadcast_{index}_result_layout",
       )
       current_layouts[value] = target_layout
+      value_extents[destination] = (
+        tuple(result_shape),
+        _broadcast_extent(operand_emitted, reference_emitted),
+      )
     else:
       left_name, right_name = (value_names[name] for name in operands)
       left_shape, right_shape = (tensor_types[name] for name in operands)
@@ -388,6 +450,10 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
         conversion=f"region_{operation}_{index}_result_layout",
       )
       current_layouts[value] = target_layout
+      value_extents[destination] = (
+        tuple(result_shape),
+        _broadcast_extent(value_extents[operands[0]][1], value_extents[operands[1]][1]),
+      )
 
   for state, root in updates:
     root_value = value_names[root]
@@ -401,6 +467,7 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
     else:
       emit(f"{state} = {root_value}", indent=8)
       current_layouts[state] = current_layouts.get(root_value, compute_layout)
+    value_extents[state] = value_extents[root]
 
   emit("out_left, out_right = gl.broadcast(acc_x, acc_y)")
   emit("output = out_left + out_right")
@@ -420,6 +487,8 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
   store_mask = mask_in(
     store_layout,
     indent=4,
+    logical=shape,
+    emitted=tile,
     rows_name="store_rows",
     columns_name="store_columns",
   )

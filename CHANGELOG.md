@@ -134,6 +134,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - A guarded scalar output is staged like a tensor: a rank-one reduction returns a scalar, and the worker's guarded path treated the empty shape as "no physical layout", allocating one slot where the envelope declares guards and gaps, so the kernel received a zero-length view and faulted. Allocation, input staging, the staging record, slot classification, and the materialisation path now follow the declared layout profile, the rank-zero layout maps to its single element, and the fallback that skipped canary classification is gone. On the V100 the same case passes under a `(3, 5)` envelope, its staging record names the physical length, a write into the scalar's prefix guard is refused by name, and a wrong scalar is left to the comparator.
 
+- A padded tail's reduction mask follows its operand rather than the tile: each value now carries its logical extent and its emitted shape, a reduction's mask is built for the operand it guards (and omitted when the two agree, which is the already-reduced case), and the mask cache is keyed by layout, emitted shape, and logical extent instead of layout alone. A chained reduction on an admitted `[8, 31]` tail summed 1,925 where the reference is 65 - on the CPU replay and on the V100 alike - and now sums 65 with equal bytes. The seven pre-existing padded-tail configurations emit byte-identical source, so the committed evidence stands.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
