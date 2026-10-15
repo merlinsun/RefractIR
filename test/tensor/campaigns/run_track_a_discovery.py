@@ -347,9 +347,7 @@ def build_manifest(*, frozen_unix, frozen_utc):
 def step_freeze(work, args, state):
   """Write the frozen manifest, or verify the one already on disk."""
   path = Path(work) / MANIFEST_FILE
-  body = build_manifest(
-    frozen_unix=args.frozen_unix, frozen_utc=args.frozen_utc
-  )
+  body = build_manifest(frozen_unix=args.frozen_unix, frozen_utc=args.frozen_utc)
   digest = _sha256(_canonical(body).encode("utf-8"))
   manifest = {**body, "digest": digest}
   if path.is_file():
@@ -462,9 +460,7 @@ def step_propose(work, args, state):
         "source": _digest(source.encode("utf-8")),
         "lines": len(source.splitlines()),
         "operations": tensor_exact_f32.generated_region_operations(source),
-        "reduction_axes": list(
-          tensor_region_generation.reduction_axes(source)
-        ),
+        "reduction_axes": list(tensor_region_generation.reduction_axes(source)),
         "root_join_patterns": [
           [operation, list(operands)]
           for operation, operands in tensor_region_generation.root_join_patterns(source)
@@ -631,9 +627,7 @@ def step_build(work, args, state):
         configuration, entry["region"], source, entry["admission"], domain
       )
       for proposal in proposals_list:
-        directory = (
-          work / "suite" / identifier / proposal.name
-        )
+        directory = work / "suite" / identifier / proposal.name
         if directory.is_dir() and not args.force:
           derived["inputs"].append(
             {
@@ -731,12 +725,9 @@ def step_run(work, args, state):
   cases = case_directories(work)
   if args.shard is not None:
     return run_shard(work, args, cases)
-  results_path = work / "run-records.json"
   results = merged_run_records(work)
   pending = [
-    item
-    for item in cases
-    if args.force or f"{item[0]}/{item[1]}" not in results
+    item for item in cases if args.force or f"{item[0]}/{item[1]}" not in results
   ]
   shards = max(1, min(args.shards, args.devices))
   (work / "logs").mkdir(parents=True, exist_ok=True)
@@ -855,7 +846,7 @@ def step_smoke(work, args, state):
   """
   work = Path(work)
   manifest = frozen_manifest(work)
-  from test.lib import build_tensor_exact_loop_case, run_triton_tests
+  from test.lib import build_tensor_exact_loop_case
 
   build_tensor_exact_loop_case.TIMEOUT_S = args.stage_timeout
   table = {entry["id"]: entry for entry in manifest["configurations"]}
@@ -1003,9 +994,7 @@ def step_smoke_run(work, args, state):
     "effective_layout_conversions_by_stage": observations.get(
       "effective_layout_conversions_by_stage"
     ),
-    "surviving_layout_conversions": observations.get(
-      "surviving_layout_conversions"
-    ),
+    "surviving_layout_conversions": observations.get("surviving_layout_conversions"),
     "backedges_by_stage": observations.get("backedges_by_stage"),
   }
   return result
@@ -1030,12 +1019,25 @@ def _case_run_summary(directory):
     "effective_layout_conversions_by_stage": observations.get(
       "effective_layout_conversions_by_stage"
     ),
-    "surviving_layout_conversions": observations.get(
-      "surviving_layout_conversions"
-    ),
+    "surviving_layout_conversions": observations.get("surviving_layout_conversions"),
     "backedges_by_stage": observations.get("backedges_by_stage"),
     "artifact_digests": result.get("artifact_digests"),
   }
+
+
+def _removed_outside_a_loop(passes):
+  """Removals per named pass whose conversion was outside every loop.
+
+  This is the other half of the in-loop attribution: a pass whose removals were
+  all at function scope is stated with the count it did remove, rather than
+  leaving the case to be read as a program that had no conversion at all.
+  """
+  outside = {}
+  for pass_name, entries in (passes.get("named_pass_occurrences") or {}).items():
+    count = sum(int(entry.get("removed_outside_a_loop") or 0) for entry in entries)
+    if count:
+      outside[pass_name] = count
+  return outside
 
 
 def observation_outcome(entry):
@@ -1045,11 +1047,11 @@ def observation_outcome(entry):
   reads the four ways the record allows such a decision to appear: a conversion
   that survives to the final tensor IR, a conversion whose enclosing region
   changes across a pass, a rematerialization attributed to a pass, and a named
-  pass that removes layout conversions while a loop construct is present before
-  and after. A device backedge is reported beside the outcome because a removal
-  inside a TTGIR loop and a removal inside a device loop are different claims.
-  A case that executed and shows none of those is `not-observed`; a case whose
-  IR could not be read is `unavailable`.
+  pass that removes layout conversions from inside a loop that is present
+  before and after. A device backedge is reported beside the outcome because a
+  removal inside a TTGIR loop and a removal inside a device loop are different
+  claims. A case that executed and shows none of those is `not-observed`; a case
+  whose IR could not be read is `unavailable`.
   """
   observations = entry.get("observations") or {}
   if observations.get("status") != "observed":
@@ -1065,7 +1067,7 @@ def observation_outcome(entry):
     (passes.get("rematerialization") or {}).get("confirmed_total") or 0
   )
   in_loop = passes.get("in_loop_removals") or []
-  removed_in_loop = sum(int(entry_["conversions_removed"]) for entry_ in in_loop)
+  removed_in_loop = sum(int(entry_["removed_inside_a_loop"]) for entry_ in in_loop)
   device_loop = bool(observations.get("device_backedge"))
   reasons = []
   if surviving:
@@ -1078,7 +1080,7 @@ def observation_outcome(entry):
     names = sorted({entry_["pass"] for entry_ in in_loop})
     reasons.append(
       f"{removed_in_loop} layout conversion(s) removed by {', '.join(names)} "
-      "while a loop construct is present before and after"
+      "from inside a loop present before and after"
     )
   # A device backedge is reported beside the outcome rather than as a reason:
   # a loop that survives to PTX with no layout decision in it is not the
@@ -1090,6 +1092,17 @@ def observation_outcome(entry):
       "device_loop": device_loop,
       "removed_inside_a_loop": removed_in_loop,
       "surviving_conversions": surviving,
+    }
+  outside_loop = _removed_outside_a_loop(passes)
+  if outside_loop:
+    total = sum(outside_loop.values())
+    names = ", ".join(sorted(outside_loop))
+    return {
+      "status": "not-observed",
+      "reasons": [
+        f"{total} layout conversion(s) removed by {names}, none from inside a loop"
+      ],
+      "device_loop": device_loop,
     }
   if any(effective.values()):
     return {
@@ -1104,6 +1117,46 @@ def observation_outcome(entry):
     "status": "not-observed",
     "reasons": ["no layout conversion in any stage"],
     "device_loop": device_loop,
+  }
+
+
+CERTIFIED_REFERENCE_KIND = "exact-certificate"
+
+
+def execution_verdict(result, bit_level_check, *, certified):
+  """The authoritative execution reading of one case, after the byte check.
+
+  A certified reference is bit-exact by construction, so the driver-side
+  word-for-word comparison is the signed-zero check the zero-tolerance numeric
+  comparator cannot make: it calls `+0.0` and `-0.0` equal. A failed byte
+  check, or a missing actual buffer to compare, is therefore a failure of the
+  execution and of the comparison rather than a note beside two passes. An
+  uncertified reference is a declared replay compared numerically, so its byte
+  reading stays an observation about that comparison and does not displace it.
+  """
+  report = result.get("report") or {}
+  byte_status = (bit_level_check or {}).get("status")
+  byte_failed = certified and byte_status != "pass"
+  comparison = dict(report.get("comparison") or {})
+  if byte_failed:
+    comparison["status"] = "fail"
+    comparison["byte_check"] = byte_status
+  reason = report.get("reason")
+  if byte_failed:
+    byte_reason = (
+      f"the certified output does not match the reference word for word ({byte_status})"
+    )
+    reason = f"{reason}; {byte_reason}" if reason else byte_reason
+  return {
+    "status": "fail" if byte_failed else report.get("status"),
+    "comparison": comparison,
+    "campaign_valid": report.get("campaign_valid"),
+    "exit_code": report.get("exit_code"),
+    "reason": reason,
+    "seconds": result.get("seconds"),
+    "artifact_digests": report.get("artifact_digests"),
+    "byte_check_applied": certified,
+    "byte_check_status": byte_status,
   }
 
 
@@ -1133,9 +1186,7 @@ def _summarize_observations(case_dir):
       "ptx": {
         stage: {
           "warp_shuffle_count": record.get("warp_shuffle_count"),
-          "shared_memory_transfer_count": record.get(
-            "shared_memory_transfer_count"
-          ),
+          "shared_memory_transfer_count": record.get("shared_memory_transfer_count"),
         }
         for stage, record in stages.items()
         if stage.lower() in {"ptx", "sass"}
@@ -1146,8 +1197,7 @@ def _summarize_observations(case_dir):
         stages.get("ttgir", {}).get("layout_conversion_operations", 0)
       ),
       "conversions_in_final_ttgir": [
-        entry
-        for entry in observations["layout_conversions"].get("ttgir", [])
+        entry for entry in observations["layout_conversions"].get("ttgir", [])
       ],
       "device_backedge": bool(
         observations["backedges_by_stage"].get("ptx")
@@ -1183,30 +1233,38 @@ def _summarize_observations(case_dir):
       or (transition["rematerialization"] or {}).get("confirmed_count")
     )
   ]
-  # A named pass that removes layout conversions while a loop construct is
-  # present before and after is layout work inside a retained loop: the loop is
-  # still a structured construct in the compiler's view while the removal
-  # happens, whatever LLVM does to it later.
+  # A named pass that removes layout conversions *from inside* a loop which is
+  # still a structured construct before and after it is layout work inside a
+  # retained loop. The module-wide loop count alone does not establish that: a
+  # retained loop elsewhere in the function says nothing about where the
+  # removed conversion sat, so each removal is attributed to the loop region
+  # that enclosed its own fragment, and only that count qualifies.
   in_loop_removals = []
   for pass_name, occurrences in compilation["named_pass_occurrences"].items():
     for occurrence in occurrences:
-      if (
-        occurrence["conversion_match"]["removed"]
-        and occurrence["loop_constructs_before"]
-        and occurrence["loop_constructs_after"]
+      removed_in_loop_regions = occurrence.get("removed_in_loop_regions") or {}
+      removed_inside_a_loop = sum(
+        int(count) for count in removed_in_loop_regions.values()
+      )
+      if not removed_inside_a_loop:
+        continue
+      if not (
+        occurrence["loop_constructs_before"] and occurrence["loop_constructs_after"]
       ):
-        in_loop_removals.append(
-          {
-            "pass": pass_name,
-            "transition_index": occurrence["transition_index"],
-            "loop_constructs_before": occurrence["loop_constructs_before"],
-            "loop_constructs_after": occurrence["loop_constructs_after"],
-            "conversions_removed": occurrence["conversion_match"]["removed"],
-            "effective_removed": occurrence.get(
-              "effective_layout_conversion_delta"
-            ),
-          }
-        )
+        continue
+      in_loop_removals.append(
+        {
+          "pass": pass_name,
+          "transition_index": occurrence["transition_index"],
+          "loop_constructs_before": occurrence["loop_constructs_before"],
+          "loop_constructs_after": occurrence["loop_constructs_after"],
+          "conversions_removed": occurrence["conversion_match"]["removed"],
+          "removed_inside_a_loop": removed_inside_a_loop,
+          "removed_in_loop_regions": removed_in_loop_regions,
+          "removed_outside_a_loop": occurrence.get("removed_outside_a_loop"),
+          "effective_removed": occurrence.get("effective_layout_conversion_delta"),
+        }
+      )
   # The named-pass attribution of this case, stated once: what each pass that
   # changed anything added, preserved, removed, or moved, and what it did to the
   # loop constructs it saw.
@@ -1231,9 +1289,9 @@ def _summarize_observations(case_dir):
     totals["conversions_removed"] += match["removed"]
     totals["conversions_moved"] += match["moved"]
     totals["loop_construct_delta"] += transition["loop_construct_delta"]
-    totals["rematerializations"] += (
-      transition["rematerialization"] or {}
-    ).get("confirmed_count") or 0
+    totals["rematerializations"] += (transition["rematerialization"] or {}).get(
+      "confirmed_count"
+    ) or 0
   summary["passes"] = {
     "status": "observed",
     "compilation_count": passes["compilation_count"],
@@ -1329,9 +1387,7 @@ def step_report(work, args, state):
       "symirc": args.symirc,
       "exporter": args.exporter,
       "digests": {
-        name: (
-          _digest(Path(path).read_bytes()) if Path(path).is_file() else None
-        )
+        name: (_digest(Path(path).read_bytes()) if Path(path).is_file() else None)
         for name, path in (
           ("symiri", args.symiri),
           ("symirc", args.symirc),
@@ -1429,16 +1485,14 @@ def step_report(work, args, state):
       case["output"] = tensor_input_proposals.constant_output(expected)
       result = run_records.get(f"{identifier}/{item['name']}")
       if result is not None:
-        case["execution"] = {
-          "status": result["report"].get("status"),
-          "comparison": result["report"].get("comparison"),
-          "campaign_valid": result["report"].get("campaign_valid"),
-          "exit_code": result["report"].get("exit_code"),
-          "reason": result["report"].get("reason"),
-          "seconds": result.get("seconds"),
-          "artifact_digests": result["report"].get("artifact_digests"),
-        }
         case["bit_level_check"] = proposals._bit_level_check(directory, expected)
+        # The verdict is read once, with the byte check merged in for a
+        # certified input, so every aggregation below sees the same reading.
+        case["execution"] = execution_verdict(
+          result,
+          case["bit_level_check"],
+          certified=item.get("reference_kind") == CERTIFIED_REFERENCE_KIND,
+        )
         observations = _summarize_observations(directory)
         # The pass record is one record, not two: it is lifted out of the
         # observation reading rather than duplicated beside it.
@@ -1471,14 +1525,74 @@ def step_report(work, args, state):
   report["configurations"] = _configuration_summary(report)
   report["graph_diversity"] = _graph_diversity(report)
   report["budget"] = _budget(report, state, args)
-  full_record = Path(args.full_output) if args.full_output else Path(args.output).with_name(
-    "track-a-discovery-batch-full.json"
+  if args.supersedes:
+    report["corrections"] = _corrections(report, args.supersedes)
+  full_record = (
+    Path(args.full_output)
+    if args.full_output
+    else Path(args.output).with_name("track-a-discovery-batch-full.json")
   )
   _write_json(full_record, report)
-  _write_json(
-    Path(args.output), compact_report(report, full_record=str(full_record))
-  )
+  _write_json(Path(args.output), compact_report(report, full_record=str(full_record)))
   return report
+
+
+def _corrections(report, supersedes):
+  """State the corrected reading beside the published one it replaces.
+
+  A corrected rate is not silently written over the number a batch published:
+  each configuration whose outcome counts moved carries the published counts
+  under `observation_outcomes_superseded`, and this block names both records,
+  the driver digest that produced each, and the exact fields that changed.
+  """
+  path = Path(supersedes)
+  published = _read_json(path)
+  previous = {
+    summary["id"]: summary.get("observation_outcomes") or {}
+    for summary in published.get("configurations") or []
+  }
+  changed = []
+  for summary in report["configurations"]:
+    was = previous.get(summary["id"])
+    if was is None or was == summary["observation_outcomes"]:
+      continue
+    summary["observation_outcomes_superseded"] = {
+      "counts": was,
+      "record": str(path),
+      "driver_sha256": (published.get("ledger") or {}).get("driver_sha256"),
+    }
+    changed.append(
+      {
+        "configuration": summary["id"],
+        "field": "observation_outcomes",
+        "superseded": was,
+        "corrected": summary["observation_outcomes"],
+      }
+    )
+  return {
+    "produced_by": {
+      "driver": str(Path(__file__).resolve()),
+      "driver_sha256": _sha256(Path(__file__).read_bytes()),
+      "refractir_revision": report["environment"].get("refractir_revision"),
+    },
+    "supersedes": {
+      "record": str(path),
+      "record_sha256": _sha256(path.read_bytes()),
+      "driver_sha256": (published.get("ledger") or {}).get("driver_sha256"),
+      "observation_outcomes": (published.get("budget") or {}).get(
+        "observation_outcomes"
+      ),
+      "configuration_observation_outcomes": previous,
+    },
+    "changed": changed,
+    "note": (
+      "the corrected report is assembled from the same saved case directories "
+      "as the record it supersedes; this driver revision qualifies a removal "
+      "as in-loop work only when the removed conversion itself sat inside the "
+      "loop, and merges a certified case's byte check into its execution and "
+      "comparison verdict"
+    ),
+  }
 
 
 def compact_report(report, *, full_record):
@@ -1533,10 +1647,9 @@ def compact_report(report, *, full_record):
         reference = case
         break
     reference_name = (reference or {}).get("name")
-    reference_stages = (
-      ((reference or {}).get("observations") or {}).get("structural_ir_digests")
-      or {}
-    )
+    reference_stages = ((reference or {}).get("observations") or {}).get(
+      "structural_ir_digests"
+    ) or {}
     equal_siblings = []
     for case in inputs:
       stages = (case.get("observations") or {}).get("structural_ir_digests") or {}
@@ -1680,10 +1793,7 @@ def _replay_commands(work):
     shape = [str(part) for part in record["command"]]
     # The case paths are the only per-case part; the rest is the command shape.
     key = json.dumps(
-      [
-        Path(part).name if part.endswith((".sir", ".bin")) else part
-        for part in shape
-      ],
+      [Path(part).name if part.endswith((".sir", ".bin")) else part for part in shape],
       ensure_ascii=False,
     )
     shapes.setdefault(key, {"count": 0, "example": record["command"]})
@@ -1720,9 +1830,7 @@ def _configuration_summary(report):
     for entry in rejected:
       reasons.setdefault(entry["rejection_reason"], []).append(entry["id"])
     cases = [case for entry in admitted for case in entry["inputs"]]
-    executed = [
-      case for case in cases if case["execution"].get("status") != "not_run"
-    ]
+    executed = [case for case in cases if case["execution"].get("status") != "not_run"]
     executed_ok = [case for case in executed if case["execution"]["status"] == "pass"]
     summaries.append(
       {
@@ -1769,9 +1877,7 @@ def _graph_diversity(report):
     digest = (generation.get("source") or {}).get("sha256")
     if digest:
       digests.setdefault(digest, []).append(entry["id"])
-  repeated = {
-    digest: ids for digest, ids in digests.items() if len(ids) > 1
-  }
+  repeated = {digest: ids for digest, ids in digests.items() if len(ids) > 1}
   return {
     "distinct_programs": len(digests),
     "proposals_with_a_source": sum(len(ids) for ids in digests.values()),
@@ -1919,6 +2025,14 @@ def main(argv=None):
   )
   parser.add_argument("--control-seed", type=int, default=9)
   parser.add_argument("--case", default=None)
+  parser.add_argument(
+    "--supersedes",
+    default=None,
+    help=(
+      "a published record of the same batch that this report corrects; its "
+      "outcome counts stay visible beside the corrected ones"
+    ),
+  )
   parser.add_argument("--smoke-devices", action="store_true", default=True)
   parser.add_argument("--revision", default=os.environ.get("REFRACTIR_REVISION"))
   parser.add_argument(

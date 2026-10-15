@@ -136,6 +136,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - A padded tail's reduction mask follows its operand rather than the tile: each value now carries its logical extent and its emitted shape, a reduction's mask is built for the operand it guards (and omitted when the two agree, which is the already-reduced case), and the mask cache is keyed by layout, emitted shape, and logical extent instead of layout alone. A chained reduction on an admitted `[8, 31]` tail summed 1,925 where the reference is 65 - on the CPU replay and on the V100 alike - and now sums 65 with equal bytes. The seven pre-existing padded-tail configurations emit byte-identical source, so the committed evidence stands.
 
+- The Track A discovery batch's observation rate is corrected: a conversion is attributed to the loop that encloses it rather than to a pass that merely has a loop somewhere before and after, so a run qualifies as target-behavior-observed only when the removal really happened inside a loop. The corrected batch reads **384 of 512** rather than 512 of 512 - both cross-state configurations are 0 of 64 - with the published figures kept per configuration alongside a correction block, and the executions unchanged at 512 passes. A separate byte check now merges into the authoritative verdict, so a signed-zero mismatch cannot be counted as a passing execution or comparison.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

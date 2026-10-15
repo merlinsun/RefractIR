@@ -1073,12 +1073,26 @@ tool digests, and the sha256 of every `test/lib` module of the import root.
 The plan's bounded discovery batch for Track A froze its allocation on
 2026-10-15 at 11:57:31Z, digest `68880da39fd718e9cb93930a5de4e90bdd19518ba25af028391ed5ca7a128cc3`,
 before any proposal was generated, and drew all 128. The record is
-`test/tensor/campaigns/results/track-a-discovery-batch.json` (`sha256 e5665877…`,
-7.4 MB compact; the full 16.9 MB record `sha256 5ec11767…` stays with the 512
-case directories under `/host/track-a-discovery-20261015/work/`), the frozen
+`test/tensor/campaigns/results/track-a-discovery-batch.json` (`sha256 2456e787…`,
+7.5 MB compact; the full 17.5 MB record `sha256 eec15e0d…` is at
+`/host/track-a-fix-089ee0c/work/`), the frozen
 manifest is `.planning/2026-10-11-targeted-compiler-behavior/discovery-track-a/manifest.json`,
-the driver is `test/tensor/campaigns/run_track_a_discovery.py` (`94a08acb…`), and
+the driver is `test/tensor/campaigns/run_track_a_discovery.py` (`eb173081…`), and
 the report is `.planning/2026-10-11-targeted-compiler-behavior/discovery-track-a.md`.
+
+**Correction (2026-10-16).** The record above was re-derived from the same 512
+saved case directories by a corrected driver, which now attributes every removed
+conversion to the loop that enclosed *it* instead of to any loop present in the
+module, and which merges a certified case's word-for-word byte check into its
+execution and comparison verdict. The record carries a `corrections` block with
+the superseded numbers and both driver digests. The runs themselves are
+unchanged — same cases, same directory tree, same 512 device executions, all 512
+still pass — but the batch's observation rate is not what was first published:
+**384 of 512** runs observe the target behavior, not 512, and the 128 runs of the
+two `cross-state` configurations observe none. The superseded figure was
+`sha256 e5665877…` of the record, produced by driver `94a08acb…`, reporting
+512/512. Where the two numbers differ below, the superseded one is stated as
+such.
 
 | # | half | family | shape × trips | mode | domain | the evidence it starts from |
 |---|---|---|---|---|---|---|
@@ -1116,21 +1130,33 @@ first run and the 512-element matrix already carry, re-derived through the same
 path, which reproduce their recorded loop behavior (E1 unrolled by LLIR, U3
 retained with one PTX backedge) in all eight control executions.
 
-**Observations.** All 512 cases are `target-behavior-observed`, and all for the
-same reason: `TritonGPURemoveLayoutConversions` removes layout conversions while
-exactly one loop construct is present before and after it, in every
-configuration. The removal counts and what survives them:
+**Observations.** 384 of the 512 cases are `target-behavior-observed`, and all
+for the same reason: `TritonGPURemoveLayoutConversions` removes layout
+conversions *from inside the loop*, while exactly one loop construct is present
+before and after it. The published figure of 512/512 counted every removal the
+pass made while any loop existed in the module; re-attributing each removal to
+its own enclosing region moves 4,224 of the 6,032 removals to function scope, and
+in both `cross-state` configurations every one of the eight removals per
+compilation is at function scope, so their 128 runs observe nothing. The removal
+counts, the part of them that came from inside the loop, and what survives them
+(the published 512/512 is superseded; the "in loop" column is new):
 
-| # | removed by `RemoveLayoutConversions` (median, [min, max]) | effective | surviving to final TTGIR | TTIR/TTGIR loops | device loop (LLIR+PTX backedge) | PTX shuffles / shared |
-|---|---|---|---|---|---|---|
-| E1 | 12 [11, 12] | 9 | 0 | 64/64 each | 0/64 | 9 / 0 |
-| E2 | 8 [8, 8] | 5 | 0 | 64/64 each | 0/64 | 0 / 0 |
-| E3 | 15 [15, 15] | 12 | 0 | 64/64 each | 0/64 | 10 / 0 |
-| E4 | 11 [11, 13] | 8 | 0 | 64/64 each | 0/64 | 4 / 0 |
-| U1 | 12 [11, 12] | 9 | 0 | 64/64 each | 0/64 | 6 / 0 |
-| U2 | 8 [8, 8] | 5 | 0 | 64/64 each | 0/64 | 0 / 0 |
-| U3 | 16 [16, 16] | 16 | 0 | 64/64 each | **64/64** | 22 / 2 |
-| U4 | 13 [12, 13] | 13 | 0 | 64/64 each | 0/64 | 56 / 4 |
+| # | removed by `RemoveLayoutConversions` (median, [min, max]) | of which inside the loop (median, [min, max]) | effective | observing runs | surviving to final TTGIR | TTIR/TTGIR loops | device loop (LLIR+PTX backedge) | PTX shuffles / shared |
+|---|---|---|---|---|---|---|---|---|
+| E1 | 12 [11, 12] | 4 [3, 4] | 9 | 64/64 | 0 | 64/64 each | 0/64 | 9 / 0 |
+| E2 | 8 [8, 8] | **0 [0, 0]** | 5 | **0/64** | 0 | 64/64 each | 0/64 | 0 / 0 |
+| E3 | 15 [15, 15] | 7 [7, 7] | 12 | 64/64 | 0 | 64/64 each | 0/64 | 10 / 0 |
+| E4 | 11 [11, 13] | 3 [3, 5] | 8 | 64/64 | 0 | 64/64 each | 0/64 | 4 / 0 |
+| U1 | 12 [11, 12] | 4 [3, 4] | 9 | 64/64 | 0 | 64/64 each | 0/64 | 6 / 0 |
+| U2 | 8 [8, 8] | **0 [0, 0]** | 5 | **0/64** | 0 | 64/64 each | 0/64 | 0 / 0 |
+| U3 | 16 [16, 16] | 7 [7, 7] | 16 | 64/64 | 0 | 64/64 each | **64/64** | 22 / 2 |
+| U4 | 13 [12, 13] | 4 [3, 4] | 13 | 64/64 | 0 | 64/64 each | 0/64 | 56 / 4 |
+
+Published, every configuration stood at 64/64; corrected, six still do (E1, E3,
+E4, U1, U3, U4) and E2 and U2 are 0/64. The record keeps both readings: the
+superseded counts sit in `observation_outcomes_superseded` on each configuration
+that moved, and the top-level `corrections` block names the record and the driver
+digest behind each number.
 
 Four named passes touch a conversion anywhere in the batch, and none adds one
 after the first two: `ConvertTritonToTritonGPU` added 4368 (8.5 per
@@ -1138,15 +1164,23 @@ compilation), `TritonGPUCoalesce` added 1664 and preserved all 4368,
 `TritonGPURemoveLayoutConversions` removed 6032 at its first occurrence
 (11.8 per compilation) with `loop_construct_delta` 0 in all four of its
 occurrences, and `SCFToControlFlowPass` lowered one loop construct per
-compilation (512 in total) while moving no conversion. The difference between
-"removed" and "effective" is the same-encoding no-op the named-pass study
-identified: at `[4, 8]` three conversions per compilation carry no layout
-change, which is why E1 removes 12 and effectively removes 9; U3 and U4 remove
-only conversions that change an encoding.
+compilation (512 in total) while moving no conversion. Of those 6032 removals,
+**1808 (3.5 per compilation) were inside the loop that enclosed them and 4224
+were at function scope** — the split the corrected driver records per pass
+occurrence as `removed_in_loop_regions` and `removed_outside_a_loop`. The
+difference between "removed" and "effective" is the same-encoding no-op the
+named-pass study identified: at `[4, 8]` three conversions per compilation carry
+no layout change, which is why E1 removes 12 and effectively removes 9; U3 and
+U4 remove only conversions that change an encoding.
 
 The other three Track A categories are zero in all 512 cases: no conversion
 survives to the final TTGIR, none changes its enclosing region across a pass,
-and no pass confirms a rematerialization. The new reading is U3:
+and no pass confirms a rematerialization. For 384 of the 512 runs the in-loop
+removal above is therefore the whole observation; for the other 128 — every run
+of E2 and U2 — the batch now records `not-observed`, with the reason "8 layout
+conversion(s) removed by `TritonGPURemoveLayoutConversions`, none from inside a
+loop". Nothing else about the batch changes: the executions still pass, and the
+in-loop category is still the only one reached. The new reading is U3:
 `orthogonal-reductions` at [32, 16] with three trips and four warps keeps a
 device loop in 64 of 64 fresh cases, so the "layout decision removed inside a
 loop that reaches the hardware" configuration is reachable from a second family,
@@ -1174,13 +1208,22 @@ Triton `3.9.0` at `32f06df4bf1c30885ff61ee3488836ca81ed65f0` from
 535.274.02, CUDA 12.1, eight Tesla V100-SXM2-32GB. The record carries the
 compiler flags, the three native tool digests, and the sha256 of every imported
 `test/lib` module — `tensor_case.py` `67643011…`, the same digest the recorded
-runs imported — plus the digest of the driver.
+runs imported — plus the digest of the driver. The corrected record differs from
+the published one in exactly one imported module: `tensor_compiler_observation.py`
+`fe1cb5ea…` (superseded `9e3485a1…`), the module that now attributes each removal
+to its own enclosing region. The driver digest is `eb173081…` (superseded
+`94a08acb…`); the native tools, the frozen manifest, the cases, and the controls
+are unchanged.
 
 **No new compiler failure.** 512 executions, 512 passes, 0 mismatches, 0
 compile failures, 0 refusals, and no configuration whose proposals were all
 rejected. The batch extends the established behavior over 128 fresh programs and
 four underexplored legal combinations; it does not add a defect, and it adds no
 evidence to the surviving-conversion, movement, or rematerialization categories.
+The byte-check verdict is now authoritative for these certified inputs: all 512
+cases carry `byte_check_applied` true and `byte_check_status` `pass`, and a
+signed-zero or any other word-level difference would fail the execution and the
+comparison instead of passing them (no such case is present in this batch).
 
 ## Gaps and controls
 
@@ -1211,17 +1254,24 @@ evidence to the surviving-conversion, movement, or rematerialization categories.
   counts here are far below the plan's per-track budgets.
 * The Track A discovery batch adds no failure and no new layout behavior: its
   512 executions all pass, and surviving conversions, conversion movement, and
-  rematerialization are zero in all of them. The rematerialization question is
-  still unreached, now over 128 more programs.
+  rematerialization are zero in all of them. It observes the target behavior in
+  384 runs, not 512: in the two `cross-state` configurations (E2 and U2) the
+  pass removes eight conversions per compilation and every one of them is at
+  function scope, so those 128 runs are recorded `not-observed`. The published
+  512/512 rate is superseded, and the batch's headline is 384/512. The
+  rematerialization question is still unreached, now over 128 more programs.
 * Track A's batch drew 91 distinct programs from 128 seeds, and one
   configuration (`mixed-depth` with `subtraction` at [4, 8] and two trips) drew
   only 4, so its 16 proposals are largely the same program re-run. Only one
   arithmetic mode and one trip count were frozen for that family, so the run
   cannot separate the mode from the shape and bound it was drawn at.
-* Track A's four inputs per program are four numerical runs of one compilation:
-  the TTIR, TTGIR, and LLIR digests are identical across the four inputs of all
-  128 proposals, so the batch's layout coverage is 91 distinct programs, not 512
-  compilations.
+* Track A's four inputs per program compile to the same structure: the TTIR,
+  TTGIR, and LLIR digests are identical across the four inputs of all 128
+  proposals (PTX differs only in its embedded path string). That is repeated
+  compiled structure, not cache reuse - the batch records 512 compilations from
+  512 caches that were empty at the start - so the layout coverage the batch can
+  attribute is 91 distinct programs, while the remaining executions are
+  numerical and comparison coverage.
 * Two of the four Track A families carry no input proposal at the
   representative's configuration: `reduction-arithmetic` and
   `orthogonal-reductions` are refused by the exact reference over `[0, 8]` with

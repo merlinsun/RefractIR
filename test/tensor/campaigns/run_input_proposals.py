@@ -881,6 +881,11 @@ def pass_dump_observations(case_dir):
         ],
         "conversion_match": transition["conversion_match"],
         "conversion_movement": len(transition["conversion_movement"]),
+        # The loop each removal happened in, not the module-wide loop count:
+        # a pass that runs while a loop exists elsewhere is not thereby doing
+        # layout work inside that loop.
+        "removed_in_loop_regions": transition["removed_in_loop_regions"],
+        "removed_outside_a_loop": transition["removed_outside_a_loop"],
         "loop_construct_delta": transition["loop_construct_delta"],
         "rematerialization": {
           "status": materialization.get("status"),
@@ -902,6 +907,8 @@ def pass_dump_observations(case_dir):
                 "effective_conversion_operation_deltas",
                 "conversion_match",
                 "conversion_movement",
+                "removed_in_loop_regions",
+                "removed_outside_a_loop",
                 "loop_construct_delta",
               )
             },

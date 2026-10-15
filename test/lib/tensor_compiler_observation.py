@@ -4,7 +4,11 @@ import collections
 import re
 
 _SSA = re.compile(r"%[-a-zA-Z$._0-9]+")
-_LOOP = re.compile(r"\b(?:scf\.(?:for|while)|tt\.(?:loop|loop_unroll))\b")
+# The loop constructs a stage holds, as both a text pattern and the region
+# operation names a conversion can sit inside. One list, so a conversion's
+# enclosing loop and the stage's loop count cannot disagree.
+_LOOP_REGIONS = ("scf.for", "scf.while", "tt.loop", "tt.loop_unroll")
+_LOOP = re.compile(r"\b(?:" + "|".join(map(re.escape, _LOOP_REGIONS)) + r")\b")
 _CONVERSION = re.compile(r"\b(?:ttg\.)?convert_layout\b")
 _LOCATION_DEFINITION = re.compile(
   r'^\s*#loc(\d+)\s*=\s*loc\("(?:[^"\\]|\\.)*":(\d+):(\d+)\)'
@@ -196,7 +200,13 @@ def _region_opener(line):
 
 
 def _region_map(text):
-  """Map each 1-based line to its innermost enclosing region operation."""
+  """Map each 1-based line to the path of regions enclosing it.
+
+  The path is outermost first. A conversion's own enclosing region is the last
+  entry, and a conversion inside a loop nested in a combiner region is still
+  inside that loop, which is why the whole path is kept rather than only its
+  innermost name.
+  """
   regions = {}
   stack = []
   for line_number, line in enumerate(text.splitlines(), start=1):
@@ -205,12 +215,20 @@ def _region_map(text):
       if stack:
         stack.pop()
       stripped = stripped[1:].strip()
-    regions[line_number] = stack[-1] if stack else "module"
+    regions[line_number] = tuple(stack)
     if stripped.endswith("{"):
       opener = _region_opener(stripped)
       if opener:
         stack.append(opener)
   return regions
+
+
+def _enclosing_loop(regions):
+  """The innermost loop region of a region path, or None outside every loop."""
+  for region in reversed(regions):
+    if region in _LOOP_REGIONS:
+      return region
+  return None
 
 
 _ENTRY_BLOCK = "<entry>"
@@ -556,6 +574,7 @@ def _stage_observation(text):
       encoding is not None for encoding in encodings[:2]
     )
     layout_changed = readable and source_definition != target_definition
+    enclosing = regions.get(line_number, ())
     conversions.append(
       {
         "result": result_value,
@@ -568,7 +587,8 @@ def _stage_observation(text):
         "source_layout_definition": source_definition,
         "target_layout_definition": target_definition,
         "consumers": sorted(set(consumers.get(result_value, []))),
-        "enclosing_region": regions.get(line_number, "module"),
+        "enclosing_region": enclosing[-1] if enclosing else "module",
+        "enclosing_loop": _enclosing_loop(enclosing),
         "layout_changed": layout_changed,
         "instruction": line.strip(),
       }
@@ -748,6 +768,9 @@ def match_conversion_fragments(before_text, after_text, *, source_lines=None):
   region rather than by SSA name, so a renamed alias or renumbered value stays
   the same fragment. A preserved fragment that changed its enclosing region is
   reported as moved even when both snapshots hold equal conversion counts.
+  Each fragment carries the loop region that enclosed it on either side, so a
+  removal can be attributed to the loop it happened in rather than to a loop
+  that merely exists elsewhere in the module.
   """
   if source_lines is None:
     source_lines = {}
@@ -796,6 +819,8 @@ def match_conversion_fragments(before_text, after_text, *, source_lines=None):
           "target_layout": right["target_layout"],
           "enclosing_region_before": left["enclosing_region"],
           "enclosing_region_after": right["enclosing_region"],
+          "enclosing_loop_before": left["enclosing_loop"],
+          "enclosing_loop_after": right["enclosing_loop"],
           "value_before": left["result"],
           "value_after": right["result"],
         }
@@ -811,6 +836,8 @@ def match_conversion_fragments(before_text, after_text, *, source_lines=None):
           "target_layout": entry["target_layout"],
           "enclosing_region_before": entry["enclosing_region"],
           "enclosing_region_after": None,
+          "enclosing_loop_before": entry["enclosing_loop"],
+          "enclosing_loop_after": None,
           "value_before": entry["result"],
           "value_after": None,
         }
@@ -826,6 +853,8 @@ def match_conversion_fragments(before_text, after_text, *, source_lines=None):
           "target_layout": entry["target_layout"],
           "enclosing_region_before": None,
           "enclosing_region_after": entry["enclosing_region"],
+          "enclosing_loop_before": None,
+          "enclosing_loop_after": entry["enclosing_loop"],
           "value_before": None,
           "value_after": entry["result"],
         }
@@ -1194,6 +1223,26 @@ def _counter_delta(before, after):
   }
 
 
+def _removal_scope(fragments):
+  """Attribute removed conversions to the loop that enclosed each of them.
+
+  A module-wide loop count says a loop exists somewhere; it does not say the
+  removed conversion was inside it. Each removal carries the loop region its
+  own fragment sat in before the pass, so removals outside every loop are
+  counted apart from the ones the loop enclosed.
+  """
+  removed = [fragment for fragment in fragments if fragment["status"] == "removed"]
+  loops = collections.Counter(
+    fragment["enclosing_loop_before"]
+    for fragment in removed
+    if fragment["enclosing_loop_before"]
+  )
+  return {
+    "removed_in_loop_regions": dict(sorted(loops.items())),
+    "removed_outside_a_loop": len(removed) - sum(loops.values()),
+  }
+
+
 def _target_pass_evidence(compilation, observed, target_passes):
   """Locate the transition that measures each named pass in one compilation.
 
@@ -1238,7 +1287,10 @@ def observe_pass_dumps(
 
   A transition from ``Before A`` to ``Before B`` measures the observable IR
   change across pass A. Duplicate-expression counts describe repeated IR work;
-  they do not establish that a source value was rematerialized.
+  they do not establish that a source value was rematerialized. Removed
+  conversions are attributed to the loop region that enclosed each of them, so
+  a pass that runs while a loop exists elsewhere does not report those
+  removals as work inside the loop.
 
   `target_passes` names the passes whose own transition must be reported;
   `rematerialization` additionally matches recomputed values with redirected
@@ -1343,6 +1395,7 @@ def observe_pass_dumps(
           for fragment in conversion_match["fragments"]
           if fragment["status"] == "moved"
         ],
+        **_removal_scope(conversion_match["fragments"]),
         "duplicate_expression_group_delta": (
           after["duplicate_expression_group_count"]
           - before["duplicate_expression_group_count"]
