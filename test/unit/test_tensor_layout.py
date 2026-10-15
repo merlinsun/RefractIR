@@ -262,6 +262,46 @@ class TensorLayoutGuardEdgeTests(unittest.TestCase):
       [],
     )
 
+  def test_rank_zero_layout_places_its_single_element_inside_the_envelope(self):
+    """A scalar is one logical element with guards around its storage."""
+    layout = {
+      "shape": [],
+      "element_strides": [],
+      "element_offset": 0,
+      "storage_span": 1,
+      "axis_order": [],
+    }
+    envelope = tensor_layout.GuardEnvelope(prefix=2, suffix=3)
+    value = bytes.fromhex("d9000000")
+
+    self.assertEqual(tensor_layout.logical_addresses(layout), [0])
+    self.assertEqual(tensor_layout.execution_tile_shape([], profile="v3"), [])
+    staged = tensor_layout.stage_envelope(
+      value, layout, element_size=4, envelope=envelope, padding=PAD_A
+    )
+
+    self.assertEqual(len(staged), (2 + 1 + 3) * 4)
+    self.assertEqual(staged[:8], PAD_A * 2)
+    self.assertEqual(staged[-12:], PAD_A * 3)
+    self.assertEqual(
+      tensor_layout.gather_envelope(staged, layout, element_size=4, envelope=envelope),
+      value,
+    )
+    guard_write = bytearray(staged)
+    guard_write[0:4] = b"\xde\xad\xbe\xef"
+    self.assertEqual(
+      tensor_layout.classify_changed_slots(
+        staged, bytes(guard_write), layout, element_size=4, envelope=envelope
+      ),
+      ["prefix-guard-0"],
+    )
+    self.assertEqual(
+      tensor_layout.classify_changed_slots(
+        staged, staged, layout, element_size=4, envelope=envelope
+      ),
+      [],
+    )
+
 
 class TensorLayoutTests(unittest.TestCase):
   def setUp(self):

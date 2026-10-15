@@ -132,6 +132,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The Track A discovery batch drew 128 fresh proposals over eight configurations frozen before the first draw (the four families as first measured, plus subtraction mode, a larger trip count, a shape at the element cap, and a family at a new shape) and admitted all of them by exact certificate: 512 compiled executions, every one passing, campaign-valid, word-exact, and target-behavior-observed. `orthogonal-reductions` at `[32,16]` keeps a device loop in all 64 of its cases, so a layout decision removed inside a loop that reaches the hardware is reachable from a second family. The batch also measured that the four inputs of a program are one compilation, and that 128 seeds drew 91 distinct programs, so a future batch must select graphs rather than seeds when it wants diversity.
 
+- A guarded scalar output is staged like a tensor: a rank-one reduction returns a scalar, and the worker's guarded path treated the empty shape as "no physical layout", allocating one slot where the envelope declares guards and gaps, so the kernel received a zero-length view and faulted. Allocation, input staging, the staging record, slot classification, and the materialisation path now follow the declared layout profile, the rank-zero layout maps to its single element, and the fallback that skipped canary classification is gone. On the V100 the same case passes under a `(3, 5)` envelope, its staging record names the physical length, a write into the scalar's prefix guard is refused by name, and a wrong scalar is left to the comparator.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

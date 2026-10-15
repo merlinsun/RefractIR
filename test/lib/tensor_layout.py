@@ -18,8 +18,10 @@ def _shape(shape, profile="v2"):
   if profile not in {"v1", "v2", "v3"}:
     raise LayoutError(f"unknown tensor profile {profile!r}")
   max_rank = 2 if profile == "v3" else 3
-  if not isinstance(shape, list) or not 1 <= len(shape) <= max_rank:
-    raise LayoutError(f"shape rank must be in [1, {max_rank}]")
+  # A rank-zero shape is the scalar case: it still has exactly one logical
+  # element, which a guard envelope has to surround like any other record.
+  if not isinstance(shape, list) or len(shape) > max_rank:
+    raise LayoutError(f"shape rank must be in [0, {max_rank}]")
   result = [
     _integer(value, f"shape dimension {axis}", 1) for axis, value in enumerate(shape)
   ]

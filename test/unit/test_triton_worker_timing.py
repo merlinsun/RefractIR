@@ -444,6 +444,267 @@ class TritonWorkerGuardEnvelopeTests(unittest.TestCase):
     self.assertEqual(guarded_bytes, self.expected)
 
 
+class ScalarOutputKernel(FakeKernel):
+  """A rank-one reduction kernel: one scalar element at the output view.
+
+  The view of a guarded scalar starts at the envelope's prefix, so a write
+  before the view start reaches the prefix guard whose slot index it names.
+  """
+
+  def __init__(self, value, *, guard=None, record=None):
+    super().__init__(value)
+    self.guard = guard
+    self.view = None
+    if record is not None:
+      record.append(self)
+
+  def __getitem__(self, _grid):
+    def launch(*args, **_kwargs):
+      output = args[-1]
+      self.view = output
+      output.data = self.output_bytes
+      if self.guard is not None:
+        slot, payload = self.guard
+        parent = output.parent
+        if parent is None:
+          raise RuntimeError("a guard write needs an enveloped output view")
+        parent._buffer[slot * 4 : slot * 4 + 4] = payload
+
+    return launch
+
+
+class TritonWorkerScalarGuardTests(unittest.TestCase):
+  """A scalar output is one logical element inside the same envelope."""
+
+  prefix = 3
+  suffix = 5
+  dense_input = {
+    "shape": [2, 4],
+    "element_strides": [4, 1],
+    "element_offset": 0,
+    "storage_span": 8,
+    "axis_order": [1, 0],
+  }
+  scalar_output = {
+    "shape": [],
+    "element_strides": [],
+    "element_offset": 0,
+    "storage_span": 1,
+    "axis_order": [],
+  }
+  envelope = tensor_layout.GuardEnvelope(prefix=3, suffix=5)
+  canary = bytes.fromhex("aaaaaaaa")
+  gap_sentinel = bytes.fromhex("55555555")
+  scalar = struct.pack("<i", 217)
+
+  def setUp(self):
+    self.device = []
+    self.failure = None
+    self.artifacts = None
+
+  def case_dir(self, root, *, envelope=(3, 5)):
+    """Write one v2 case whose reduction returns a single scalar element."""
+    case = make_case(root / "case")
+    manifest_path = case / "case.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema"] = "refractir.tensor-case.v2"
+    manifest["profile"] = "tensor-v2"
+    (case / "inputs.bin").write_bytes(struct.pack("<8i", *range(8)))
+    manifest["inputs"][0].update(self.dense_input)
+    manifest["inputs"][0].update({"dtype": "i32", "tile_shape": [2, 4]})
+    (case / "expected.bin").write_bytes(self.scalar)
+    manifest["output"].update(self.scalar_output)
+    manifest["output"].update(
+      {"dtype": "i32", "byte_length": 4, "tile_shape": [], "tile_origin": []}
+    )
+    manifest["execution"] = {
+      "warp_probe": {"status": "not_probed", "num_warps": 4},
+      "gap_sentinel_by_dtype": {
+        "i32": self.gap_sentinel.hex(),
+        "f32": self.gap_sentinel.hex(),
+      },
+      "output_canary_by_dtype": {"i32": self.canary.hex(), "f32": self.canary.hex()},
+    }
+    if envelope is not None:
+      manifest["execution"]["guard_envelope"] = {
+        "prefix": envelope[0],
+        "suffix": envelope[1],
+      }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return case
+
+  def run_case(self, case, kernel):
+    """Run one prepared case, keeping the device buffers and any refusal."""
+    artifact_dir = case / "artifacts"
+    artifact_dir.mkdir()
+    (artifact_dir / "kernel.py").write_text("# fake kernel\n", encoding="utf-8")
+    with (
+      mock.patch.dict("sys.modules", {"torch": recording_torch(self.device)}),
+      mock.patch.object(
+        triton_case_worker.runpy, "run_path", return_value={"kernel": kernel}
+      ),
+    ):
+      try:
+        triton_case_worker.execute(case, "compiled", artifact_dir)
+      except (RuntimeError, tensor_layout.LayoutError) as error:
+        self.failure = error
+    self.artifacts = artifact_dir
+
+  def refusal(self):
+    """Return the worker's refusal, refusing to pass vacuously."""
+    self.assertIsNotNone(self.failure, "the worker accepted a case it must refuse")
+    return str(self.failure)
+
+  def staging(self):
+    path = self.artifacts / "worker-staging.json"
+    self.assertTrue(path.is_file(), "the worker must record what it staged")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+  def output_record(self, case):
+    manifest = json.loads((case / "case.json").read_text(encoding="utf-8"))
+    return manifest["output"]
+
+  def test_guarded_scalar_output_stages_and_passes(self):
+    with tempfile.TemporaryDirectory() as directory:
+      case = self.case_dir(Path(directory))
+      self.run_case(case, ScalarOutputKernel(self.scalar))
+      actual = (self.artifacts / "actual.bin").read_bytes()
+      physical = (self.artifacts / "actual-physical.bin").read_bytes()
+      staging = self.staging()
+
+    self.assertIsNone(
+      self.failure, "a guarded scalar result inside its slot must be accepted"
+    )
+    self.assertEqual(actual, self.scalar)
+    self.assertEqual(len(physical), (self.prefix + 1 + self.suffix) * 4)
+    self.assertEqual(physical[self.prefix * 4 : (self.prefix + 1) * 4], self.scalar)
+    self.assertEqual(physical[: self.prefix * 4], self.canary * self.prefix)
+    self.assertEqual(physical[(self.prefix + 1) * 4 :], self.canary * self.suffix)
+    self.assertEqual(
+      staging["buffers"][-1],
+      {
+        "role": "output",
+        "name": "return",
+        "storage_span": 1,
+        "physical_length": (self.prefix + 1 + self.suffix) * 4,
+      },
+    )
+
+  def test_scalar_prefix_guard_write_is_refused_by_slot_name(self):
+    writing = bytes.fromhex("deadbeef")
+    with tempfile.TemporaryDirectory() as directory:
+      case = self.case_dir(Path(directory))
+      self.run_case(case, ScalarOutputKernel(self.scalar, guard=(0, writing)))
+      actual = (self.artifacts / "actual.bin").read_bytes()
+
+    self.assertIn("prefix-guard-0", self.refusal())
+    self.assertEqual(
+      actual, self.scalar, "a storage violation must not cost the run its evidence"
+    )
+
+  def test_wrong_logical_scalar_is_left_to_the_comparator(self):
+    wrong = struct.pack("<i", -123456)
+    with tempfile.TemporaryDirectory() as directory:
+      case = self.case_dir(Path(directory))
+      self.run_case(case, ScalarOutputKernel(wrong))
+      actual = (self.artifacts / "actual.bin").read_bytes()
+      physical = (self.artifacts / "actual-physical.bin").read_bytes()
+
+    self.assertIsNone(
+      self.failure, "a wrong logical value belongs to the numerical comparator"
+    )
+    self.assertEqual(actual, wrong)
+    self.assertEqual(physical[self.prefix * 4 : (self.prefix + 1) * 4], wrong)
+    self.assertEqual(
+      physical[: self.prefix * 4] + physical[(self.prefix + 1) * 4 :],
+      self.canary * (self.prefix + self.suffix),
+    )
+
+  def test_unguarded_scalar_output_is_unchanged(self):
+    with tempfile.TemporaryDirectory() as directory:
+      plain = self.case_dir(Path(directory) / "plain", envelope=None)
+      self.run_case(plain, ScalarOutputKernel(self.scalar))
+      plain_bytes = (self.artifacts / "actual.bin").read_bytes()
+      plain_buffer = self.device[1].data
+      plain_staged = (self.artifacts / "worker-staging.json").is_file()
+      guarded = self.case_dir(Path(directory) / "guarded")
+      self.run_case(guarded, ScalarOutputKernel(self.scalar))
+      guarded_bytes = (self.artifacts / "actual.bin").read_bytes()
+
+    self.assertIsNone(self.failure)
+    self.assertEqual(plain_bytes, self.scalar)
+    self.assertEqual(
+      len(plain_buffer),
+      4,
+      "an unguarded scalar output keeps its one-element allocation",
+    )
+    self.assertFalse(plain_staged, "an unguarded run stages no envelope")
+    self.assertEqual(
+      guarded_bytes, plain_bytes, "the envelope must not change the logical result"
+    )
+
+  def test_scalar_storage_span_and_buffer_length_agree(self):
+    kernel = ScalarOutputKernel(self.scalar)
+    with tempfile.TemporaryDirectory() as directory:
+      case = self.case_dir(Path(directory))
+      self.run_case(case, kernel)
+      record = self.output_record(case)
+      initial = triton_case_worker._initial_output(
+        record,
+        self.canary,
+        triton_case_worker.Envelope(
+          guards=self.envelope, padding_by_dtype={}, declared=True
+        ),
+        profile="v2",
+      )
+      physical = (self.artifacts / "actual.bin").read_bytes()
+      staged = (self.artifacts / "actual-physical.bin").read_bytes()
+
+    self.assertEqual(record["storage_span"], 1)
+    self.assertEqual(
+      len(initial),
+      (self.prefix + 1 + self.suffix) * 4,
+      "the canary must fill the whole enveloped allocation",
+    )
+    self.assertEqual(len(self.device[1].data), len(initial))
+    self.assertEqual(
+      len(kernel.view),
+      4,
+      "the kernel sees one logical element, not the guards",
+    )
+    self.assertEqual(
+      tensor_layout.gather_envelope(
+        staged,
+        record,
+        element_size=4,
+        envelope=self.envelope,
+      ),
+      physical,
+    )
+    self.assertEqual(physical, self.scalar)
+
+  def test_zero_guard_scalar_envelope_reduces_to_the_plain_allocation(self):
+    """A declared but empty envelope stages a scalar exactly as no envelope."""
+    with tempfile.TemporaryDirectory() as directory:
+      guarded = self.case_dir(Path(directory) / "guarded", envelope=(0, 0))
+      self.run_case(guarded, ScalarOutputKernel(self.scalar))
+      guarded_bytes = (self.artifacts / "actual.bin").read_bytes()
+      guarded_buffer = self.device[1].data
+      staging = self.staging()
+      plain = self.case_dir(Path(directory) / "plain", envelope=None)
+      self.run_case(plain, ScalarOutputKernel(self.scalar))
+      plain_bytes = (self.artifacts / "actual.bin").read_bytes()
+      plain_buffer = self.device[1].data
+
+    self.assertIsNone(self.failure)
+    self.assertEqual(guarded_bytes, self.scalar)
+    self.assertEqual(guarded_bytes, plain_bytes)
+    self.assertEqual(guarded_buffer, plain_buffer)
+    self.assertEqual(len(guarded_buffer), 4, "an empty envelope adds no slot")
+    self.assertEqual(staging["guard_envelope"], {"prefix": 0, "suffix": 0})
+    self.assertEqual(staging["buffers"][-1]["physical_length"], 4)
+
+
 class TritonWorkerTimingTests(unittest.TestCase):
   def run_worker(self, root, kernel, *, mode="compiled"):
     case = make_case(root / "case")

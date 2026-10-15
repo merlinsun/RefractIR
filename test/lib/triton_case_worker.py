@@ -115,7 +115,9 @@ def _read_inputs(case_dir, manifest, *, device, envelope, profile):
   with, and the device buffer a write outside the tensor would land in. A
   guarded input is handed to the kernel as a view that starts at the guard
   prefix, because the recorded offsets address the tensor inside its
-  allocation, while the view keeps sharing storage with the whole buffer.
+  allocation, while the view keeps sharing storage with the whole buffer. A
+  declared physical layout covers a scalar's single element too, so every
+  record of a laid-out case is staged the same way.
   """
   raw = (case_dir / "inputs.bin").read_bytes()
   inputs = []
@@ -130,8 +132,8 @@ def _read_inputs(case_dir, manifest, *, device, envelope, profile):
     if record["dtype"] == "f32" and not bool(torch.isfinite(host).all()):
       raise ValueError(f"input {record['name']} contains non-finite values")
     physical = raw[begin:end]
-    guarded = envelope.declared and bool(profile) and bool(record["shape"])
-    if profile and record["shape"]:
+    guarded = envelope.declared and bool(profile)
+    if profile:
       layout = _buffer_layout(record, profile)
       if envelope.declared:
         staged = tensor_layout.stage_envelope(
@@ -169,14 +171,22 @@ def _read_inputs(case_dir, manifest, *, device, envelope, profile):
 
 
 def _initial_output(output_record, canary, envelope, *, profile):
-  """Fill every nonlogical slot of the output allocation with the canary."""
-  if envelope.declared and profile and output_record["shape"]:
+  """Fill every nonlogical slot of the output allocation with the canary.
+
+  A scalar output has a one-element storage span, so its allocation is the
+  guards and gaps around that element, exactly as it is for a tensor.
+  """
+  if envelope.declared and profile:
     return canary * envelope.slots(output_record)
   return canary * output_record["storage_span"]
 
 
 def _staging_record(envelope, *, execution, inputs, output):
-  """Record the physical allocation so any run stays reproducible."""
+  """Record the physical allocation so any run stays reproducible.
+
+  A declared envelope always sits on a laid-out profile, so every record's
+  physical length is one envelope around its storage span, scalar included.
+  """
   if not envelope.declared:
     return {"guard_envelope": None}
   return {
@@ -192,7 +202,7 @@ def _staging_record(envelope, *, execution, inputs, output):
         "role": role,
         "name": record["name"],
         "storage_span": record["storage_span"],
-        "physical_length": envelope.bytes_length(record) if record["shape"] else None,
+        "physical_length": envelope.bytes_length(record),
       }
       for role, records in (("input", inputs), ("output", [output]))
       for record in records
@@ -230,7 +240,7 @@ def _modified_input_slots(record, before, after, envelope, profile):
   The whole allocation is compared, so a write into an input guard or gap is
   reported with the same slot vocabulary as an output write.
   """
-  if not profile or not record["shape"]:
+  if not profile:
     return []
   return _enveloped_changes(
     before,
@@ -401,11 +411,9 @@ def execute(case_dir, mode, artifacts_dir=None):
     try:
       # The checks compare the whole allocation, so they read the buffer the
       # kernel's view points into rather than the view itself.
-      physical = _host_bytes(
-        output_buffer if envelope.declared and output_record["shape"] else output
-      )
+      physical = _host_bytes(output_buffer if envelope.declared else output)
       if profile:
-        if envelope.declared and output_record["shape"]:
+        if envelope.declared:
           # The observed bytes are saved before any storage verdict: a wrong
           # logical value belongs to the numerical comparator, and a storage
           # violation must not cost the run its evidence.
@@ -433,7 +441,7 @@ def execute(case_dir, mode, artifacts_dir=None):
               "kernel wrote outside its logical output mapping: "
               f"guards and gaps differ at {changed[:16]}"
             )
-        elif output_record["shape"]:
+        else:
           changed = tensor_layout.changed_canary_slots(
             initial_output,
             physical,
@@ -446,8 +454,6 @@ def execute(case_dir, mode, artifacts_dir=None):
           result = tensor_layout.gather_buffer(
             physical, output_layout, element_size=_ELEMENT_SIZE, profile=profile
           )
-        else:
-          result = physical[: output_record["byte_length"]]
         (artifacts_dir / "actual-physical.bin").write_bytes(physical)
       else:
         result = physical
