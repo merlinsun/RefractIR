@@ -12,7 +12,9 @@ _LOCATION_DEFINITION = re.compile(
 _ANY_LOCATION_DEFINITION = re.compile(r"^\s*#loc(\d+)\s*=\s*loc\((.*)\)")
 _LOCATION_USE = re.compile(r"\bloc\(#loc(\d+)\)")
 _LOCATION_REFERENCE = re.compile(r"#loc(\d+)")
-_TENSOR_ENCODING = re.compile(r"tensor<[^>]*,\s*(#[a-zA-Z0-9_.-]+)>")
+_TENSOR_OPEN = re.compile(r"\btensor<")
+_ENCODING_TEXT = re.compile(r'(?:#[\w.-]+|"[\w.-]+")(?:<.*>)?$')
+_QUOTED_ENCODING = re.compile(r'^\s*"([\w.]+)"')
 _INLINE_LOCATION = re.compile(r'\bloc\("(?:[^"\\]|\\.)*":(\d+):(\d+)\)')
 _PASS_DUMP_HEADER = re.compile(
   r"^// -----// IR Dump Before (.+?): (.+?) \('([^']+)' operation(?:: @([^)]+))?\) "
@@ -29,6 +31,9 @@ _OPCODE = re.compile(r"(?:tt|ttg|arith|math|scf|cf|memref)\.[a-zA-Z_][\w.]*")
 _IMPURE_OPCODE = re.compile(
   r"\b(?:tt\.(?:load|store|atomic[\w.]*|print|assert|call)|"
   r"ttg\.(?:local_alloc|local_load|local_store|async_[\w.]*)|memref\.[\w.]+)\b"
+)
+_REGION_OPENER = re.compile(
+  r'(?:%[-a-zA-Z$._0-9]+(?::\d+)?\s*=\s*)?(?:"([\w.]+)"|([a-z][\w.]*))'
 )
 _RESOLUTION_DEPTH = 4
 _UNRESOLVED = object()
@@ -74,8 +79,62 @@ def _operation_rhs(instruction):
   return re.sub(r"\s+", " ", rhs)
 
 
+def _split_top_level(text):
+  """Split a printed type body on the commas that sit outside angle brackets."""
+  parts, depth, start = [], 0, 0
+  for index, char in enumerate(text):
+    if char == "<":
+      depth += 1
+    elif char == ">":
+      depth -= 1
+    elif char == "," and depth == 0:
+      parts.append(text[start:index])
+      start = index + 1
+  parts.append(text[start:])
+  return parts
+
+
+def _tensor_encodings(line):
+  """Return the trailing encoding of every tensor type printed on a line.
+
+  MLIR prints an encoding as a bare alias (`#blocked2`) or inline in
+  parameterized form (`#ttg.slice<{dim = 1, parent = #blocked}>`,
+  `#ttg.blocked<{...}>`), and prints a dialect name in generic quoted form
+  (`"ttg.slice"<{...}>`) when the attribute has no custom spelling. The inline
+  forms hold `>` characters that no single regular expression can pair with the
+  `>` that closes the tensor type, so the body is scanned with a bracket counter
+  and split on the commas outside every bracket, and the trailing component is
+  read as the encoding.
+
+  A type the line does not close, or one printed without a trailing encoding,
+  contributes None rather than a truncated reading. The encoding is taken as
+  printed: its name is not validated against a dialect.
+  """
+  encodings = []
+  for match in _TENSOR_OPEN.finditer(line):
+    depth, index = 1, match.end()
+    while index < len(line) and depth:
+      if line[index] == "<":
+        depth += 1
+      elif line[index] == ">":
+        depth -= 1
+      index += 1
+    body = line[match.end() : index - 1] if not depth else ""
+    components = _split_top_level(body)
+    candidate = components[-1].strip() if len(components) > 1 else ""
+    encodings.append(candidate if _ENCODING_TEXT.match(candidate) else None)
+  return encodings
+
+
 def _resolve_encoding_text(text, raw, visited):
-  """Expand nested encoding aliases so equal layouts compare equal."""
+  """Expand nested encoding aliases so equal layouts compare equal.
+
+  A dialect name spelled generically (`"ttg.slice"<{...}>`) denotes the attribute
+  its custom form spells (`#ttg.slice<{...}>`), so the quoted spelling is
+  rewritten to that form before the nested references are expanded. Only the
+  root of the encoding is rewritten: a quoted name nested inside a parameter
+  keeps its printed text.
+  """
 
   def substitute(match):
     name = match.group(0)
@@ -83,6 +142,7 @@ def _resolve_encoding_text(text, raw, visited):
       return name
     return _resolve_encoding_text(raw[name], raw, visited | {name})
 
+  text = _QUOTED_ENCODING.sub(r"#\1", text)
   return re.sub(r"\s+", "", _ENCODING_REFERENCE.sub(substitute, text))
 
 
@@ -90,7 +150,10 @@ def _encoding_definitions(text):
   """Resolve every encoding alias to its definition text.
 
   Layout aliases are renamed freely across passes, so a comparison that reads
-  names rather than definitions reports a change where none happened.
+  names rather than definitions reports a change where none happened. The
+  resolved text is the comparison key for every spelling of that layout, whether
+  a snapshot printed the alias or the parameters inline (`_encoding_identity`).
+  A name the snapshot repeats keeps its last definition.
   """
   raw = {}
   for line in text.splitlines():
@@ -104,10 +167,32 @@ def _encoding_definitions(text):
 
 
 def _encoding_identity(name, definitions):
-  """Return the comparison key for an encoding reference."""
+  """Return the comparison key for one printed encoding, None when none is.
+
+  The key is the encoding's parameters with every nested alias expanded and all
+  whitespace removed, so a bare alias, an inline parameter list, and the generic
+  quoted spelling of one layout all compare equal, while two parameter sets that
+  differ anywhere stay unequal. A reference the snapshot defines nowhere keeps
+  its printed text, which no resolved definition equals.
+  """
   if name is None:
     return None
-  return definitions.get(name) or name
+  return _resolve_encoding_text(name, definitions, set()) or name
+
+
+def _region_opener(line):
+  """Name the region operation a line opens, or None when it opens no region.
+
+  MLIR prints a repeated result as a counted list (`%name:2 = scf.for ...`)
+  rather than by repeating the name, and prints an operation in generic form
+  with a quoted name (`"tt.reduce"(...) ({`). Both open a region, so both must
+  be pushed; otherwise every region opened that way is missing from the stack
+  and the `})` that closes it pops the enclosing loop or function instead.
+  """
+  opener = _REGION_OPENER.match(line)
+  if not opener:
+    return None
+  return opener[1] or opener[2]
 
 
 def _region_map(text):
@@ -122,9 +207,9 @@ def _region_map(text):
       stripped = stripped[1:].strip()
     regions[line_number] = stack[-1] if stack else "module"
     if stripped.endswith("{"):
-      opener = re.match(r"(?:%[-a-zA-Z$._0-9]+\s*=\s*)?([a-z][\w.]*)", stripped)
+      opener = _region_opener(stripped)
       if opener:
-        stack.append(opener[1])
+        stack.append(opener)
   return regions
 
 
@@ -458,14 +543,19 @@ def _stage_observation(text):
     result_match = re.match(r"^\s*(%[-a-zA-Z$._0-9]+)\s*=", line)
     rhs = line.split("=", 1)[1] if "=" in line else line
     operands = _SSA.findall(rhs)
-    encodings = _TENSOR_ENCODING.findall(line)
+    encodings = _tensor_encodings(line)
     source_line = _source_line(line, locations)
     result_value = result_match[1] if result_match else None
     source_layout = encodings[0] if encodings else None
     target_layout = encodings[-1] if encodings else None
     source_definition = _encoding_identity(source_layout, layout_definitions)
     target_definition = _encoding_identity(target_layout, layout_definitions)
-    layout_changed = len(encodings) >= 2 and source_definition != target_definition
+    # A conversion whose operand types print no encoding, or print an unclosed
+    # one, has no readable pair: the effect is unproven rather than absent.
+    readable = len(encodings) >= 2 and all(
+      encoding is not None for encoding in encodings[:2]
+    )
+    layout_changed = readable and source_definition != target_definition
     conversions.append(
       {
         "result": result_value,

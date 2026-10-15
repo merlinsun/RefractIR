@@ -599,6 +599,14 @@ $L__BB0_2:
     self.assertEqual(report["loop_status"], "unrolled_or_removed")
 
 
+_INLINE_LAYOUTS = """\
+#blocked2 = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>
+#blocked3 = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>
+#blocked4 = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>
+#loc1 = loc("kernel.py":43:12)
+"""
+
+
 class TensorCompilerConversionIdentityTests(unittest.TestCase):
   """Encodings are compared by definition, not by alias name."""
 
@@ -680,6 +688,342 @@ module {
         source_lines={41: "load_to_compute"},
         expected_source_operations=("load_to_compute",),
       )
+
+  def test_inline_slice_against_a_blocked_alias_is_effective(self):
+    """A conversion into an inline parameterized slice changes the layout."""
+    ir = (
+      _INLINE_LAYOUTS
+      + """\
+%0 = ttg.convert_layout %a : tensor<4xi32, #blocked2> -> tensor<4xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> loc(#loc1)
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": ir})
+    conversion = report["layout_conversions"][0]
+
+    self.assertTrue(conversion["layout_changed"])
+    self.assertEqual(conversion["source_layout"], "#blocked2")
+    self.assertEqual(
+      conversion["target_layout"], "#ttg.slice<{dim = 1, parent = #blocked3}>"
+    )
+    self.assertEqual(report["layout_conversion_count"], 1)
+
+  def test_equal_parameters_under_different_names_are_not_a_change(self):
+    """Two aliases, and an alias against its inline spelling, hold one layout."""
+    ir = (
+      _INLINE_LAYOUTS
+      + """\
+%0 = ttg.convert_layout %a : tensor<4xi32, #blocked2> -> tensor<4xi32, #blocked3> loc(#loc1)
+%1 = ttg.convert_layout %b : tensor<4xi32, #blocked2> -> tensor<4xi32, #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>> loc(#loc1)
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": ir})
+    inline = report["layout_conversions"][1]
+
+    self.assertEqual(
+      [entry["layout_changed"] for entry in report["layout_conversions"]],
+      [False, False],
+    )
+    self.assertEqual(report["layout_conversion_count"], 0)
+    self.assertEqual(
+      inline["target_layout"],
+      "#ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], "
+      "warpsPerCTA = [1, 1], order = [0, 1]}>",
+    )
+    self.assertEqual(
+      inline["source_layout_definition"], inline["target_layout_definition"]
+    )
+
+  def test_nested_parameters_resolve_before_comparison(self):
+    """An alias nested inside an inline encoding is compared by its parameters."""
+    ir = (
+      _INLINE_LAYOUTS
+      + """\
+#slice2 = #ttg.slice<{dim = 1, parent = #blocked2}>
+#slice4 = #ttg.slice<{dim = 1, parent = #blocked4}>
+%0 = ttg.convert_layout %a : tensor<4xi32, #slice2> -> tensor<4xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> loc(#loc1)
+%1 = ttg.convert_layout %b : tensor<4xi32, #slice2> -> tensor<4xi32, #slice4> loc(#loc1)
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": ir})
+    equal, different = report["layout_conversions"]
+
+    self.assertFalse(equal["layout_changed"])
+    self.assertEqual(
+      equal["target_layout"], "#ttg.slice<{dim = 1, parent = #blocked3}>"
+    )
+    self.assertEqual(
+      equal["target_layout_definition"],
+      "#ttg.slice<{dim=1,parent=#ttg.blocked<{sizePerThread=[1,4],"
+      "threadsPerWarp=[1,32],warpsPerCTA=[1,1],order=[0,1]}>}>",
+    )
+    self.assertTrue(different["layout_changed"])
+
+  def test_generic_quoted_encoding_resolves(self):
+    """A quoted dialect name denotes the same encoding as its custom form."""
+    ir = (
+      _INLINE_LAYOUTS
+      + """\
+#slice3 = #ttg.slice<{dim = 1, parent = #blocked3}>
+%0 = ttg.convert_layout %a : tensor<4xi32, #blocked2> -> tensor<4xi32, "ttg.slice"<{dim = 1, parent = #blocked3}>> loc(#loc1)
+%1 = ttg.convert_layout %b : tensor<4xi32, #slice3> -> tensor<4xi32, "ttg.slice"<{dim = 1, parent = #blocked3}>> loc(#loc1)
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": ir})
+    quoted, equal = report["layout_conversions"]
+
+    self.assertTrue(quoted["layout_changed"])
+    self.assertEqual(
+      quoted["target_layout"], '"ttg.slice"<{dim = 1, parent = #blocked3}>'
+    )
+    self.assertEqual(
+      quoted["target_layout_definition"],
+      "#ttg.slice<{dim=1,parent=#ttg.blocked<{sizePerThread=[1,4],"
+      "threadsPerWarp=[1,32],warpsPerCTA=[1,1],order=[0,1]}>}>",
+    )
+    self.assertFalse(equal["layout_changed"])
+    self.assertEqual(
+      equal["source_layout_definition"], equal["target_layout_definition"]
+    )
+
+  def test_a_conversion_that_prints_the_same_inline_encoding_is_not_effective(self):
+    """An inline encoding equal to the other side's alias changes no layout."""
+    ir = (
+      _INLINE_LAYOUTS
+      + """\
+%0 = ttg.convert_layout %a : tensor<4xi32, #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>> -> tensor<4xi32, #blocked2> loc(#loc1)
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": ir})
+    conversion = report["layout_conversions"][0]
+
+    self.assertFalse(conversion["layout_changed"])
+    self.assertEqual(
+      conversion["source_layout"],
+      "#ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], "
+      "warpsPerCTA = [1, 1], order = [0, 1]}>",
+    )
+    self.assertEqual(conversion["target_layout"], "#blocked2")
+    self.assertEqual(
+      conversion["source_layout_definition"], conversion["target_layout_definition"]
+    )
+    self.assertEqual(report["layout_conversion_count"], 0)
+    self.assertEqual(report["effective_conversion_operations"], [])
+
+  def test_an_alias_defined_twice_with_the_same_parameters_is_not_a_change(self):
+    """Repeating one alias definition leaves one layout for its every use."""
+    ir = (
+      _INLINE_LAYOUTS
+      + """\
+#blocked2 = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>
+%0 = ttg.convert_layout %a : tensor<4xi32, #blocked2> -> tensor<4xi32, #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>> loc(#loc1)
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": ir})
+    conversion = report["layout_conversions"][0]
+
+    self.assertFalse(conversion["layout_changed"])
+    self.assertEqual(
+      conversion["target_layout"],
+      "#ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [0, 1]}>",
+    )
+    self.assertEqual(
+      conversion["source_layout_definition"], conversion["target_layout_definition"]
+    )
+    self.assertEqual(report["layout_conversion_count"], 0)
+
+
+_REGION_LAYOUTS = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32]}>
+#slice = #ttg.slice<{dim = 0, parent = #blocked}>
+#loc1 = loc("kernel.py":41:12)
+"""
+
+
+class TensorCompilerRegionMembershipTests(unittest.TestCase):
+  """A counted result list opens a region as the single-result form does.
+
+  MLIR prints repeated results as a counted list (`%name:2 = scf.for ...`)
+  instead of repeating the name, and prints an operation in generic form with a
+  quoted name (`"tt.reduce"(...) ({`). Both open a region, so a conversion
+  inside the loop must resolve to the loop rather than to its enclosing
+  function, and a preserved fragment must not be reported as moved.
+  """
+
+  def test_counted_result_header_opens_a_region(self):
+    text = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %single = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<4xf32>) {
+      %0 = ttg.convert_layout %a : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a : tensor<4xf32>
+    }
+    %counted:2 = scf.for %j = %c0 to %c4 step %c1 iter_args(%b = %x, %c = %x) -> (tensor<4xf32>, tensor<4xf32>) {
+      %1 = ttg.convert_layout %b : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %b, %c : tensor<4xf32>, tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": text})
+    regions = {
+      conversion["result"]: conversion["enclosing_region"]
+      for conversion in report["layout_conversions"]
+    }
+
+    # Control: the single-result header the recogniser already accepted.
+    self.assertEqual(regions["%0"], "scf.for")
+    self.assertEqual(regions["%1"], "scf.for")
+
+  def test_conversion_inside_a_counted_loop_names_the_loop_in_both_snapshots(self):
+    before = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %acc:2 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x, %b = %x) -> (tensor<4xf32>, tensor<4xf32>) {
+      %0 = ttg.convert_layout %a : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a, %b : tensor<4xf32>, tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    after = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %acc_1:2 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a_1 = %x, %b_1 = %x) -> (tensor<4xf32>, tensor<4xf32>) {
+      %7 = ttg.convert_layout %a_1 : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a_1, %b_1 : tensor<4xf32>, tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    report = tensor_compiler_observation.match_conversion_fragments(before, after)
+    fragment = report["fragments"][0]
+
+    self.assertEqual(report["matched"], 1)
+    self.assertEqual(fragment["enclosing_region_before"], "scf.for")
+    self.assertEqual(fragment["enclosing_region_after"], "scf.for")
+    self.assertEqual(fragment["status"], "preserved")
+
+  def test_conversion_that_enters_a_counted_loop_is_moved(self):
+    before = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %0 = ttg.convert_layout %x : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+  }
+}
+"""
+    )
+    after = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %acc:2 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x, %b = %x) -> (tensor<4xf32>, tensor<4xf32>) {
+      %7 = ttg.convert_layout %x : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a, %b : tensor<4xf32>, tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    report = tensor_compiler_observation.match_conversion_fragments(before, after)
+    fragment = report["fragments"][0]
+
+    self.assertEqual(report["moved"], 1)
+    self.assertEqual(fragment["status"], "moved")
+    self.assertEqual(fragment["enclosing_region_before"], "tt.func")
+    self.assertEqual(fragment["enclosing_region_after"], "scf.for")
+
+  def test_pass_that_counts_a_loop_result_does_not_move_the_body(self):
+    before = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %acc = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<4xf32>) {
+      %0 = ttg.convert_layout %a : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a : tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    after = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %acc:2 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x, %b = %x) -> (tensor<4xf32>, tensor<4xf32>) {
+      %7 = ttg.convert_layout %a : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a, %b : tensor<4xf32>, tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    report = tensor_compiler_observation.match_conversion_fragments(before, after)
+    fragment = report["fragments"][0]
+
+    self.assertEqual(report["moved"], 0)
+    self.assertEqual(fragment["status"], "preserved")
+    self.assertEqual(fragment["enclosing_region_before"], "scf.for")
+    self.assertEqual(fragment["enclosing_region_after"], "scf.for")
+
+  def test_nested_region_inside_a_counted_loop_resolves_to_the_innermost(self):
+    text = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %acc:2 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x, %b = %x) -> (tensor<4xf32>, tensor<4xf32>) {
+      %r = "tt.reduce"(%a) <{axis = 0 : i32}> ({
+      ^bb0(%left: f32, %right: f32):
+        %inner = ttg.convert_layout %a : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+        tt.reduce.return %left : f32
+      }) : (tensor<4xf32, #blocked>) -> tensor<f32, #slice> loc(#loc1)
+      %1 = ttg.convert_layout %a : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a, %b : tensor<4xf32>, tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": text})
+    regions = {
+      conversion["result"]: conversion["enclosing_region"]
+      for conversion in report["layout_conversions"]
+    }
+
+    self.assertEqual(regions["%inner"], "tt.reduce")
+    self.assertEqual(regions["%1"], "scf.for")
+
+  def test_counted_result_header_needs_no_spaces(self):
+    text = (
+      _REGION_LAYOUTS
+      + """\
+module {
+  tt.func public @k(%x: tensor<4xf32, #blocked>) {
+    %acc_y:12=scf.for %i=%c0 to %c4 step %c1 iter_args(%a=%x, %b=%x) -> (tensor<4xf32>, tensor<4xf32>) {
+      %1 = ttg.convert_layout %a : tensor<4xf32, #blocked> -> tensor<4xf32, #slice> loc(#loc1)
+      scf.yield %a, %b : tensor<4xf32>, tensor<4xf32>
+    }
+  }
+}
+"""
+    )
+    report = tensor_compiler_observation.observe_compiler_ir({"ttgir": text})
+
+    self.assertEqual(report["layout_conversions"][0]["enclosing_region"], "scf.for")
 
 
 class TensorCompilerRematerializationTests(unittest.TestCase):

@@ -118,6 +118,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The qualified paired re-run is verified as well as qualified: the imported loader and companion builder digest to the committed blobs, the companion carries the seven counted artifacts the derivation requires, and both arms pass with campaign-valid provenance. The earlier re-run, whose driver imported a pre-repair library, is kept as superseded rather than deleted.
 
+- The observation library reads a loop it previously could not see: a counted result list (`%acc:2 = scf.for ...`) and a quoted generic opener (`%v = "tt.reduce"(...) ({`) both open a region now, so conversions inside a multi-result loop report that loop as their enclosing region instead of `tt.func`, and per-pass movement is no longer computed against the wrong regions. A tensor encoding is read by bracket matching rather than a regex that could not cross an inner `>`, so an inline parameterized encoding is compared by its resolved parameters instead of being reported as unchanged: over twenty-three archived dumps, 450 conversion occurrences move from ineffective to effective and none move the other way.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
