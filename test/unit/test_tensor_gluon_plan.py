@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -21,7 +22,53 @@ ORTHOGONAL_PROGRAM_PATH = (
   Path(__file__).resolve().parents[1]
   / "tensor/gluon/programs/orthogonal-reductions-region-v1.sir"
 )
+# The repro program of the Track C discovery batch's section 5.1: one fold
+# feeds both reductions, and each reduction's broadcast feeds one state add.
+FOLDED_ORTHOGONAL_PROGRAM_PATH = (
+  Path(__file__).resolve().parents[1]
+  / "tensor/gluon/programs/folded-orthogonal-reductions-8x8-region-v1.sir"
+)
 SHAPE = (8, 8)
+LAYOUTS = (
+  BlockedLayoutPlan("blocked-a", (1, 1), (1, 32), (1, 1), (1, 0)),
+  BlockedLayoutPlan("blocked-b", (2, 1), (1, 32), (1, 1), (1, 0)),
+  BlockedLayoutPlan("blocked-c", (1, 2), (1, 32), (1, 1), (0, 1)),
+  BlockedLayoutPlan("blocked-d", (2, 2), (1, 32), (1, 1), (0, 1)),
+)
+# The same family on a graph the family cannot carry: both reduction-fed
+# broadcasts write a loop state directly, so no consumer node reads an
+# expansion and the plan has no use to state its view on.
+ROOT_ONLY_EXPANSION_SOURCE = """fun @kernel(%x: tensor [8, 8] f32) : tensor [8, 8] f32 {
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [8, 8] f32 = undef;
+  let mut %acc_y: tensor [8, 8] f32 = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  let mut %out: tensor [8, 8] f32 = undef;
+  let mut %t0: tensor [8, 8] f32 = undef;
+  let mut %t1: tensor [1, 8] f32 = undef;
+  let mut %t2: tensor [8, 1] f32 = undef;
+  let mut %t3: tensor [8, 8] f32 = undef;
+  let mut %t4: tensor [8, 8] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < 1, ^body, ^exit;
+^body:
+  %t0 = tensor add %acc_y, %acc_x;
+  %t1 = tensor sum %t0, 0, keep;
+  %t2 = tensor sum %t0, 1, keep;
+  %t3 = tensor broadcast %t1, [8, 8];
+  %t4 = tensor broadcast %t2, [8, 8];
+  %acc_x = %t3;
+  %acc_y = %t4;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}
+"""
 
 
 def plan(name, size_per_thread, threads_per_warp, order=(1, 0)):
@@ -31,6 +78,84 @@ def plan(name, size_per_thread, threads_per_warp, order=(1, 0)):
 def identifier(layout):
   """The kernel-body identifier the emitter derives from a layout name."""
   return str(layout.name).replace("-", "_")
+
+
+def families_for(source, *, layouts=LAYOUTS):
+  """The plan families one region graph and one layout pool can express."""
+  return region_plan_families(
+    SHAPE, num_warps=1, layouts=list(layouts), consumers=region_consumers(source)
+  )
+
+
+_CONVERT_LINE = re.compile(r"^(\w+) = gl\.convert_layout\(.*, (\w+)\)$")
+_ZEROS_LINE = re.compile(r"^(\w+) = gl\.zeros\(.*layout=(\w+)\)$")
+_PAIR_BROADCAST_LINE = re.compile(r"^(\w+), (\w+) = gl\.broadcast\((\w+), (\w+)\)$")
+_RESULT_BROADCAST_LINE = re.compile(r"^(\w+), _ = gl\.broadcast\((\w+), (\w+)\)$")
+_BINARY_LINE = re.compile(r"^(\w+) = (\w+) [-+*] (\w+)$")
+_ALIAS_LINE = re.compile(r"^(\w+) = (\w+)$")
+
+
+def view_layout(name):
+  """The layout a converted view local is named after, or None."""
+  _head, marker, layout = str(name).rpartition("_view_")
+  return layout if marker else None
+
+
+def local_layout(name, layouts):
+  """The layout one emitted local carries."""
+  layout = view_layout(name)
+  if layout is not None:
+    return layout
+  if name not in layouts:
+    raise AssertionError(f"the emitted kernel states no layout for {name!r}")
+  return layouts[name]
+
+
+def emitted_broadcasts(source):
+  """The operand layouts of every gl.broadcast the emitted kernel calls.
+
+  The Gluon frontend reads both operands of a broadcast in one layout, so a
+  kernel that gives them two is refused before any IR exists. The emitter
+  names every converted local after its layout and defines every other local
+  with a layout-carrying operation, so that property is checkable on the
+  generated source alone.
+  """
+  layouts = {}
+  pairs = []
+  for line in source.splitlines():
+    text = line.strip()
+    match = _CONVERT_LINE.match(text) or _ZEROS_LINE.match(text)
+    if match:
+      layouts[match[1]] = match[2]
+      continue
+    match = _PAIR_BROADCAST_LINE.match(text)
+    if match:
+      left, right = local_layout(match[3], layouts), local_layout(match[4], layouts)
+      pairs.append((match[3], left, match[4], right))
+      layouts[match[1]] = layouts[match[2]] = left
+      continue
+    match = _RESULT_BROADCAST_LINE.match(text)
+    if match:
+      left, right = local_layout(match[2], layouts), local_layout(match[3], layouts)
+      pairs.append((match[2], left, match[3], right))
+      layouts[match[1]] = left
+      continue
+    match = _BINARY_LINE.match(text)
+    if match:
+      layouts[match[1]] = local_layout(match[2], layouts)
+      continue
+    match = _ALIAS_LINE.match(text)
+    if match and (match[2] in layouts or view_layout(match[2]) is not None):
+      layouts[match[1]] = local_layout(match[2], layouts)
+  return tuple(pairs)
+
+
+def assert_broadcasts_pair_one_layout(case, source):
+  """Every emitted broadcast reads both of its operands in one layout."""
+  pairs = emitted_broadcasts(source)
+  case.assertTrue(pairs, "the emitted kernel calls no gl.broadcast")
+  for left, left_layout, right, right_layout in pairs:
+    case.assertEqual(left_layout, right_layout, f"gl.broadcast({left}, {right})")
 
 
 def owner_lanes(layout, shape, coordinate):
@@ -222,19 +347,9 @@ class TensorGluonRegionPlanTests(unittest.TestCase):
   """Each family states the roles and the per-consumer views it needs."""
 
   def setUp(self):
-    self.layouts = [
-      plan("blocked-a", (1, 1), (1, 32)),
-      plan("blocked-b", (2, 1), (1, 32)),
-      plan("blocked-c", (1, 2), (1, 32), order=(0, 1)),
-      plan("blocked-d", (2, 2), (1, 32), order=(0, 1)),
-    ]
+    self.layouts = list(LAYOUTS)
     self.source = ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
-    self.families = region_plan_families(
-      SHAPE,
-      num_warps=1,
-      layouts=self.layouts,
-      consumers=region_consumers(self.source),
-    )
+    self.families = families_for(self.source)
 
   def test_plan_families_cover_the_six_roles(self):
     self.assertEqual(
@@ -350,6 +465,105 @@ class TensorGluonRegionPlanTests(unittest.TestCase):
         version=probe_triton_env.QUALIFIED_TRITON_VERSION,
         source_revision="0" * 40,
       )
+
+
+class TensorGluonReductionExpansionTests(unittest.TestCase):
+  """The expand family views the expansion, never the broadcast's operand.
+
+  Gluon reads both operands of a broadcast in one layout, so a view stated on
+  the operand the emitter pairs with its own reference makes the kernel
+  invalid before any IR exists. The family therefore states its view on the
+  value each consumer reads after the expansion -- and on every other value
+  those consumers read, because a consumer that pairs its operands reads all
+  of them in one layout.
+  """
+
+  def setUp(self):
+    self.source = FOLDED_ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
+    self.families = families_for(self.source)
+    self.plan = self.families["reduction-result-expand"]
+    self.kernel = render_gluon_kernel(self.source, plan=self.plan).source
+
+  def test_the_repro_graph_expands_each_reduction_result_in_one_layout(self):
+    ast.parse(self.kernel)
+    assert_broadcasts_pair_one_layout(self, self.kernel)
+    lines = self.kernel.splitlines()
+    for result in ("v3", "v4"):
+      with self.subTest(expansion=result):
+        broadcast = next(
+          index
+          for index, line in enumerate(lines)
+          if f"{result}, _ = gl.broadcast(" in line
+        )
+        expansion = next(
+          index
+          for index, line in enumerate(lines)
+          if f"{result}_view_" in line and "gl.convert_layout" in line
+        )
+        self.assertGreater(
+          expansion,
+          broadcast,
+          "the expansion is converted after the broadcast that produces it",
+        )
+
+  def test_a_second_graph_of_the_family_expands_in_one_layout(self):
+    source = ORTHOGONAL_PROGRAM_PATH.read_text(encoding="utf-8")
+    plan = families_for(source)["reduction-result-expand"]
+    kernel = render_gluon_kernel(source, plan=plan).source
+
+    ast.parse(kernel)
+    assert_broadcasts_pair_one_layout(self, kernel)
+    for (value, _consumer), layout in plan.consumer_views.items():
+      self.assertIn(
+        f"{value}_view_{identifier(layout)} = "
+        f"gl.convert_layout({value}, {identifier(layout)})",
+        kernel,
+      )
+
+  def test_a_broadcast_whose_other_operand_shares_the_layout_is_not_refused(self):
+    self.assertIn("reduction-result-expand", self.families)
+    self.assertNotIn("reduction-result-expand", self.families.omitted)
+    self.assertTrue(self.plan.consumer_views)
+    self.assertIn("v3, _ = gl.broadcast(v1, acc_x)", self.kernel)
+    self.assertIn("v4, _ = gl.broadcast(v2, acc_x)", self.kernel)
+    self.assertNotIn("v1_view_", self.kernel)
+    self.assertNotIn("v2_view_", self.kernel)
+
+  def test_a_graph_whose_expansion_reaches_no_consumer_is_refused(self):
+    families = families_for(ROOT_ONLY_EXPANSION_SOURCE)
+
+    self.assertNotIn("reduction-result-expand", families)
+    self.assertRegex(
+      families.omitted["reduction-result-expand"],
+      "reduction-fed broadcast result reaches no consumer",
+    )
+
+  def test_the_family_never_keys_a_view_on_a_broadcast_operand(self):
+    consumers = region_consumers(self.source)
+    operands = consumers.reduction_result_broadcasts()
+
+    self.assertEqual(
+      sorted(self.plan.consumer_views),
+      [("acc_x", 5), ("acc_y", 6), ("v3", 6), ("v4", 5)],
+    )
+    for operand in operands:
+      with self.subTest(operand=operand):
+        self.assertNotIn(operand, self.plan.consumer_views)
+
+  def test_a_broadcast_with_both_operands_in_the_target_layout_converts_none(self):
+    target = identifier(self.plan.compute)
+    pairs = {
+      left: (left_layout, right_layout)
+      for left, left_layout, _right, right_layout in emitted_broadcasts(self.kernel)
+    }
+
+    for operand, broadcast in (("v1", "v3"), ("v2", "v4")):
+      with self.subTest(operand=operand):
+        self.assertIn(operand, pairs, f"the broadcast of {broadcast} reads {operand}")
+        self.assertEqual(pairs[operand], (target, target))
+        self.assertNotIn(f"{operand}_view_", self.kernel)
+        self.assertNotIn(f"{operand} = gl.convert_layout({operand}", self.kernel)
+        self.assertIn(f"{broadcast}, _ = gl.broadcast({operand}, acc_x)", self.kernel)
 
 
 class TensorGluonPlanEdgeTests(unittest.TestCase):

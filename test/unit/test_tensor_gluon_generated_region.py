@@ -190,9 +190,13 @@ class TensorGluonGeneratedRegionPathTests(unittest.TestCase):
     self.assertEqual(sorted(split), [("v0", 1), ("v0", 2)])
     self.assertEqual({layout.name for layout in shared.values()}, {LAYOUTS[1].name})
     self.assertNotEqual(split[("v0", 1)], split[("v0", 2)])
+    # The expand family views the value each consumer reads after the
+    # broadcast, and the other value that consumer reads, because a consumer
+    # that pairs its operands reads all of them in one layout. The broadcast's
+    # own operand is never viewed: the emitter pairs it with a reference.
     self.assertEqual(
       sorted(families["reduction-result-expand"].consumer_views),
-      [("v1", 3), ("v2", 4)],
+      [("acc_x", 5), ("acc_y", 6), ("v3", 6), ("v4", 5)],
     )
 
   def test_the_view_families_state_a_consumer_view_and_the_rest_do_not(self):

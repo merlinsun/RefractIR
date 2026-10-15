@@ -478,6 +478,34 @@ class RegionConsumers:
       if self.operations[index] == operation
     )
 
+  def uses_of_node(self, index):
+    """The (alias, node index) pairs one node of the region reads."""
+    return tuple(use for use in self.uses if use[1] == index)
+
+  def consumers_of_node(self, index):
+    """The (alias, node index) pairs that read one node's result."""
+    result = _node_alias(index)
+    return tuple(use for use in self.uses if use[0] == result)
+
+  def expansion_uses(self, index):
+    """The uses one reduction-fed broadcast expands into, with their operands.
+
+    A broadcast pairs its operand with a reference and a binary operation
+    pairs its two operands, so Gluon reads every value such a consumer reads
+    in one layout. The expansion therefore names the value each consumer reads
+    after the broadcast, and every other value that consumer reads. The
+    broadcast's own operand is not one of them: the emitter pairs it with a
+    reference that no consumer view addresses, so a view there would leave the
+    pair in two layouts. Empty when no node reads the broadcast's result.
+    """
+    uses = []
+    for result, consumer in self.consumers_of_node(index):
+      uses.append((result, consumer))
+      uses.extend(
+        use for use in self.uses_of_node(consumer) if use != (result, consumer)
+      )
+    return tuple(uses)
+
   def shared_reduction_value(self):
     """The value two reductions read, with their node indexes, if there is one."""
     readers = {}
@@ -507,6 +535,11 @@ def _node_index(alias):
   return int(match[1]) if match else None
 
 
+def _node_alias(index):
+  """The alias the emitter gives the value one node produces."""
+  return f"v{index}"
+
+
 def region_consumers(source):
   """Read the emitter-visible consumers of one generated region source.
 
@@ -518,7 +551,7 @@ def region_consumers(source):
   shape, _iterations, _tensor_types, nodes, updates = _generated_region_program(source)
   aliases = {}
   for index, (destination, _operation, _operands, _attribute) in enumerate(nodes):
-    aliases[destination] = f"v{index}"
+    aliases[destination] = _node_alias(index)
   roots = tuple(state for state, _root in updates)
   for state in roots:
     if state in aliases:
@@ -669,9 +702,18 @@ def region_plan_families(shape, *, num_warps, layouts, consumers, tile=None):
     )
 
   broadcasts = consumers.reduction_result_broadcasts()
+  expansions = [consumers.expansion_uses(index) for _value, index in broadcasts]
   if len(broadcasts) < 2:
     omitted.setdefault(
       "reduction-result-expand", "fewer than two reductions feed a broadcast"
+    )
+  elif any(not uses for uses in expansions[:2]):
+    # The two expansion views need a consumer node to sit at: the emitter
+    # reads a loop state directly, so a broadcast whose result only reaches a
+    # state update offers the plan no use to state a layout on.
+    omitted.setdefault(
+      "reduction-result-expand",
+      "a reduction-fed broadcast result reaches no consumer",
     )
   else:
     region(
@@ -680,9 +722,10 @@ def region_plan_families(shape, *, num_warps, layouts, consumers, tile=None):
       third,
       second,
       reduction=second,
-      # Each broadcast reads one reduction's result, so each gets the view that
-      # differs from the compute layout the emitter would otherwise give it.
-      views={use: fourth for use in broadcasts[:2]},
+      # Each broadcast reads one reduction's result, and the consumers of the
+      # expansion read it in the view that differs from the compute layout the
+      # emitter would otherwise give them.
+      views={use: fourth for use in expansions[0] + expansions[1]},
     )
 
   region("loop-state-layout", baseline, baseline, fourth, reduction=second, state=third)
