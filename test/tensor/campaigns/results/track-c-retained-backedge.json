@@ -1,0 +1,4780 @@
+{
+  "analysis_rules": {
+    "eliminated": "the requested conversion's two plan layouts classify as identical or equivalent, so no element changes owner",
+    "folded": "the conversion changed encoding at the frontend but no longer does in the final TTGIR; the removal pass is named from the pass-dump transitions",
+    "in_loop_body": "the emitted conversion's source line lies inside the generated `for` statement's body in the kernel source",
+    "surviving": "the requested source line is present in the final TTGIR with a resolved encoding change (the observation module's own layout_changed)",
+    "unattributed": "an effective conversion in the final TTGIR whose source line is not one of the emitter's requested conversion lines"
+  },
+  "case": {
+    "case_dir": "/host/retained-backedge/case/counted",
+    "certificate_kind": "bounded-region-add-sum-f32-v1",
+    "configuration": {
+      "family": "mixed-depth",
+      "iterations": 4,
+      "max_operators": 10,
+      "operation_mode": "additive",
+      "seed": 9,
+      "shape": [
+        32,
+        16
+      ]
+    },
+    "configuration_identity": "590636525d93c40d2ead93d2f32287a305c185b8b6b602f40f04616d90e6f1b8",
+    "domain": [
+      0,
+      8
+    ],
+    "expected_sha256": "f5826a578a9ae11e5a2712ed690b41a0e5af93947ecd50bac4f87660432233de",
+    "exporter": "/host/refractir-retained-backedge-20261015/build/bin/tensor_graph_region_export",
+    "inputs_sha256": "f60bb874d66083b2d5d823eba8362711995682c8f18cc3f552be9cd380ad524e",
+    "kernel_sha256": "2b5e96b0fd011a79ad44dceb3e4b7e10872d719b639006293ce7bd1fcda2f38a",
+    "program_sha256": "638322a9be95072a6d59bcea366d0f4d9d4445a3aa63305765a44637c77dedcd",
+    "target": 12005000,
+    "target_source": "certificate of the all-upper-bound in-domain input; the builder checks that the solved selection reproduces it",
+    "timeout_s": 1800.0
+  },
+  "counted_arm": {
+    "actual_equals_expected": null,
+    "comparison": {
+      "mismatches": [],
+      "mismatching_indices": [],
+      "status": "pass"
+    },
+    "environment": {
+      "campaign_valid": true,
+      "device_name": null,
+      "python_version": "3.12.15",
+      "refractir_revision": "unavailable",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+      "triton_version": null
+    },
+    "loop_evidence": {
+      "llir": "branch-cycle",
+      "ptx": "branch-cycle",
+      "ttgir": "mlir-construct",
+      "ttir": "mlir-construct"
+    },
+    "loop_presence": {
+      "llir": true,
+      "ptx": true,
+      "ttgir": true,
+      "ttir": true
+    },
+    "loop_status": "retained",
+    "mismatches": null,
+    "pass_dump": {
+      "path": "/host/retained-backedge/case/counted/runs/compiled/compiler-pass-dump.txt",
+      "sha256": "ab510d14c2a008f330d1ffef0b6888ff785c532daf4eb095562f1001a73b64bc",
+      "transitions_with_deltas": [
+        {
+          "conversion_match": {
+            "added": 8,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 0
+          },
+          "layout_conversion_delta": 8,
+          "loop_construct_delta": 0,
+          "pass": "ConvertTritonToTritonGPU"
+        },
+        {
+          "conversion_match": {
+            "added": 4,
+            "matched": 8,
+            "moved": 0,
+            "preserved": 8,
+            "removed": 0
+          },
+          "layout_conversion_delta": 4,
+          "loop_construct_delta": 0,
+          "pass": "TritonGPUCoalesce"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 12
+          },
+          "layout_conversion_delta": -12,
+          "loop_construct_delta": 0,
+          "pass": "TritonGPURemoveLayoutConversions"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 0
+          },
+          "layout_conversion_delta": 0,
+          "loop_construct_delta": -1,
+          "pass": "SCFToControlFlowPass"
+        }
+      ]
+    },
+    "stage_backedge_counts": {
+      "llir": 1,
+      "ptx": 1,
+      "ttgir": 0,
+      "ttir": 0
+    },
+    "stage_construct_counts": {
+      "llir": 0,
+      "ptx": 0,
+      "ttgir": 1,
+      "ttir": 1
+    },
+    "stage_files": {
+      "llir": {
+        "path": "/host/retained-backedge/case/counted/runs/compiled/compiler-llir.ir",
+        "sha256": "fc6be8f0946bd7482ba9295281a5092eac27a735fd225dc82896b8b63d09a596"
+      },
+      "ptx": {
+        "path": "/host/retained-backedge/case/counted/runs/compiled/compiler-ptx.ir",
+        "sha256": "da3733526f39cfd90a752e01e2e84ca18d549827a75b8eaf4aad56b5e75f1fdf"
+      },
+      "ttgir": {
+        "path": "/host/retained-backedge/case/counted/runs/compiled/compiler-ttgir.ir",
+        "sha256": "ba53c810b6425e20574959fed98f209666bd61a4544aa336fbbaefc692c8f4f3"
+      },
+      "ttir": {
+        "path": "/host/retained-backedge/case/counted/runs/compiled/compiler-ttir.ir",
+        "sha256": "f57215f30935e2c991afa77b723dbe91f315cba8f89c02127b5a5fb08361f6fd"
+      }
+    },
+    "status": "pass"
+  },
+  "gluon_runs": {
+    "all-same-layout-w1": {
+      "conversion_counts": {
+        "feeding_backedge": 2,
+        "folded": 0,
+        "in_loop_body": 6,
+        "movement_free": 8,
+        "outside_loop_body": 2,
+        "reading_loop_carried_value": 0,
+        "requested": 8,
+        "surviving": 0,
+        "surviving_and_feeding_backedge": 0,
+        "surviving_and_reading_loop_carried_value": 0,
+        "surviving_in_loop_body": 0
+      },
+      "device_lowering": {
+        "counter_patterns": {
+          "barrier": "\\bbar\\.sync|\\bnvvm\\.barrier0|barrier\\.cta\\.sync|\\bnvvm\\.barrier\\b",
+          "llir_shared_load": "=\\s*(?:tail\\s+)?(?:call\\s+)?.*\\bload\\b.*addrspace\\(3\\)",
+          "llir_shared_pointer": "addrspace\\(3\\)",
+          "llir_shared_store": "\\bstore\\b.*addrspace\\(3\\)",
+          "llir_shuffle": "nvvm\\.shfl|shfl\\.sync",
+          "ptx_global_load": "\\bld\\.global\\b",
+          "ptx_global_store": "\\bst\\.global\\b",
+          "ptx_shared": "\\b(?:ld|st)\\.shared(?:\\.[a-z0-9]+)?\\b",
+          "ptx_shuffle": "\\bshfl\\.sync\\.|\\bnvvm\\.shfl"
+        },
+        "inside_branch_cycle": {
+          "llir": {
+            "counters_inside_cycle": {
+              "barrier_mentions": 0,
+              "shared_load_mentions": 0,
+              "shared_pointer_mentions": 0,
+              "shared_store_mentions": 0,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 80
+            },
+            "counters_whole_stage": {
+              "barrier_mentions": 0,
+              "shared_load_mentions": 0,
+              "shared_pointer_mentions": 0,
+              "shared_store_mentions": 0,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 81
+            },
+            "cycle_block_count": 1,
+            "cycle_blocks": [
+              "llvm:1:56"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "llvm:1:56",
+                "instruction": "br i1 %exitcond.not, label %403, label %56, !dbg !15",
+                "line": 408,
+                "target": "llvm:1:56"
+              }
+            ],
+            "cycle_line_range": [
+              60,
+              408
+            ],
+            "instruction_line_count_inside_cycle": 349,
+            "kind": "llvm",
+            "source_line_attribution_inside_cycle": null,
+            "unparsed_branch_count": 0
+          },
+          "ptx": {
+            "counters_inside_cycle": {
+              "barrier_count": 0,
+              "global_load_count": 0,
+              "global_store_count": 0,
+              "shared_memory_transfer_count": 0,
+              "warp_shuffle_count": 80
+            },
+            "counters_whole_stage": {
+              "barrier_count": 0,
+              "global_load_count": 4,
+              "global_store_count": 4,
+              "shared_memory_transfer_count": 0,
+              "warp_shuffle_count": 80
+            },
+            "cycle_block_count": 132,
+            "cycle_blocks": [
+              "ptx:1:$L__BB0_1",
+              "ptx:1:$L__tmp1",
+              "ptx:1:$L__tmp10",
+              "ptx:1:$L__tmp100",
+              "ptx:1:$L__tmp101",
+              "ptx:1:$L__tmp102",
+              "ptx:1:$L__tmp103",
+              "ptx:1:$L__tmp104",
+              "ptx:1:$L__tmp105",
+              "ptx:1:$L__tmp106",
+              "ptx:1:$L__tmp107",
+              "ptx:1:$L__tmp108",
+              "ptx:1:$L__tmp109",
+              "ptx:1:$L__tmp11",
+              "ptx:1:$L__tmp110",
+              "ptx:1:$L__tmp111",
+              "ptx:1:$L__tmp112",
+              "ptx:1:$L__tmp113",
+              "ptx:1:$L__tmp114",
+              "ptx:1:$L__tmp115",
+              "ptx:1:$L__tmp116",
+              "ptx:1:$L__tmp117",
+              "ptx:1:$L__tmp118",
+              "ptx:1:$L__tmp119",
+              "ptx:1:$L__tmp12",
+              "ptx:1:$L__tmp120",
+              "ptx:1:$L__tmp121",
+              "ptx:1:$L__tmp122",
+              "ptx:1:$L__tmp123",
+              "ptx:1:$L__tmp124",
+              "ptx:1:$L__tmp125",
+              "ptx:1:$L__tmp126",
+              "ptx:1:$L__tmp127",
+              "ptx:1:$L__tmp128",
+              "ptx:1:$L__tmp129",
+              "ptx:1:$L__tmp13",
+              "ptx:1:$L__tmp130",
+              "ptx:1:$L__tmp131",
+              "ptx:1:$L__tmp14",
+              "ptx:1:$L__tmp15"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "ptx:1:$L__tmp131",
+                "instruction": "@%p1 bra \t$L__BB0_1;",
+                "line": 605,
+                "target": "ptx:1:$L__BB0_1"
+              }
+            ],
+            "cycle_line_range": [
+              111,
+              605
+            ],
+            "instruction_line_count_inside_cycle": 495,
+            "kind": "ptx",
+            "source_line_attribution_inside_cycle": {
+              "barriers_by_source_line": {},
+              "shared_transfers_by_source_line": {},
+              "warp_shuffles_by_source_line": {
+                "20": 80
+              }
+            },
+            "unparsed_branch_count": 0
+          }
+        },
+        "library_whole_kernel": {
+          "llir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          },
+          "ptx": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": 0,
+            "warp_shuffle_count": 80
+          },
+          "ttgir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 8,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          }
+        }
+      },
+      "execution": {
+        "actual_equals_expected": true,
+        "calibration_controls": [
+          {
+            "control_id": "correct-layout-baseline",
+            "expected_detection": false,
+            "observed_detection": false
+          },
+          {
+            "actual_output_bits": {
+              "sha256": "adc609a1da6dcfd9002d0ea6d993a26c1543ad724f9a3660d0ef34c6f8c51bd4",
+              "word_count": 512
+            },
+            "control_id": "add-one-output-mutant",
+            "expected_detection": true,
+            "expected_output_bits": {
+              "sha256": "238902dd736e27fb3216eed01e35a9879eed2b77cc69f444b8cebc663c822242",
+              "word_count": 512
+            },
+            "observed_detection": true
+          }
+        ],
+        "case_expected_equals_reference": true,
+        "device_name": "Tesla V100-SXM2-32GB",
+        "reference_words": 512,
+        "status": "pass",
+        "triton_version": "3.9.0"
+      },
+      "family": "all-same-layout",
+      "final_ttgir": {
+        "effective_conversions": 0,
+        "effective_conversions_inside_loop_region": [],
+        "effective_conversions_of_requested_lines": 0,
+        "unattributed_effective_conversions": []
+      },
+      "iterations": 4,
+      "kernel": {
+        "line_count": 40,
+        "loop_span": {
+          "body_first_line": 17,
+          "body_last_line": 33,
+          "for_line": 16,
+          "statement": "for _ in range(4):"
+        },
+        "path": "/host/retained-backedge/ir/gluon-all-same-layout-w1/generated-region-kernel.py",
+        "reproduced_from_plan": true,
+        "sha256": "964d885e44a50a5c2656f24777fc5c22610c28f7fb78f218bb1958b7cd3efaeb"
+      },
+      "layout_arguments": [
+        {
+          "layout": "reduction-blocked-1-warps",
+          "parameter": "reduction_blocked_1_warps"
+        }
+      ],
+      "layout_count": 5,
+      "layout_seed": 20261002,
+      "loop": {
+        "evidence": {
+          "llir": "branch-cycle",
+          "ptx": "branch-cycle",
+          "ttgir": "mlir-construct"
+        },
+        "observation_region_map": {
+          "control_single_result_header": {
+            "recognized": true,
+            "region_map_at_body": "scf.for",
+            "source": "%0 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<2xf32>) {\n  %1 = ttg.convert_layout %a : tensor<2xf32, #a> -> tensor<2xf32, #b>\n}\n"
+          },
+          "loops": [
+            {
+              "library_reports_the_loop_as_the_enclosing_region": true,
+              "loop_header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_10 = %acc_x_8, %acc_y_11 = %cst_0) -> (tensor<32x16xf32, #blocked>, tensor<32x16xf32, #blocked>)  : i32 {",
+              "loop_header_line": 28,
+              "region_map_at_first_body_line": "scf.for",
+              "region_map_at_header": "tt.func"
+            }
+          ]
+        },
+        "presence": {
+          "llir": true,
+          "ptx": true,
+          "ttgir": true
+        },
+        "required_stages": [
+          "ttgir",
+          "llir",
+          "ptx"
+        ],
+        "stage_backedge_counts": {
+          "llir": 1,
+          "ptx": 1,
+          "ttgir": 0
+        },
+        "stage_construct_counts": {
+          "llir": 0,
+          "ptx": 0,
+          "ttgir": 1
+        },
+        "status": "retained",
+        "ttgir_loops": [
+          {
+            "block_arguments": [
+              "%acc_x_10",
+              "%acc_y_11"
+            ],
+            "body_line_range": [
+              29,
+              46
+            ],
+            "header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_10 = %acc_x_8, %acc_y_11 = %cst_0) -> (tensor<32x16xf32, #blocked>, tensor<32x16xf32, #blocked>)  : i32 {",
+            "header_line": 28,
+            "result_counted": true,
+            "yield_line": 46,
+            "yield_operands": [
+              "%v4_16",
+              "%v5_17"
+            ]
+          }
+        ]
+      },
+      "measurement": {
+        "first_launch_wall_s_including_compilation": 2.3307675380492583,
+        "launches_per_batch": 10,
+        "measured_launches": 30,
+        "measurement_batches": 3,
+        "median_gpu_event_ms_per_launch": 0.04485119879245758,
+        "warmup_launches": 3
+      },
+      "num_warps": 1,
+      "pass_changes": [
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 8,
+            "moved": 6,
+            "preserved": 2,
+            "removed": 0
+          },
+          "conversions_after": 8,
+          "conversions_before": 8,
+          "effective_after": 0,
+          "effective_before": 0,
+          "effective_layout_conversion_delta": 0,
+          "index": 13,
+          "layout_conversion_delta": 0,
+          "loop_after": 0,
+          "loop_before": 1,
+          "loop_construct_delta": -1,
+          "next_snapshot_pass": "GluonInline",
+          "pass": "SCFToControlFlowPass"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 8
+          },
+          "conversions_after": 0,
+          "conversions_before": 8,
+          "effective_after": 0,
+          "effective_before": 0,
+          "effective_layout_conversion_delta": 0,
+          "index": 23,
+          "layout_conversion_delta": -8,
+          "loop_after": 0,
+          "loop_before": 0,
+          "loop_construct_delta": 0,
+          "next_snapshot_pass": "InitializeWSClusterBarriers",
+          "pass": "ConvertTritonGPUToLLVM"
+        }
+      ],
+      "plan": {
+        "compute": "reduction-blocked-1-warps",
+        "consumer_views": {},
+        "load": "reduction-blocked-1-warps",
+        "name": "all-same-layout",
+        "reduction": "reduction-blocked-1-warps",
+        "shape": [
+          32,
+          16
+        ],
+        "state_layout": null,
+        "store": "reduction-blocked-1-warps"
+      },
+      "plan_families": {
+        "expressible": [
+          "all-same-layout",
+          "load-to-compute",
+          "loop-state-layout"
+        ],
+        "omitted": {
+          "reduction-result-expand": "fewer than two reductions feed a broadcast",
+          "shared-value-reused": "no value is read by two reduction nodes",
+          "split-reduction-consumers": "no value is read by two reduction nodes"
+        }
+      },
+      "pool": [
+        {
+          "name": "reduction-blocked-1-warps",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0040",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            8
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0191",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            8,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0041",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            1,
+            8
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0259",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            16,
+            2
+          ],
+          "threads_per_warp": [
+            8,
+            4
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        }
+      ],
+      "reduction_axes": [
+        0
+      ],
+      "registers_per_thread": 63,
+      "requested_conversions": [
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "load_to_compute",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_8",
+          "source_line": 14,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%acc_x_7",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_12",
+          "source_line": 19,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v0",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v1_14",
+          "source_line": 20,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v1_13",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_2_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v2_15",
+          "source_line": 23,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_broadcast_3_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v3",
+          "source_line": 25,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_4_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v4_16",
+          "source_line": 28,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v4",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_5_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v5_17",
+          "source_line": 31,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v5",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "compute_to_store",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%output_9",
+          "source_line": 36,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%output",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        }
+      ],
+      "shape": [
+        32,
+        16
+      ],
+      "spill_bytes": 0
+    },
+    "all-same-layout-w4": {
+      "conversion_counts": {
+        "feeding_backedge": 2,
+        "folded": 0,
+        "in_loop_body": 6,
+        "movement_free": 8,
+        "outside_loop_body": 2,
+        "reading_loop_carried_value": 0,
+        "requested": 8,
+        "surviving": 0,
+        "surviving_and_feeding_backedge": 0,
+        "surviving_and_reading_loop_carried_value": 0,
+        "surviving_in_loop_body": 0
+      },
+      "device_lowering": {
+        "counter_patterns": {
+          "barrier": "\\bbar\\.sync|\\bnvvm\\.barrier0|barrier\\.cta\\.sync|\\bnvvm\\.barrier\\b",
+          "llir_shared_load": "=\\s*(?:tail\\s+)?(?:call\\s+)?.*\\bload\\b.*addrspace\\(3\\)",
+          "llir_shared_pointer": "addrspace\\(3\\)",
+          "llir_shared_store": "\\bstore\\b.*addrspace\\(3\\)",
+          "llir_shuffle": "nvvm\\.shfl|shfl\\.sync",
+          "ptx_global_load": "\\bld\\.global\\b",
+          "ptx_global_store": "\\bst\\.global\\b",
+          "ptx_shared": "\\b(?:ld|st)\\.shared(?:\\.[a-z0-9]+)?\\b",
+          "ptx_shuffle": "\\bshfl\\.sync\\.|\\bnvvm\\.shfl"
+        },
+        "inside_branch_cycle": {
+          "llir": {
+            "counters_inside_cycle": {
+              "barrier_mentions": 0,
+              "shared_load_mentions": 0,
+              "shared_pointer_mentions": 0,
+              "shared_store_mentions": 0,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 20
+            },
+            "counters_whole_stage": {
+              "barrier_mentions": 0,
+              "shared_load_mentions": 0,
+              "shared_pointer_mentions": 0,
+              "shared_store_mentions": 0,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 21
+            },
+            "cycle_block_count": 1,
+            "cycle_blocks": [
+              "llvm:1:31"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "llvm:1:31",
+                "instruction": "br i1 %exitcond.not, label %126, label %31, !dbg !16",
+                "line": 131,
+                "target": "llvm:1:31"
+              }
+            ],
+            "cycle_line_range": [
+              35,
+              131
+            ],
+            "instruction_line_count_inside_cycle": 97,
+            "kind": "llvm",
+            "source_line_attribution_inside_cycle": null,
+            "unparsed_branch_count": 0
+          },
+          "ptx": {
+            "counters_inside_cycle": {
+              "barrier_count": 0,
+              "global_load_count": 0,
+              "global_store_count": 0,
+              "shared_memory_transfer_count": 0,
+              "warp_shuffle_count": 20
+            },
+            "counters_whole_stage": {
+              "barrier_count": 0,
+              "global_load_count": 4,
+              "global_store_count": 4,
+              "shared_memory_transfer_count": 0,
+              "warp_shuffle_count": 20
+            },
+            "cycle_block_count": 36,
+            "cycle_blocks": [
+              "ptx:1:$L__BB0_1",
+              "ptx:1:$L__tmp1",
+              "ptx:1:$L__tmp10",
+              "ptx:1:$L__tmp11",
+              "ptx:1:$L__tmp12",
+              "ptx:1:$L__tmp13",
+              "ptx:1:$L__tmp14",
+              "ptx:1:$L__tmp15",
+              "ptx:1:$L__tmp16",
+              "ptx:1:$L__tmp17",
+              "ptx:1:$L__tmp18",
+              "ptx:1:$L__tmp19",
+              "ptx:1:$L__tmp2",
+              "ptx:1:$L__tmp20",
+              "ptx:1:$L__tmp21",
+              "ptx:1:$L__tmp22",
+              "ptx:1:$L__tmp23",
+              "ptx:1:$L__tmp24",
+              "ptx:1:$L__tmp25",
+              "ptx:1:$L__tmp26",
+              "ptx:1:$L__tmp27",
+              "ptx:1:$L__tmp28",
+              "ptx:1:$L__tmp29",
+              "ptx:1:$L__tmp3",
+              "ptx:1:$L__tmp30",
+              "ptx:1:$L__tmp31",
+              "ptx:1:$L__tmp32",
+              "ptx:1:$L__tmp33",
+              "ptx:1:$L__tmp34",
+              "ptx:1:$L__tmp35",
+              "ptx:1:$L__tmp4",
+              "ptx:1:$L__tmp5",
+              "ptx:1:$L__tmp6",
+              "ptx:1:$L__tmp7",
+              "ptx:1:$L__tmp8",
+              "ptx:1:$L__tmp9"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "ptx:1:$L__tmp35",
+                "instruction": "@%p1 bra \t$L__BB0_1;",
+                "line": 212,
+                "target": "ptx:1:$L__BB0_1"
+              }
+            ],
+            "cycle_line_range": [
+              78,
+              212
+            ],
+            "instruction_line_count_inside_cycle": 135,
+            "kind": "ptx",
+            "source_line_attribution_inside_cycle": {
+              "barriers_by_source_line": {},
+              "shared_transfers_by_source_line": {},
+              "warp_shuffles_by_source_line": {
+                "20": 20
+              }
+            },
+            "unparsed_branch_count": 0
+          }
+        },
+        "library_whole_kernel": {
+          "llir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          },
+          "ptx": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": 0,
+            "warp_shuffle_count": 20
+          },
+          "ttgir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 8,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          }
+        }
+      },
+      "execution": {
+        "actual_equals_expected": true,
+        "calibration_controls": [
+          {
+            "control_id": "correct-layout-baseline",
+            "expected_detection": false,
+            "observed_detection": false
+          },
+          {
+            "actual_output_bits": {
+              "sha256": "adc609a1da6dcfd9002d0ea6d993a26c1543ad724f9a3660d0ef34c6f8c51bd4",
+              "word_count": 512
+            },
+            "control_id": "add-one-output-mutant",
+            "expected_detection": true,
+            "expected_output_bits": {
+              "sha256": "238902dd736e27fb3216eed01e35a9879eed2b77cc69f444b8cebc663c822242",
+              "word_count": 512
+            },
+            "observed_detection": true
+          }
+        ],
+        "case_expected_equals_reference": true,
+        "device_name": "Tesla V100-SXM2-32GB",
+        "reference_words": 512,
+        "status": "pass",
+        "triton_version": "3.9.0"
+      },
+      "family": "all-same-layout",
+      "final_ttgir": {
+        "effective_conversions": 0,
+        "effective_conversions_inside_loop_region": [],
+        "effective_conversions_of_requested_lines": 0,
+        "unattributed_effective_conversions": []
+      },
+      "iterations": 4,
+      "kernel": {
+        "line_count": 40,
+        "loop_span": {
+          "body_first_line": 17,
+          "body_last_line": 33,
+          "for_line": 16,
+          "statement": "for _ in range(4):"
+        },
+        "path": "/host/retained-backedge/ir/gluon-all-same-layout-w4/generated-region-kernel.py",
+        "reproduced_from_plan": true,
+        "sha256": "45bc7fe5a9deac56d3dea0e51e8d1d1f211978dfb8fd123698c3b8de4ca81eab"
+      },
+      "layout_arguments": [
+        {
+          "layout": "reduction-blocked-4-warps",
+          "parameter": "reduction_blocked_4_warps"
+        }
+      ],
+      "layout_count": 5,
+      "layout_seed": 20261002,
+      "loop": {
+        "evidence": {
+          "llir": "branch-cycle",
+          "ptx": "branch-cycle",
+          "ttgir": "mlir-construct"
+        },
+        "observation_region_map": {
+          "control_single_result_header": {
+            "recognized": true,
+            "region_map_at_body": "scf.for",
+            "source": "%0 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<2xf32>) {\n  %1 = ttg.convert_layout %a : tensor<2xf32, #a> -> tensor<2xf32, #b>\n}\n"
+          },
+          "loops": [
+            {
+              "library_reports_the_loop_as_the_enclosing_region": true,
+              "loop_header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_10 = %acc_x_8, %acc_y_11 = %cst_0) -> (tensor<32x16xf32, #blocked>, tensor<32x16xf32, #blocked>)  : i32 {",
+              "loop_header_line": 28,
+              "region_map_at_first_body_line": "scf.for",
+              "region_map_at_header": "tt.func"
+            }
+          ]
+        },
+        "presence": {
+          "llir": true,
+          "ptx": true,
+          "ttgir": true
+        },
+        "required_stages": [
+          "ttgir",
+          "llir",
+          "ptx"
+        ],
+        "stage_backedge_counts": {
+          "llir": 1,
+          "ptx": 1,
+          "ttgir": 0
+        },
+        "stage_construct_counts": {
+          "llir": 0,
+          "ptx": 0,
+          "ttgir": 1
+        },
+        "status": "retained",
+        "ttgir_loops": [
+          {
+            "block_arguments": [
+              "%acc_x_10",
+              "%acc_y_11"
+            ],
+            "body_line_range": [
+              29,
+              46
+            ],
+            "header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_10 = %acc_x_8, %acc_y_11 = %cst_0) -> (tensor<32x16xf32, #blocked>, tensor<32x16xf32, #blocked>)  : i32 {",
+            "header_line": 28,
+            "result_counted": true,
+            "yield_line": 46,
+            "yield_operands": [
+              "%v4_16",
+              "%v5_17"
+            ]
+          }
+        ]
+      },
+      "measurement": {
+        "first_launch_wall_s_including_compilation": 2.266822270001285,
+        "launches_per_batch": 10,
+        "measured_launches": 30,
+        "measurement_batches": 3,
+        "median_gpu_event_ms_per_launch": 0.034406399726867674,
+        "warmup_launches": 3
+      },
+      "num_warps": 4,
+      "pass_changes": [
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 8,
+            "moved": 6,
+            "preserved": 2,
+            "removed": 0
+          },
+          "conversions_after": 8,
+          "conversions_before": 8,
+          "effective_after": 0,
+          "effective_before": 0,
+          "effective_layout_conversion_delta": 0,
+          "index": 13,
+          "layout_conversion_delta": 0,
+          "loop_after": 0,
+          "loop_before": 1,
+          "loop_construct_delta": -1,
+          "next_snapshot_pass": "GluonInline",
+          "pass": "SCFToControlFlowPass"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 8
+          },
+          "conversions_after": 0,
+          "conversions_before": 8,
+          "effective_after": 0,
+          "effective_before": 0,
+          "effective_layout_conversion_delta": 0,
+          "index": 23,
+          "layout_conversion_delta": -8,
+          "loop_after": 0,
+          "loop_before": 0,
+          "loop_construct_delta": 0,
+          "next_snapshot_pass": "InitializeWSClusterBarriers",
+          "pass": "ConvertTritonGPUToLLVM"
+        }
+      ],
+      "plan": {
+        "compute": "reduction-blocked-4-warps",
+        "consumer_views": {},
+        "load": "reduction-blocked-4-warps",
+        "name": "all-same-layout",
+        "reduction": "reduction-blocked-4-warps",
+        "shape": [
+          32,
+          16
+        ],
+        "state_layout": null,
+        "store": "reduction-blocked-4-warps"
+      },
+      "plan_families": {
+        "expressible": [
+          "all-same-layout",
+          "load-to-compute",
+          "loop-state-layout"
+        ],
+        "omitted": {
+          "reduction-result-expand": "fewer than two reductions feed a broadcast",
+          "shared-value-reused": "no value is read by two reduction nodes",
+          "split-reduction-consumers": "no value is read by two reduction nodes"
+        }
+      },
+      "pool": [
+        {
+          "name": "reduction-blocked-4-warps",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            4
+          ]
+        },
+        {
+          "name": "blocked-0040",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            2
+          ],
+          "threads_per_warp": [
+            1,
+            32
+          ],
+          "warps_per_cta": [
+            4,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0632",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            8,
+            4
+          ],
+          "threads_per_warp": [
+            8,
+            4
+          ],
+          "warps_per_cta": [
+            2,
+            2
+          ]
+        },
+        {
+          "name": "blocked-0859",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            16,
+            8
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            4
+          ]
+        },
+        {
+          "name": "blocked-0230",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            2,
+            2
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            2,
+            2
+          ]
+        }
+      ],
+      "reduction_axes": [
+        0
+      ],
+      "registers_per_thread": 30,
+      "requested_conversions": [
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "load_to_compute",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_8",
+          "source_line": 14,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%acc_x_7",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_12",
+          "source_line": 19,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v0",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v1_14",
+          "source_line": 20,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v1_13",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_2_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v2_15",
+          "source_line": 23,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_broadcast_3_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v3",
+          "source_line": 25,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_4_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v4_16",
+          "source_line": 28,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v4",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_5_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v5_17",
+          "source_line": 31,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v5",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "compute_to_store",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%output_9",
+          "source_line": 36,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%output",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        }
+      ],
+      "shape": [
+        32,
+        16
+      ],
+      "spill_bytes": 0
+    },
+    "load-to-compute-w1": {
+      "conversion_counts": {
+        "feeding_backedge": 2,
+        "folded": 0,
+        "in_loop_body": 6,
+        "movement_free": 7,
+        "outside_loop_body": 2,
+        "reading_loop_carried_value": 0,
+        "requested": 8,
+        "surviving": 1,
+        "surviving_and_feeding_backedge": 0,
+        "surviving_and_reading_loop_carried_value": 0,
+        "surviving_in_loop_body": 0
+      },
+      "device_lowering": {
+        "counter_patterns": {
+          "barrier": "\\bbar\\.sync|\\bnvvm\\.barrier0|barrier\\.cta\\.sync|\\bnvvm\\.barrier\\b",
+          "llir_shared_load": "=\\s*(?:tail\\s+)?(?:call\\s+)?.*\\bload\\b.*addrspace\\(3\\)",
+          "llir_shared_pointer": "addrspace\\(3\\)",
+          "llir_shared_store": "\\bstore\\b.*addrspace\\(3\\)",
+          "llir_shuffle": "nvvm\\.shfl|shfl\\.sync",
+          "ptx_global_load": "\\bld\\.global\\b",
+          "ptx_global_store": "\\bst\\.global\\b",
+          "ptx_shared": "\\b(?:ld|st)\\.shared(?:\\.[a-z0-9]+)?\\b",
+          "ptx_shuffle": "\\bshfl\\.sync\\.|\\bnvvm\\.shfl"
+        },
+        "inside_branch_cycle": {
+          "llir": {
+            "counters_inside_cycle": {
+              "barrier_mentions": 0,
+              "shared_load_mentions": 0,
+              "shared_pointer_mentions": 0,
+              "shared_store_mentions": 0,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 80
+            },
+            "counters_whole_stage": {
+              "barrier_mentions": 0,
+              "shared_load_mentions": 4,
+              "shared_pointer_mentions": 31,
+              "shared_store_mentions": 16,
+              "shared_symbol_mentions": 5,
+              "shuffle_mentions": 81
+            },
+            "cycle_block_count": 1,
+            "cycle_blocks": [
+              "llvm:1:236"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "llvm:1:236",
+                "instruction": "br i1 %exitcond.not, label %583, label %236, !dbg !17",
+                "line": 609,
+                "target": "llvm:1:236"
+              }
+            ],
+            "cycle_line_range": [
+              261,
+              609
+            ],
+            "instruction_line_count_inside_cycle": 349,
+            "kind": "llvm",
+            "source_line_attribution_inside_cycle": null,
+            "unparsed_branch_count": 0
+          },
+          "ptx": {
+            "counters_inside_cycle": {
+              "barrier_count": 0,
+              "global_load_count": 0,
+              "global_store_count": 0,
+              "shared_memory_transfer_count": 0,
+              "warp_shuffle_count": 80
+            },
+            "counters_whole_stage": {
+              "barrier_count": 0,
+              "global_load_count": 16,
+              "global_store_count": 4,
+              "shared_memory_transfer_count": 20,
+              "warp_shuffle_count": 80
+            },
+            "cycle_block_count": 132,
+            "cycle_blocks": [
+              "ptx:1:$L__BB0_1",
+              "ptx:1:$L__tmp1",
+              "ptx:1:$L__tmp10",
+              "ptx:1:$L__tmp100",
+              "ptx:1:$L__tmp101",
+              "ptx:1:$L__tmp102",
+              "ptx:1:$L__tmp103",
+              "ptx:1:$L__tmp104",
+              "ptx:1:$L__tmp105",
+              "ptx:1:$L__tmp106",
+              "ptx:1:$L__tmp107",
+              "ptx:1:$L__tmp108",
+              "ptx:1:$L__tmp109",
+              "ptx:1:$L__tmp11",
+              "ptx:1:$L__tmp110",
+              "ptx:1:$L__tmp111",
+              "ptx:1:$L__tmp112",
+              "ptx:1:$L__tmp113",
+              "ptx:1:$L__tmp114",
+              "ptx:1:$L__tmp115",
+              "ptx:1:$L__tmp116",
+              "ptx:1:$L__tmp117",
+              "ptx:1:$L__tmp118",
+              "ptx:1:$L__tmp119",
+              "ptx:1:$L__tmp12",
+              "ptx:1:$L__tmp120",
+              "ptx:1:$L__tmp121",
+              "ptx:1:$L__tmp122",
+              "ptx:1:$L__tmp123",
+              "ptx:1:$L__tmp124",
+              "ptx:1:$L__tmp125",
+              "ptx:1:$L__tmp126",
+              "ptx:1:$L__tmp127",
+              "ptx:1:$L__tmp128",
+              "ptx:1:$L__tmp129",
+              "ptx:1:$L__tmp13",
+              "ptx:1:$L__tmp130",
+              "ptx:1:$L__tmp131",
+              "ptx:1:$L__tmp14",
+              "ptx:1:$L__tmp15"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "ptx:1:$L__tmp131",
+                "instruction": "@%p1 bra \t$L__BB0_1;",
+                "line": 813,
+                "target": "ptx:1:$L__BB0_1"
+              }
+            ],
+            "cycle_line_range": [
+              319,
+              813
+            ],
+            "instruction_line_count_inside_cycle": 495,
+            "kind": "ptx",
+            "source_line_attribution_inside_cycle": {
+              "barriers_by_source_line": {},
+              "shared_transfers_by_source_line": {},
+              "warp_shuffles_by_source_line": {
+                "21": 80
+              }
+            },
+            "unparsed_branch_count": 0
+          }
+        },
+        "library_whole_kernel": {
+          "llir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          },
+          "ptx": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": 20,
+            "warp_shuffle_count": 80
+          },
+          "ttgir": {
+            "effective_layout_conversion_count": 1,
+            "layout_conversion_operation_count": 8,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          }
+        }
+      },
+      "execution": {
+        "actual_equals_expected": true,
+        "calibration_controls": [
+          {
+            "control_id": "correct-layout-baseline",
+            "expected_detection": false,
+            "observed_detection": false
+          },
+          {
+            "actual_output_bits": {
+              "sha256": "adc609a1da6dcfd9002d0ea6d993a26c1543ad724f9a3660d0ef34c6f8c51bd4",
+              "word_count": 512
+            },
+            "control_id": "add-one-output-mutant",
+            "expected_detection": true,
+            "expected_output_bits": {
+              "sha256": "238902dd736e27fb3216eed01e35a9879eed2b77cc69f444b8cebc663c822242",
+              "word_count": 512
+            },
+            "observed_detection": true
+          }
+        ],
+        "case_expected_equals_reference": true,
+        "device_name": "Tesla V100-SXM2-32GB",
+        "reference_words": 512,
+        "status": "pass",
+        "triton_version": "3.9.0"
+      },
+      "family": "load-to-compute",
+      "final_ttgir": {
+        "effective_conversions": 1,
+        "effective_conversions_inside_loop_region": [],
+        "effective_conversions_of_requested_lines": 1,
+        "unattributed_effective_conversions": []
+      },
+      "iterations": 4,
+      "kernel": {
+        "line_count": 41,
+        "loop_span": {
+          "body_first_line": 18,
+          "body_last_line": 34,
+          "for_line": 17,
+          "statement": "for _ in range(4):"
+        },
+        "path": "/host/retained-backedge/ir/gluon-load-to-compute-w1/generated-region-kernel.py",
+        "reproduced_from_plan": true,
+        "sha256": "a24c187c50a44f49dfbb8539b03375f91b519c7717ffd5e61c2d12b3cec490d3"
+      },
+      "layout_arguments": [
+        {
+          "layout": "blocked-0040",
+          "parameter": "blocked_0040"
+        },
+        {
+          "layout": "reduction-blocked-1-warps",
+          "parameter": "reduction_blocked_1_warps"
+        }
+      ],
+      "layout_count": 5,
+      "layout_seed": 20261002,
+      "loop": {
+        "evidence": {
+          "llir": "branch-cycle",
+          "ptx": "branch-cycle",
+          "ttgir": "mlir-construct"
+        },
+        "observation_region_map": {
+          "control_single_result_header": {
+            "recognized": true,
+            "region_map_at_body": "scf.for",
+            "source": "%0 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<2xf32>) {\n  %1 = ttg.convert_layout %a : tensor<2xf32, #a> -> tensor<2xf32, #b>\n}\n"
+          },
+          "loops": [
+            {
+              "library_reports_the_loop_as_the_enclosing_region": true,
+              "loop_header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_16 = %acc_x_9, %acc_y_17 = %cst_0) -> (tensor<32x16xf32, #blocked1>, tensor<32x16xf32, #blocked1>)  : i32 {",
+              "loop_header_line": 30,
+              "region_map_at_first_body_line": "scf.for",
+              "region_map_at_header": "tt.func"
+            }
+          ]
+        },
+        "presence": {
+          "llir": true,
+          "ptx": true,
+          "ttgir": true
+        },
+        "required_stages": [
+          "ttgir",
+          "llir",
+          "ptx"
+        ],
+        "stage_backedge_counts": {
+          "llir": 1,
+          "ptx": 1,
+          "ttgir": 0
+        },
+        "stage_construct_counts": {
+          "llir": 0,
+          "ptx": 0,
+          "ttgir": 1
+        },
+        "status": "retained",
+        "ttgir_loops": [
+          {
+            "block_arguments": [
+              "%acc_x_16",
+              "%acc_y_17"
+            ],
+            "body_line_range": [
+              31,
+              48
+            ],
+            "header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_16 = %acc_x_9, %acc_y_17 = %cst_0) -> (tensor<32x16xf32, #blocked1>, tensor<32x16xf32, #blocked1>)  : i32 {",
+            "header_line": 30,
+            "result_counted": true,
+            "yield_line": 48,
+            "yield_operands": [
+              "%v4_22",
+              "%v5_23"
+            ]
+          }
+        ]
+      },
+      "measurement": {
+        "first_launch_wall_s_including_compilation": 2.3784431390231475,
+        "launches_per_batch": 10,
+        "measured_launches": 30,
+        "measurement_batches": 3,
+        "median_gpu_event_ms_per_launch": 0.031641599535942075,
+        "warmup_launches": 3
+      },
+      "num_warps": 1,
+      "pass_changes": [
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 8,
+            "moved": 6,
+            "preserved": 2,
+            "removed": 0
+          },
+          "conversions_after": 8,
+          "conversions_before": 8,
+          "effective_after": 1,
+          "effective_before": 1,
+          "effective_layout_conversion_delta": 0,
+          "index": 13,
+          "layout_conversion_delta": 0,
+          "loop_after": 0,
+          "loop_before": 1,
+          "loop_construct_delta": -1,
+          "next_snapshot_pass": "GluonInline",
+          "pass": "SCFToControlFlowPass"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 8
+          },
+          "conversions_after": 0,
+          "conversions_before": 8,
+          "effective_after": 0,
+          "effective_before": 1,
+          "effective_layout_conversion_delta": -1,
+          "index": 23,
+          "layout_conversion_delta": -8,
+          "loop_after": 0,
+          "loop_before": 0,
+          "loop_construct_delta": 0,
+          "next_snapshot_pass": "InitializeWSClusterBarriers",
+          "pass": "ConvertTritonGPUToLLVM"
+        }
+      ],
+      "plan": {
+        "compute": "reduction-blocked-1-warps",
+        "consumer_views": {},
+        "load": "blocked-0040",
+        "name": "load-to-compute",
+        "reduction": "reduction-blocked-1-warps",
+        "shape": [
+          32,
+          16
+        ],
+        "state_layout": null,
+        "store": "reduction-blocked-1-warps"
+      },
+      "plan_families": {
+        "expressible": [
+          "all-same-layout",
+          "load-to-compute",
+          "loop-state-layout"
+        ],
+        "omitted": {
+          "reduction-result-expand": "fewer than two reductions feed a broadcast",
+          "shared-value-reused": "no value is read by two reduction nodes",
+          "split-reduction-consumers": "no value is read by two reduction nodes"
+        }
+      },
+      "pool": [
+        {
+          "name": "reduction-blocked-1-warps",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0040",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            8
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0191",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            8,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0041",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            1,
+            8
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0259",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            16,
+            2
+          ],
+          "threads_per_warp": [
+            8,
+            4
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        }
+      ],
+      "reduction_axes": [
+        0
+      ],
+      "registers_per_thread": 61,
+      "requested_conversions": [
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "load_to_compute",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_9",
+          "source_line": 15,
+          "source_plan_layout": "blocked-0040",
+          "source_value_in_final_ttgir": "%acc_x_8",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_18",
+          "source_line": 20,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v0",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v1_20",
+          "source_line": 21,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v1_19",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_2_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v2_21",
+          "source_line": 24,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_broadcast_3_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v3",
+          "source_line": 26,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_4_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v4_22",
+          "source_line": 29,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v4",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_5_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v5_23",
+          "source_line": 32,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v5",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "compute_to_store",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%output_10",
+          "source_line": 37,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%output",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        }
+      ],
+      "shape": [
+        32,
+        16
+      ],
+      "spill_bytes": 0
+    },
+    "load-to-compute-w4": {
+      "conversion_counts": {
+        "feeding_backedge": 2,
+        "folded": 0,
+        "in_loop_body": 6,
+        "movement_free": 7,
+        "outside_loop_body": 2,
+        "reading_loop_carried_value": 0,
+        "requested": 8,
+        "surviving": 1,
+        "surviving_and_feeding_backedge": 0,
+        "surviving_and_reading_loop_carried_value": 0,
+        "surviving_in_loop_body": 0
+      },
+      "device_lowering": {
+        "counter_patterns": {
+          "barrier": "\\bbar\\.sync|\\bnvvm\\.barrier0|barrier\\.cta\\.sync|\\bnvvm\\.barrier\\b",
+          "llir_shared_load": "=\\s*(?:tail\\s+)?(?:call\\s+)?.*\\bload\\b.*addrspace\\(3\\)",
+          "llir_shared_pointer": "addrspace\\(3\\)",
+          "llir_shared_store": "\\bstore\\b.*addrspace\\(3\\)",
+          "llir_shuffle": "nvvm\\.shfl|shfl\\.sync",
+          "ptx_global_load": "\\bld\\.global\\b",
+          "ptx_global_store": "\\bst\\.global\\b",
+          "ptx_shared": "\\b(?:ld|st)\\.shared(?:\\.[a-z0-9]+)?\\b",
+          "ptx_shuffle": "\\bshfl\\.sync\\.|\\bnvvm\\.shfl"
+        },
+        "inside_branch_cycle": {
+          "llir": {
+            "counters_inside_cycle": {
+              "barrier_mentions": 0,
+              "shared_load_mentions": 0,
+              "shared_pointer_mentions": 0,
+              "shared_store_mentions": 0,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 20
+            },
+            "counters_whole_stage": {
+              "barrier_mentions": 2,
+              "shared_load_mentions": 4,
+              "shared_pointer_mentions": 41,
+              "shared_store_mentions": 16,
+              "shared_symbol_mentions": 7,
+              "shuffle_mentions": 21
+            },
+            "cycle_block_count": 1,
+            "cycle_blocks": [
+              "llvm:1:131"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "llvm:1:131",
+                "instruction": "br i1 %exitcond.not, label %226, label %131, !dbg !17",
+                "line": 250,
+                "target": "llvm:1:131"
+              }
+            ],
+            "cycle_line_range": [
+              154,
+              250
+            ],
+            "instruction_line_count_inside_cycle": 97,
+            "kind": "llvm",
+            "source_line_attribution_inside_cycle": null,
+            "unparsed_branch_count": 0
+          },
+          "ptx": {
+            "counters_inside_cycle": {
+              "barrier_count": 0,
+              "global_load_count": 0,
+              "global_store_count": 0,
+              "shared_memory_transfer_count": 0,
+              "warp_shuffle_count": 20
+            },
+            "counters_whole_stage": {
+              "barrier_count": 1,
+              "global_load_count": 8,
+              "global_store_count": 4,
+              "shared_memory_transfer_count": 20,
+              "warp_shuffle_count": 20
+            },
+            "cycle_block_count": 36,
+            "cycle_blocks": [
+              "ptx:1:$L__BB0_1",
+              "ptx:1:$L__tmp1",
+              "ptx:1:$L__tmp10",
+              "ptx:1:$L__tmp11",
+              "ptx:1:$L__tmp12",
+              "ptx:1:$L__tmp13",
+              "ptx:1:$L__tmp14",
+              "ptx:1:$L__tmp15",
+              "ptx:1:$L__tmp16",
+              "ptx:1:$L__tmp17",
+              "ptx:1:$L__tmp18",
+              "ptx:1:$L__tmp19",
+              "ptx:1:$L__tmp2",
+              "ptx:1:$L__tmp20",
+              "ptx:1:$L__tmp21",
+              "ptx:1:$L__tmp22",
+              "ptx:1:$L__tmp23",
+              "ptx:1:$L__tmp24",
+              "ptx:1:$L__tmp25",
+              "ptx:1:$L__tmp26",
+              "ptx:1:$L__tmp27",
+              "ptx:1:$L__tmp28",
+              "ptx:1:$L__tmp29",
+              "ptx:1:$L__tmp3",
+              "ptx:1:$L__tmp30",
+              "ptx:1:$L__tmp31",
+              "ptx:1:$L__tmp32",
+              "ptx:1:$L__tmp33",
+              "ptx:1:$L__tmp34",
+              "ptx:1:$L__tmp35",
+              "ptx:1:$L__tmp4",
+              "ptx:1:$L__tmp5",
+              "ptx:1:$L__tmp6",
+              "ptx:1:$L__tmp7",
+              "ptx:1:$L__tmp8",
+              "ptx:1:$L__tmp9"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "ptx:1:$L__tmp35",
+                "instruction": "@%p1 bra \t$L__BB0_1;",
+                "line": 324,
+                "target": "ptx:1:$L__BB0_1"
+              }
+            ],
+            "cycle_line_range": [
+              190,
+              324
+            ],
+            "instruction_line_count_inside_cycle": 135,
+            "kind": "ptx",
+            "source_line_attribution_inside_cycle": {
+              "barriers_by_source_line": {},
+              "shared_transfers_by_source_line": {},
+              "warp_shuffles_by_source_line": {
+                "21": 20
+              }
+            },
+            "unparsed_branch_count": 0
+          }
+        },
+        "library_whole_kernel": {
+          "llir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          },
+          "ptx": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": 20,
+            "warp_shuffle_count": 20
+          },
+          "ttgir": {
+            "effective_layout_conversion_count": 1,
+            "layout_conversion_operation_count": 8,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          }
+        }
+      },
+      "execution": {
+        "actual_equals_expected": true,
+        "calibration_controls": [
+          {
+            "control_id": "correct-layout-baseline",
+            "expected_detection": false,
+            "observed_detection": false
+          },
+          {
+            "actual_output_bits": {
+              "sha256": "adc609a1da6dcfd9002d0ea6d993a26c1543ad724f9a3660d0ef34c6f8c51bd4",
+              "word_count": 512
+            },
+            "control_id": "add-one-output-mutant",
+            "expected_detection": true,
+            "expected_output_bits": {
+              "sha256": "238902dd736e27fb3216eed01e35a9879eed2b77cc69f444b8cebc663c822242",
+              "word_count": 512
+            },
+            "observed_detection": true
+          }
+        ],
+        "case_expected_equals_reference": true,
+        "device_name": "Tesla V100-SXM2-32GB",
+        "reference_words": 512,
+        "status": "pass",
+        "triton_version": "3.9.0"
+      },
+      "family": "load-to-compute",
+      "final_ttgir": {
+        "effective_conversions": 1,
+        "effective_conversions_inside_loop_region": [],
+        "effective_conversions_of_requested_lines": 1,
+        "unattributed_effective_conversions": []
+      },
+      "iterations": 4,
+      "kernel": {
+        "line_count": 41,
+        "loop_span": {
+          "body_first_line": 18,
+          "body_last_line": 34,
+          "for_line": 17,
+          "statement": "for _ in range(4):"
+        },
+        "path": "/host/retained-backedge/ir/gluon-load-to-compute-w4/generated-region-kernel.py",
+        "reproduced_from_plan": true,
+        "sha256": "8dc37799aaf356d818f50c79e21ab1286f759e10dce4cc931c9f62f1d8ab0a6c"
+      },
+      "layout_arguments": [
+        {
+          "layout": "blocked-0040",
+          "parameter": "blocked_0040"
+        },
+        {
+          "layout": "reduction-blocked-4-warps",
+          "parameter": "reduction_blocked_4_warps"
+        }
+      ],
+      "layout_count": 5,
+      "layout_seed": 20261002,
+      "loop": {
+        "evidence": {
+          "llir": "branch-cycle",
+          "ptx": "branch-cycle",
+          "ttgir": "mlir-construct"
+        },
+        "observation_region_map": {
+          "control_single_result_header": {
+            "recognized": true,
+            "region_map_at_body": "scf.for",
+            "source": "%0 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<2xf32>) {\n  %1 = ttg.convert_layout %a : tensor<2xf32, #a> -> tensor<2xf32, #b>\n}\n"
+          },
+          "loops": [
+            {
+              "library_reports_the_loop_as_the_enclosing_region": true,
+              "loop_header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_16 = %acc_x_9, %acc_y_17 = %cst_0) -> (tensor<32x16xf32, #blocked1>, tensor<32x16xf32, #blocked1>)  : i32 {",
+              "loop_header_line": 30,
+              "region_map_at_first_body_line": "scf.for",
+              "region_map_at_header": "tt.func"
+            }
+          ]
+        },
+        "presence": {
+          "llir": true,
+          "ptx": true,
+          "ttgir": true
+        },
+        "required_stages": [
+          "ttgir",
+          "llir",
+          "ptx"
+        ],
+        "stage_backedge_counts": {
+          "llir": 1,
+          "ptx": 1,
+          "ttgir": 0
+        },
+        "stage_construct_counts": {
+          "llir": 0,
+          "ptx": 0,
+          "ttgir": 1
+        },
+        "status": "retained",
+        "ttgir_loops": [
+          {
+            "block_arguments": [
+              "%acc_x_16",
+              "%acc_y_17"
+            ],
+            "body_line_range": [
+              31,
+              48
+            ],
+            "header": "%acc_y:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_16 = %acc_x_9, %acc_y_17 = %cst_0) -> (tensor<32x16xf32, #blocked1>, tensor<32x16xf32, #blocked1>)  : i32 {",
+            "header_line": 30,
+            "result_counted": true,
+            "yield_line": 48,
+            "yield_operands": [
+              "%v4_22",
+              "%v5_23"
+            ]
+          }
+        ]
+      },
+      "measurement": {
+        "first_launch_wall_s_including_compilation": 2.317744787025731,
+        "launches_per_batch": 10,
+        "measured_launches": 30,
+        "measurement_batches": 3,
+        "median_gpu_event_ms_per_launch": 0.04106239974498749,
+        "warmup_launches": 3
+      },
+      "num_warps": 4,
+      "pass_changes": [
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 8,
+            "moved": 6,
+            "preserved": 2,
+            "removed": 0
+          },
+          "conversions_after": 8,
+          "conversions_before": 8,
+          "effective_after": 1,
+          "effective_before": 1,
+          "effective_layout_conversion_delta": 0,
+          "index": 13,
+          "layout_conversion_delta": 0,
+          "loop_after": 0,
+          "loop_before": 1,
+          "loop_construct_delta": -1,
+          "next_snapshot_pass": "GluonInline",
+          "pass": "SCFToControlFlowPass"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 8
+          },
+          "conversions_after": 0,
+          "conversions_before": 8,
+          "effective_after": 0,
+          "effective_before": 1,
+          "effective_layout_conversion_delta": -1,
+          "index": 23,
+          "layout_conversion_delta": -8,
+          "loop_after": 0,
+          "loop_before": 0,
+          "loop_construct_delta": 0,
+          "next_snapshot_pass": "InitializeWSClusterBarriers",
+          "pass": "ConvertTritonGPUToLLVM"
+        }
+      ],
+      "plan": {
+        "compute": "reduction-blocked-4-warps",
+        "consumer_views": {},
+        "load": "blocked-0040",
+        "name": "load-to-compute",
+        "reduction": "reduction-blocked-4-warps",
+        "shape": [
+          32,
+          16
+        ],
+        "state_layout": null,
+        "store": "reduction-blocked-4-warps"
+      },
+      "plan_families": {
+        "expressible": [
+          "all-same-layout",
+          "load-to-compute",
+          "loop-state-layout"
+        ],
+        "omitted": {
+          "reduction-result-expand": "fewer than two reductions feed a broadcast",
+          "shared-value-reused": "no value is read by two reduction nodes",
+          "split-reduction-consumers": "no value is read by two reduction nodes"
+        }
+      },
+      "pool": [
+        {
+          "name": "reduction-blocked-4-warps",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            4
+          ]
+        },
+        {
+          "name": "blocked-0040",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            2
+          ],
+          "threads_per_warp": [
+            1,
+            32
+          ],
+          "warps_per_cta": [
+            4,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0632",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            8,
+            4
+          ],
+          "threads_per_warp": [
+            8,
+            4
+          ],
+          "warps_per_cta": [
+            2,
+            2
+          ]
+        },
+        {
+          "name": "blocked-0859",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            16,
+            8
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            4
+          ]
+        },
+        {
+          "name": "blocked-0230",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            2,
+            2
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            2,
+            2
+          ]
+        }
+      ],
+      "reduction_axes": [
+        0
+      ],
+      "registers_per_thread": 31,
+      "requested_conversions": [
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "load_to_compute",
+          "mapping_class": "cross_warp",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_9",
+          "source_line": 15,
+          "source_plan_layout": "blocked-0040",
+          "source_value_in_final_ttgir": "%acc_x_8",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_18",
+          "source_line": 20,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v0",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v1_20",
+          "source_line": 21,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v1_19",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_2_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v2_21",
+          "source_line": 24,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_broadcast_3_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v3",
+          "source_line": 26,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_4_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v4_22",
+          "source_line": 29,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v4",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_5_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v5_23",
+          "source_line": 32,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v5",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "compute_to_store",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%output_10",
+          "source_line": 37,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%output",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        }
+      ],
+      "shape": [
+        32,
+        16
+      ],
+      "spill_bytes": 0
+    },
+    "loop-state-layout-w1": {
+      "conversion_counts": {
+        "feeding_backedge": 2,
+        "folded": 0,
+        "in_loop_body": 11,
+        "movement_free": 6,
+        "outside_loop_body": 4,
+        "reading_loop_carried_value": 2,
+        "requested": 15,
+        "surviving": 9,
+        "surviving_and_feeding_backedge": 2,
+        "surviving_and_reading_loop_carried_value": 2,
+        "surviving_in_loop_body": 6
+      },
+      "device_lowering": {
+        "counter_patterns": {
+          "barrier": "\\bbar\\.sync|\\bnvvm\\.barrier0|barrier\\.cta\\.sync|\\bnvvm\\.barrier\\b",
+          "llir_shared_load": "=\\s*(?:tail\\s+)?(?:call\\s+)?.*\\bload\\b.*addrspace\\(3\\)",
+          "llir_shared_pointer": "addrspace\\(3\\)",
+          "llir_shared_store": "\\bstore\\b.*addrspace\\(3\\)",
+          "llir_shuffle": "nvvm\\.shfl|shfl\\.sync",
+          "ptx_global_load": "\\bld\\.global\\b",
+          "ptx_global_store": "\\bst\\.global\\b",
+          "ptx_shared": "\\b(?:ld|st)\\.shared(?:\\.[a-z0-9]+)?\\b",
+          "ptx_shuffle": "\\bshfl\\.sync\\.|\\bnvvm\\.shfl"
+        },
+        "inside_branch_cycle": {
+          "llir": {
+            "counters_inside_cycle": {
+              "barrier_mentions": 5,
+              "shared_load_mentions": 136,
+              "shared_pointer_mentions": 212,
+              "shared_store_mentions": 76,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 24
+            },
+            "counters_whole_stage": {
+              "barrier_mentions": 8,
+              "shared_load_mentions": 216,
+              "shared_pointer_mentions": 390,
+              "shared_store_mentions": 116,
+              "shared_symbol_mentions": 13,
+              "shuffle_mentions": 25
+            },
+            "cycle_block_count": 1,
+            "cycle_blocks": [
+              "llvm:1:177"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "llvm:1:177",
+                "instruction": "br i1 %exitcond.not, label %566, label %177, !dbg !18",
+                "line": 716,
+                "target": "llvm:1:177"
+              }
+            ],
+            "cycle_line_range": [
+              206,
+              716
+            ],
+            "instruction_line_count_inside_cycle": 511,
+            "kind": "llvm",
+            "source_line_attribution_inside_cycle": null,
+            "unparsed_branch_count": 0
+          },
+          "ptx": {
+            "counters_inside_cycle": {
+              "barrier_count": 5,
+              "global_load_count": 0,
+              "global_store_count": 0,
+              "shared_memory_transfer_count": 164,
+              "warp_shuffle_count": 24
+            },
+            "counters_whole_stage": {
+              "barrier_count": 7,
+              "global_load_count": 4,
+              "global_store_count": 16,
+              "shared_memory_transfer_count": 284,
+              "warp_shuffle_count": 24
+            },
+            "cycle_block_count": 23,
+            "cycle_blocks": [
+              "ptx:1:$L__BB0_1",
+              "ptx:1:$L__tmp1",
+              "ptx:1:$L__tmp10",
+              "ptx:1:$L__tmp11",
+              "ptx:1:$L__tmp12",
+              "ptx:1:$L__tmp13",
+              "ptx:1:$L__tmp14",
+              "ptx:1:$L__tmp15",
+              "ptx:1:$L__tmp16",
+              "ptx:1:$L__tmp17",
+              "ptx:1:$L__tmp18",
+              "ptx:1:$L__tmp19",
+              "ptx:1:$L__tmp2",
+              "ptx:1:$L__tmp20",
+              "ptx:1:$L__tmp21",
+              "ptx:1:$L__tmp22",
+              "ptx:1:$L__tmp3",
+              "ptx:1:$L__tmp4",
+              "ptx:1:$L__tmp5",
+              "ptx:1:$L__tmp6",
+              "ptx:1:$L__tmp7",
+              "ptx:1:$L__tmp8",
+              "ptx:1:$L__tmp9"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "ptx:1:$L__tmp22",
+                "instruction": "@%p2 bra \t$L__BB0_1;",
+                "line": 649,
+                "target": "ptx:1:$L__BB0_1"
+              }
+            ],
+            "cycle_line_range": [
+              214,
+              649
+            ],
+            "instruction_line_count_inside_cycle": 436,
+            "kind": "ptx",
+            "source_line_attribution_inside_cycle": {
+              "barriers_by_source_line": {
+                "22": 1,
+                "23": 1,
+                "27": 1,
+                "40": 1,
+                "41": 1
+              },
+              "shared_transfers_by_source_line": {
+                "22": 36,
+                "23": 36,
+                "27": 20,
+                "40": 36,
+                "41": 36
+              },
+              "warp_shuffles_by_source_line": {
+                "28": 24
+              }
+            },
+            "unparsed_branch_count": 0
+          }
+        },
+        "library_whole_kernel": {
+          "llir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          },
+          "ptx": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": 284,
+            "warp_shuffle_count": 24
+          },
+          "ttgir": {
+            "effective_layout_conversion_count": 9,
+            "layout_conversion_operation_count": 15,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          }
+        }
+      },
+      "execution": {
+        "actual_equals_expected": true,
+        "calibration_controls": [
+          {
+            "control_id": "correct-layout-baseline",
+            "expected_detection": false,
+            "observed_detection": false
+          },
+          {
+            "actual_output_bits": {
+              "sha256": "adc609a1da6dcfd9002d0ea6d993a26c1543ad724f9a3660d0ef34c6f8c51bd4",
+              "word_count": 512
+            },
+            "control_id": "add-one-output-mutant",
+            "expected_detection": true,
+            "expected_output_bits": {
+              "sha256": "238902dd736e27fb3216eed01e35a9879eed2b77cc69f444b8cebc663c822242",
+              "word_count": 512
+            },
+            "observed_detection": true
+          }
+        ],
+        "case_expected_equals_reference": true,
+        "device_name": "Tesla V100-SXM2-32GB",
+        "reference_words": 512,
+        "status": "pass",
+        "triton_version": "3.9.0"
+      },
+      "family": "loop-state-layout",
+      "final_ttgir": {
+        "effective_conversions": 9,
+        "effective_conversions_inside_loop_region": [
+          {
+            "consumers": [
+              "%v0",
+              "%v2"
+            ],
+            "label": "region_add_0_left_layout",
+            "result": "%acc_x_view_reduction_blocked_1_warps",
+            "source_layout": "#blocked2",
+            "source_line": 22,
+            "source_value": "%acc_x_18",
+            "target_layout": "#blocked"
+          },
+          {
+            "consumers": [
+              "%v0",
+              "%v5"
+            ],
+            "label": "region_add_0_right_layout",
+            "result": "%acc_y_view_reduction_blocked_1_warps",
+            "source_layout": "#blocked2",
+            "source_line": 23,
+            "source_value": "%acc_y_19",
+            "target_layout": "#blocked"
+          },
+          {
+            "consumers": [
+              "%v1"
+            ],
+            "label": "region_sum_1_to_reduction",
+            "result": "%v0_view_blocked_0040",
+            "source_layout": "#blocked",
+            "source_line": 27,
+            "source_value": "%v0_20",
+            "target_layout": "#blocked3"
+          },
+          {
+            "consumers": [
+              "%2"
+            ],
+            "label": "region_sum_1_result_layout",
+            "result": "%v1_22",
+            "source_layout": "#blocked3",
+            "source_line": 28,
+            "source_value": "%v1_21",
+            "target_layout": "#blocked"
+          },
+          {
+            "consumers": [],
+            "label": "acc_x_to_state_layout",
+            "result": "%acc_x_26",
+            "source_layout": "#blocked",
+            "source_line": 40,
+            "source_value": "%v4_24",
+            "target_layout": "#blocked2"
+          },
+          {
+            "consumers": [],
+            "label": "acc_y_to_state_layout",
+            "result": "%acc_y_27",
+            "source_layout": "#blocked",
+            "source_line": 41,
+            "source_value": "%v5_25",
+            "target_layout": "#blocked2"
+          }
+        ],
+        "effective_conversions_of_requested_lines": 9,
+        "unattributed_effective_conversions": []
+      },
+      "iterations": 4,
+      "kernel": {
+        "line_count": 48,
+        "loop_span": {
+          "body_first_line": 22,
+          "body_last_line": 41,
+          "for_line": 21,
+          "statement": "for _ in range(4):"
+        },
+        "path": "/host/retained-backedge/ir/gluon-loop-state-layout-w1/generated-region-kernel.py",
+        "reproduced_from_plan": true,
+        "sha256": "06a81a07e2956a5209d8d2d7d9d76b9007eacfd4194acf0fc869e730aea83710"
+      },
+      "layout_arguments": [
+        {
+          "layout": "reduction-blocked-1-warps",
+          "parameter": "reduction_blocked_1_warps"
+        },
+        {
+          "layout": "blocked-0040",
+          "parameter": "blocked_0040"
+        },
+        {
+          "layout": "blocked-0041",
+          "parameter": "blocked_0041"
+        },
+        {
+          "layout": "blocked-0191",
+          "parameter": "blocked_0191"
+        }
+      ],
+      "layout_count": 5,
+      "layout_seed": 20261002,
+      "loop": {
+        "evidence": {
+          "llir": "branch-cycle",
+          "ptx": "branch-cycle",
+          "ttgir": "mlir-construct"
+        },
+        "observation_region_map": {
+          "control_single_result_header": {
+            "recognized": true,
+            "region_map_at_body": "scf.for",
+            "source": "%0 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<2xf32>) {\n  %1 = ttg.convert_layout %a : tensor<2xf32, #a> -> tensor<2xf32, #b>\n}\n"
+          },
+          "loops": [
+            {
+              "library_reports_the_loop_as_the_enclosing_region": true,
+              "loop_header": "%acc_y_11:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_18 = %acc_x_10, %acc_y_19 = %acc_y) -> (tensor<32x16xf32, #blocked2>, tensor<32x16xf32, #blocked2>)  : i32 {",
+              "loop_header_line": 34,
+              "region_map_at_first_body_line": "scf.for",
+              "region_map_at_header": "tt.func"
+            }
+          ]
+        },
+        "presence": {
+          "llir": true,
+          "ptx": true,
+          "ttgir": true
+        },
+        "required_stages": [
+          "ttgir",
+          "llir",
+          "ptx"
+        ],
+        "stage_backedge_counts": {
+          "llir": 1,
+          "ptx": 1,
+          "ttgir": 0
+        },
+        "stage_construct_counts": {
+          "llir": 0,
+          "ptx": 0,
+          "ttgir": 1
+        },
+        "status": "retained",
+        "ttgir_loops": [
+          {
+            "block_arguments": [
+              "%acc_x_18",
+              "%acc_y_19"
+            ],
+            "body_line_range": [
+              35,
+              57
+            ],
+            "header": "%acc_y_11:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_18 = %acc_x_10, %acc_y_19 = %acc_y) -> (tensor<32x16xf32, #blocked2>, tensor<32x16xf32, #blocked2>)  : i32 {",
+            "header_line": 34,
+            "result_counted": true,
+            "yield_line": 57,
+            "yield_operands": [
+              "%acc_x_26",
+              "%acc_y_27"
+            ]
+          }
+        ]
+      },
+      "measurement": {
+        "first_launch_wall_s_including_compilation": 3.0489104950102046,
+        "launches_per_batch": 10,
+        "measured_launches": 30,
+        "measurement_batches": 3,
+        "median_gpu_event_ms_per_launch": 0.053964799642562865,
+        "warmup_launches": 3
+      },
+      "num_warps": 1,
+      "pass_changes": [
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 15,
+            "moved": 11,
+            "preserved": 4,
+            "removed": 0
+          },
+          "conversions_after": 15,
+          "conversions_before": 15,
+          "effective_after": 9,
+          "effective_before": 9,
+          "effective_layout_conversion_delta": 0,
+          "index": 13,
+          "layout_conversion_delta": 0,
+          "loop_after": 0,
+          "loop_before": 1,
+          "loop_construct_delta": -1,
+          "next_snapshot_pass": "GluonInline",
+          "pass": "SCFToControlFlowPass"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 15
+          },
+          "conversions_after": 0,
+          "conversions_before": 15,
+          "effective_after": 0,
+          "effective_before": 9,
+          "effective_layout_conversion_delta": -9,
+          "index": 23,
+          "layout_conversion_delta": -15,
+          "loop_after": 0,
+          "loop_before": 0,
+          "loop_construct_delta": 0,
+          "next_snapshot_pass": "InitializeWSClusterBarriers",
+          "pass": "ConvertTritonGPUToLLVM"
+        }
+      ],
+      "plan": {
+        "compute": "reduction-blocked-1-warps",
+        "consumer_views": {},
+        "load": "reduction-blocked-1-warps",
+        "name": "loop-state-layout",
+        "reduction": "blocked-0040",
+        "shape": [
+          32,
+          16
+        ],
+        "state_layout": "blocked-0191",
+        "store": "blocked-0041"
+      },
+      "plan_families": {
+        "expressible": [
+          "all-same-layout",
+          "load-to-compute",
+          "loop-state-layout"
+        ],
+        "omitted": {
+          "reduction-result-expand": "fewer than two reductions feed a broadcast",
+          "shared-value-reused": "no value is read by two reduction nodes",
+          "split-reduction-consumers": "no value is read by two reduction nodes"
+        }
+      },
+      "pool": [
+        {
+          "name": "reduction-blocked-1-warps",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0040",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            8
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0191",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            8,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0041",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            1,
+            8
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0259",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            16,
+            2
+          ],
+          "threads_per_warp": [
+            8,
+            4
+          ],
+          "warps_per_cta": [
+            1,
+            1
+          ]
+        }
+      ],
+      "reduction_axes": [
+        0
+      ],
+      "registers_per_thread": 255,
+      "requested_conversions": [
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "load_to_compute",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_9",
+          "source_line": 17,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%acc_x_8",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "acc_x_to_state_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_10",
+          "source_line": 19,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%acc_x_9",
+          "surviving": true,
+          "target_plan_layout": "blocked-0191"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "acc_y_to_state_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_y",
+          "source_line": 20,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%cst_0",
+          "surviving": true,
+          "target_plan_layout": "blocked-0191"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_left_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": true,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_view_reduction_blocked_1_warps",
+          "source_line": 22,
+          "source_plan_layout": "blocked-0191",
+          "source_value_in_final_ttgir": "%acc_x_18",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_right_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": true,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_y_view_reduction_blocked_1_warps",
+          "source_line": 23,
+          "source_plan_layout": "blocked-0191",
+          "source_value_in_final_ttgir": "%acc_y_19",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_20",
+          "source_line": 26,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v0",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_to_reduction",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_view_blocked_0040",
+          "source_line": 27,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v0_20",
+          "surviving": true,
+          "target_plan_layout": "blocked-0040"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_result_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v1_22",
+          "source_line": 28,
+          "source_plan_layout": "blocked-0040",
+          "source_value_in_final_ttgir": "%v1_21",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_2_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v2_23",
+          "source_line": 31,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_broadcast_3_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v3",
+          "source_line": 33,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_4_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v4_24",
+          "source_line": 36,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v4",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_5_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v5_25",
+          "source_line": 39,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v5",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-1-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "acc_x_to_state_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_26",
+          "source_line": 40,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v4_24",
+          "surviving": true,
+          "target_plan_layout": "blocked-0191"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "acc_y_to_state_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_y_27",
+          "source_line": 41,
+          "source_plan_layout": "reduction-blocked-1-warps",
+          "source_value_in_final_ttgir": "%v5_25",
+          "surviving": true,
+          "target_plan_layout": "blocked-0191"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "compute_to_store",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%output_12",
+          "source_line": 44,
+          "source_plan_layout": "blocked-0191",
+          "source_value_in_final_ttgir": "%output",
+          "surviving": true,
+          "target_plan_layout": "blocked-0041"
+        }
+      ],
+      "shape": [
+        32,
+        16
+      ],
+      "spill_bytes": 16
+    },
+    "loop-state-layout-w4": {
+      "conversion_counts": {
+        "feeding_backedge": 2,
+        "folded": 0,
+        "in_loop_body": 11,
+        "movement_free": 6,
+        "outside_loop_body": 4,
+        "reading_loop_carried_value": 2,
+        "requested": 15,
+        "surviving": 9,
+        "surviving_and_feeding_backedge": 2,
+        "surviving_and_reading_loop_carried_value": 2,
+        "surviving_in_loop_body": 6
+      },
+      "device_lowering": {
+        "counter_patterns": {
+          "barrier": "\\bbar\\.sync|\\bnvvm\\.barrier0|barrier\\.cta\\.sync|\\bnvvm\\.barrier\\b",
+          "llir_shared_load": "=\\s*(?:tail\\s+)?(?:call\\s+)?.*\\bload\\b.*addrspace\\(3\\)",
+          "llir_shared_pointer": "addrspace\\(3\\)",
+          "llir_shared_store": "\\bstore\\b.*addrspace\\(3\\)",
+          "llir_shuffle": "nvvm\\.shfl|shfl\\.sync",
+          "ptx_global_load": "\\bld\\.global\\b",
+          "ptx_global_store": "\\bst\\.global\\b",
+          "ptx_shared": "\\b(?:ld|st)\\.shared(?:\\.[a-z0-9]+)?\\b",
+          "ptx_shuffle": "\\bshfl\\.sync\\.|\\bnvvm\\.shfl"
+        },
+        "inside_branch_cycle": {
+          "llir": {
+            "counters_inside_cycle": {
+              "barrier_mentions": 14,
+              "shared_load_mentions": 87,
+              "shared_pointer_mentions": 166,
+              "shared_store_mentions": 79,
+              "shared_symbol_mentions": 0,
+              "shuffle_mentions": 4
+            },
+            "counters_whole_stage": {
+              "barrier_mentions": 34,
+              "shared_load_mentions": 151,
+              "shared_pointer_mentions": 317,
+              "shared_store_mentions": 95,
+              "shared_symbol_mentions": 21,
+              "shuffle_mentions": 5
+            },
+            "cycle_block_count": 2,
+            "cycle_blocks": [
+              "llvm:1:162",
+              "llvm:1:164"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "llvm:1:162",
+                "instruction": "br i1 %exitcond.not, label %286, label %164, !dbg !18",
+                "line": 246,
+                "target": "llvm:1:164"
+              },
+              {
+                "block": "llvm:1:164",
+                "instruction": "br label %162, !dbg !18",
+                "line": 467,
+                "target": "llvm:1:162"
+              }
+            ],
+            "cycle_line_range": [
+              179,
+              467
+            ],
+            "instruction_line_count_inside_cycle": 288,
+            "kind": "llvm",
+            "source_line_attribution_inside_cycle": null,
+            "unparsed_branch_count": 0
+          },
+          "ptx": {
+            "counters_inside_cycle": {
+              "barrier_count": 14,
+              "global_load_count": 0,
+              "global_store_count": 0,
+              "shared_memory_transfer_count": 157,
+              "warp_shuffle_count": 4
+            },
+            "counters_whole_stage": {
+              "barrier_count": 33,
+              "global_load_count": 4,
+              "global_store_count": 32,
+              "shared_memory_transfer_count": 237,
+              "warp_shuffle_count": 4
+            },
+            "cycle_block_count": 13,
+            "cycle_blocks": [
+              "ptx:1:$L__BB0_1",
+              "ptx:1:$L__tmp1",
+              "ptx:1:$L__tmp10",
+              "ptx:1:$L__tmp11",
+              "ptx:1:$L__tmp12",
+              "ptx:1:$L__tmp2",
+              "ptx:1:$L__tmp3",
+              "ptx:1:$L__tmp4",
+              "ptx:1:$L__tmp5",
+              "ptx:1:$L__tmp6",
+              "ptx:1:$L__tmp7",
+              "ptx:1:$L__tmp8",
+              "ptx:1:$L__tmp9"
+            ],
+            "cycle_closing_branches": [
+              {
+                "block": "ptx:1:$L__tmp12",
+                "instruction": "bra.uni \t$L__BB0_1;",
+                "line": 440,
+                "target": "ptx:1:$L__BB0_1"
+              }
+            ],
+            "cycle_line_range": [
+              188,
+              440
+            ],
+            "instruction_line_count_inside_cycle": 253,
+            "kind": "ptx",
+            "source_line_attribution_inside_cycle": {
+              "barriers_by_source_line": {
+                "22": 2,
+                "23": 2,
+                "27": 2,
+                "28": 4,
+                "40": 2,
+                "41": 2
+              },
+              "shared_transfers_by_source_line": {
+                "0": 32,
+                "22": 36,
+                "23": 36,
+                "27": 8,
+                "28": 5,
+                "40": 36,
+                "41": 4
+              },
+              "warp_shuffles_by_source_line": {
+                "28": 4
+              }
+            },
+            "unparsed_branch_count": 0
+          }
+        },
+        "library_whole_kernel": {
+          "llir": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          },
+          "ptx": {
+            "effective_layout_conversion_count": 0,
+            "layout_conversion_operation_count": 0,
+            "shared_memory_transfer_count": 237,
+            "warp_shuffle_count": 4
+          },
+          "ttgir": {
+            "effective_layout_conversion_count": 9,
+            "layout_conversion_operation_count": 15,
+            "shared_memory_transfer_count": null,
+            "warp_shuffle_count": null
+          }
+        }
+      },
+      "execution": {
+        "actual_equals_expected": true,
+        "calibration_controls": [
+          {
+            "control_id": "correct-layout-baseline",
+            "expected_detection": false,
+            "observed_detection": false
+          },
+          {
+            "actual_output_bits": {
+              "sha256": "adc609a1da6dcfd9002d0ea6d993a26c1543ad724f9a3660d0ef34c6f8c51bd4",
+              "word_count": 512
+            },
+            "control_id": "add-one-output-mutant",
+            "expected_detection": true,
+            "expected_output_bits": {
+              "sha256": "238902dd736e27fb3216eed01e35a9879eed2b77cc69f444b8cebc663c822242",
+              "word_count": 512
+            },
+            "observed_detection": true
+          }
+        ],
+        "case_expected_equals_reference": true,
+        "device_name": "Tesla V100-SXM2-32GB",
+        "reference_words": 512,
+        "status": "pass",
+        "triton_version": "3.9.0"
+      },
+      "family": "loop-state-layout",
+      "final_ttgir": {
+        "effective_conversions": 9,
+        "effective_conversions_inside_loop_region": [
+          {
+            "consumers": [
+              "%v0",
+              "%v2"
+            ],
+            "label": "region_add_0_left_layout",
+            "result": "%acc_x_view_reduction_blocked_4_warps",
+            "source_layout": "#blocked2",
+            "source_line": 22,
+            "source_value": "%acc_x_18",
+            "target_layout": "#blocked"
+          },
+          {
+            "consumers": [
+              "%v0",
+              "%v5"
+            ],
+            "label": "region_add_0_right_layout",
+            "result": "%acc_y_view_reduction_blocked_4_warps",
+            "source_layout": "#blocked2",
+            "source_line": 23,
+            "source_value": "%acc_y_19",
+            "target_layout": "#blocked"
+          },
+          {
+            "consumers": [
+              "%v1"
+            ],
+            "label": "region_sum_1_to_reduction",
+            "result": "%v0_view_blocked_0040",
+            "source_layout": "#blocked",
+            "source_line": 27,
+            "source_value": "%v0_20",
+            "target_layout": "#blocked3"
+          },
+          {
+            "consumers": [
+              "%2"
+            ],
+            "label": "region_sum_1_result_layout",
+            "result": "%v1_22",
+            "source_layout": "#blocked3",
+            "source_line": 28,
+            "source_value": "%v1_21",
+            "target_layout": "#blocked"
+          },
+          {
+            "consumers": [],
+            "label": "acc_x_to_state_layout",
+            "result": "%acc_x_26",
+            "source_layout": "#blocked",
+            "source_line": 40,
+            "source_value": "%v4_24",
+            "target_layout": "#blocked2"
+          },
+          {
+            "consumers": [],
+            "label": "acc_y_to_state_layout",
+            "result": "%acc_y_27",
+            "source_layout": "#blocked",
+            "source_line": 41,
+            "source_value": "%v5_25",
+            "target_layout": "#blocked2"
+          }
+        ],
+        "effective_conversions_of_requested_lines": 9,
+        "unattributed_effective_conversions": []
+      },
+      "iterations": 4,
+      "kernel": {
+        "line_count": 48,
+        "loop_span": {
+          "body_first_line": 22,
+          "body_last_line": 41,
+          "for_line": 21,
+          "statement": "for _ in range(4):"
+        },
+        "path": "/host/retained-backedge/ir/gluon-loop-state-layout-w4/generated-region-kernel.py",
+        "reproduced_from_plan": true,
+        "sha256": "66a88ef2df9d1c56731dbb7a6cd87210fca566e36b5190bb16ec7699728a310e"
+      },
+      "layout_arguments": [
+        {
+          "layout": "reduction-blocked-4-warps",
+          "parameter": "reduction_blocked_4_warps"
+        },
+        {
+          "layout": "blocked-0040",
+          "parameter": "blocked_0040"
+        },
+        {
+          "layout": "blocked-0859",
+          "parameter": "blocked_0859"
+        },
+        {
+          "layout": "blocked-0632",
+          "parameter": "blocked_0632"
+        }
+      ],
+      "layout_count": 5,
+      "layout_seed": 20261002,
+      "loop": {
+        "evidence": {
+          "llir": "branch-cycle",
+          "ptx": "branch-cycle",
+          "ttgir": "mlir-construct"
+        },
+        "observation_region_map": {
+          "control_single_result_header": {
+            "recognized": true,
+            "region_map_at_body": "scf.for",
+            "source": "%0 = scf.for %i = %c0 to %c4 step %c1 iter_args(%a = %x) -> (tensor<2xf32>) {\n  %1 = ttg.convert_layout %a : tensor<2xf32, #a> -> tensor<2xf32, #b>\n}\n"
+          },
+          "loops": [
+            {
+              "library_reports_the_loop_as_the_enclosing_region": true,
+              "loop_header": "%acc_y_11:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_18 = %acc_x_10, %acc_y_19 = %acc_y) -> (tensor<32x16xf32, #blocked2>, tensor<32x16xf32, #blocked2>)  : i32 {",
+              "loop_header_line": 34,
+              "region_map_at_first_body_line": "scf.for",
+              "region_map_at_header": "tt.func"
+            }
+          ]
+        },
+        "presence": {
+          "llir": true,
+          "ptx": true,
+          "ttgir": true
+        },
+        "required_stages": [
+          "ttgir",
+          "llir",
+          "ptx"
+        ],
+        "stage_backedge_counts": {
+          "llir": 2,
+          "ptx": 1,
+          "ttgir": 0
+        },
+        "stage_construct_counts": {
+          "llir": 0,
+          "ptx": 0,
+          "ttgir": 1
+        },
+        "status": "retained",
+        "ttgir_loops": [
+          {
+            "block_arguments": [
+              "%acc_x_18",
+              "%acc_y_19"
+            ],
+            "body_line_range": [
+              35,
+              57
+            ],
+            "header": "%acc_y_11:2 = scf.for %_ = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%acc_x_18 = %acc_x_10, %acc_y_19 = %acc_y) -> (tensor<32x16xf32, #blocked2>, tensor<32x16xf32, #blocked2>)  : i32 {",
+            "header_line": 34,
+            "result_counted": true,
+            "yield_line": 57,
+            "yield_operands": [
+              "%acc_x_26",
+              "%acc_y_27"
+            ]
+          }
+        ]
+      },
+      "measurement": {
+        "first_launch_wall_s_including_compilation": 2.5611116309883073,
+        "launches_per_batch": 10,
+        "measured_launches": 30,
+        "measurement_batches": 3,
+        "median_gpu_event_ms_per_launch": 0.05181440114974976,
+        "warmup_launches": 3
+      },
+      "num_warps": 4,
+      "pass_changes": [
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 15,
+            "moved": 11,
+            "preserved": 4,
+            "removed": 0
+          },
+          "conversions_after": 15,
+          "conversions_before": 15,
+          "effective_after": 9,
+          "effective_before": 9,
+          "effective_layout_conversion_delta": 0,
+          "index": 13,
+          "layout_conversion_delta": 0,
+          "loop_after": 0,
+          "loop_before": 1,
+          "loop_construct_delta": -1,
+          "next_snapshot_pass": "GluonInline",
+          "pass": "SCFToControlFlowPass"
+        },
+        {
+          "conversion_match": {
+            "added": 0,
+            "matched": 0,
+            "moved": 0,
+            "preserved": 0,
+            "removed": 15
+          },
+          "conversions_after": 0,
+          "conversions_before": 15,
+          "effective_after": 0,
+          "effective_before": 9,
+          "effective_layout_conversion_delta": -9,
+          "index": 23,
+          "layout_conversion_delta": -15,
+          "loop_after": 0,
+          "loop_before": 0,
+          "loop_construct_delta": 0,
+          "next_snapshot_pass": "InitializeWSClusterBarriers",
+          "pass": "ConvertTritonGPUToLLVM"
+        }
+      ],
+      "plan": {
+        "compute": "reduction-blocked-4-warps",
+        "consumer_views": {},
+        "load": "reduction-blocked-4-warps",
+        "name": "loop-state-layout",
+        "reduction": "blocked-0040",
+        "shape": [
+          32,
+          16
+        ],
+        "state_layout": "blocked-0632",
+        "store": "blocked-0859"
+      },
+      "plan_families": {
+        "expressible": [
+          "all-same-layout",
+          "load-to-compute",
+          "loop-state-layout"
+        ],
+        "omitted": {
+          "reduction-result-expand": "fewer than two reductions feed a broadcast",
+          "shared-value-reused": "no value is read by two reduction nodes",
+          "split-reduction-consumers": "no value is read by two reduction nodes"
+        }
+      },
+      "pool": [
+        {
+          "name": "reduction-blocked-4-warps",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            1
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            4
+          ]
+        },
+        {
+          "name": "blocked-0040",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            1,
+            2
+          ],
+          "threads_per_warp": [
+            1,
+            32
+          ],
+          "warps_per_cta": [
+            4,
+            1
+          ]
+        },
+        {
+          "name": "blocked-0632",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            8,
+            4
+          ],
+          "threads_per_warp": [
+            8,
+            4
+          ],
+          "warps_per_cta": [
+            2,
+            2
+          ]
+        },
+        {
+          "name": "blocked-0859",
+          "order": [
+            1,
+            0
+          ],
+          "size_per_thread": [
+            16,
+            8
+          ],
+          "threads_per_warp": [
+            32,
+            1
+          ],
+          "warps_per_cta": [
+            1,
+            4
+          ]
+        },
+        {
+          "name": "blocked-0230",
+          "order": [
+            0,
+            1
+          ],
+          "size_per_thread": [
+            2,
+            2
+          ],
+          "threads_per_warp": [
+            4,
+            8
+          ],
+          "warps_per_cta": [
+            2,
+            2
+          ]
+        }
+      ],
+      "reduction_axes": [
+        0
+      ],
+      "registers_per_thread": 138,
+      "requested_conversions": [
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "load_to_compute",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_9",
+          "source_line": 17,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%acc_x_8",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "acc_x_to_state_layout",
+          "mapping_class": "cross_warp",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_10",
+          "source_line": 19,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%acc_x_9",
+          "surviving": true,
+          "target_plan_layout": "blocked-0632"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "acc_y_to_state_layout",
+          "mapping_class": "cross_warp",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_y",
+          "source_line": 20,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%cst_0",
+          "surviving": true,
+          "target_plan_layout": "blocked-0632"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_left_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": true,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_view_reduction_blocked_4_warps",
+          "source_line": 22,
+          "source_plan_layout": "blocked-0632",
+          "source_value_in_final_ttgir": "%acc_x_18",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_right_layout",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": true,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_y_view_reduction_blocked_4_warps",
+          "source_line": 23,
+          "source_plan_layout": "blocked-0632",
+          "source_value_in_final_ttgir": "%acc_y_19",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_0_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_20",
+          "source_line": 26,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v0",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_to_reduction",
+          "mapping_class": "cross_warp",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v0_view_blocked_0040",
+          "source_line": 27,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v0_20",
+          "surviving": true,
+          "target_plan_layout": "blocked-0040"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_sum_1_result_layout",
+          "mapping_class": "cross_warp",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v1_22",
+          "source_line": 28,
+          "source_plan_layout": "blocked-0040",
+          "source_value_in_final_ttgir": "%v1_21",
+          "surviving": true,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_2_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v2_23",
+          "source_line": 31,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_broadcast_3_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v3",
+          "source_line": 33,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%2",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_4_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v4_24",
+          "source_line": 36,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v4",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": false,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": false,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "region_add_5_result_layout",
+          "mapping_class": "identical",
+          "mapping_class_reason": null,
+          "movement_free": true,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%v5_25",
+          "source_line": 39,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v5",
+          "surviving": false,
+          "target_plan_layout": "reduction-blocked-4-warps"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "acc_x_to_state_layout",
+          "mapping_class": "cross_warp",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_x_26",
+          "source_line": 40,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v4_24",
+          "surviving": true,
+          "target_plan_layout": "blocked-0632"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "scf.for",
+          "enclosing_region_in_final_ttgir": "scf.for",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": true,
+          "folded": false,
+          "in_loop_body": true,
+          "inside_parsed_loop_body_in_final_ttgir": true,
+          "label": "acc_y_to_state_layout",
+          "mapping_class": "cross_warp",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%acc_y_27",
+          "source_line": 41,
+          "source_plan_layout": "reduction-blocked-4-warps",
+          "source_value_in_final_ttgir": "%v5_25",
+          "surviving": true,
+          "target_plan_layout": "blocked-0632"
+        },
+        {
+          "effective_in_final_ttgir": true,
+          "enclosing_region_at_frontend": "tt.func",
+          "enclosing_region_in_final_ttgir": "tt.func",
+          "encoding_changed_at_frontend": true,
+          "feeds_loop_backedge_in_final_ttgir": false,
+          "folded": false,
+          "in_loop_body": false,
+          "inside_parsed_loop_body_in_final_ttgir": false,
+          "label": "compute_to_store",
+          "mapping_class": "cross_lane",
+          "mapping_class_reason": null,
+          "movement_free": false,
+          "present_in_final_ttgir": true,
+          "reads_loop_carried_value_in_final_ttgir": false,
+          "removed_by_passes": [
+            "ConvertTritonGPUToLLVM"
+          ],
+          "result_in_final_ttgir": "%output_12",
+          "source_line": 44,
+          "source_plan_layout": "blocked-0632",
+          "source_value_in_final_ttgir": "%output",
+          "surviving": true,
+          "target_plan_layout": "blocked-0859"
+        }
+      ],
+      "shape": [
+        32,
+        16
+      ],
+      "spill_bytes": 0
+    }
+  },
+  "library_manifest": {
+    "test.lib.build_tensor_exact_loop_case": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/build_tensor_exact_loop_case.py",
+      "sha256": "4e0a2ab3cebbb2b3be157695c2e3387db50eedabd18e2ceb8b6226bb3f50ffbb"
+    },
+    "test.lib.build_tensor_exact_region_case": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/build_tensor_exact_region_case.py",
+      "sha256": "4c0af28dee25ad99d0611c782e58382605f3dda976dde9e1186b34920f6b0789"
+    },
+    "test.lib.probe_triton_env": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/probe_triton_env.py",
+      "sha256": "742d4e4cfaf9cc5a641854e980d8f3fc09be108015230ccd347a64483da4e0e0"
+    },
+    "test.lib.run_triton_tests": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/run_triton_tests.py",
+      "sha256": "efe74bc8606eff7710bd383e4481846585b01d1fa74179bfd71259dea33ae9c4"
+    },
+    "test.lib.tensor_case": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_case.py",
+      "sha256": "67643011ab61220828922fe08acb463e4327c1a4050924283c283667ab2de62e"
+    },
+    "test.lib.tensor_case_manifest": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_case_manifest.py",
+      "sha256": "4f999a1a3d75be50ceaa17af7837e9b21af02aba865c9e2ba64455f3821ebbd1"
+    },
+    "test.lib.tensor_compiler_observation": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_compiler_observation.py",
+      "sha256": "182fb3f7853099f9b4d402d2e8828737e1dcc85530b2d3b6aea7eeb6446454e0"
+    },
+    "test.lib.tensor_coverage": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_coverage.py",
+      "sha256": "8b6354c23fedfb3caff3b2e69b36bf8f4623be79cf1d72410209c973df1bcdb0"
+    },
+    "test.lib.tensor_exact_f32": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_exact_f32.py",
+      "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
+    },
+    "test.lib.tensor_gluon": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_gluon.py",
+      "sha256": "b9eecccaa84cc13abe7c01be610e98ea6c76dd90724f4244bf0edebf686e0a20"
+    },
+    "test.lib.tensor_gluon_lowering": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_gluon_lowering.py",
+      "sha256": "90ec98c383ff2261bcbdee87ec30fc267102bfa89ce157ea861e25cb7ebacacd"
+    },
+    "test.lib.tensor_region_generation": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_region_generation.py",
+      "sha256": "a3826fb7f788f37d15d5ef7a58793b5aeb876e1c402ed5f944e77e85de53d786"
+    },
+    "test.lib.tensor_route_protocol": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/tensor_route_protocol.py",
+      "sha256": "fa355989022413c5010e16349da150522522c5785c399fcc705795fe20bae939"
+    },
+    "test.lib.triton_case_worker": {
+      "path": "/host/refractir-retained-backedge-20261015/test/lib/triton_case_worker.py",
+      "sha256": "ea025fe1b8479c910694dae9529b9ba31df57b931ddc0af47ee1331322cd9063"
+    },
+    "test/tensor/gluon/run_generated_region.py": {
+      "path": "/host/refractir-retained-backedge-20261015/test/tensor/gluon/run_generated_region.py",
+      "sha256": "a93e43fd2c31b10c273fd3b434acae528ef5d9b779a9c0b739ffb9b18e2e7915"
+    }
+  },
+  "rederivation": {
+    "fields_regenerated": [
+      "gluon_runs[*].loop.observation_region_map",
+      "gluon_runs[*].final_ttgir.effective_conversions_inside_loop_region",
+      "gluon_runs[*].final_ttgir.unattributed_effective_conversions",
+      "gluon_runs[*].requested_conversions[*].enclosing_region_at_frontend",
+      "gluon_runs[*].requested_conversions[*].enclosing_region_in_final_ttgir",
+      "gluon_runs[*].pass_changes[*].conversion_match"
+    ],
+    "library": {
+      "path": "test/lib/tensor_compiler_observation.py",
+      "sha256": "9e3485a1da62d2c8fd034228d9b5a065278475218dd73839f736f9323c9f7a53"
+    },
+    "library_manifest_note": "library_manifest still records the imports of the device run, including the pre-fix observation module; the fields listed above were regenerated with the library named here",
+    "previous_library_sha256": "182fb3f7853099f9b4d402d2e8828737e1dcc85530b2d3b6aea7eeb6446454e0",
+    "producer": "analyze_retained_backedge.analyze_run over the archived run inputs",
+    "reason": "the region map did not open a counted result list or a quoted generic-name region, so loop membership and the movement classification it drives were wrong for these runs",
+    "unchanged": "every other recorded value, including counted_arm.pass_dump, the execution blocks, the plan and pool records, and the run summaries"
+  },
+  "schema": "refractir.track-c-retained-backedge.v1"
+}
