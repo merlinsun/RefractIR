@@ -1010,7 +1010,7 @@ optionOccurrences(const cxxopts::ParseResult &result, std::string_view name) {
                             cxxopts::value<std::string>()->default_value("construction"))
       ("tensor-generator",  "Tensor candidate route (constructor or compositional)",
                             cxxopts::value<std::string>()->default_value("constructor"))
-      ("tensor-region-family", "Bounded loop-region family (fold, orthogonal-reductions, reduction-arithmetic, cross-state, mixed-depth)",
+      ("tensor-region-family", "Bounded loop-region family (fold, orthogonal-reductions, reduction-arithmetic, cross-state, mixed-depth, broadcast-hoist)",
                             cxxopts::value<std::string>())
       ("tensor-region-shape", "Bounded loop-region shape as rows,columns: two powers of two of at least two, at most 512 elements in total",
                             cxxopts::value<std::string>())

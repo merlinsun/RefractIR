@@ -414,7 +414,7 @@ naming any one of them asks for it:
 
 | Option | Values | Domain |
 |---|---|---|
-| `--tensor-region-family` | `fold`, `orthogonal-reductions`, `reduction-arithmetic`, `cross-state`, `mixed-depth` | the skeleton connecting the two states to the named results |
+| `--tensor-region-family` | `fold`, `orthogonal-reductions`, `reduction-arithmetic`, `cross-state`, `mixed-depth`, `broadcast-hoist` | the skeleton connecting the two states to the named results |
 | `--tensor-region-shape rows,columns` | two extents | powers of two of at least two, holding at most the profile's 512 elements |
 | `--tensor-region-iterations N` | one to eight | the counted trips of the region's bounded loop |
 | `--tensor-region-arithmetic` | `additive`, `subtraction`, `multiplication`, `mixed` | the operation the region's root placements use |
@@ -426,6 +426,14 @@ rysmith --profile tensor --tensor-dtype f32 --tensor-profile-version v2 \
   --tensor-region-iterations 4 --tensor-region-arithmetic mixed \
   --seed 0 -n 4 -o tensor_cases/
 ```
+
+`broadcast-hoist` states a connection a layout pass can act on: the state carrying
+the runtime input is reduced, the one-extent result is broadcast back over the
+state shape, and that view is consumed twice - by a second reduction on the other
+axis and by the elementwise path into the other root - so a copy that takes one
+consumer over would leave the original with the other. It needs two reducible
+axes, and a state shape with a singleton axis is refused rather than served by
+repeating one reduction axis.
 
 The region's two states are supplied in a fixed order: the first carries the
 runtime input and the second starts at zero. The shared producer is additive in

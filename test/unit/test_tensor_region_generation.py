@@ -98,6 +98,97 @@ class TensorRegionGenerationTests(unittest.TestCase):
     self.assertNotIn(reductions[0][0], dependencies["acc_x"])
     self.assertNotIn(reductions[1][0], dependencies["acc_y"])
 
+  def test_broadcast_hoist_shape_is_the_two_reduction_contract(self):
+    """The view family's body is one fixed connection skeleton.
+
+    A broadcast of a loop-carried value is only an opportunity for the layout
+    pass when the value it views is small and its consumers can be reached by a
+    recomputed copy. The family therefore states the skeleton exactly: the
+    shared two-state producer, the state reduction, its broadcast, the second
+    reduction on the other axis, the re-broadcast, and the two root joins, with
+    nothing else in the body.
+    """
+    for seed in range(1, 6):
+      with self.subTest(seed=seed):
+        configuration = RegionConfiguration(
+          seed=seed, shape=(16, 32), iterations=2, family="broadcast-hoist"
+        )
+        source = tensor_region_generation.generate_source(configuration)
+
+        self.assertEqual(
+          len(tensor_region_generation.operation_nodes(source)),
+          7,
+          "the family's body is the seven-operation skeleton",
+        )
+        self.assertEqual(
+          set(tensor_region_generation.arithmetic_operations(source)),
+          {"add"},
+          "an additive request leaves every placement additive",
+        )
+        axes = tensor_region_generation.reduction_axes(source)
+        self.assertEqual(
+          len(axes), 2, "the family reduces the loop-carried value twice"
+        )
+        self.assertNotEqual(
+          axes[0], axes[1], "the two reductions must use different axes"
+        )
+        dependencies = tensor_region_generation.root_dependencies(source)
+        live = dependencies["acc_x"] | dependencies["acc_y"]
+        self.assertIn("acc_x", live)
+        self.assertIn("acc_y", live)
+        view = tensor_region_generation.broadcast_hoist_view(source)
+        self.assertIn(view["state"], {"acc_x", "acc_y"})
+        self.assertIn(view["view"], live, "the view must reach the output")
+        self.assertIn(view["second_view"], live)
+
+  def test_broadcast_hoist_view_is_consumed_twice(self):
+    """The pattern the removal pass needs is a view with two live consumers.
+
+    One consumer keeps the producer's own layout and one reaches the view
+    through the second reduction, so a conversion of the view can be replaced by
+    a recomputed view without erasing the original.
+    """
+    for family_seed in range(1, 6):
+      with self.subTest(seed=family_seed):
+        configuration = RegionConfiguration(
+          seed=family_seed, shape=(32, 16), iterations=4, family="broadcast-hoist"
+        )
+        source = tensor_region_generation.generate_source(configuration)
+        view = tensor_region_generation.broadcast_hoist_view(source)
+        nodes = {
+          node[0]: node for node in tensor_region_generation.operation_nodes(source)
+        }
+
+        self.assertEqual(nodes[view["reduced"]][1], "sum")
+        self.assertEqual(nodes[view["reduced"]][2], (view["state"],))
+        self.assertEqual(nodes[view["reduced"]][3], view["state_axis"])
+        self.assertEqual(nodes[view["view"]][1], "broadcast")
+        self.assertEqual(nodes[view["view"]][2], (view["reduced"],))
+        self.assertEqual(
+          sorted(view["consumers"]),
+          sorted([view["second_reduction"], view["shallow_consumer"]]),
+          "the view must keep exactly two consumers",
+        )
+        self.assertEqual(nodes[view["second_reduction"]][1], "sum")
+        self.assertEqual(nodes[view["second_reduction"]][2], (view["view"],))
+        self.assertNotEqual(
+          view["second_axis"],
+          view["state_axis"],
+          "the second reduction is what asks for the other slice layout",
+        )
+        self.assertEqual(nodes[view["second_view"]][1], "broadcast")
+        self.assertEqual(nodes[view["second_view"]][2], (view["second_reduction"],))
+        self.assertEqual(
+          nodes[view["shallow_consumer"]][1],
+          "add",
+          "the view's other consumer is the elementwise path into a root",
+        )
+        self.assertEqual(
+          set(view["roots"]),
+          {"next_x", "next_y"},
+          "the view must reach both roots, one through each consumer",
+        )
+
   def test_cross_state_roots_depend_on_both_current_states(self):
     if not SYMIRI.is_file():
       self.skipTest("the reference interpreter is supplied by the managed Make target")
@@ -477,6 +568,29 @@ class TensorRegionGenerationEdgeTests(unittest.TestCase):
             len(tensor_region_generation.operation_nodes(source)),
             configuration.max_operators,
           )
+
+  def test_smallest_broadcast_hoist_region_is_the_family_contract(self):
+    """The family's smallest admitted region still carries its own pattern.
+
+    Two-extent axes are the family's floor: with one reducible axis the second
+    reduction would have to repeat the first one's axis, which is the shape the
+    family exists to avoid, so the request is refused instead of weakened.
+    """
+    configuration = RegionConfiguration(
+      seed=1, shape=(2, 2), iterations=1, family="broadcast-hoist"
+    )
+    source = tensor_region_generation.generate_source(configuration)
+    view = tensor_region_generation.broadcast_hoist_view(source)
+
+    self.assertEqual(set(tensor_region_generation.reduction_axes(source)), {0, 1})
+    self.assertNotEqual(view["state_axis"], view["second_axis"])
+    self.assertEqual(len(tensor_region_generation.operation_nodes(source)), 7)
+
+    singleton = RegionConfiguration(
+      seed=1, shape=(64, 1), iterations=2, family="broadcast-hoist"
+    )
+    with self.assertRaisesRegex(RegionGenerationError, "graph_exhaustion"):
+      tensor_region_generation.generate_source(singleton)
 
   def test_singleton_axis_refusal_does_not_depend_on_the_seed(self):
     for seed in range(1, 13):

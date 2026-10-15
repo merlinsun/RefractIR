@@ -133,6 +133,41 @@ class TensorRegionExactFamilyTests(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, "positive zero"):
       tensor_exact_f32.certify(source, negative_zero, (0, 2))
 
+  def test_broadcast_hoist_family_receives_a_full_certificate(self):
+    """The view family states where its exact certificate applies.
+
+    The view feeds a doubly reduced value back into a loop state, so the state
+    grows by the product of both state extents on every trip. Four trips at
+    `[4,8]` stay inside the exact range, and the retained `[32,16]` four-trip
+    recurrence leaves it; the refusal is stated here so a case at that
+    configuration is refused rather than quietly approximated.
+    """
+    configuration = RegionConfiguration(
+      seed=9, shape=(4, 8), iterations=4, family="broadcast-hoist"
+    )
+    source = tensor_region_generation.generate_source(configuration)
+    input_bytes = _inputs(configuration.shape)
+
+    proof, output = tensor_exact_f32.certify(source, input_bytes, (0, 2))
+
+    self.assertEqual(proof["kind"], tensor_exact_f32.REGION_KIND)
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(len(output), configuration.shape[0] * configuration.shape[1] * 4)
+    self.assertEqual(proof["signed_zero"], "positive-zero-only")
+    self.assertEqual(len(proof["path"]), 2 + 2 * configuration.iterations + 1)
+    self.assertLessEqual(
+      max(bound.get("max_partial_sum", 0) for bound in proof["bounds"]),
+      proof["integer_exactness_bound"],
+    )
+    self.assertEqual(_replay(source, input_bytes), output)
+
+    retained = RegionConfiguration(
+      seed=9, shape=(32, 16), iterations=4, family="broadcast-hoist"
+    )
+    retained_source = tensor_region_generation.generate_source(retained)
+    with self.assertRaisesRegex(ValueError, "exceeds exact range"):
+      tensor_exact_f32.certify(retained_source, _inputs(retained.shape), (0, 2))
+
   def test_unrolled_form_replays_to_the_same_full_output(self):
     configuration = RegionConfiguration(
       seed=4, shape=(32, 16), iterations=3, family="mixed-depth"

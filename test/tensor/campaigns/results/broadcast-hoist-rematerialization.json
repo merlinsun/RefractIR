@@ -1,0 +1,4562 @@
+{
+ "cases": {
+  "broadcast-hoist-32x16-it2": {
+   "analysis": {
+    "candidate_transitions": 19,
+    "confirmed_total": 0,
+    "conversions_on_an_ext_or_broadcast": 24,
+    "final_loop_construct_count": 0,
+    "snapshot_count": 66,
+    "structural_recomputations_total": 0,
+    "target_pass_evidence": {
+     "occurrences": [
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 12
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 14
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 18
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 31
+      }
+     ],
+     "status": "repeated",
+     "transition_index": null,
+     "transition_indices": [
+      12,
+      14,
+      18,
+      31
+     ]
+    },
+    "terminal_pass": "LLVMDIScope",
+    "transitions": [
+     {
+      "duplicate_expression_group_delta": -14,
+      "duplicate_operation_deltas": {
+       "arith.constant": -1040,
+       "tt.call": -1
+      },
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonRewriteTensorDescriptorToPointer",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 1,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "CanonicalizerPass",
+      "opportunities_before": [],
+      "pass": "TritonRewriteTensorDescriptorToPointer",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 2,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonCombineOps",
+      "opportunities_before": [],
+      "pass": "CanonicalizerPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 3,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonReorderBroadcast",
+      "opportunities_before": [],
+      "pass": "TritonCombineOps",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 4,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "CSEPass",
+      "opportunities_before": [],
+      "pass": "TritonReorderBroadcast",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": -2,
+      "duplicate_operation_deltas": {
+       "tt.make_range": -2
+      },
+      "index": 5,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "SymbolDCEPass",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 7,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "ConvertTritonToTritonGPU",
+      "opportunities_before": [],
+      "pass": "TritonLoopUnroll",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 8,
+      "layout_conversion_delta": 12,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUCoalesce",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUF32DotTC",
+      "opportunities_before": [
+       {
+        "conversion": "%_sir_x_offsets",
+        "conversion_text": "ttg.convert_layout %_sir_x_d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%_sir_x_d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_4",
+        "conversion_text": "ttg.convert_layout %_sir_x_d1_3 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_d1_3",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d1_2 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc27)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_7",
+        "conversion_text": "ttg.convert_layout %_sir_x_offsets_6 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_offsets_6",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_x_offsets_5 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%_sir_t2",
+        "conversion_text": "ttg.convert_layout %_sir_t1_16 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc33)",
+        "source": "%_sir_t1_16",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t1_15 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%_sir_t4",
+        "conversion_text": "ttg.convert_layout %_sir_t3_20 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc35)",
+        "source": "%_sir_t3_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t3_19 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%_sir_next_x",
+        "conversion_text": "ttg.convert_layout %_sir_t4_21 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc36)",
+        "source": "%_sir_t4_21",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_t4 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc35)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 12,
+      "layout_conversion_delta": -16,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUOptimizeCTALocalityPass",
+      "opportunities_before": [
+       {
+        "conversion": "%_sir_x_offsets",
+        "conversion_text": "ttg.convert_layout %_sir_x_d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%_sir_x_d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_4",
+        "conversion_text": "ttg.convert_layout %_sir_x_d1_3 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_d1_3",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d1_2 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc27)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_7",
+        "conversion_text": "ttg.convert_layout %_sir_x_offsets_6 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_offsets_6",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_x_offsets_5 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%_sir_t2",
+        "conversion_text": "ttg.convert_layout %_sir_t1_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc33)",
+        "source": "%_sir_t1_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t1_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%_sir_t4",
+        "conversion_text": "ttg.convert_layout %_sir_t3_22 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc35)",
+        "source": "%_sir_t3_22",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t3_21 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%_sir_next_x",
+        "conversion_text": "ttg.convert_layout %_sir_t4_23 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc36)",
+        "source": "%_sir_t4_23",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_t4 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc35)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUOptimizeThreadLocality",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUOptimizeDotOperands",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUInterleaveTMemPass",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 1,
+      "duplicate_operation_deltas": {
+       "arith.addf": 1
+      },
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": -1,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "GluonInline",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 46,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "AllocateSharedMemoryNv",
+      "opportunities_before": [],
+      "pass": "GluonInline",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 47,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonTensorMemoryAllocationPass",
+      "opportunities_before": [],
+      "pass": "AllocateSharedMemoryNv",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 48,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonGPUProxyFenceInsertion",
+      "opportunities_before": [],
+      "pass": "TritonTensorMemoryAllocationPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 49,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUMembar",
+      "opportunities_before": [],
+      "pass": "TritonGPUProxyFenceInsertion",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 50,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUTMemBarrierInsertionPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUMembar",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 51,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUOptimizeMBarrierArrivalsPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUTMemBarrierInsertionPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 52,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUClusterBarrierMbarAllocatorPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUOptimizeMBarrierArrivalsPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 53,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonGPUGlobalScratchAllocationPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUClusterBarrierMbarAllocatorPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 54,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "ConvertTritonGPUToLLVM",
+      "opportunities_before": [],
+      "pass": "TritonGPUGlobalScratchAllocationPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {
+       "arith.addf": -1,
+       "ttg.warp_id": 2
+      },
+      "index": 55,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 3,
+         "expression": "ttg.warp_id {omitUniformHint}",
+         "values": [
+          "%_sir_x_d0_3",
+          "%_sir_x_d1_16",
+          "%_sir_t1_111"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "InitializeWSClusterBarriers",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 56,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 3,
+         "expression": "ttg.warp_id {omitUniformHint}",
+         "values": [
+          "%_sir_x_d0_3",
+          "%_sir_x_d1_16",
+          "%_sir_t1_111"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "CSEPass",
+      "opportunities_before": [],
+      "pass": "InitializeWSClusterBarriers",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": -1,
+      "duplicate_operation_deltas": {
+       "ttg.warp_id": -2
+      },
+      "index": 57,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "ConvertWarpSpecializeToLLVM",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "bounds": {
+    "integer_exactness_bound": 16777216,
+    "max_partial_sum": 2101248,
+    "signed_zero": "positive-zero-only"
+   },
+   "build_reason": null,
+   "build_status": "built",
+   "configuration": {
+    "family": "broadcast-hoist",
+    "iterations": 2,
+    "max_operators": 10,
+    "operation_mode": "additive",
+    "seed": 9,
+    "shape": [
+     32,
+     16
+    ]
+   },
+   "kernel_sha256": "51333d7903eba15f17bd137f28ac94871a7f10bfc801aaf95113148cb5374fbc",
+   "manifest": {
+    "exactness": null,
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "profile": "tensor-v2",
+    "property": {
+     "id": "declared-witness-output-element-0-0-equals-559298.0",
+     "source": "Execute the declared integer-valued f32 witness in [0,8] and replay the complete output."
+    },
+    "schema": "refractir.tensor-case.v2"
+   },
+   "pass_dump_sha256": "e7336b025d21d3c508bf18affe25befc68454e34babba89f7f70af004b1cdca2",
+   "program_sha256": "b9b37942fca352f1be0510ea0fdf6aef7655afa54565d8e6f12c353759aff8d2",
+   "reduction_axes": [
+    0,
+    1
+   ],
+   "run_status": "pass",
+   "selection": "witness",
+   "source_pattern": {
+    "consumers": [
+     "t3",
+     "next_y"
+    ],
+    "reduced": "t1",
+    "roots": [
+     "next_x",
+     "next_y"
+    ],
+    "second_axis": 1,
+    "second_reduction": "t3",
+    "second_view": "t4",
+    "shallow_consumer": "next_y",
+    "state": "acc_x",
+    "state_axis": 0,
+    "status": "view_present",
+    "view": "t2"
+   }
+  },
+  "broadcast-hoist-4x8-it4": {
+   "analysis": {
+    "candidate_transitions": 19,
+    "confirmed_total": 0,
+    "conversions_on_an_ext_or_broadcast": 24,
+    "final_loop_construct_count": 0,
+    "snapshot_count": 66,
+    "structural_recomputations_total": 0,
+    "target_pass_evidence": {
+     "occurrences": [
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 12
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 14
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 18
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 31
+      }
+     ],
+     "status": "repeated",
+     "transition_index": null,
+     "transition_indices": [
+      12,
+      14,
+      18,
+      31
+     ]
+    },
+    "terminal_pass": "LLVMDIScope",
+    "transitions": [
+     {
+      "duplicate_expression_group_delta": -14,
+      "duplicate_operation_deltas": {
+       "arith.constant": -80,
+       "tt.call": -1
+      },
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 8 : i32, start = 0 : i32} : tensor<8xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonRewriteTensorDescriptorToPointer",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 1,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 8 : i32, start = 0 : i32} : tensor<8xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "CanonicalizerPass",
+      "opportunities_before": [],
+      "pass": "TritonRewriteTensorDescriptorToPointer",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 2,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 8 : i32, start = 0 : i32} : tensor<8xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonCombineOps",
+      "opportunities_before": [],
+      "pass": "CanonicalizerPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 3,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 8 : i32, start = 0 : i32} : tensor<8xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonReorderBroadcast",
+      "opportunities_before": [],
+      "pass": "TritonCombineOps",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 4,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 4 : i32, start = 0 : i32} : tensor<4xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 8 : i32, start = 0 : i32} : tensor<8xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "CSEPass",
+      "opportunities_before": [],
+      "pass": "TritonReorderBroadcast",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": -2,
+      "duplicate_operation_deltas": {
+       "tt.make_range": -2
+      },
+      "index": 5,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "SymbolDCEPass",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 7,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "ConvertTritonToTritonGPU",
+      "opportunities_before": [],
+      "pass": "TritonLoopUnroll",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 8,
+      "layout_conversion_delta": 12,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUCoalesce",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 9,
+      "layout_conversion_delta": 3,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUF32DotTC",
+      "opportunities_before": [
+       {
+        "conversion": "%_sir_x_offsets",
+        "conversion_text": "ttg.convert_layout %_sir_x_d0_1 : tensor<4x1xi32, #blocked3> -> tensor<4x1xi32, #blocked1> loc(#loc26)",
+        "source": "%_sir_x_d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d0_0 {axis = 1 : i32} : tensor<4xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<4x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_4",
+        "conversion_text": "ttg.convert_layout %_sir_x_d1_3 : tensor<1x8xi32, #blocked4> -> tensor<1x8xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_d1_3",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d1_2 {axis = 0 : i32} : tensor<8xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x8xi32, #blocked4> loc(#loc27)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_7",
+        "conversion_text": "ttg.convert_layout %_sir_x_offsets_6 : tensor<4x8xi32, #blocked1> -> tensor<4x8xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_offsets_6",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_x_offsets_5 : tensor<4x1xi32, #blocked1> -> tensor<4x8xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%_sir_t2",
+        "conversion_text": "ttg.convert_layout %_sir_t1_16 : tensor<1x8xf32, #blocked4> -> tensor<1x8xf32, #blocked> loc(#loc33)",
+        "source": "%_sir_t1_16",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t1_15 {axis = 0 : i32} : tensor<8xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x8xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%_sir_t4",
+        "conversion_text": "ttg.convert_layout %_sir_t3_20 : tensor<4x1xf32, #blocked3> -> tensor<4x1xf32, #blocked1> loc(#loc35)",
+        "source": "%_sir_t3_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t3_19 {axis = 1 : i32} : tensor<4xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<4x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%_sir_next_x",
+        "conversion_text": "ttg.convert_layout %_sir_t4_21 : tensor<4x8xf32, #blocked1> -> tensor<4x8xf32, #blocked> loc(#loc36)",
+        "source": "%_sir_t4_21",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_t4 : tensor<4x1xf32, #blocked1> -> tensor<4x8xf32, #blocked1> loc(#loc35)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 12,
+      "layout_conversion_delta": -15,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUOptimizeCTALocalityPass",
+      "opportunities_before": [
+       {
+        "conversion": "%_sir_x_offsets",
+        "conversion_text": "ttg.convert_layout %_sir_x_d0_1 : tensor<4x1xi32, #blocked3> -> tensor<4x1xi32, #blocked1> loc(#loc26)",
+        "source": "%_sir_x_d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d0_0 {axis = 1 : i32} : tensor<4xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<4x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_4",
+        "conversion_text": "ttg.convert_layout %_sir_x_d1_3 : tensor<1x8xi32, #blocked4> -> tensor<1x8xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_d1_3",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d1_2 {axis = 0 : i32} : tensor<8xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x8xi32, #blocked4> loc(#loc27)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_7",
+        "conversion_text": "ttg.convert_layout %_sir_x_offsets_6 : tensor<4x8xi32, #blocked1> -> tensor<4x8xi32, #blocked> loc(#loc26)",
+        "source": "%_sir_x_offsets_6",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_x_offsets_5 : tensor<4x1xi32, #blocked1> -> tensor<4x8xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%_sir_t2",
+        "conversion_text": "ttg.convert_layout %_sir_t1_17 : tensor<1x8xf32, #blocked4> -> tensor<1x8xf32, #blocked> loc(#loc33)",
+        "source": "%_sir_t1_17",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t1_16 {axis = 0 : i32} : tensor<8xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x8xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%_sir_t4",
+        "conversion_text": "ttg.convert_layout %_sir_t3_21 : tensor<4x1xf32, #blocked3> -> tensor<4x1xf32, #blocked1> loc(#loc35)",
+        "source": "%_sir_t3_21",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t3_20 {axis = 1 : i32} : tensor<4xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<4x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%_sir_next_x",
+        "conversion_text": "ttg.convert_layout %_sir_t4_22 : tensor<4x8xf32, #blocked1> -> tensor<4x8xf32, #blocked> loc(#loc36)",
+        "source": "%_sir_t4_22",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_t4 : tensor<4x1xf32, #blocked1> -> tensor<4x8xf32, #blocked1> loc(#loc35)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUOptimizeThreadLocality",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUOptimizeDotOperands",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUInterleaveTMemPass",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 1,
+      "duplicate_operation_deltas": {
+       "arith.addf": 1
+      },
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": -1,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "GluonInline",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 46,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "AllocateSharedMemoryNv",
+      "opportunities_before": [],
+      "pass": "GluonInline",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 47,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonTensorMemoryAllocationPass",
+      "opportunities_before": [],
+      "pass": "AllocateSharedMemoryNv",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 48,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonGPUProxyFenceInsertion",
+      "opportunities_before": [],
+      "pass": "TritonTensorMemoryAllocationPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 49,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUMembar",
+      "opportunities_before": [],
+      "pass": "TritonGPUProxyFenceInsertion",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 50,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUTMemBarrierInsertionPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUMembar",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 51,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUOptimizeMBarrierArrivalsPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUTMemBarrierInsertionPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 52,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUClusterBarrierMbarAllocatorPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUOptimizeMBarrierArrivalsPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 53,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonGPUGlobalScratchAllocationPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUClusterBarrierMbarAllocatorPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 54,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<4x8xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "ConvertTritonGPUToLLVM",
+      "opportunities_before": [],
+      "pass": "TritonGPUGlobalScratchAllocationPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {
+       "arith.addf": -1,
+       "ttg.warp_id": 2
+      },
+      "index": 55,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 3,
+         "expression": "ttg.warp_id {omitUniformHint}",
+         "values": [
+          "%_sir_x_d0_3",
+          "%_sir_x_d1_17",
+          "%18"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "InitializeWSClusterBarriers",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 56,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 3,
+         "expression": "ttg.warp_id {omitUniformHint}",
+         "values": [
+          "%_sir_x_d0_3",
+          "%_sir_x_d1_17",
+          "%18"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "CSEPass",
+      "opportunities_before": [],
+      "pass": "InitializeWSClusterBarriers",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": -1,
+      "duplicate_operation_deltas": {
+       "ttg.warp_id": -2
+      },
+      "index": 57,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "ConvertWarpSpecializeToLLVM",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "bounds": {
+    "integer_exactness_bound": 16777216,
+    "max_partial_sum": 9268480,
+    "signed_zero": "positive-zero-only"
+   },
+   "build_reason": null,
+   "build_status": "built",
+   "configuration": {
+    "family": "broadcast-hoist",
+    "iterations": 4,
+    "max_operators": 10,
+    "operation_mode": "additive",
+    "seed": 9,
+    "shape": [
+     4,
+     8
+    ]
+   },
+   "kernel_sha256": "01f85d409440f7071ae6296fe265f56255f0807d3bdfa496ce77cfdf08385ac6",
+   "manifest": {
+    "exactness": null,
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "profile": "tensor-v2",
+    "property": {
+     "id": "output-element-0-0-equals-10788808",
+     "source": "Select integer-valued f32 leaves in [0,8] so output[0,0] equals 10788808."
+    },
+    "schema": "refractir.tensor-case.v2"
+   },
+   "pass_dump_sha256": "76d01f2e7854a41707e0130683eba68fffb58b2cef1d12207d8ddfa3e081e8fb",
+   "program_sha256": "206f869cbddffdec6f2bead059b1dfb18520c2681a6ec603e64182df217914d1",
+   "reduction_axes": [
+    0,
+    1
+   ],
+   "run_status": "pass",
+   "selection": "solver",
+   "source_pattern": {
+    "consumers": [
+     "t3",
+     "next_y"
+    ],
+    "reduced": "t1",
+    "roots": [
+     "next_x",
+     "next_y"
+    ],
+    "second_axis": 1,
+    "second_reduction": "t3",
+    "second_view": "t4",
+    "shallow_consumer": "next_y",
+    "state": "acc_x",
+    "state_axis": 0,
+    "status": "view_present",
+    "view": "t2"
+   }
+  },
+  "mixed-depth-32x16-it4": {
+   "analysis": {
+    "candidate_transitions": 19,
+    "confirmed_total": 0,
+    "conversions_on_an_ext_or_broadcast": 16,
+    "final_loop_construct_count": 0,
+    "snapshot_count": 66,
+    "structural_recomputations_total": 0,
+    "target_pass_evidence": {
+     "occurrences": [
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 12
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 14
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 18
+      },
+      {
+       "loop_after": true,
+       "loop_before": true,
+       "transition_index": 31
+      }
+     ],
+     "status": "repeated",
+     "transition_index": null,
+     "transition_indices": [
+      12,
+      14,
+      18,
+      31
+     ]
+    },
+    "terminal_pass": "LLVMDIScope",
+    "transitions": [
+     {
+      "duplicate_expression_group_delta": -13,
+      "duplicate_operation_deltas": {
+       "arith.constant": -1040
+      },
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonRewriteTensorDescriptorToPointer",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 1,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "CanonicalizerPass",
+      "opportunities_before": [],
+      "pass": "TritonRewriteTensorDescriptorToPointer",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 2,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonCombineOps",
+      "opportunities_before": [],
+      "pass": "CanonicalizerPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 3,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "TritonReorderBroadcast",
+      "opportunities_before": [],
+      "pass": "TritonCombineOps",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 4,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 16 : i32, start = 0 : i32} : tensor<16xi32>",
+         "values": [
+          "%_sir_x_d1",
+          "%_sir_out_d1"
+         ]
+        },
+        {
+         "count": 2,
+         "expression": "tt.make_range {end = 32 : i32, start = 0 : i32} : tensor<32xi32>",
+         "values": [
+          "%_sir_x_d0",
+          "%_sir_out_d0"
+         ]
+        }
+       ],
+       "unattributed_count": 2
+      },
+      "next_snapshot_pass": "CSEPass",
+      "opportunities_before": [],
+      "pass": "TritonReorderBroadcast",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": -2,
+      "duplicate_operation_deltas": {
+       "tt.make_range": -2
+      },
+      "index": 5,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "SymbolDCEPass",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 7,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "ConvertTritonToTritonGPU",
+      "opportunities_before": [],
+      "pass": "TritonLoopUnroll",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 8,
+      "layout_conversion_delta": 8,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUCoalesce",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUF32DotTC",
+      "opportunities_before": [
+       {
+        "conversion": "%_sir_x_offsets",
+        "conversion_text": "ttg.convert_layout %_sir_x_d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc25)",
+        "source": "%_sir_x_d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc24)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_4",
+        "conversion_text": "ttg.convert_layout %_sir_x_d1_3 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc25)",
+        "source": "%_sir_x_d1_3",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d1_2 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_7",
+        "conversion_text": "ttg.convert_layout %_sir_x_offsets_6 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc25)",
+        "source": "%_sir_x_offsets_6",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_x_offsets_5 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc25)"
+       },
+       {
+        "conversion": "%_sir_t3",
+        "conversion_text": "ttg.convert_layout %_sir_t1_16 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%_sir_t1_16",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t1_15 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc40)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 12,
+      "layout_conversion_delta": -12,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUOptimizeCTALocalityPass",
+      "opportunities_before": [
+       {
+        "conversion": "%_sir_x_offsets",
+        "conversion_text": "ttg.convert_layout %_sir_x_d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc25)",
+        "source": "%_sir_x_d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc24)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_4",
+        "conversion_text": "ttg.convert_layout %_sir_x_d1_3 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc25)",
+        "source": "%_sir_x_d1_3",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_x_d1_2 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%_sir_x_offsets_7",
+        "conversion_text": "ttg.convert_layout %_sir_x_offsets_6 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc25)",
+        "source": "%_sir_x_offsets_6",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %_sir_x_offsets_5 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc25)"
+       },
+       {
+        "conversion": "%_sir_t3",
+        "conversion_text": "ttg.convert_layout %_sir_t1_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%_sir_t1_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %_sir_t1_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc40)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUOptimizeThreadLocality",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonGPUOptimizeDotOperands",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUInterleaveTMemPass",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 1,
+      "duplicate_operation_deltas": {
+       "arith.addf": 1
+      },
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": -1,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "GluonInline",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 46,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "AllocateSharedMemoryNv",
+      "opportunities_before": [],
+      "pass": "GluonInline",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 47,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonTensorMemoryAllocationPass",
+      "opportunities_before": [],
+      "pass": "AllocateSharedMemoryNv",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 48,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonGPUProxyFenceInsertion",
+      "opportunities_before": [],
+      "pass": "TritonTensorMemoryAllocationPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 49,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUMembar",
+      "opportunities_before": [],
+      "pass": "TritonGPUProxyFenceInsertion",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 50,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUTMemBarrierInsertionPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUMembar",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 51,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUOptimizeMBarrierArrivalsPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUTMemBarrierInsertionPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 52,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonNvidiaGPUClusterBarrierMbarAllocatorPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUOptimizeMBarrierArrivalsPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 53,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "TritonGPUGlobalScratchAllocationPass",
+      "opportunities_before": [],
+      "pass": "TritonNvidiaGPUClusterBarrierMbarAllocatorPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 54,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 2,
+         "expression": "arith.addf %_sir_acc_x, %_sir_acc_y : tensor<32x16xf32, #blocked>",
+         "values": [
+          "%_sir_t0",
+          "%_sir_out"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "ConvertTritonGPUToLLVM",
+      "opportunities_before": [],
+      "pass": "TritonGPUGlobalScratchAllocationPass",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {
+       "arith.addf": -1,
+       "ttg.warp_id": 2
+      },
+      "index": 55,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 3,
+         "expression": "ttg.warp_id {omitUniformHint}",
+         "values": [
+          "%_sir_x_d0_3",
+          "%_sir_x_d1_16",
+          "%_sir_t1_107"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "InitializeWSClusterBarriers",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": 0,
+      "duplicate_operation_deltas": {},
+      "index": 56,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "unattributed_only",
+       "unattributed": [
+        {
+         "count": 3,
+         "expression": "ttg.warp_id {omitUniformHint}",
+         "values": [
+          "%_sir_x_d0_3",
+          "%_sir_x_d1_16",
+          "%_sir_t1_107"
+         ]
+        }
+       ],
+       "unattributed_count": 1
+      },
+      "next_snapshot_pass": "CSEPass",
+      "opportunities_before": [],
+      "pass": "InitializeWSClusterBarriers",
+      "structural_recomputations": []
+     },
+     {
+      "duplicate_expression_group_delta": -1,
+      "duplicate_operation_deltas": {
+       "ttg.warp_id": -2
+      },
+      "index": 57,
+      "layout_conversion_delta": 0,
+      "loop_construct_delta": 0,
+      "matcher": {
+       "confirmed": [],
+       "confirmed_count": 0,
+       "status": "none",
+       "unattributed": [],
+       "unattributed_count": 0
+      },
+      "next_snapshot_pass": "ConvertWarpSpecializeToLLVM",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "bounds": {
+    "integer_exactness_bound": 16777216,
+    "max_partial_sum": 10976000,
+    "signed_zero": "positive-zero-only"
+   },
+   "build_reason": null,
+   "build_status": "built",
+   "configuration": {
+    "family": "mixed-depth",
+    "iterations": 4,
+    "max_operators": 10,
+    "operation_mode": "additive",
+    "seed": 9,
+    "shape": [
+     32,
+     16
+    ]
+   },
+   "kernel_sha256": "2b5e96b0fd011a79ad44dceb3e4b7e10872d719b639006293ce7bd1fcda2f38a",
+   "manifest": {
+    "exactness": null,
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "profile": "tensor-v2",
+    "property": {
+     "id": "declared-witness-output-element-0-0-equals-3001250.0",
+     "source": "Execute the declared integer-valued f32 witness in [0,8] and replay the complete output."
+    },
+    "schema": "refractir.tensor-case.v2"
+   },
+   "pass_dump_sha256": "7522a469efba120fb621d3e7c0774094538c180feeae44f3713fddd3ccb1b217",
+   "program_sha256": "638322a9be95072a6d59bcea366d0f4d9d4445a3aa63305765a44637c77dedcd",
+   "reduction_axes": [
+    0
+   ],
+   "run_status": "pass",
+   "selection": "witness",
+   "source_pattern": {
+    "reason": "the region has no state-derived broadcast view",
+    "status": "no_view"
+   }
+  }
+ },
+ "frozen_corpus": {
+  "after_exporter": "build/bin/tensor_graph_region_export",
+  "before_exporter": "/tmp/pristine-gen/build/bin/tensor_graph_region_export",
+  "checked_configurations": 2800,
+  "families": [
+   "fold",
+   "orthogonal-reductions",
+   "reduction-arithmetic",
+   "cross-state",
+   "mixed-depth"
+  ],
+  "moved_configurations": [],
+  "schema": "refractir.tensor-region-family-invariance.v1",
+  "unchanged": true
+ },
+ "interpretation_limit": "the structural reading is not the plan's confirmation criterion; it is recorded so a refusal can be attributed to the matcher's equivalence rather than to an absent candidate",
+ "matcher": "observe_pass_dumps(..., rematerialization=True): a confirmed recomputation needs an equivalent surviving producer, strictly more pure definitions with the same canonical expression, a lost consumer, a redirected consumer, and the original still present",
+ "matcher_boundary_probe": {
+  "layout_rematerialization": {
+   "confirmed": [],
+   "confirmed_count": 0,
+   "status": "none",
+   "structural_recomputations": [
+    {
+     "after_definition": "tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked1>",
+     "before_definition": "tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>",
+     "lost_consumers": [
+      "%c",
+      "%d"
+     ],
+     "operation": "tt.broadcast",
+     "original": "%b",
+     "recomputed": "%b2",
+     "redirected_consumers": [
+      "%d"
+     ],
+     "shape": "cloned_slice",
+     "survives": true
+    }
+   ],
+   "unattributed_count": 0
+  },
+  "same_encoding_copy": {
+   "confirmed": [
+    {
+     "expression": "tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>",
+     "original_value": "%b",
+     "recomputed_values": [
+      "%b2"
+     ],
+     "redirected_consumers": [
+      "%d"
+     ],
+     "remaining_consumers": [
+      "%e"
+     ],
+     "source_line": null
+    }
+   ],
+   "confirmed_count": 1,
+   "status": "confirmed_only",
+   "structural_recomputations": [],
+   "unattributed_count": 0
+  }
+ },
+ "module_digests": {
+  "test/lib/build_tensor_exact_region_case.py": "085ab3942ae00afe808d02bc19dc4fb8714ea2e847c23da104620764617ac533",
+  "test/lib/tensor_compiler_observation.py": "fe1cb5eaf9189820e8db68a80a16f9f81595ba961a28516804292df016c8406d",
+  "test/lib/tensor_exact_f32.py": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8",
+  "test/lib/tensor_region_generation.py": "42b15b3da9e4c1815a6dfbf0ad772ff36ca484a5cdad6f5d1dae17823bf7726f"
+ },
+ "probe_kernels": {
+  "kernels": {
+   "base-w1": {
+    "candidate_transitions": 17,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/base-w1.txt",
+    "sha256": "29155c762e987cb76b9e3fd96c4ec9040c70444942817fcb1262634633670617",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -2,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 5,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 8,
+      "layout_conversion_delta": 8,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%t3",
+        "conversion_text": "ttg.convert_layout %t1_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%t1_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %t1_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc39)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 12,
+      "layout_conversion_delta": -12,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%t3",
+        "conversion_text": "ttg.convert_layout %t1_20 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%t1_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %t1_19 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc39)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 55,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "base-w4": {
+    "candidate_transitions": 19,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/base-w4.txt",
+    "sha256": "ffe106ad36b62a29be09aabc28eccfbf75df8bc2916ce0d1ea6df4a76d4b8900",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -2,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 5,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 8,
+      "layout_conversion_delta": 8,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%t3",
+        "conversion_text": "ttg.convert_layout %t1_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%t1_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %t1_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc39)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 12,
+      "layout_conversion_delta": -12,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%t3",
+        "conversion_text": "ttg.convert_layout %t1_20 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%t1_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %t1_19 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc39)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 57,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "double-axis-w1": {
+    "candidate_transitions": 17,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/double-axis-w1.txt",
+    "sha256": "1b4957b95bbb9d2291691f7a41e14c3504165d051e90c4ed00240588e6838987",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -3,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 8,
+      "layout_conversion_delta": 13,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_18 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc34)",
+        "source": "%s_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_17 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc42)"
+       },
+       {
+        "conversion": "%2",
+        "conversion_text": "ttg.convert_layout %b_19 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc16)",
+        "source": "%b_19",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%r",
+        "conversion_text": "ttg.convert_layout %b_19 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc43)",
+        "source": "%b_19",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_23 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc36)",
+        "source": "%r_23",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_22 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc45)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 12,
+      "layout_conversion_delta": -17,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_20 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc34)",
+        "source": "%s_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_19 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc42)"
+       },
+       {
+        "conversion": "%4",
+        "conversion_text": "ttg.convert_layout %b_21 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc16)",
+        "source": "%b_21",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%r",
+        "conversion_text": "ttg.convert_layout %b_21 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc43)",
+        "source": "%b_21",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_25 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc36)",
+        "source": "%r_25",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_24 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc45)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 55,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "double-axis-w4": {
+    "candidate_transitions": 19,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/double-axis-w4.txt",
+    "sha256": "ca9f83a8270639680b975d84f96b60f81752d25d05d58183b96558cfb5d74e9f",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -3,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 8,
+      "layout_conversion_delta": 13,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_18 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc34)",
+        "source": "%s_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_17 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc42)"
+       },
+       {
+        "conversion": "%2",
+        "conversion_text": "ttg.convert_layout %b_19 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc16)",
+        "source": "%b_19",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%r",
+        "conversion_text": "ttg.convert_layout %b_19 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc43)",
+        "source": "%b_19",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_23 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc36)",
+        "source": "%r_23",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_22 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc45)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 12,
+      "layout_conversion_delta": -17,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_20 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc34)",
+        "source": "%s_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_19 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc42)"
+       },
+       {
+        "conversion": "%4",
+        "conversion_text": "ttg.convert_layout %b_21 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc16)",
+        "source": "%b_21",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%r",
+        "conversion_text": "ttg.convert_layout %b_21 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc43)",
+        "source": "%b_21",
+        "source_consumers": 3,
+        "source_definition": "tt.broadcast %b : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc34)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_25 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc36)",
+        "source": "%r_25",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_24 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc45)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 57,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "load-transposed": {
+    "candidate_transitions": 17,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 1,
+     "texts": [
+      "%4 = ttg.convert_layout %out {allocation.offset = 0 : i32, allocation.size = 2048 : i32} : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked1> loc(#loc23)"
+     ]
+    },
+    "dump": "explore/out3/load-transposed.txt",
+    "sha256": "5547ccc03754b40cf73280029869e31c907898c18cf535eb1753ac46f7ad2a81",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -5,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 2,
+      "index": 8,
+      "layout_conversion_delta": 15,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [
+       {
+        "conversion": "%col_offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc31)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%row_offs_3",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc29)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%col_offs_6",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc28)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_7",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc29)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_10",
+        "conversion_text": "ttg.convert_layout %row_offs_9 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc29)",
+        "source": "%row_offs_9",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %row_offs_8 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc29)"
+       },
+       {
+        "conversion": "%col_offs_15",
+        "conversion_text": "ttg.convert_layout %col_offs_14 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc31)",
+        "source": "%col_offs_14",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %col_offs_2 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc31)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_25 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc38)",
+        "source": "%s_25",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_24 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc46)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_29 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc40)",
+        "source": "%r_29",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_28 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc49)"
+       },
+       {
+        "conversion": "%2",
+        "conversion_text": "ttg.convert_layout %b2_30 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc20)",
+        "source": "%b2_30",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc40)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -2,
+      "index": 12,
+      "layout_conversion_delta": -18,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%col_offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc31)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%row_offs_3",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc29)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%col_offs_6",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc28)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_7",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc29)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_10",
+        "conversion_text": "ttg.convert_layout %row_offs_9 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc29)",
+        "source": "%row_offs_9",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %row_offs_8 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc29)"
+       },
+       {
+        "conversion": "%col_offs_15",
+        "conversion_text": "ttg.convert_layout %col_offs_14 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc31)",
+        "source": "%col_offs_14",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %col_offs_2 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc31)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_27 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc38)",
+        "source": "%s_27",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_26 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc46)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_31 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc40)",
+        "source": "%r_31",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_30 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc49)"
+       },
+       {
+        "conversion": "%4",
+        "conversion_text": "ttg.convert_layout %b2_32 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc20)",
+        "source": "%b2_32",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc40)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 55,
+      "layout_conversion_delta": -1,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "state-broadcast-w1": {
+    "candidate_transitions": 12,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/state-broadcast-w1.txt",
+    "sha256": "9821813e95b987aa54a7b5c9392a5527a13e3f1762ee792e1490a9257d8e2233",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -3,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 8,
+      "layout_conversion_delta": 12,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc34)",
+        "source": "%s_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_22 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc36)",
+        "source": "%r_22",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_21 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%2",
+        "conversion_text": "ttg.convert_layout %b2_23 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc18)",
+        "source": "%b2_23",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc36)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 12,
+      "layout_conversion_delta": -16,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_20 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc34)",
+        "source": "%s_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_19 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_24 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc36)",
+        "source": "%r_24",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_23 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%4",
+        "conversion_text": "ttg.convert_layout %b2_25 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc18)",
+        "source": "%b2_25",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc36)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 55,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "state-broadcast-w4": {
+    "candidate_transitions": 14,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/state-broadcast-w4.txt",
+    "sha256": "e76d3420a0e589404c07e851a75558e972628ad8ee324f571ac87ec779c278ad",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -3,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 8,
+      "layout_conversion_delta": 12,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc34)",
+        "source": "%s_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_22 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc36)",
+        "source": "%r_22",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_21 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%2",
+        "conversion_text": "ttg.convert_layout %b2_23 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc18)",
+        "source": "%b2_23",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc36)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 12,
+      "layout_conversion_delta": -16,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc26)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc27)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc26)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc28)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc26)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc26)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_20 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc34)",
+        "source": "%s_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_19 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc42)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_24 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc36)",
+        "source": "%r_24",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_23 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc45)"
+       },
+       {
+        "conversion": "%4",
+        "conversion_text": "ttg.convert_layout %b2_25 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc18)",
+        "source": "%b2_25",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc36)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 57,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "store-transposed": {
+    "candidate_transitions": 17,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 1,
+     "texts": [
+      "%4 = ttg.convert_layout %out {allocation.offset = 0 : i32, allocation.size = 2048 : i32} : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc23)"
+     ]
+    },
+    "dump": "explore/out3/store-transposed.txt",
+    "sha256": "55da7ce699612221dac1778d5b7dbd9c6632ab6f99d4a3abbee6944600fe1fcb",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -5,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 2,
+      "index": 8,
+      "layout_conversion_delta": 15,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [
+       {
+        "conversion": "%col_offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc31)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%row_offs_3",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc29)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%col_offs_6",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc28)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_7",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc29)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_10",
+        "conversion_text": "ttg.convert_layout %row_offs_9 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc29)",
+        "source": "%row_offs_9",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %row_offs_8 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc29)"
+       },
+       {
+        "conversion": "%col_offs_15",
+        "conversion_text": "ttg.convert_layout %col_offs_14 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc31)",
+        "source": "%col_offs_14",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %col_offs_2 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc31)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_25 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc38)",
+        "source": "%s_25",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_24 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc46)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_29 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc40)",
+        "source": "%r_29",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_28 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc49)"
+       },
+       {
+        "conversion": "%2",
+        "conversion_text": "ttg.convert_layout %b2_30 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc20)",
+        "source": "%b2_30",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc40)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -2,
+      "index": 12,
+      "layout_conversion_delta": -18,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%col_offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc31)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%row_offs_3",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc29)",
+        "source": "%d0_1",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc30)"
+       },
+       {
+        "conversion": "%col_offs_6",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc28)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_7",
+        "conversion_text": "ttg.convert_layout %d1_5 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc29)",
+        "source": "%d1_5",
+        "source_consumers": 3,
+        "source_definition": "tt.expand_dims %d1_4 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc32)"
+       },
+       {
+        "conversion": "%row_offs_10",
+        "conversion_text": "ttg.convert_layout %row_offs_9 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc29)",
+        "source": "%row_offs_9",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %row_offs_8 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc29)"
+       },
+       {
+        "conversion": "%col_offs_15",
+        "conversion_text": "ttg.convert_layout %col_offs_14 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc31)",
+        "source": "%col_offs_14",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %col_offs_2 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc31)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_27 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc38)",
+        "source": "%s_27",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_26 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc46)"
+       },
+       {
+        "conversion": "%b2",
+        "conversion_text": "ttg.convert_layout %r_31 : tensor<32x1xf32, #blocked3> -> tensor<32x1xf32, #blocked1> loc(#loc40)",
+        "source": "%r_31",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %r_30 {axis = 1 : i32} : tensor<32xf32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xf32, #blocked3> loc(#loc49)"
+       },
+       {
+        "conversion": "%4",
+        "conversion_text": "ttg.convert_layout %b2_32 : tensor<32x16xf32, #blocked1> -> tensor<32x16xf32, #blocked> loc(#loc20)",
+        "source": "%b2_32",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %b2 : tensor<32x1xf32, #blocked1> -> tensor<32x16xf32, #blocked1> loc(#loc40)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 55,
+      "layout_conversion_delta": -1,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "two-consumers-w1": {
+    "candidate_transitions": 12,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/two-consumers-w1.txt",
+    "sha256": "4bd9fdeec49164f6db7e1e24a2bbd8e7045a90b696327eda0d4819751d9cd94b",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -2,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 8,
+      "layout_conversion_delta": 8,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%s_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc38)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 12,
+      "layout_conversion_delta": -12,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_20 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%s_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_19 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc38)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 55,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonGPUToLLVM",
+      "structural_recomputations": []
+     }
+    ]
+   },
+   "two-consumers-w4": {
+    "candidate_transitions": 14,
+    "confirmed_total": 0,
+    "conversions_before_lowering": {
+     "count": 0,
+     "texts": []
+    },
+    "dump": "explore/out2/two-consumers-w4.txt",
+    "sha256": "8227220f82a9a393da0a660ce78e34e4c70cf7f08b14483010d61a8ee0ddc82b",
+    "snapshots": 66,
+    "structural_recomputations_total": 0,
+    "transitions": [
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -2,
+      "index": 0,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "InlinerPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 8,
+      "layout_conversion_delta": 8,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "ConvertTritonToTritonGPU",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 9,
+      "layout_conversion_delta": 4,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_18 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%s_18",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_17 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc38)"
+       }
+      ],
+      "pass": "TritonGPUCoalesce",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 12,
+      "layout_conversion_delta": -12,
+      "matcher_status": "none",
+      "opportunities_before": [
+       {
+        "conversion": "%offs_2",
+        "conversion_text": "ttg.convert_layout %d0_1 : tensor<32x1xi32, #blocked3> -> tensor<32x1xi32, #blocked1> loc(#loc24)",
+        "source": "%d0_1",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d0_0 {axis = 1 : i32} : tensor<32xi32, #ttg.slice<{dim = 1, parent = #blocked3}>> -> tensor<32x1xi32, #blocked3> loc(#loc25)"
+       },
+       {
+        "conversion": "%offs_5",
+        "conversion_text": "ttg.convert_layout %d1_4 : tensor<1x16xi32, #blocked4> -> tensor<1x16xi32, #blocked> loc(#loc24)",
+        "source": "%d1_4",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %d1_3 {axis = 0 : i32} : tensor<16xi32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xi32, #blocked4> loc(#loc26)"
+       },
+       {
+        "conversion": "%offs_8",
+        "conversion_text": "ttg.convert_layout %offs_7 : tensor<32x16xi32, #blocked1> -> tensor<32x16xi32, #blocked> loc(#loc24)",
+        "source": "%offs_7",
+        "source_consumers": 2,
+        "source_definition": "tt.broadcast %offs_6 : tensor<32x1xi32, #blocked1> -> tensor<32x16xi32, #blocked1> loc(#loc24)"
+       },
+       {
+        "conversion": "%b",
+        "conversion_text": "ttg.convert_layout %s_20 : tensor<1x16xf32, #blocked4> -> tensor<1x16xf32, #blocked> loc(#loc32)",
+        "source": "%s_20",
+        "source_consumers": 2,
+        "source_definition": "tt.expand_dims %s_19 {axis = 0 : i32} : tensor<16xf32, #ttg.slice<{dim = 0, parent = #blocked4}>> -> tensor<1x16xf32, #blocked4> loc(#loc38)"
+       }
+      ],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 14,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 18,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 0,
+      "index": 31,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "TritonGPURemoveLayoutConversions",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": 1,
+      "index": 45,
+      "layout_conversion_delta": 0,
+      "matcher_status": "unattributed_only",
+      "opportunities_before": [],
+      "pass": "SCFToControlFlowPass",
+      "structural_recomputations": []
+     },
+     {
+      "confirmed_count": 0,
+      "duplicate_expression_group_delta": -1,
+      "index": 57,
+      "layout_conversion_delta": 0,
+      "matcher_status": "none",
+      "opportunities_before": [],
+      "pass": "CSEPass",
+      "structural_recomputations": []
+     }
+    ]
+   }
+  },
+  "note": "hand-written Triton kernels in the family's operation set, compiled on the same device with pass dumps; supporting evidence for what the pass does with a surviving conversion, not campaign cases"
+ },
+ "question": "does the corrected rematerialization matcher confirm a recomputed value with redirected consumers on the new broadcast-hoist region family at the retained [32,16] loop configuration",
+ "schema": "refractir.tensor-rematerialization-broadcast-hoist.v1",
+ "structural_reading": "one operation repeated on one unchanged operand set whose surviving original lost a consumer to the copy; reported beside the matcher, never instead of it",
+ "tree": "/host/remat-20261016/refractir",
+ "work": "/host/remat-20261016/work"
+}

@@ -8,6 +8,7 @@ families instead of only the frozen fold body.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -116,14 +117,60 @@ class TensorRegionFamilyOptionTests(unittest.TestCase):
         self.assertEqual(len(emitted), 2)
         self.assertTrue(all(is_region(source) for source in emitted.values()))
 
-  def test_unknown_region_family_is_refused(self):
-    with tempfile.TemporaryDirectory() as directory:
-      result = generate(Path(directory), count=1, family="transpose")
+  def test_broadcast_hoist_family_reaches_the_generated_source(self):
+    """The view family is reachable from the normal generator.
 
-    self.assertNotEqual(result.returncode, 0)
-    combined = result.stdout + result.stderr
-    self.assertIn("tensor region family", combined)
-    self.assertIn("mixed-depth", combined)
+    The family exists to place a broadcast of a loop-carried value in the loop
+    body, so a case has to be generatable from the same option surface the other
+    families use rather than from a bespoke driver.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      result = generate(root, seed=11, count=2, family="broadcast-hoist")
+      emitted = case_sources(root)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertEqual(len(emitted), 2)
+    for name, source in emitted.items():
+      with self.subTest(case=name):
+        self.assertTrue(is_region(source), "the family must emit a two-state region")
+        self.assertEqual(
+          set(tensor_region_generation.producer_operands(source)),
+          {"acc_x", "acc_y"},
+          "the family must keep the shared two-state producer",
+        )
+        self.assertIn(
+          "broadcast",
+          {node[1] for node in tensor_region_generation.operation_nodes(source)},
+          "the family's body must carry the view the option names",
+        )
+
+  def test_broadcast_hoist_family_is_the_recorded_option(self):
+    """The option surface reaches the case record, and stays closed."""
+    self.assertIn("broadcast-hoist", FAMILIES)
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      result = generate(root, seed=13, count=2, family="broadcast-hoist")
+      records = {
+        path.parent.name: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(root.glob("case_*/case.json"))
+      }
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertEqual(len(records), 2)
+    for name, record in records.items():
+      with self.subTest(case=name):
+        self.assertEqual(
+          record["generator"]["region"]["family"],
+          "broadcast-hoist",
+          "the case must record the family the request named",
+        )
+
+    with tempfile.TemporaryDirectory() as directory:
+      refused = generate(Path(directory), count=1, family="broadcast")
+
+    self.assertNotEqual(refused.returncode, 0)
+    self.assertIn("broadcast-hoist", refused.stdout + refused.stderr)
 
   def test_absent_option_keeps_the_unforced_loop_form(self):
     with tempfile.TemporaryDirectory() as directory:

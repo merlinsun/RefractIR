@@ -41,11 +41,19 @@ namespace refractir::reify {
     /// One shared producer has consumers at different depths: a reduction path
     /// and a later arithmetic join.
     MixedDepth,
+    /// A loop-carried state is reduced, broadcast back over the state shape, and
+    /// the view is consumed twice: by a second reduction on the other axis, and
+    /// by the elementwise path into a root. The two consumers can be reached by
+    /// a recomputed view of a small operand, so a pass that would rather
+    /// recompute the broadcast in a consumer's layout than convert the
+    /// broadcast's result meets a value whose original computation stays live.
+    BroadcastHoist,
   };
 
   /// Every family name the command line accepts, in the documented order.
   inline constexpr std::string_view tensorRegionFamilyNames =
-      "fold, orthogonal-reductions, reduction-arithmetic, cross-state, mixed-depth";
+      "fold, orthogonal-reductions, reduction-arithmetic, cross-state, mixed-depth, "
+      "broadcast-hoist";
 
   /// Every arithmetic mode name the command line accepts, in the documented
   /// order. Additive is the policy an unnamed request keeps.
@@ -66,6 +74,8 @@ namespace refractir::reify {
       return TensorRegionFamily::CrossState;
     if (text == "mixed-depth")
       return TensorRegionFamily::MixedDepth;
+    if (text == "broadcast-hoist")
+      return TensorRegionFamily::BroadcastHoist;
     return std::nullopt;
   }
 
@@ -98,6 +108,8 @@ namespace refractir::reify {
         return "cross-state";
       case TensorRegionFamily::MixedDepth:
         return "mixed-depth";
+      case TensorRegionFamily::BroadcastHoist:
+        return "broadcast-hoist";
     }
     return "unknown";
   }

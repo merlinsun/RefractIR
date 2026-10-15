@@ -1016,6 +1016,34 @@ namespace refractir::reify {
           root(join(shared, 1), 1);
           break;
         }
+        case TensorRegionFamily::BroadcastHoist: {
+          const auto axes = reducibleAxes(shape);
+          if (axes.size() < 2)
+            throw AttemptFailure(
+                "the view family needs two reducible axes: its two reductions must "
+                "not share one axis"
+            );
+          requireNodeBudget(7);
+          // The view is a reduction of the state that carries the runtime input,
+          // so what the broadcast re-expands is small and recomputable while the
+          // broadcast's result is not; the zero-initialized state would make the
+          // view a constant zero on the first trip. The second reduction is what
+          // reads the view at the other slice layout, and the re-broadcast is
+          // what carries it back to the state shape.
+          const auto shared = emitProducer(graph, shape);
+          const auto stateAxis = chooseAxis(shape);
+          const auto viewAxis = chooseAxis(shape, stateAxis);
+          const auto reduced = emitSum(graph, static_cast<int>(inputState), stateAxis);
+          const auto view = emitBroadcast(graph, reduced, shape);
+          const auto secondReduction = emitSum(graph, view, viewAxis);
+          const auto secondView = emitBroadcast(graph, secondReduction, shape);
+          // Either root reads the view, so a copy that takes over one consumer
+          // leaves the original with the other; the deeper root also reads the
+          // shared producer, which keeps both states in the body.
+          root(emitPlacement(graph, secondView, shared, 0, shape), 0);
+          root(join(view, 1), 1);
+          break;
+        }
         case TensorRegionFamily::Fold:
           throw std::logic_error("fold regions are built by the fold path");
       }
@@ -1298,6 +1326,7 @@ namespace refractir::reify {
       case TensorRegionFamily::ReductionArithmetic:
       case TensorRegionFamily::CrossState:
       case TensorRegionFamily::MixedDepth:
+      case TensorRegionFamily::BroadcastHoist:
         break;
       default:
         throw std::invalid_argument("unknown tensor region family");

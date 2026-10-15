@@ -1225,6 +1225,95 @@ cases carry `byte_check_applied` true and `byte_check_status` `pass`, and a
 signed-zero or any other word-level difference would fail the execution and the
 comparison instead of passing them (no such case is present in this batch).
 
+## A broadcast-hoist family: the rematerialization candidate, measured
+
+The named-pass run left rematerialization unreached and proposed a generation
+change: place a broadcast of a loop-carried value in the retained loop body,
+give its result two consumers so the original survives one of them, and let the
+other ask for a second layout. That change is implemented as the sixth
+loop-region family, `broadcast-hoist` (`rysmith --tensor-region-family
+broadcast-hoist`), and this run measures it on the device.
+
+The family's body is fixed: the shared two-state producer, a reduction of the
+state that carries the runtime input, the broadcast of that one-extent result, a
+second reduction of the view on the other axis, the re-broadcast, and the two
+root joins. The view therefore has exactly two consumers, the second reduction
+and the elementwise path into a root, which is the shape
+`hoistConvertOnTopOfExtOrBroadcast` and `backwardRematerialization` accept.
+
+Evidence: `broadcast-hoist-rematerialization.json`, produced by
+`.planning/2026-10-11-targeted-compiler-behavior/remat-driver/`.
+
+| Case | Selection | Execution | Conversions created / removed by the first `RemoveLayoutConversions` | Conversions on an extend or broadcast at that boundary | Matcher | Structural recomputations |
+|---|---|---|---|---|---|---|
+| `broadcast-hoist` `[4,8]` × 4 | solver | pass | 12 + 3 created, 15 removed | 6 | 0 confirmed | 0 |
+| `broadcast-hoist` `[32,16]` × 2 | declared witness | pass | 12 + 4 created, 16 removed | 6 | 0 confirmed | 0 |
+| `mixed-depth` `[32,16]` × 4 (control) | declared witness | pass | 8 + 4 created, 12 removed | 4 | 0 confirmed | 0 |
+
+All three arms hold one `scf.for` through every layout pass and lose it at
+`SCFToControlFlowPass`, so the layout decision is made while a loop exists. The
+control's program is byte-identical to the archived counted case
+(`638322a9be95072a`); the two family arms are new programs
+(`206f869cbddffdec`, `b9b37942fca352f1`).
+
+The requested configuration, `[32,16]` over four trips, is refused by the
+family's exact certificate: feeding a doubly reduced value back into a loop
+state multiplies the state by the product of both extents on every trip, so the
+bounds proof admits one and two trips at that shape (largest partial sum
+2,101,248 at domain `[0,8]`) and refuses three and four (`exceeds exact range`).
+The four-trip arm therefore runs at `[4,8]`, the shape the archived family cases
+use, and the refusal is recorded in the evidence rather than inferred from a
+missing case. The control admits the requested configuration (10,976,000
+against the 16,777,216 exactness bound).
+
+What the pass did with the pattern:
+
+* The family's own TTGIR contains the pattern before the pass. In the `[4,8]`
+  arm a broadcast result with two consumers feeds a conversion
+  (`tt.broadcast %_sir_x_offsets_5 : tensor<4x1xi32, #blocked1> ->
+  tensor<4x8xi32, #blocked1>`, then `ttg.convert_layout %_sir_x_offsets_6 :
+  #blocked1 -> #blocked`), and the view's own expand feeds a conversion the same
+  way. Six such conversions exist at the boundary in each family arm and four in
+  the control.
+* `TritonGPURemoveLayoutConversions` removes every one of them in its first
+  occurrence (15, 16, and 12 conversions), with a duplicate-expression delta of
+  zero and no repeated definition anywhere in the transition. The pass's first
+  step is forward layout propagation from the load anchor, which rewrites the
+  whole loop into the anchor's layout and erases those conversions in place. No
+  value is recomputed, so no candidate transition has a repeated definition to
+  classify: the structural reading (one operation recomputed on the same
+  operands or on conversions of them, original surviving, a served consumer
+  taken over by the copy) finds nothing in any arm.
+* The matcher confirms nothing: 0 confirmed in all three arms across 19
+  candidate transitions each, and 0 unattributed duplicates at the boundary in
+  question.
+
+Two control measurements fix what a confirmable event would need, and neither is
+device evidence:
+
+* The matcher's own criterion, read on a synthetic pair: a broadcast that
+  survives for one consumer while a copy takes the converted consumer over is
+  confirmed when the copy prints the original's encoding (`confirmed_only`, 1)
+  and refused when the copy prints the encoding the conversion asked for
+  (`none`, 0), which is the only shape a layout rematerialization has. The
+  structural reading finds the recomputation in the second pair (a cloned
+  `tt.broadcast` with the same operand, the original losing the conversion and
+  its consumer, that consumer reading the copy), so the refusal is the matcher's
+  equivalence and not an absent candidate.
+* Ten hand-written kernels in the family's operation set, compiled on the same
+  device with pass dumps, found no configuration in which the pass recomputes
+  anything. The two kernels whose load and store anchor different layouts
+  (`store-transposed`, `load-transposed`) keep exactly one conversion alive past
+  the pass, `%out` from the loop result, and the pass leaves it alone:
+  `getConvertBackwardSlice` refuses to propagate through an `scf.for` result, so
+  a conversion whose source is a loop result is out of the rematerialization
+  path by construction.
+
+The corpus is additive: 2,800 configurations over the five families that existed
+before the change (seeds 0, 1, 5, 9, 13 by seven shapes by four bounds by four
+arithmetic modes) are byte-identical between an exporter built from the tree
+before the change and one built after it, and the fold bodies are among them.
+
 ## Gaps and controls
 
 * Guard *detection* is verified on the host (a mutated allocation is refused by

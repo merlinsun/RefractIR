@@ -37,6 +37,7 @@ FAMILIES = (
   "reduction-arithmetic",
   "cross-state",
   "mixed-depth",
+  "broadcast-hoist",
 )
 # The families that draw their connection skeleton from the seeded engine; the
 # original fold family keeps its frozen policy.
@@ -282,6 +283,85 @@ def root_join_patterns(source):
   )
   producers = {node[0]: node for node in nodes}
   return tuple((producers[root][1], producers[root][2]) for _state, root in updates)
+
+
+def consumer_values(source):
+  """Consumers of every defined value, keyed by the value they read."""
+  _shape, _iterations, _types, nodes, _updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  consumers = {node[0]: [] for node in nodes}
+  for node in nodes:
+    for operand in node[2]:
+      consumers.setdefault(operand, []).append(node[0])
+  return consumers
+
+
+def broadcast_hoist_view(source):
+  """The state-derived broadcast view the `broadcast-hoist` family places.
+
+  The record states what the layout pipeline is handed: the loop-carried value
+  the view is derived from and the axis it is reduced on, the one-extent
+  reduction, the broadcast that re-expands it, every consumer of that broadcast,
+  the second reduction (on the other axis, which is what asks for the other
+  slice layout), the broadcast that carries it back, the elementwise consumer
+  that keeps the view's own path, and the named roots the view reaches. The
+  layout conversion the view provokes is inserted by the Triton pipeline rather
+  than by the region, so the record stops at the source operations.
+
+  A source without that view is refused: the family's whole point is the view,
+  so a body that lost it is not this family's body.
+  """
+  _shape, _iterations, _types, nodes, updates = (
+    tensor_exact_f32._generated_region_program(source)
+  )
+  producers = {node[0]: node for node in nodes}
+  consumers = consumer_values(source)
+  dependencies = root_dependencies(source)
+  for node in nodes:
+    if node[1] != "broadcast":
+      continue
+    reduced = producers.get(node[2][0])
+    if (
+      reduced is None or reduced[1] != "sum" or reduced[2][0] not in {"acc_x", "acc_y"}
+    ):
+      continue
+    second_reductions = [
+      consumer
+      for consumer in consumers.get(node[0], [])
+      if producers.get(consumer, (None, None))[1] == "sum"
+    ]
+    if len(second_reductions) != 1:
+      continue
+    second_reduction = producers[second_reductions[0]]
+    second_views = [
+      consumer
+      for consumer in consumers.get(second_reduction[0], [])
+      if producers.get(consumer, (None, None))[1] == "broadcast"
+    ]
+    if len(second_views) != 1:
+      continue
+    shallow = [
+      consumer
+      for consumer in consumers.get(node[0], [])
+      if consumer != second_reduction[0]
+    ]
+    if len(shallow) != 1:
+      continue
+    reached = [root for state, root in updates if node[0] in dependencies[state]]
+    return {
+      "state": reduced[2][0],
+      "state_axis": reduced[3],
+      "reduced": reduced[0],
+      "view": node[0],
+      "consumers": list(consumers[node[0]]),
+      "second_reduction": second_reduction[0],
+      "second_axis": second_reduction[3],
+      "second_view": second_views[0],
+      "shallow_consumer": shallow[0],
+      "roots": reached,
+    }
+  raise RegionGenerationError("the region has no state-derived broadcast view")
 
 
 def unroll_source(source, iterations=None):
