@@ -307,13 +307,23 @@ reference cannot be dressed up as a companion.
 The rebuild was first checked under Triton 3.7.1 and Python 3.10.12 with no
 source revision and no compiler flags recorded, so both of its arms were
 campaign-invalid: matching program, input, and output hashes show that the
-companion computes the same thing, not that the same compiler produced it. The
-same pair was then re-run in the intended environment - Triton `3.9.0` at
-`32f06df4…`, Python 3.12.15, revision `4174654`, compiler flags recorded - where
-**both arms pass and both are campaign-valid**, with the same
-`f5826a578a9ae11e` reference and the same program digests. Each run in the
-evidence carries its own environment and qualification; the qualified
-measurements are the first run and this re-run. One
+companion computes the same thing, not that the same compiler produced it.
+
+A second re-run in the intended environment had a subtler problem: its driver
+imported the loader and companion builder from a tree built before the
+derivation repair, so the companion it produced carried no counted artifacts and
+the repaired loader refuses it. That run is kept in the evidence as superseded.
+
+The qualified re-run uses the repaired counted case with a companion rebuilt by
+the committed builder, and it is verified rather than asserted: the imported
+`test/lib/tensor_case.py` digests as `67643011…` and
+`test/lib/tensor_unrolled_companion.py` as `f9aacfc9…`, both equal to the
+committed blobs, the companion carries seven counted artifacts, and both arms
+pass with campaign-valid provenance - Triton `3.9.0` at `32f06df4…`, Python
+3.12.15, revision `841ef12`, compiler flags recorded - on the same
+`f5826a578a9ae11e` reference and program digests. Each run in the evidence
+carries its own environment, its own qualification, and, where it matters, the
+digest of the library it actually imported. One
 environment note: a rebuild raises the builder's per-stage solve budget, because
 this 512-lane integer-twin query needs about six minutes and the library's own
 cap is sixty seconds.

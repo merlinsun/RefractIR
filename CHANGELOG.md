@@ -116,6 +116,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The rebuilt pair is re-run in the intended Triton environment (`3.9.0` at `32f06df4…`, Python 3.12.15, revision and compiler flags recorded), where both arms pass and both are campaign-valid with the same reference and program digests; the earlier 3.7.1 run stays in the evidence as a hash check with its own invalid qualification.
 
+- The qualified paired re-run is verified as well as qualified: the imported loader and companion builder digest to the committed blobs, the companion carries the seven counted artifacts the derivation requires, and both arms pass with campaign-valid provenance. The earlier re-run, whose driver imported a pre-repair library, is kept as superseded rather than deleted.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

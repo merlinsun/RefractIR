@@ -139,6 +139,35 @@
    "reading": "matching program, input, and output hashes establish that the companion reproduces the same computation; they do not establish that the same compiler produced it. The qualified measurement is the run recorded under `qualification`, not this one."
   },
   "qualified_rerun": {
+   "carried_counted_artifacts": 7,
+   "counted": {
+    "actual_sha256_prefix": "f5826a578a9ae11e",
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "environment": {
+    "compiler_flags_recorded": true,
+    "python_version": "3.12.15",
+    "refractir_revision": "841ef122d18d",
+    "triton_version": "3.9.0+git32f06df4",
+    "working_tree_dirty": true
+   },
+   "imported_modules": {
+    "checked_against": "the committed blobs of the same paths",
+    "test/lib/tensor_case.py": "67643011ab612208",
+    "test/lib/tensor_unrolled_companion.py": "f9aacfc943e34012"
+   },
+   "reading": "the repaired loader is the one that ran, the companion carries the counted artifacts the repair requires, and both arms are qualified on their own provenance",
+   "unrolled": {
+    "actual_sha256_prefix": "f5826a578a9ae11e",
+    "campaign_valid": true,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "what": "the repaired counted case paired with a companion rebuilt by the committed builder, run with a verified import root and the intended Triton environment"
+  },
+  "superseded_rerun": {
    "counted": {
     "actual_sha256_prefix": "f5826a578a9ae11e",
     "campaign_valid": true,
@@ -152,14 +181,13 @@
     "triton_version": "3.9.0+git32f06df4",
     "working_tree_dirty": true
    },
-   "reading": "this run closes the reproduction item: the same pair, the same artifacts, and the intended compiler, with each arm qualified on its own provenance",
    "unrolled": {
     "actual_sha256_prefix": "f5826a578a9ae11e",
     "campaign_valid": true,
     "comparison": "pass",
     "status": "pass"
    },
-   "what": "the same rebuilt pair, re-run in the intended environment with complete provenance; no witness synthesis was repeated"
+   "why_superseded": "the driver imported its loader and companion builder from a tree whose files match 99f148b, before the derivation repair, while labelling the run with a later revision. The companion it built carries no counted artifacts and the repaired loader refuses it, so the run did not qualify the repaired pair."
   },
   "what": "the pair was rebuilt from the counted configuration and the committed companion builder, then re-run to check that the artifacts reproduce and that the tightened derivation check refuses the input attack"
  },
