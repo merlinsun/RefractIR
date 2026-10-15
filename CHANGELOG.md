@@ -112,6 +112,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The paired counted/unrolled evidence is reproduced under the tightened derivation check: the pair rebuilt from its recorded configuration matches the reviewed hashes artifact for artifact, both arms pass on the device, and the input attack on the rebuilt companion is refused at load time.
 
+- The paired evidence separates its two runs: the qualified measurement under Triton 3.9.0 with the revision and compiler flags recorded, and a rebuild that reproduces the same program, input, and output hashes under Triton 3.7.1 without provenance and is therefore reported as campaign-invalid rather than borrowing the earlier run's standing.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

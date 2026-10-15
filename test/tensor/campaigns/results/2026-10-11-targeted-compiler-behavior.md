@@ -297,12 +297,20 @@ because no proof family accepts an unrolled body; that is a limitation of the
 reference kind and is stated separately from qualification.
 
 The pair was rebuilt from the counted configuration and the committed companion
-builder under the tightened derivation check and re-run on the device: both arms
-pass with `actual == expected`, and the rebuilt artifacts reproduce the reviewed
-hashes exactly (`f5826a57…` for the reference, `f60bb874…` for the inputs,
-`359b755b…` for the unrolled program, `638322a9…` for the carried counted
-program). Changing an inherited input and refreshing its digest is refused at
-load time, so a stale reference cannot be dressed up as a companion. One
+builder under the tightened derivation check: both arms pass with `actual ==
+expected`, and the rebuilt artifacts reproduce the reviewed hashes exactly
+(`f5826a57…` for the reference, `f60bb874…` for the inputs, `359b755b…` for the
+unrolled program, `638322a9…` for the carried counted program). Changing an
+inherited input and refreshing its digest is refused at load time, so a stale
+reference cannot be dressed up as a companion.
+
+That rebuild is a hash-level reproduction, not a qualified measurement: it ran
+under Triton 3.7.1 and Python 3.10.12 with no source revision and no compiler
+flags recorded, so both of its arms are campaign-invalid. Matching program,
+input, and output hashes show that the companion computes the same thing; they
+do not show that the same compiler produced it. The qualified run in this record
+is the earlier one, under Triton 3.9.0 at `32f06df4…` and Python 3.12.15, with
+the revision, the compiler flags, and the Triton source revision recorded. One
 environment note: a rebuild raises the builder's per-stage solve budget, because
 this 512-lane integer-twin query needs about six minutes and the library's own
 cap is sixty seconds.

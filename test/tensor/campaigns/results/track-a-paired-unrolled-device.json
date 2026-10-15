@@ -109,10 +109,11 @@
  },
  "reproduction": {
   "attack_on_the_rebuilt_companion": "changing an inherited input and refreshing its digest is refused at load time: the companion's runtime inputs are not the counted runtime inputs",
-  "both_arms": {
-   "actual_equals_expected": true,
-   "comparison": "pass",
-   "status": "pass"
+  "environment": {
+   "compiler_flags": "unavailable",
+   "python_version": "3.10.12",
+   "refractir_revision": "unavailable",
+   "triton_version": "3.7.1"
   },
   "environment_note": "the builder caps every stage at its own TIMEOUT_S of 60 s and this 512-lane integer-twin query needs about six minutes of solver time, so a rebuild raises that constant for the driver; the library default is unchanged",
   "hashes_match_reviewed_evidence": {
@@ -121,7 +122,21 @@
    "counted and companion expected.bin": "f5826a578a9ae11e",
    "counted and companion inputs.bin": "f60bb874d66083b2"
   },
-  "what": "the pair was rebuilt from the counted configuration and the committed companion builder, then re-run on the V100 under the tightened derivation check"
+  "qualification": {
+   "counted": {
+    "campaign_valid": false,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "unrolled": {
+    "campaign_valid": false,
+    "comparison": "pass",
+    "status": "pass"
+   },
+   "why": "this run recorded neither the source revision nor the compiler flags, and it used a different Triton build than the qualified run, so it is not campaign-valid and it does not establish compiler identity"
+  },
+  "reading": "matching program, input, and output hashes establish that the companion reproduces the same computation; they do not establish that the same compiler produced it. The qualified measurement is the run recorded under `qualification`, not this one.",
+  "what": "the pair was rebuilt from the counted configuration and the committed companion builder, then re-run to check that the artifacts reproduce and that the tightened derivation check refuses the input attack"
  },
  "schema": "refractir.paired-unrolled-device.v1",
  "unrolled": {
