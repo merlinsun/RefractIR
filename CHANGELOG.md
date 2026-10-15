@@ -122,6 +122,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Every layout conversion in the campaign is attributed to a named pass: the eight Track A compilations create 102 conversions (`ConvertTritonToTritonGPU` 74, `TritonGPUCoalesce` 28) and the first occurrence of `TritonGPURemoveLayoutConversions` removes all 102 - 90 eliminated, 12 folded as same-encoding no-ops - with none surviving to the final TTGIR and none crossing a loop boundary. The twelve Track C compilations lower all 114 present conversions in `ConvertTritonGPUToLLVM`, 38 effective and 76 equivalent-encoding. Nothing is unattributed. Rematerialization stays explicitly unreached: zero confirmed events across twenty compilations, with 174 candidate transitions inspected and every one a rename or a structural re-print, plus a concrete generation proposal to reach one.
 
+- The encoding fix is folded back into the records it corrects: `track-a-named-passes.json` moves 46 of 102 conversions from ineffective to effective (total 44 to 90, matching its own 90 eliminated) and `track-a-input-proposals.json` follows on its own conversion deltas, while the verdicts, per-pass tables, loop evidence, and every Track C value stay as published. The campaign record's Track A count table, its Track C sentence (38 change an encoding, 76 are equivalent-encoding no-ops, none eliminated), and the observer-limits paragraph now match their records.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

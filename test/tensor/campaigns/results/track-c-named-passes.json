@@ -15,12 +15,18 @@
  },
  "observer_limitations": [
   {
-   "counterexample": "%_sir_x_d0_0 = ttg.convert_layout %_sir_x_d0 : tensor<4xi32, #blocked2> -> tensor<4xi32, #ttg.slice<{dim = 1, parent = #blocked3}>>",
-   "effect": "an encoding printed inline in parameterized form cannot be read: the regex has no way past the inner '>', so the conversion reports source == target and is excluded from the effective count",
-   "handling": "the driver re-reads every tensor type by bracket matching and reports both readings per conversion",
+   "counterexample": "%2 = ttg.convert_layout %1 : tensor<8xf32, #ttg.slice<{dim = 0, parent = #blocked}>> -> tensor<8xf32, #blocked2> reads as a slice of a blocked layout into a blocked layout; the removed _TENSOR_ENCODING regular expression read only '#blocked2' and reported source equal to target",
+   "deliberate_limits": [
+    "a tensor type wrapped across physical lines reports no encoding rather than a truncated one",
+    "an encoding name is not validated against a dialect",
+    "a quoted generic name is rewritten to the custom form only at the root of an encoding",
+    "an alias a snapshot defines twice keeps its last definition"
+   ],
+   "effect": "the recogniser scans every tensor type on a line with a bracket counter, splits the type body on the commas outside every bracket, and resolves the trailing component through _resolve_encoding_text, so an alias, an encoding printed inline in parameterized form at any nesting depth, and the generic quoted spelling are all read as the layout they denote; _encoding_identity compares the resolved text, so two spellings of one layout are not a change",
+   "handling": "no field of this record is encoding-derived under either reading; the twelve sweep dumps were re-read with the fixed library and reproduce every recorded value",
    "module": "test.lib.tensor_compiler_observation",
-   "observed_impact": "in the four [4,8] family dumps the library reads 4 of 11 conversions as effective while 8 change encoding; every Track A table that labelled the total conversion count 'effective' inherits this",
-   "symbol": "_TENSOR_ENCODING"
+   "observed_impact": "no Track C value moves: 0 of the 5472 conversion line occurrences in the twelve sweep dumps prints an encoding inline, the library agrees with the driver's parser on all 228 recorded conversions, and re-reading the dumps with the fixed library reproduces the recorded conversion_totals (114 requested, 38 effective encoding changes, 76 equivalent)",
+   "symbol": "_tensor_encodings"
   },
   {
    "counterexample": "Gluon track C: 10 of 14 conversions report region 'module' at snapshot 1, while the same lines are inside @generated_region_kernel",

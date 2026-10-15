@@ -17,12 +17,16 @@ reference (nonnegative integer inputs, positive-zero obligations), compiled by
 `TritonGPURemoveLayoutConversions` and friends, and executed on the device.
 Each case matches its complete 128-byte reference bit-for-bit.
 
-| Case | Execution | Target pass evidence | Effective conversions removed by that pass | PTX warp shuffles |
+| Case | Execution | Target pass evidence | Conversions removed by that pass (total) | PTX warp shuffles |
 |---|---|---|---|---|
 | cross-state | pass | `RemoveLayoutConversions` runs 4× per compilation | 8 | 0 |
 | reduction-arithmetic | pass | same, 4× | 11 | 4 |
 | orthogonal-reductions | pass | same, 4× | 15 | 10 |
 | mixed-depth | pass | same, 4× | 11 | 6 |
+
+These are the conversions the pass removes, not an effective count: three per
+family are same-encoding no-ops, so 5, 8, 12, and 8 respectively change an
+encoding. The named-pass section below attributes each one.
 
 Observations:
 
@@ -39,7 +43,9 @@ Observations:
   `SCCPPass`; those were SSA renames that the matcher mistook for redirected
   uses, and the corrected matcher confirms none. The record has been
   regenerated: the conversion removals above stand, and every
-  `confirmed_rematerialization_passes` entry is now empty.
+  `confirmed_rematerialization_passes` entry is now empty. The named-pass
+  section below settles this with per-transition witnesses and records the
+  category as explicitly unreached.
 * In these small cases the counted loop survives TTIR and TTGIR (one `scf.for`
   in each, `mlir-construct` evidence) and is gone by LLIR: `SCFToControlFlow`
   lowers it and the LLVM pipeline then fully unrolls it, so no branch cycle
@@ -196,11 +202,13 @@ controls behaved as declared.
 | split-reduction-consumers | 10 / 5 | 10 / 5 | 12 / 49 | 12 / 19 |
 | loop-state-layout | 14 / 7 | 14 / 7 | 24 / 77 | 8 / 43 |
 
-Of 114 requested conversions, 38 survive, 76 are eliminated, none are folded or
-unattributed. Every survivor is a cross-lane change at one warp and a cross-warp
-change at four, and all lower in `ConvertTritonGPUToLLVM`; no pass adds a
-conversion, which is why nothing is unattributed. Registers per thread stay at
-or below 58 with no spills.
+Of 114 requested conversions, 38 change an encoding and 76 are
+equivalent-encoding no-ops; all 114 survive to the tensor-dialect boundary, and
+none is eliminated, folded by a recomputed replacement, or unattributed. Every
+survivor is a cross-lane change at one warp and a cross-warp change at four, and
+all lower in `ConvertTritonGPUToLLVM`; no pass adds a conversion, which is why
+nothing is unattributed. Registers per thread stay at or below 58 with no
+spills.
 
 Two gaps this sweep exposed, both in the plan rather than in the compiler, are
 now fixed:
@@ -482,10 +490,10 @@ families' outputs do depend on their inputs).
 
 | Pass (transition index) | mixed-depth | cross-state |
 |---|---|---|
-| `ConvertTritonToTritonGPU` conversions added / effective | 8 / 4 | 5 / 3 |
+| `ConvertTritonToTritonGPU` conversions added / effective | 8 / 8 | 5 / 5 |
 | `TritonGPUCoalesce` added / preserved | 4 / 8 | 4 / 5 |
 | `TritonGPURemoveLayoutConversions` occurrences | 4 (loop present before and after each) | 4 (same) |
-| conversions removed by its first occurrence / effective | 12 / 6 | 9 / 5 |
+| conversions removed by its first occurrence / effective | 12 / 12 | 9 / 9 |
 | `SCFToControlFlowPass` `loop_construct_delta` | -1 | -1 |
 | `TritonGPUOptimizeThreadLocality`, `ReduceDataDuplication`, `LoopInvariantCodeMotion` | 1 occurrence each, no conversion or loop delta | same |
 | rematerialization attributable to any pass | none | none |
@@ -595,13 +603,13 @@ the emitter writes after each arithmetic node.
 | loop-state-layout | 14 / 14 | 7 / 7 | 7 / 7 | 0 / 0 | same | 0 / 0 | 24 / 8 | 77 / 43 | 58 / 46 |
 
 This is the same 38/76 split the second Track C run reports, with the vocabulary
-made explicit: the earlier table's "38 survive / 76 eliminated" is "38 effective
-survivors / 76 equivalent-layout conversions that also reach the boundary"; under
-the four-class scheme the 76 are *folded* (no layout change), not eliminated, and
-nothing is eliminated or unattributed in that sweep. Every family's effective
-count matches the archived runner's own `ttgir_layout_conversion_count` exactly
-(0, 1, 2, 4, 5, 7 at both warp counts), and registers stay at or below 58 with no
-spills.
+made explicit: the earlier table's "38 effective / 76 equivalent-encoding no-ops"
+is "38 effective survivors / 76 equivalent-layout conversions that also reach the
+boundary"; under the four-class scheme the 76 are *folded* (no layout change), not
+eliminated, and nothing is eliminated or unattributed in that sweep. Every
+family's effective count matches the archived runner's own
+`ttgir_layout_conversion_count` exactly (0, 1, 2, 4, 5, 7 at both warp counts),
+and registers stay at or below 58 with no spills.
 
 The 86 "moved" fragments the library reports for Track C - the family compilation
 of each of the twelve sweep runs - are not conversions crossing into or out of a
@@ -655,22 +663,31 @@ the proposed generation change that would aim at a real instance are in
 `track-a-named-passes.json` and the report.
 
 Two observer limits were found while reading these dumps, and both are recorded
-rather than silently repaired. `_TENSOR_ENCODING` cannot read an encoding
-printed inline in parameterized form, so
+rather than silently repaired. The first was `_TENSOR_ENCODING`, the regular
+expression the library used to read the encoding of a `convert_layout`: it
+needed an alias immediately before the `>` that closes the tensor type, so
 `tensor<4xi32, #blocked2> -> tensor<4xi32, #ttg.slice<{dim = 1, parent = #blocked3}>>`
-is reported as source equal to target and excluded from the effective count; in
-the four `[4,8]` dumps the library reads 4 of 11 conversions as effective while
-8 change encoding. That is why the "effective conversions removed by that pass"
-column of the first Track A table above is a total, and it is relabelled here as
-the total conversion count. The driver re-reads every tensor type by bracket
-matching and records both readings per conversion, which is also why its
-effective counts agree with the library's wherever the encodings print as
-aliases. `_region_map` could not open a region whose header carries a counted
-result list (`%acc_y:2 = scf.for … {`) or a quoted generic name
-(`"tt.reduce"(…) ({`), so values inside a function reported `module` and
-repackaged regions looked like moves; a fix for that is now in the working tree
-from parallel work, and this driver's own region tracker agrees with it on 672 of
-672 Track C and 41 of 41 `[4,8]` conversion occurrences. The driver, its
+was reported as source equal to target and excluded from the effective count, and
+in the four `[4,8]` dumps the library read 4 of 11 conversions as effective while
+8 changed encoding. That recogniser has since been replaced by a
+bracket-matching scan (`_tensor_encodings`, resolved through
+`_resolve_encoding_text` and `_encoding_identity`) that reads an alias, an
+encoding printed inline in parameterized form at any nesting depth, and the
+generic quoted spelling. It now agrees with the driver's own parser on all 102
+Track A conversion occurrences, so the affected counts in this record were
+corrected: 46 of the 102 conversions moved from ineffective to effective, the
+library-effective total went from 44 to 90 (equal to the record's own 90
+eliminated conversions), and the "effective" columns of the fifth-run proposal
+table above are the library's own reading, which now agrees with the driver's on
+every one of those proposals. The "effective conversions removed by that pass"
+column of the first Track A table above is still a total conversion count, and is
+still relabelled here as the total conversion count, but no longer because the
+library cannot read an inline encoding. `_region_map` could not open a region
+whose header carries a counted result list (`%acc_y:2 = scf.for … {`) or a quoted
+generic name (`"tt.reduce"(…) ({`), so values inside a function reported `module`
+and repackaged regions looked like moves; a fix for that is now in the working
+tree from parallel work, and this driver's own region tracker agrees with it on
+672 of 672 Track C and 41 of 41 `[4,8]` conversion occurrences. The driver, its
 digests, and the exact counterexamples are in
 `.planning/2026-10-11-targeted-compiler-behavior/named-passes-driver/`.
 

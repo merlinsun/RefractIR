@@ -259,9 +259,9 @@
                 },
                 "conversion_movement": 0,
                 "effective_conversion_operation_deltas": {
-                  "unattributed": -6
+                  "unattributed": -12
                 },
-                "effective_layout_conversion_delta": -6,
+                "effective_layout_conversion_delta": -12,
                 "layout_conversion_delta": -12,
                 "loop_construct_delta": 0,
                 "loop_constructs_after": 1,
@@ -438,9 +438,9 @@
               },
               "conversion_movement": 0,
               "effective_conversion_operation_deltas": {
-                "unattributed": 4
+                "unattributed": 8
               },
-              "effective_layout_conversion_delta": 4,
+              "effective_layout_conversion_delta": 8,
               "layout_conversion_delta": 8,
               "layout_conversions_after": 8,
               "layout_conversions_before": 0,
@@ -464,9 +464,9 @@
               },
               "conversion_movement": 0,
               "effective_conversion_operation_deltas": {
-                "unattributed": 2
+                "unattributed": 4
               },
-              "effective_layout_conversion_delta": 2,
+              "effective_layout_conversion_delta": 4,
               "layout_conversion_delta": 4,
               "layout_conversions_after": 12,
               "layout_conversions_before": 8,
@@ -490,9 +490,9 @@
               },
               "conversion_movement": 0,
               "effective_conversion_operation_deltas": {
-                "unattributed": -6
+                "unattributed": -12
               },
-              "effective_layout_conversion_delta": -6,
+              "effective_layout_conversion_delta": -12,
               "layout_conversion_delta": -12,
               "layout_conversions_after": 0,
               "layout_conversions_before": 12,
@@ -1341,9 +1341,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -5
+                        "unattributed": -9
                       },
-                      "effective_layout_conversion_delta": -5,
+                      "effective_layout_conversion_delta": -9,
                       "layout_conversion_delta": -9,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -1520,9 +1520,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 3
+                      "unattributed": 5
                     },
-                    "effective_layout_conversion_delta": 3,
+                    "effective_layout_conversion_delta": 5,
                     "layout_conversion_delta": 5,
                     "layout_conversions_after": 5,
                     "layout_conversions_before": 0,
@@ -1546,9 +1546,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 9,
                     "layout_conversions_before": 5,
@@ -1572,9 +1572,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -5
+                      "unattributed": -9
                     },
-                    "effective_layout_conversion_delta": -5,
+                    "effective_layout_conversion_delta": -9,
                     "layout_conversion_delta": -9,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 9,
@@ -3227,9 +3227,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -5
+                        "unattributed": -9
                       },
-                      "effective_layout_conversion_delta": -5,
+                      "effective_layout_conversion_delta": -9,
                       "layout_conversion_delta": -9,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -3406,9 +3406,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 3
+                      "unattributed": 5
                     },
-                    "effective_layout_conversion_delta": 3,
+                    "effective_layout_conversion_delta": 5,
                     "layout_conversion_delta": 5,
                     "layout_conversions_after": 5,
                     "layout_conversions_before": 0,
@@ -3432,9 +3432,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 9,
                     "layout_conversions_before": 5,
@@ -3458,9 +3458,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -5
+                      "unattributed": -9
                     },
-                    "effective_layout_conversion_delta": -5,
+                    "effective_layout_conversion_delta": -9,
                     "layout_conversion_delta": -9,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 9,
@@ -5198,9 +5198,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -5
+                        "unattributed": -9
                       },
-                      "effective_layout_conversion_delta": -5,
+                      "effective_layout_conversion_delta": -9,
                       "layout_conversion_delta": -9,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -5377,9 +5377,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 3
+                      "unattributed": 5
                     },
-                    "effective_layout_conversion_delta": 3,
+                    "effective_layout_conversion_delta": 5,
                     "layout_conversion_delta": 5,
                     "layout_conversions_after": 5,
                     "layout_conversions_before": 0,
@@ -5403,9 +5403,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 9,
                     "layout_conversions_before": 5,
@@ -5429,9 +5429,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -5
+                      "unattributed": -9
                     },
-                    "effective_layout_conversion_delta": -5,
+                    "effective_layout_conversion_delta": -9,
                     "layout_conversion_delta": -9,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 9,
@@ -6718,9 +6718,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -5
+                        "unattributed": -9
                       },
-                      "effective_layout_conversion_delta": -5,
+                      "effective_layout_conversion_delta": -9,
                       "layout_conversion_delta": -9,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -6897,9 +6897,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 3
+                      "unattributed": 5
                     },
-                    "effective_layout_conversion_delta": 3,
+                    "effective_layout_conversion_delta": 5,
                     "layout_conversion_delta": 5,
                     "layout_conversions_after": 5,
                     "layout_conversions_before": 0,
@@ -6923,9 +6923,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 9,
                     "layout_conversions_before": 5,
@@ -6949,9 +6949,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -5
+                      "unattributed": -9
                     },
-                    "effective_layout_conversion_delta": -5,
+                    "effective_layout_conversion_delta": -9,
                     "layout_conversion_delta": -9,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 9,
@@ -8356,9 +8356,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -6
+                        "unattributed": -12
                       },
-                      "effective_layout_conversion_delta": -6,
+                      "effective_layout_conversion_delta": -12,
                       "layout_conversion_delta": -12,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -8535,9 +8535,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 4
+                      "unattributed": 8
                     },
-                    "effective_layout_conversion_delta": 4,
+                    "effective_layout_conversion_delta": 8,
                     "layout_conversion_delta": 8,
                     "layout_conversions_after": 8,
                     "layout_conversions_before": 0,
@@ -8561,9 +8561,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 12,
                     "layout_conversions_before": 8,
@@ -8587,9 +8587,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -6
+                      "unattributed": -12
                     },
-                    "effective_layout_conversion_delta": -6,
+                    "effective_layout_conversion_delta": -12,
                     "layout_conversion_delta": -12,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 12,
@@ -10262,9 +10262,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -6
+                        "unattributed": -12
                       },
-                      "effective_layout_conversion_delta": -6,
+                      "effective_layout_conversion_delta": -12,
                       "layout_conversion_delta": -12,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -10441,9 +10441,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 4
+                      "unattributed": 8
                     },
-                    "effective_layout_conversion_delta": 4,
+                    "effective_layout_conversion_delta": 8,
                     "layout_conversion_delta": 8,
                     "layout_conversions_after": 8,
                     "layout_conversions_before": 0,
@@ -10467,9 +10467,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 12,
                     "layout_conversions_before": 8,
@@ -10493,9 +10493,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -6
+                      "unattributed": -12
                     },
-                    "effective_layout_conversion_delta": -6,
+                    "effective_layout_conversion_delta": -12,
                     "layout_conversion_delta": -12,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 12,
@@ -12237,9 +12237,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -6
+                        "unattributed": -12
                       },
-                      "effective_layout_conversion_delta": -6,
+                      "effective_layout_conversion_delta": -12,
                       "layout_conversion_delta": -12,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -12416,9 +12416,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 4
+                      "unattributed": 8
                     },
-                    "effective_layout_conversion_delta": 4,
+                    "effective_layout_conversion_delta": 8,
                     "layout_conversion_delta": 8,
                     "layout_conversions_after": 8,
                     "layout_conversions_before": 0,
@@ -12442,9 +12442,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 12,
                     "layout_conversions_before": 8,
@@ -12468,9 +12468,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -6
+                      "unattributed": -12
                     },
-                    "effective_layout_conversion_delta": -6,
+                    "effective_layout_conversion_delta": -12,
                     "layout_conversion_delta": -12,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 12,
@@ -13761,9 +13761,9 @@
                       },
                       "conversion_movement": 0,
                       "effective_conversion_operation_deltas": {
-                        "unattributed": -6
+                        "unattributed": -12
                       },
-                      "effective_layout_conversion_delta": -6,
+                      "effective_layout_conversion_delta": -12,
                       "layout_conversion_delta": -12,
                       "loop_construct_delta": 0,
                       "loop_constructs_after": 1,
@@ -13940,9 +13940,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 4
+                      "unattributed": 8
                     },
-                    "effective_layout_conversion_delta": 4,
+                    "effective_layout_conversion_delta": 8,
                     "layout_conversion_delta": 8,
                     "layout_conversions_after": 8,
                     "layout_conversions_before": 0,
@@ -13966,9 +13966,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": 2
+                      "unattributed": 4
                     },
-                    "effective_layout_conversion_delta": 2,
+                    "effective_layout_conversion_delta": 4,
                     "layout_conversion_delta": 4,
                     "layout_conversions_after": 12,
                     "layout_conversions_before": 8,
@@ -13992,9 +13992,9 @@
                     },
                     "conversion_movement": 0,
                     "effective_conversion_operation_deltas": {
-                      "unattributed": -6
+                      "unattributed": -12
                     },
-                    "effective_layout_conversion_delta": -6,
+                    "effective_layout_conversion_delta": -12,
                     "layout_conversion_delta": -12,
                     "layout_conversions_after": 0,
                     "layout_conversions_before": 12,
