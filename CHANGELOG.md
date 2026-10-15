@@ -130,6 +130,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The Track C discovery batch drew 128 fresh proposals over eight configurations frozen before the first draw and admitted all of them, 512 compiled executions with 384 bit-exact against the complete exact reference and the two calibration controls behaving as declared. It found a defect in our own emitter route rather than in the compiler: `reduction-result-expand` emits an invalid Gluon kernel on every fresh graph because the family keys a consumer view on a broadcast operand, leaving one operand in the compute layout, which Gluon refuses to broadcast. The fix is in progress.
 
+- The Track A discovery batch drew 128 fresh proposals over eight configurations frozen before the first draw (the four families as first measured, plus subtraction mode, a larger trip count, a shape at the element cap, and a family at a new shape) and admitted all of them by exact certificate: 512 compiled executions, every one passing, campaign-valid, word-exact, and target-behavior-observed. `orthogonal-reductions` at `[32,16]` keeps a device loop in all 64 of its cases, so a layout decision removed inside a loop that reaches the hardware is reachable from a second family. The batch also measured that the four inputs of a program are one compilation, and that 128 seeds drew 91 distinct programs, so a future batch must select graphs rather than seeds when it wants diversity.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

@@ -817,6 +817,371 @@ and binary digests; the record is
 (export revision `43d9e163…` plus three staged `test/lib` overrides, no device
 build performed in `/host/refractir-targeted-20261011`).
 
+## Track C discovery batch: 128 fresh proposals across eight frozen configurations
+
+The plan's bounded discovery batch for Track C ran on 2026-10-15, 12:13:26Z to
+12:33:01Z. The manifest was frozen at 12:00:08Z, before any proposal was drawn,
+with digest `f5591654…` and file `sha256 868d65fe…`. It declares eight
+configurations (four established strata, four underexplored legal
+combinations), a seed formula, the four-input derivation, the environment, and
+a retention policy; the batch record carries the manifest digest, so the
+allocation cannot have moved after a result was seen.
+
+| # | stratum | plan family | graph family | shape × trips | warps | the evidence it starts from |
+|---|---|---|---|---|---|---|
+| c01 | established | `all-same-layout` | `fold` | [8, 8] × 1 | 1 | plan sweep at 1 warp: 8 requested, 8 eliminated, 0 effective |
+| c02 | established | `load-to-compute` | `fold` | [8, 8] × 1 | 4 | plan sweep at 4 warps: the `load_to_compute` survivor is `cross_warp` |
+| c03 | established | `loop-state-layout` | `mixed-depth` | [32, 16] × 4 | 1 | retained backedge at 1 warp: 15 requested, 9 surviving, 2 `scf.yield` operands |
+| c04 | established | `reduction-result-expand` | `orthogonal-reductions` | [8, 8] × 1 | 1 | plan sweep at 1 warp: 2 surviving on the graph whose two reductions feed broadcasts |
+| c05 | underexplored | `loop-state-layout` | `mixed-depth` | [32, 16] × 4 | 8 | the same plan at a warp count with no evidence (1 and 4 measured) |
+| c06 | underexplored | `load-to-compute` | padded tail, authored region | [8, 31] on tile [8, 32] × 2 | 4 | the `--tile` plan arm, measured at one warp only |
+| c07 | underexplored | `split-reduction-consumers` | `orthogonal-reductions` | [16, 32] × 2 | 2 | a family earlier runs refused on graph grounds, on a graph that admits it, at an unmeasured warp count |
+| c08 | underexplored | `reduction-result-expand` | `orthogonal-reductions` | [16, 32] × 2 | 4 | the family whose declared views were never reached, on a loop-composed region at another trip and warp count |
+
+Each configuration drew 16 proposals, one per selected seed
+(`region_seed = 20261016 + 1000·ordinal + index`, `layout_seed = 7680000 +
+1000·ordinal + index`), and `c06` drew its 16 on the authored tailed program
+with a fresh layout seed each, because the region exporter refuses a tailed
+logical extent (`multi-output region input shape is outside the limits`,
+recorded verbatim in the manifest's `axis_probe`).
+
+**Denominator.** 128 proposals drawn, **128 admitted, 0 rejected**; 512
+executions attempted, **384 pass** and **128 refusals by the compiler**. Every
+passing run matched the complete exact f32 reference word for word
+(`proof_bound` 16777216, 12–36 obligations), and both calibration controls
+behaved as declared in all 384 (`correct-layout-baseline` not detected,
+`add-one-output-mutant` detected). Compilations: 512 family kernels attempted
+(384 completed, 128 refused before IR) plus 384 calibration mutants completed.
+No configuration had all its proposals rejected; no proposal was replaced, and
+none needed to be, because the eight configurations were chosen from the
+pre-freeze probe of 120 (family, shape, trip) combinations, which recorded the
+graph-ground refusals the batch therefore did not draw: `fold`, `mixed-depth`,
+`reduction-arithmetic` and the padded tail refuse the three multi-reduction
+families (`no value is read by two reduction nodes`, `fewer than two reductions
+feed a broadcast`), `cross-state` has no full-shape reduction at all, and
+`fold` [32, 16] × 4 and `orthogonal-reductions` [16, 32] × 4 fail exact
+admission. Controls and smoke tests are listed in the record and excluded: the
+pre-freeze probe, the one-run timing calibration, the tail-extent axis probe,
+the per-run `add-one-output-mutant` calibration compilation, and a
+four-configuration smoke run whose manifest draws seeds outside the batch's
+blocks.
+
+**Program diversity.** The 128 proposals drew 79 distinct
+(configuration, program) pairs and 66 distinct program sources. Fresh seeds are
+not fresh graphs: `fold` at [8, 8] collapsed 16 seeds onto 6 programs at `c01`
+and 4 at `c02`, while `mixed-depth` at [32, 16] × 4 drew 16 distinct programs at
+`c05` and 13 at `c03`. `all-same-layout` is also seed-independent by
+construction: its 16 proposals realize **one** plan, because the family places
+the same baseline layout on every role. Every other configuration realized 16
+distinct plans, from 452 distinct sampled layouts and 162 distinct layout
+parameter tuples.
+
+| # | executions | loop (TTGIR/LLIR/PTX) | requested | surviving | in loop | folded | unattributed | surviving mapping classes | in-loop lowering (shared/shuffle/barrier) | registers/thread | spills |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| c01 | 64 pass | none | 596 | 0 | 0 | 0 | 0 | all `identical` | – | 38–39 | 0 |
+| c02 | 64 pass | none | 608 | 64 | 0 | 0 | 0 | 28 `cross_lane`, 28 `cross_warp`, 8 `subsumed` | – | 16–52 | 0 |
+| c03 | 64 pass | 64/64/64 | 960 | 576 | 384 | 0 | 0 | 540 `cross_lane`, 36 `subsumed` | 13024 / 3568 / 296 | 64–255 | 0–1438 |
+| c04 | 64 refused | no IR | – | – | – | – | – | – | – | – | – |
+| c05 | 64 pass | 64/60/60 | 960 | 576 | 384 | 0 | 0 | 440 `cross_warp`, 112 `cross_lane`, 24 `subsumed` | 11672 / 300 / 776 | 32–186 | 0–2190 |
+| c06 | 64 pass | 64/0/0 | 512 | 64 | 0 | 0 | 0 | 32 `cross_warp`, 24 `cross_lane`, 8 `subsumed` | – | 20–39 | 0 |
+| c07 | 64 pass | 64/64/64 | 704 | 320 | 256 | 0 | 0 | 232 `cross_warp`, 80 `cross_lane`, 8 `subsumed` | 4268 / 2208 / 624 | 63–110 | 0 |
+| c08 | 64 refused | no IR | – | – | – | – | – | – | – | – | – |
+
+Across the batch: 4340 requested conversions, 1600 surviving, 1024 of those
+inside a loop, **0 folded and 0 unattributed**. Only three passes touch a
+conversion, and none adds one:
+
+| pass | what it does to the batch's conversions |
+|---|---|
+| `GluonInline` | moves 468 conversions at `c01` and 480 at `c02` while lowering one loop construct per run; removes and adds none |
+| `SCFToControlFlowPass` | moves 704 (`c03`, `c05`), 576 (`c07`) and 384 (`c06`) conversions and lowers the structured loop to a branch cycle; removes and adds none |
+| `ConvertTritonGPUToLLVM` | removes every conversion once (596/608/960/512/704 over the configurations) with an effective delta equal to the surviving count: 0, 64, 576, 576, 64, 320 |
+
+The per-conversion readings the record keeps for every run locate the work:
+
+* `loop-state-layout` (c03 at 1 warp, c05 at 8): `acc_x_to_state_layout` and
+  `acc_y_to_state_layout` appear twice per kernel, both survive, and the
+  copy inside the body is a backedge conversion; the in-loop copies lower to
+  4680 and 4296 shared transfers with 176 barriers each, and the state views
+  (`region_add_0_left_layout`, `region_add_0_right_layout`,
+  `region_sum_1_to_reduction`) add 4864 + 4864 + 5136 shared transfers. At 1 warp
+  540 of the 576 survivors are `cross_lane` and 36 are mapping-free `subsumed`,
+  with none `cross_warp`; at 8 warps 440 of 576 are `cross_warp`. This reproduces
+  the retained-backedge result on 32 fresh programs and extends it to a warp
+  count nobody had measured.
+* `split-reduction-consumers` at 2 warps (c07) reaches the behaviour the family
+  is named for: `region_sum_1_to_reduction` and `region_sum_2_to_reduction` both
+  survive inside the retained loop and lower to 1792 and 1968 in-loop shared
+  transfers with 176 and 184 barriers, while the two result conversions add
+  632 + 1020 shuffles. The family that the six-node graphs refused on graph
+  grounds runs on a graph that admits it, at a warp count with no prior
+  evidence.
+* `load-to-compute` is the only survivor in c02 and c06 (one per kernel) and it
+  never sits in a loop in either: `c02`'s trip count is 1, and `c06`'s two-trip
+  tailed loop is present in TTGIR (64/64) but gone from LLIR and PTX. All 64 of
+  c06's runs match the complete exact reference, so its masked load
+  (`other=0.0`), masked reduction operand and masked store hold at 4 warps on 16
+  fresh layout seeds; the two padding patterns the plan gives a tail program
+  belong to the physical allocation, which this route cannot stage because it
+  addresses the dense logical buffer, so they are measured on the counted route
+  instead (512 pattern pairs, all 512 agreeing, in
+  `track-b-discovery-batch.json`) and the record states the split in its
+  `provenance.tail_padding_patterns` block.
+* 384 in-loop shared transfers sit under `.loc 1 0 0` and are reported as
+  unattributed to a conversion line rather than assigned to one; the rest of the
+  in-loop traffic is attributed line by line.
+
+### The batch's headline: `reduction-result-expand` no longer compiles
+
+Both configurations that ask for `reduction-result-expand` fail **all 128
+executions** (32 programs × 4 inputs) the same way, and the failure is the same
+one a four-configuration smoke run produced on this driver before the batch:
+
+```
+triton.compiler.errors.CompilationError: at 22:16:
+    v1_view_blocked_0180 = gl.convert_layout(v1, blocked_0180)
+    v3, _ = gl.broadcast(v1_view_blocked_0180, acc_x)
+            ^
+Layout mismatch in broadcast: BlockedLayout(size_per_thread=[8, 8], threads_per_warp=[1, 32], warps_per_cta=[1, 1], order=[0, 1], cga_layout=[]) vs BlockedLayout(size_per_thread=[4, 2], threads_per_warp=[4, 8], warps_per_cta=[1, 1], order=[0, 1], cga_layout=[])
+```
+
+The family's consumer views are keyed on `(value, consumer node)` and land on
+the *first operand* of `gl.broadcast`, while the second operand keeps the
+compute layout; Gluon requires the two operands of a block-level broadcast to
+carry the same layout (`triton/experimental/gluon/language/_semantic.py:265`),
+so the frontend refuses the kernel before any IR exists. The plan sweep did not
+see this because its program's view keys never matched a queried pair, which the
+sweep recorded as an unreached family feature; on 32 fresh graphs the views do
+match, and the emitted kernel is invalid. This is a defect in the experimental
+emitter route (`test/lib/tensor_gluon.py`'s family definition and the emitter's
+per-consumer view placement), **not** a compiler defect: the compiler is right
+to reject the program. The report records the reproduction, the mechanism, and
+the two candidate fixes (state the view on the broadcast result rather than on
+one operand, or refuse the family when the consuming node is a broadcast).
+
+Artifacts: `test/tensor/campaigns/results/track-c-discovery-batch.json` (the
+compact record; the full 21.6 MB record `sha256 a72f328d…`, the proposal and run
+ledgers, and every run's generated kernel, per-stage IR and MLIR pass dump stay
+under `/host/trackc-discovery/out`), the manifest at
+`.planning/2026-10-11-targeted-compiler-behavior/discovery-track-c/manifest.json`,
+the six drivers beside it, and the report at
+`.planning/2026-10-11-targeted-compiler-behavior/discovery-track-c.md`. Storage:
+387 MB on the host after gzipping each raw IR file and hard-linking identical
+copies, against the 2 GB the manifest declared.
+
+## Track B discovery batch: 128 fresh proposals across eight frozen configurations
+
+The plan's bounded discovery batch for Track B froze eight configurations - four
+established connections and four underexplored legal combinations - with sixteen
+fresh seeds each, and drew all 128 proposals. The manifest is
+`test/tensor/campaigns/results/track-b-discovery-batch-manifest.json`
+(`9396a530…`, frozen 2026-10-15T12:09:39Z; the driver recomputes the digest and
+records that it was unchanged during the run), and the record is
+`test/tensor/campaigns/results/track-b-discovery-batch.json`.
+
+Each proposal is a freshly seeded rysmith tensor-v3 constructor run; its program
+is the case at the configuration's scheduled case index, so the schedules choose
+the rank-one tails `17/31/33/63/65` and the ten rank-two pairs whose padded
+tiles are exactly the 512-element profile volume boundary. Admission is the
+case's own complete interpreter reference reproduced bit-identically by two
+native replays at 128 and 256 reference bits. The runtime element is i32, so the
+on-device comparison is exact and no rounding tolerance can excuse a misplaced
+lane.
+
+| Configuration | Class | Connection | Shapes | Admitted | Executions | Loop | Layout-changed conversions |
+|---|---|---|---|---|---|---|---|
+| `est-tail-sum-rank2` | established | reduction | 10 boundary pairs | 16/16 | 128 pass | none | 23 (1-2 per program) |
+| `est-tail-broadcast-rank2` | established | broadcast | 10 narrow `[1,n]`/`[n,1]` | 16/16 | 128 pass | none | 9 (0-1) |
+| `est-tail-join-rank1` | established | join | 5 rank-one tails | 16/16 | 128 pass | none | 0 |
+| `est-tail-layout-rank2` | established | transpose | 10 boundary pairs | 16/16 | 128 pass | none | 16 (exactly 1) |
+| `und-tail-loop-rank2` | underexplored | tail + loop | 10 boundary pairs | 16/16 | 128 pass | TTGIR 16/16, PTX 4/16 | 23 |
+| `und-tail-join-rank2` | underexplored | join on boundary tails | 10 boundary pairs | 16/16 | 128 pass | none | 0 |
+| `und-tail-layout-rank1` | underexplored | copy on a rank-one tail | 5 rank-one tails | 16/16 | 128 pass | none | 0 |
+| `und-envelope-placement-b` | underexplored | second envelope placement | 10 boundary pairs | 16/16 | 128 pass | none | 23 |
+
+Budget spent: 128 proposals drawn, 128 admitted, 0 refused, so no configuration
+lost all its proposals; 512 input variants admitted and 0 refused; 1024 run
+directories built and 1024 executions attempted, completed, and passed with
+`campaign_valid`; 1024 compilations, because every run emits and compiles its own
+kernel from an empty Triton cache; one control execution. The executions are 128
+programs by four input patterns by two padding patterns; 896 carry the `(3,5)`
+envelope and 128 the `(5,3)` one.
+
+Readings:
+
+* Every logical output equals its own complete reference (396,400 logical slots
+  compared over the batch), and the two padding patterns produce byte-identical
+  logical outputs for all 512 program/input pairs.
+* Guards and gaps held in all 1024 executions. The verdicts were re-derived from
+  the archived `actual-physical.bin`, and 123,504 nonlogical slots - 16,384 guard
+  slots outside the storage span and 107,120 internal gap slots inside it -
+  stayed at their canary in every run; 1000 of the 1024 runs had at least one
+  internal gap slot.
+* The seeds, not the schedules, carry the storage variety: the constructor source
+  is a function of the stratum and the case index, so the 128 proposals hold 60
+  distinct programs but 124 distinct `(program, input strides/offset, output
+  strides/offset, num_warps)` configurations. Per configuration the batch covers
+  7-16 distinct input layouts and 6-16 distinct output layouts over all four warp
+  counts (1: 29 programs, 2: 38, 4: 34, 8: 27), and 86 of the 128 inputs carry a
+  nonzero element offset.
+* The only loop in the batch is `und-tail-loop-rank2`'s three-trip counted loop:
+  present in TTIR and TTGIR for all 16 programs, and still a branch cycle in LLIR
+  and PTX for four of them (`[16,17]` at 4 warps twice, `[8,63]` at 2 warps,
+  `[4,65]` at 1 warp). The other twelve are straight-line by LLIR.
+* 94 layout-changed conversions survive to TTGIR across the batch, all inside
+  `tt.func`, none in a loop body, and none visible in TTIR, LLIR, or PTX: 48 move
+  a slice layout to a blocked layout and 21 move back, 17 and 8 move between
+  blocked layouts. The reduction, transpose, loop, and placement-B
+  configurations carry them (23, 16, 23, 23); the arithmetic joins and the
+  rank-one copy carry none.
+* The intentionally incorrect in-allocation control - one element written inside
+  the output prefix guard of a copied passing run - is refused by the worker with
+  `prefix-guard-0` named, and is excluded from the denominator.
+* No new compiler failure: zero output mismatches, zero storage violations, zero
+  refusals, and no configuration whose proposals were all rejected. Three runs
+  (a transposed tail with padding B, a loop-stratum program, and a
+  second-placement program) were re-checked from the artifacts alone - record
+  digests recomputed from disk, the guard and gap verdict re-derived from
+  `actual-physical.bin`, and both reference precisions replayed from the
+  interpreter - and all three agree with the record.
+
+Two limits of the route were recorded rather than worked around. A rank-one
+reduction returns a scalar, and the guarded storage route cannot stage a scalar
+output: `_initial_output` allocates `storage_span` elements for an empty output
+shape and then hands the kernel a view at the guard prefix. The pre-batch
+qualification reproduced the illegal memory access under the envelope beside the
+same program passing unguarded, so no configuration in the batch produces a
+scalar output and rank-one reduction tails remain a route gap. Input immutability
+is enforced by the worker on every run and no run refused, but the worker
+archives only the output allocation, so the record shows the check rather than
+the input bytes.
+
+Driver, manifest, and raw record:
+`.planning/2026-10-11-targeted-compiler-behavior/padded-tails/drivers/` holds the
+batch driver, the qualification probe, the conversion observer, and the reduction
+that writes the review record; the unfiltered driver output (9.5 MB, `5c6dc2cc…`),
+the control record, the generation summary, and the batch log are archived under
+`test/tensor/campaigns/archive/2026-10-17-track-b-discovery/`. The export is the
+committed revision `47d7ceb7…`, built in its own copy under
+`/host/track-b-disc-20261017` and never in `/host/refractir-targeted-20261011`,
+with Triton `3.9.0+git32f06df4` from `/root/triton-latest/python` on eight
+V100-SXM2-32GB devices. The record carries the compiler flags, the four native
+tool digests, and the sha256 of every `test/lib` module of the import root.
+
+## Track A discovery batch: 128 fresh proposals across eight frozen configurations
+
+The plan's bounded discovery batch for Track A froze its allocation on
+2026-10-15 at 11:57:31Z, digest `68880da39fd718e9cb93930a5de4e90bdd19518ba25af028391ed5ca7a128cc3`,
+before any proposal was generated, and drew all 128. The record is
+`test/tensor/campaigns/results/track-a-discovery-batch.json` (`sha256 e5665877…`,
+7.4 MB compact; the full 16.9 MB record `sha256 5ec11767…` stays with the 512
+case directories under `/host/track-a-discovery-20261015/work/`), the frozen
+manifest is `.planning/2026-10-11-targeted-compiler-behavior/discovery-track-a/manifest.json`,
+the driver is `test/tensor/campaigns/run_track_a_discovery.py` (`94a08acb…`), and
+the report is `.planning/2026-10-11-targeted-compiler-behavior/discovery-track-a.md`.
+
+| # | half | family | shape × trips | mode | domain | the evidence it starts from |
+|---|---|---|---|---|---|---|
+| E1 | established | `mixed-depth` | [4, 8] × 3 | `additive` | [0, 2] | first run and named-pass study: bound 3, four warps, exact admission |
+| E2 | established | `cross-state` | [4, 8] × 2 | `additive` | [0, 2] | same evidence: bound 2 |
+| E3 | established | `orthogonal-reductions` | [4, 8] × 2 | `additive` | [0, 2] | same evidence: bound 2 |
+| E4 | established | `reduction-arithmetic` | [4, 8] × 2 | `additive` | [0, 2] | same evidence: bound 2 |
+| U1 | underexplored | `mixed-depth` | [4, 8] × 2 | `subtraction` | [0, 2] | an arithmetic mode no recorded Track A run uses |
+| U2 | underexplored | `cross-state` | [4, 8] × **8** | `additive` | [0, 2] | a trip count at the profile maximum, on the one family with no reduction |
+| U3 | underexplored | `orthogonal-reductions` | [32, 16] × 3 | `additive` | [0, 2] | a shape at the 512-element cap, re-drawn from 16 fresh seeds |
+| U4 | underexplored | `mixed-depth` | [128, 4] × 2 | `additive` | [0, 2] | a family at a shape every other recorded run of it avoids |
+
+Each configuration drew 16 proposals, one per seed
+(`seed = 100000 + 1000·configuration_index + offset`), all disjoint from the
+recorded Track A seeds 0–9. Launch is held at `num_warps` 4, `num_stages` 1,
+`enable_fp_fusion` false, grid `[1, 1, 1]`, so a difference between the
+configurations is a difference of generated program rather than of launch
+setting.
+
+**Denominator.** 128 proposals drawn, **128 admitted, 0 rejected** — every one
+by the same probe the recorded family runs use, the exact f32 certificate over
+the whole frozen domain. No proposal was replaced and none needed to be. 512
+inputs derived and built, 0 refused; 512 compiled-mode executions attempted, all
+512 passed with `campaign_valid` and a word-for-word byte check, and no
+reference output is constant. 512 compilations, each from its own empty Triton
+cache, so no cache reuse is visible. Stage wall clock: propose 37.5 s, build
+167.1 s, run 420.2 s over eight shards. The batch was kept bounded by keeping
+solver selection off the path entirely — admission is the pure-Python exact
+bound check, so the six-minute 512-lane solve is never incurred — by putting 96
+of the 128 proposals on 32-element shapes and only 32 on the two 512-element
+configurations, and by raising the interpreter replay budget in the driver only
+(`build_tensor_exact_loop_case.TIMEOUT_S = 900 s`). Controls and smoke tests are
+recorded separately and excluded: the two seed-9 programs at E1 and U3 that the
+first run and the 512-element matrix already carry, re-derived through the same
+path, which reproduce their recorded loop behavior (E1 unrolled by LLIR, U3
+retained with one PTX backedge) in all eight control executions.
+
+**Observations.** All 512 cases are `target-behavior-observed`, and all for the
+same reason: `TritonGPURemoveLayoutConversions` removes layout conversions while
+exactly one loop construct is present before and after it, in every
+configuration. The removal counts and what survives them:
+
+| # | removed by `RemoveLayoutConversions` (median, [min, max]) | effective | surviving to final TTGIR | TTIR/TTGIR loops | device loop (LLIR+PTX backedge) | PTX shuffles / shared |
+|---|---|---|---|---|---|---|
+| E1 | 12 [11, 12] | 9 | 0 | 64/64 each | 0/64 | 9 / 0 |
+| E2 | 8 [8, 8] | 5 | 0 | 64/64 each | 0/64 | 0 / 0 |
+| E3 | 15 [15, 15] | 12 | 0 | 64/64 each | 0/64 | 10 / 0 |
+| E4 | 11 [11, 13] | 8 | 0 | 64/64 each | 0/64 | 4 / 0 |
+| U1 | 12 [11, 12] | 9 | 0 | 64/64 each | 0/64 | 6 / 0 |
+| U2 | 8 [8, 8] | 5 | 0 | 64/64 each | 0/64 | 0 / 0 |
+| U3 | 16 [16, 16] | 16 | 0 | 64/64 each | **64/64** | 22 / 2 |
+| U4 | 13 [12, 13] | 13 | 0 | 64/64 each | 0/64 | 56 / 4 |
+
+Four named passes touch a conversion anywhere in the batch, and none adds one
+after the first two: `ConvertTritonToTritonGPU` added 4368 (8.5 per
+compilation), `TritonGPUCoalesce` added 1664 and preserved all 4368,
+`TritonGPURemoveLayoutConversions` removed 6032 at its first occurrence
+(11.8 per compilation) with `loop_construct_delta` 0 in all four of its
+occurrences, and `SCFToControlFlowPass` lowered one loop construct per
+compilation (512 in total) while moving no conversion. The difference between
+"removed" and "effective" is the same-encoding no-op the named-pass study
+identified: at `[4, 8]` three conversions per compilation carry no layout
+change, which is why E1 removes 12 and effectively removes 9; U3 and U4 remove
+only conversions that change an encoding.
+
+The other three Track A categories are zero in all 512 cases: no conversion
+survives to the final TTGIR, none changes its enclosing region across a pass,
+and no pass confirms a rematerialization. The new reading is U3:
+`orthogonal-reductions` at [32, 16] with three trips and four warps keeps a
+device loop in 64 of 64 fresh cases, so the "layout decision removed inside a
+loop that reaches the hardware" configuration is reachable from a second family,
+not only from the `mixed-depth` representative the earlier runs used.
+
+**Program diversity, measured.** The 128 proposals drew **91 distinct
+programs**, and the repeats are not uniform: E1 14, E2 10, E3 12, E4 13, U2 10,
+U3 12, U4 16, and **U1 only 4 of 16**, where one program is drawn five times.
+The subtraction mode at this shape and trip count collapses the graph space, so
+a batch that wants diversity from that mode has to select graphs rather than
+seeds. The four inputs of one proposal are four numerical runs of one program,
+measured rather than assumed: for all 128 proposals the path-normalized TTIR,
+TTGIR, and LLIR digests are identical across the four inputs, and only PTX
+differs, because its debug section encodes the length of the embedded case path.
+The batch's layout coverage is therefore 128 programs (91 distinct), not 512
+compilations.
+
+**Provenance.** RefractIR revision `47d7ceb7…`, exported with
+`git checkout-index -a --prefix=<dir>/`, built in its own copy at
+`/host/track-a-discovery-20261015/refractir` and never in
+`/host/refractir-targeted-20261011`; the resulting `symirc` digests to
+`5915fbda…`, the same binary the earlier Track A and Track C runs recorded.
+Triton `3.9.0` at `32f06df4bf1c30885ff61ee3488836ca81ed65f0` from
+`/root/triton-latest/python`, Python 3.12.15, torch 2.5.1+cu121, driver
+535.274.02, CUDA 12.1, eight Tesla V100-SXM2-32GB. The record carries the
+compiler flags, the three native tool digests, and the sha256 of every imported
+`test/lib` module — `tensor_case.py` `67643011…`, the same digest the recorded
+runs imported — plus the digest of the driver.
+
+**No new compiler failure.** 512 executions, 512 passes, 0 mismatches, 0
+compile failures, 0 refusals, and no configuration whose proposals were all
+rejected. The batch extends the established behavior over 128 fresh programs and
+four underexplored legal combinations; it does not add a defect, and it adds no
+evidence to the surviving-conversion, movement, or rematerialization categories.
+
 ## Gaps and controls
 
 * Guard *detection* is verified on the host (a mutated allocation is refused by
@@ -844,6 +1209,19 @@ build performed in `/host/refractir-targeted-20261011`).
   need more than two layouts.
 * Ranks, warps, and layouts beyond the runs above are untouched; the run
   counts here are far below the plan's per-track budgets.
+* The Track A discovery batch adds no failure and no new layout behavior: its
+  512 executions all pass, and surviving conversions, conversion movement, and
+  rematerialization are zero in all of them. The rematerialization question is
+  still unreached, now over 128 more programs.
+* Track A's batch drew 91 distinct programs from 128 seeds, and one
+  configuration (`mixed-depth` with `subtraction` at [4, 8] and two trips) drew
+  only 4, so its 16 proposals are largely the same program re-run. Only one
+  arithmetic mode and one trip count were frozen for that family, so the run
+  cannot separate the mode from the shape and bound it was drawn at.
+* Track A's four inputs per program are four numerical runs of one compilation:
+  the TTIR, TTGIR, and LLIR digests are identical across the four inputs of all
+  128 proposals, so the batch's layout coverage is 91 distinct programs, not 512
+  compilations.
 * Two of the four Track A families carry no input proposal at the
   representative's configuration: `reduction-arithmetic` and
   `orthogonal-reductions` are refused by the exact reference over `[0, 8]` with
@@ -862,3 +1240,47 @@ build performed in `/host/refractir-targeted-20261011`).
   rematerialization gaps above are unchanged by this run.
 * No new compiler failure was found. The differences reported above are
   compiler behavior, not defects.
+* The discovery batch added no compiler failure either: its 128 refusals are
+  the Gluon frontend rejecting an invalid kernel the `reduction-result-expand`
+  family emits, which is a defect of the experimental emitter route. Until that
+  family is fixed, the batch carries no device evidence for it at all, so the
+  plan family has no surviving-conversion reading in any configuration.
+* Rematerialization is still unreached: the batch's pass transitions move and
+  remove conversions but never recompute one, and no `register_only` or
+  `equivalent` pair appears in the 1600 surviving conversions.
+* The batch's four inputs per program are four numerical runs of one
+  compilation: 96 of 96 programs with passing runs produced byte-identical IR
+  for all four inputs, so the batch's layout coverage is 79
+  (configuration, program) pairs, not 512 compilations.
+* Fresh seeds are not fresh graphs — `fold` at [8, 8] drew 6 and 4 distinct
+  programs from 16 seeds each — so a future batch that wants graph diversity
+  should measure it rather than assume it from the seed count.
+* Cross-lane and cross-warp attribution inside a loop is line-granular: 384
+  in-loop shared transfers in the batch's `loop-state-layout` runs sit under
+  `.loc 1 0 0` and stay unattributed to a conversion. An instruction-level
+  attribution would need liveness or disassembly evidence the runner does not
+  collect.
+* The Track B batch's 1024 executions compile 119 distinct kernels, not 1024:
+  every one of a program's eight runs (four inputs by two padding patterns)
+  emits the same kernel and is compiled again from an empty cache, so the
+  `compilations` count measures the route's work rather than distinct code.
+  The same effect appears one level up: 128 fresh seeds drew 60 distinct
+  programs, because the v3 constructor's source is a function of the stratum and
+  the case index, and the physical layout is what the seed varies.
+* The storage variety the batch bought is real and separable: 124 of the 128
+  proposals carry a distinct `(program, input strides/offset, output
+  strides/offset, num_warps)` configuration, and 86 inputs carry a nonzero
+  element offset. A batch that wants layout coverage should therefore freeze
+  layouts directly rather than sampling them through the generation seed.
+* Rank-one reduction tails are unreachable through the guarded storage route:
+  the reduction returns a scalar, and `triton_case_worker._initial_output`
+  allocates `storage_span` elements for an empty output shape before handing the
+  kernel a view at the guard prefix, which the qualification turned into an
+  illegal memory access beside the same program passing unguarded. Either the
+  worker's scalar path or the configuration space has to change before those
+  tails can carry guarded evidence.
+* Input immutability is checked on every run and never refused, but it is not
+  re-derivable from the archived bytes: the worker writes `actual-physical.bin`
+  for the output allocation only. A future storage batch that wants the input
+  side in the record needs the worker to archive the staged input allocation
+  too; until then the record shows the enforcement, not the bytes.
