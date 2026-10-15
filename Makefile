@@ -279,7 +279,8 @@ test-tensor-region-generation: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLV
 	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  REFRACTIR_SYMIR_SOLVE=./$(TARGET_SOLVER) \
 	  $(PY) -m unittest test.unit.test_tensor_region_generation \
-	    test.unit.test_tensor_region_exact_family
+	    test.unit.test_tensor_region_exact_family \
+	    test.unit.test_tensor_input_proposals
 
 test-tensor-fpsan-model:
 	$(PY) -m unittest test.unit.test_tensor_fpsan_model
