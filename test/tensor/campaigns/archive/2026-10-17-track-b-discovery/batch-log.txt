@@ -1,0 +1,150 @@
+== started 2026-10-15T12:15:31Z ==
+== root /host/track-b-disc-20261017 work /root/tb-disc-work shards 8 ==
+== manifest digest e914d25fcb00545eac1f14eb1f995e07fb5bcfaba007999b95a742af138807fb ==
+== triton identity ==
+{"version": "3.9.0", "file": "/root/triton-latest/python/triton/__init__.py"}
+== imported module digests ==
+67643011ab61220828922fe08acb463e4327c1a4050924283c283667ab2de62e  test/lib/tensor_case.py
+7f3fbe3303237a6657e60a73033ec85db542cc6acae1a7fdea0c71a1144a449c  test/lib/tensor_layout.py
+9e3485a1da62d2c8fd034228d9b5a065278475218dd73839f736f9323c9f7a53  test/lib/tensor_compiler_observation.py
+efe74bc8606eff7710bd383e4481846585b01d1fa74179bfd71259dea33ae9c4  test/lib/run_triton_tests.py
+ea025fe1b8479c910694dae9529b9ba31df57b931ddc0af47ee1331322cd9063  test/lib/triton_case_worker.py
+742d4e4cfaf9cc5a641854e980d8f3fc09be108015230ccd347a64483da4e0e0  test/lib/probe_triton_env.py
+== native tool digests ==
+8f506bbd9085cb4d8f8996dc2dbda254486113cc599f08683aee860a5d738e0e  symiri
+5915fbda057ffb0efc5bd846cc7166414338028e5ec70f07063bb737522512dd  symirc
+9a1e27e2d0fb0ff530cd9f3135a47f02aac511d879ee920548a13b0fd8d23a35  symirsolve
+1b3cfb915fdeb9a155a44e4422768e51053987b8b88aac6d72928233ee81e963  rysmith
+== device inventory ==
+0, Tesla V100-SXM2-32GB, 32768 MiB
+1, Tesla V100-SXM2-32GB, 32768 MiB
+2, Tesla V100-SXM2-32GB, 32768 MiB
+3, Tesla V100-SXM2-32GB, 32768 MiB
+4, Tesla V100-SXM2-32GB, 32768 MiB
+5, Tesla V100-SXM2-32GB, 32768 MiB
+6, Tesla V100-SXM2-32GB, 32768 MiB
+7, Tesla V100-SXM2-32GB, 32768 MiB
+== generate 2026-10-15T12:15:31Z ==
+{
+ "generation": {
+  "admitted": 128,
+  "drawn": 128,
+  "per_configuration": {
+   "est-tail-broadcast-rank2": {
+    "admitted": 16,
+    "drawn": 16
+   },
+   "est-tail-join-rank1": {
+    "admitted": 16,
+    "drawn": 16
+   },
+   "est-tail-layout-rank2": {
+    "admitted": 16,
+    "drawn": 16
+   },
+   "est-tail-sum-rank2": {
+    "admitted": 16,
+    "drawn": 16
+   },
+   "und-envelope-placement-b": {
+    "admitted": 16,
+    "drawn": 16
+   },
+   "und-tail-join-rank2": {
+    "admitted": 16,
+    "drawn": 16
+   },
+   "und-tail-layout-rank1": {
+    "admitted": 16,
+    "drawn": 16
+   },
+   "und-tail-loop-rank2": {
+    "admitted": 16,
+    "drawn": 16
+   }
+  },
+  "refused": 0,
+  "refused_by_reason": {}
+ },
+ "runs": 1024
+}
+generate_rc=0
+== run 2026-10-15T12:15:58Z ==
+shard 6 rc=0 2026-10-15T12:33:51Z
+shard 5 rc=0 2026-10-15T12:33:51Z
+shard 4 rc=0 2026-10-15T12:33:57Z
+shard 2 rc=0 2026-10-15T12:33:57Z
+shard 0 rc=0 2026-10-15T12:33:57Z
+shard 7 rc=0 2026-10-15T12:33:58Z
+shard 1 rc=0 2026-10-15T12:33:58Z
+shard 3 rc=0 2026-10-15T12:33:59Z
+== run complete 2026-10-15T12:33:59Z ==
+== observe, control, report 2026-10-15T12:33:59Z ==
+{
+ "observed": 128
+}
+{
+ "artifacts_present": {
+  "actual-physical.bin": true,
+  "actual.bin": true,
+  "worker-staging.json": true,
+  "worker-timing.json": true
+ },
+ "configuration": "est-tail-broadcast-rank2",
+ "control_directory": "/root/tb-disc-work/control/est-tail-broadcast-rank2__p000__coordinate-distinct__pattern-a",
+ "control_of_run": "est-tail-broadcast-rank2|p000|coordinate-distinct|pattern-a",
+ "excluded_from_denominator": true,
+ "guard_envelope": {
+  "prefix": 3,
+  "suffix": 5
+ },
+ "kind": "intentional in-allocation write, classified separately",
+ "patch": "appended 'tl.store(out_ptr - 3, 0)' after 'tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)' in the copied emitted kernel",
+ "refused": true,
+ "refused_slots": "['prefix-guard-0']",
+ "schema": "refractir.track-b-discovery-control.v1",
+ "stderr_tail": "Traceback (most recent call last):\n  File \"/host/track-b-disc-20261017/test/lib/triton_case_worker.py\", line 488, in main\n    execute(args.case, args.mode, args.artifacts_dir)\n  File \"/host/track-b-disc-20261017/test/lib/triton_case_worker.py\", line 432, in execute\n    raise RuntimeError(\nRuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['prefix-guard-0']\n\n",
+ "stdout_tail": "",
+ "worker_returncode": 1
+}
+{
+ "budget": {
+  "compilations": 1024,
+  "configurations_with_all_proposals_rejected": [],
+  "control_executions": 1,
+  "executions_attempted": 1024,
+  "executions_completed": 1024,
+  "executions_failed": 0,
+  "executions_passed": 1024,
+  "input_variants_admitted": 512,
+  "input_variants_refused": {},
+  "proposals_admitted": 128,
+  "proposals_drawn": 128,
+  "proposals_refused": 0,
+  "refusals_by_reason": {},
+  "run_directories_built": 1024
+ },
+ "denominator": {
+  "definition": "128 generation proposals = 8 configurations x 16 fresh seeds. Everything else is excluded from the denominator: rysmith by-product cases of a multi-case batch, the intentional in-allocation write control, the pre-batch qualification run, and the per-proposal input/padding variants (they are executions of an admitted program, not proposals).",
+  "excluded": {
+   "control_runs": 1,
+   "qualification_runs": 1,
+   "rysmith_by_product_cases": 0
+  },
+  "proposals_admitted": 128,
+  "proposals_drawn": 128,
+  "proposals_refused": 0,
+  "refusals_by_reason": {}
+ },
+ "storage_checks": {
+  "constant_output_programs": 0,
+  "guards_and_gaps_intact": 1024,
+  "logical_output_compared": 1024,
+  "logical_output_unchanged": 1024,
+  "nonlogical_slots_changed": [],
+  "padding_pattern_pairs_checked": 512,
+  "padding_patterns_agree": 512,
+  "programs_with_duplicate_input_variants": 0
+ }
+}
+== done 2026-10-15T12:34:14Z ==

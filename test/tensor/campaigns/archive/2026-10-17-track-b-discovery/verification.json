@@ -1,0 +1,79 @@
+{
+ "verified": [
+  {
+   "checks": {
+    "actual_sha256_matches_record": true,
+    "expected_sha256_matches_record": true,
+    "guards_and_gaps_intact_on_disk": true,
+    "logical_output_equals_reference": true,
+    "nonlogical_slots_changed_on_disk": [],
+    "reference_replays": [
+     {
+      "exit_code": 0,
+      "matches_expected": true,
+      "reference_bits": 128,
+      "sha256": "efb2e484393c60a086e6d1abea991960d53d9d9c5f9d83514a36eaeae36df665"
+     },
+     {
+      "exit_code": 0,
+      "matches_expected": true,
+      "reference_bits": 256,
+      "sha256": "efb2e484393c60a086e6d1abea991960d53d9d9c5f9d83514a36eaeae36df665"
+     }
+    ]
+   },
+   "directory": "/root/tb-disc-work/runs/est-tail-layout-rank2/p000/coordinate-distinct/pattern-b",
+   "run": "est-tail-layout-rank2|p000|coordinate-distinct|pattern-b"
+  },
+  {
+   "checks": {
+    "actual_sha256_matches_record": true,
+    "expected_sha256_matches_record": true,
+    "guards_and_gaps_intact_on_disk": true,
+    "logical_output_equals_reference": true,
+    "nonlogical_slots_changed_on_disk": [],
+    "reference_replays": [
+     {
+      "exit_code": 0,
+      "matches_expected": true,
+      "reference_bits": 128,
+      "sha256": "2ad8f585d731ff802b693800177cf31b46415c931270eb48e1bfb3a3eba10054"
+     },
+     {
+      "exit_code": 0,
+      "matches_expected": true,
+      "reference_bits": 256,
+      "sha256": "2ad8f585d731ff802b693800177cf31b46415c931270eb48e1bfb3a3eba10054"
+     }
+    ]
+   },
+   "directory": "/root/tb-disc-work/runs/und-tail-loop-rank2/p007/distinct-groups/pattern-a",
+   "run": "und-tail-loop-rank2|p007|distinct-groups|pattern-a"
+  },
+  {
+   "checks": {
+    "actual_sha256_matches_record": true,
+    "expected_sha256_matches_record": true,
+    "guards_and_gaps_intact_on_disk": true,
+    "logical_output_equals_reference": true,
+    "nonlogical_slots_changed_on_disk": [],
+    "reference_replays": [
+     {
+      "exit_code": 0,
+      "matches_expected": true,
+      "reference_bits": 128,
+      "sha256": "f7015ff8f3e54703e4031f56cba502028c5fcc8c413a4799ca4059f8ddfef4e0"
+     },
+     {
+      "exit_code": 0,
+      "matches_expected": true,
+      "reference_bits": 256,
+      "sha256": "f7015ff8f3e54703e4031f56cba502028c5fcc8c413a4799ca4059f8ddfef4e0"
+     }
+    ]
+   },
+   "directory": "/root/tb-disc-work/runs/und-envelope-placement-b/p015/seeded-random/pattern-a",
+   "run": "und-envelope-placement-b|p015|seeded-random|pattern-a"
+  }
+ ]
+}

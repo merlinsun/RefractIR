@@ -1,0 +1,227 @@
+{
+  "admission": {
+    "input_variant": "one rysmith run per input pattern with the same seed, stratum and case index; the variant is admitted when its source digest equals the proposal's source digest, it loads, and both reference precisions reproduce its expected.bin bit-identically",
+    "no_replacement": "a refused proposal is recorded with its reason and is not replaced; a refused input variant is recorded and is not replaced",
+    "program": "the case at the configuration's scheduled index, generated with the first input pattern, exists; its source parses and loads through test.lib.tensor_case.load_case; its logical shape satisfies the configuration's shape class; and two independent native replays (symiri --tensor-reference-bits 128 and 256) reproduce its expected.bin bit-identically",
+    "refusal_vocabulary": [
+      "generation_shortfall",
+      "case_missing",
+      "shape_class_mismatch",
+      "loader_refused",
+      "reference_replay_mismatch",
+      "reference_unstable_across_precisions",
+      "variant_source_mismatch"
+    ]
+  },
+  "case_index_schedule": {
+    "boundary": [
+      5,
+      7,
+      9,
+      11,
+      13,
+      15,
+      17,
+      19,
+      21,
+      23,
+      5,
+      7,
+      9,
+      11,
+      13,
+      15
+    ],
+    "note": "v3BoundaryShape(case_index) fixes the logical shape. Indices 0..4 are the rank-one tails 17/31/33/63/65 with execution tiles 32/32/64/64/128. Indices 5..24 are the rank-two pairs [17,16],[16,17],[31,16],[16,31],[33,8],[8,33],[63,8],[8,63],[65,4],[4,65], two consecutive indices per shape (even/odd pick the two orientations); every rank-two execution tile is exactly 512 elements, the profile volume boundary. The boundary schedule below takes the first index of each rank-two shape, so one cycle covers all ten boundary shapes in both orientations.",
+    "rank1": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      0,
+      1,
+      2,
+      3,
+      4,
+      0,
+      1,
+      2,
+      3,
+      4,
+      0
+    ]
+  },
+  "configurations": [
+    {
+      "case_index_schedule": "boundary",
+      "connection": "reduction",
+      "evidence": "track-b-evidence.json records the tail-sum stratum on padded tails; this configuration states it on the rank-two volume-boundary pairs, whose output is a padded rank-one tensor rather than the scalar a rank-one reduction returns",
+      "guard_envelope": "placement-a",
+      "id": "est-tail-sum-rank2",
+      "proposals": 16,
+      "shape_class": "rank2-boundary-tail",
+      "stratum": "established",
+      "tensor_stratum": "tail-sum"
+    },
+    {
+      "case_index_schedule": "boundary",
+      "connection": "broadcast",
+      "evidence": "the broadcast connection the first Track B run measured on rank-two tails; the input is a padded [rows,1] or [1,cols] column and the output is the full padded tile",
+      "guard_envelope": "placement-a",
+      "id": "est-tail-broadcast-rank2",
+      "proposals": 16,
+      "shape_class": "rank2-boundary-tail",
+      "stratum": "established",
+      "tensor_stratum": "tail-broadcast"
+    },
+    {
+      "case_index_schedule": "rank1",
+      "connection": "join",
+      "evidence": "track-b-evidence.json records the rank-one tail-arithmetic stratum; the untargeted stratum states the same producer twice, so the returned value joins two consumers of one padded tail",
+      "guard_envelope": "placement-a",
+      "id": "est-tail-join-rank1",
+      "proposals": 16,
+      "shape_class": "rank1-tail",
+      "stratum": "established",
+      "tensor_stratum": "tail-untargeted"
+    },
+    {
+      "case_index_schedule": "boundary",
+      "connection": "transpose",
+      "evidence": "the transpose half of the transpose/reduction pair: the padded [rows,cols] tail is returned as [cols,rows], so neither the logical nor the physical address relation is the identity",
+      "guard_envelope": "placement-a",
+      "id": "est-tail-layout-rank2",
+      "proposals": 16,
+      "shape_class": "rank2-boundary-tail",
+      "stratum": "established",
+      "tensor_stratum": "tail-layout"
+    },
+    {
+      "case_index_schedule": "boundary",
+      "connection": "tail combined with a loop",
+      "evidence": "the earlier tail evidence is loop-free (loop_status unrolled_or_removed); this stratum carries a three-trip counted loop that adds the padded tile to itself and reduces it on every trip",
+      "expects_loop": true,
+      "guard_envelope": "placement-a",
+      "id": "und-tail-loop-rank2",
+      "proposals": 16,
+      "shape_class": "rank2-boundary-tail",
+      "stratum": "underexplored",
+      "tensor_stratum": "tail-loop"
+    },
+    {
+      "case_index_schedule": "boundary",
+      "connection": "join not yet composed with a rank-two tail",
+      "evidence": "the join connection is measured on rank-one tails only, and the rank-two tail evidence is compositional; this configuration states the join on the volume-boundary pairs",
+      "guard_envelope": "placement-a",
+      "id": "und-tail-join-rank2",
+      "proposals": 16,
+      "shape_class": "rank2-boundary-tail",
+      "stratum": "underexplored",
+      "tensor_stratum": "tail-untargeted"
+    },
+    {
+      "case_index_schedule": "rank1",
+      "connection": "the copy connection on a padded rank-one tail",
+      "evidence": "the rank-one stratum tails the earlier stages measured are arithmetic and sum; returning a padded rank-one tail unchanged is a connection (a whole-tensor copy) not yet composed with a tail",
+      "guard_envelope": "placement-a",
+      "id": "und-tail-layout-rank1",
+      "proposals": 16,
+      "shape_class": "rank1-tail",
+      "stratum": "underexplored",
+      "tensor_stratum": "tail-layout"
+    },
+    {
+      "case_index_schedule": "boundary",
+      "connection": "the second guard-envelope placement",
+      "evidence": "every earlier guarded Track B run used the (3,5) placement; this configuration repeats est-tail-sum-rank2's stratum and shape schedule under the (5,3) placement, so the placement is the only declared difference",
+      "guard_envelope": "placement-b",
+      "id": "und-envelope-placement-b",
+      "proposals": 16,
+      "shape_class": "rank2-boundary-tail",
+      "stratum": "underexplored",
+      "tensor_stratum": "tail-sum"
+    }
+  ],
+  "control": {
+    "classification": "control, excluded from the discovery denominator; never reported as a compiler finding",
+    "kind": "intentional in-allocation write",
+    "patch": "one element before the tensor, inside the prefix guard, appended after the kernel's own store"
+  },
+  "denominator": "128 generation proposals = 8 configurations x 16 fresh seeds. Everything else is excluded from the denominator: rysmith by-product cases of a multi-case batch, the intentional in-allocation write control, the pre-batch qualification run, and the per-proposal input/padding variants (they are executions of an admitted program, not proposals).",
+  "execution": {
+    "device": "NVIDIA Tesla V100-SXM2-32GB",
+    "mode": "compiled",
+    "run_grid": "four admitted input variants x two padding patterns",
+    "runs_per_admitted_program": 8,
+    "storage_checks": [
+      "unchanged logical output: complete logical comparison against the case's own interpreter reference",
+      "guards intact and gaps intact: the worker refuses any change outside the logical output mapping and names the slot",
+      "input allocation immutable: the worker refuses any change to an input allocation, guard, or gap",
+      "two padding patterns: the two patterns must produce byte-identical logical outputs"
+    ]
+  },
+  "frozen_at": "2026-10-15T12:09:39Z",
+  "frozen_at_source": "host clock at freeze time; recorded again in the batch record",
+  "generator": {
+    "command_shape": "rysmith --profile tensor --target sir --seed <seed> -n <case_index+1> --tensor-dtype i32 --tensor-profile-version v3 --tensor-generator constructor --tensor-stratum <stratum> --tensor-input-pattern <pattern> --output-dir <dir>",
+    "dtype": "i32",
+    "generator_route": "constructor",
+    "profile": "tensor-v3",
+    "proposal": "one freshly seeded rysmith run per input pattern; the proposal's program is the case at the configuration's scheduled case index",
+    "seed_base": 20261017,
+    "seed_rule": "seed = seed_base + global_proposal_index, global_proposal_index = 16 * configuration_position + proposal_position (0..127)",
+    "tool": "rysmith",
+    "why_i32": "The existing Track B tail evidence (track-b2-evidence.json, track-b3-tail-guard-evidence.json) uses i32 compositional and stratum tails with comparison mode exact. An exact i32 comparison needs no numerical tolerance and no f32 exactness proof, so a storage error is never excused by rounding; the f32 tail routes keep their separate whole-output proofs and are not re-run here."
+  },
+  "guard_envelope_placements": {
+    "placement-a": {
+      "prefix": 3,
+      "suffix": 5
+    },
+    "placement-b": {
+      "prefix": 5,
+      "suffix": 3
+    }
+  },
+  "input_pattern_note": "Four of the six tensor-v3 input patterns, chosen to mirror the four recorded Track A proposals: an asymmetric coordinate pattern, a signed pattern, a group-structured pattern, and independent draws. The four variants of one proposal share one program (the driver refuses a variant whose source digest differs) and each carries its own complete interpreter reference. No sparse-lane pattern exists in the v3 constructor vocabulary; that gap is recorded rather than emulated.",
+  "input_patterns": [
+    "coordinate-distinct",
+    "mixed-sign",
+    "distinct-groups",
+    "seeded-random"
+  ],
+  "manifest_sha256": "9396a5308f065684b01cafc296b89da941f604f888a38c19cf6698136e04a037",
+  "padding_patterns": {
+    "pattern-a": {
+      "f32": "3f800001",
+      "i32": "55555555"
+    },
+    "pattern-b": {
+      "f32": "3f800002",
+      "i32": "aaaaaaaa"
+    }
+  },
+  "pre_batch_qualification": {
+    "other_combinations": "rank-two reduction, rank-two broadcast, rank-one and rank-two arithmetic joins, rank-two transpose, rank-two loop, and the rank-one copy all produce padded tensor inputs and outputs that the guarded route stages",
+    "question": "does each declared (stratum, shape class, envelope) combination generate, load, compile and run under the declared guard envelope?",
+    "result": "seven of the eight first-draft combinations ran to a clean pass; the rank-one reduction stratum did not",
+    "scalar_output_limitation": {
+      "cause": "test/lib/triton_case_worker.py _initial_output allocates only output_record['storage_span'] elements when the output shape is empty (a scalar return), while _read_inputs-style view slicing hands the kernel output_buffer[prefix : prefix+storage_span]; with prefix 3 the view starts past the end of a one-element allocation",
+      "classification": "limitation of the guarded storage route for scalar outputs, not a compiler finding",
+      "configuration": "tail-sum (and tail-loop) on a rank-one logical tail",
+      "consequence": "no configuration in this manifest produces a scalar output; rank-one reduction tails are recorded as a route gap rather than given proposals that cannot be stored safely",
+      "observed": "the same program passes unguarded (status pass, campaign_valid true) and raises 'CUDA error: an illegal memory access' when the configuration's guard envelope is declared"
+    },
+    "when": "before this manifest was frozen, in a scratch work directory"
+  },
+  "purpose": "Bounded discovery batch for composed padded tails and their storage checks (128 fresh generation proposals, at most eight predeclared configurations, four inputs per admitted program, two padding patterns per tail program).",
+  "schema": "refractir.track-b-discovery-manifest.v1",
+  "shape_classes": {
+    "any-tail": "at least one of the input or output records has a logical extent that is not a power of two, and the output is a non-scalar tensor",
+    "rank1-tail": "the runtime input has one axis and its logical extent is not a power of two, so its execution tile is strictly larger; the output is a non-scalar tensor",
+    "rank2-boundary-tail": "the runtime input has two axes, at least one logical extent of the input or the output is not a power of two, and the widest padded execution tile of the two is exactly 512 elements (the profile volume boundary). A broadcast returns that 512-element tile while its runtime input is the narrow operand, so the class reads both records.",
+    "scalar_output": "excluded by construction: a rank-one reduction returns a scalar, which the guarded storage route cannot stage (see pre_batch_qualification)"
+  },
+  "track": "B"
+}

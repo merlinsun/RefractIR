@@ -1,0 +1,24 @@
+{
+  "artifacts_present": {
+    "actual-physical.bin": true,
+    "actual.bin": true,
+    "worker-staging.json": true,
+    "worker-timing.json": true
+  },
+  "configuration": "est-tail-broadcast-rank2",
+  "control_directory": "/root/tb-disc-work/control/est-tail-broadcast-rank2__p000__coordinate-distinct__pattern-a",
+  "control_of_run": "est-tail-broadcast-rank2|p000|coordinate-distinct|pattern-a",
+  "excluded_from_denominator": true,
+  "guard_envelope": {
+    "prefix": 3,
+    "suffix": 5
+  },
+  "kind": "intentional in-allocation write, classified separately",
+  "patch": "appended 'tl.store(out_ptr - 3, 0)' after 'tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)' in the copied emitted kernel",
+  "refused": true,
+  "refused_slots": "['prefix-guard-0']",
+  "schema": "refractir.track-b-discovery-control.v1",
+  "stderr_tail": "Traceback (most recent call last):\n  File \"/host/track-b-disc-20261017/test/lib/triton_case_worker.py\", line 488, in main\n    execute(args.case, args.mode, args.artifacts_dir)\n  File \"/host/track-b-disc-20261017/test/lib/triton_case_worker.py\", line 432, in execute\n    raise RuntimeError(\nRuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['prefix-guard-0']\n\n",
+  "stdout_tail": "",
+  "worker_returncode": 1
+}

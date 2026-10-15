@@ -1,0 +1,40 @@
+{
+  "admitted": 128,
+  "drawn": 128,
+  "per_configuration": {
+    "est-tail-broadcast-rank2": {
+      "admitted": 16,
+      "drawn": 16
+    },
+    "est-tail-join-rank1": {
+      "admitted": 16,
+      "drawn": 16
+    },
+    "est-tail-layout-rank2": {
+      "admitted": 16,
+      "drawn": 16
+    },
+    "est-tail-sum-rank2": {
+      "admitted": 16,
+      "drawn": 16
+    },
+    "und-envelope-placement-b": {
+      "admitted": 16,
+      "drawn": 16
+    },
+    "und-tail-join-rank2": {
+      "admitted": 16,
+      "drawn": 16
+    },
+    "und-tail-layout-rank1": {
+      "admitted": 16,
+      "drawn": 16
+    },
+    "und-tail-loop-rank2": {
+      "admitted": 16,
+      "drawn": 16
+    }
+  },
+  "refused": 0,
+  "refused_by_reason": {}
+}
