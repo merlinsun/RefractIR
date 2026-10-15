@@ -114,6 +114,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The paired evidence separates its two runs: the qualified measurement under Triton 3.9.0 with the revision and compiler flags recorded, and a rebuild that reproduces the same program, input, and output hashes under Triton 3.7.1 without provenance and is therefore reported as campaign-invalid rather than borrowing the earlier run's standing.
 
+- The rebuilt pair is re-run in the intended Triton environment (`3.9.0` at `32f06df4…`, Python 3.12.15, revision and compiler flags recorded), where both arms pass and both are campaign-valid with the same reference and program digests; the earlier 3.7.1 run stays in the evidence as a hash check with its own invalid qualification.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.
