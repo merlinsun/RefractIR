@@ -5,7 +5,11 @@ import re
 import unittest
 from pathlib import Path
 
-from test.lib.tensor_gluon import BlockedLayoutPlan, GluonRegionPlan
+from test.lib.tensor_gluon import (
+  BlockedLayoutPlan,
+  GluonRegionPlan,
+  generate_layout_plans,
+)
 from test.lib.tensor_gluon_lowering import (
   cross_lane_threads_per_warp,
   render_gluon_kernel,
@@ -13,6 +17,7 @@ from test.lib.tensor_gluon_lowering import (
 from test.unit.test_tensor_exact_composed import (
   generated_region_source,
   generated_sequential_region_source,
+  tailed_region_source,
 )
 
 ORTHOGONAL_PROGRAM_PATH = (
@@ -167,6 +172,135 @@ class TensorGluonLoweringTests(unittest.TestCase):
     self.assertTrue(
       all("_reduction_input_" in line for line in mapped_lines), mapped_lines
     )
+
+
+TAIL_SHAPE = (8, 31)
+TAIL_TILE = (8, 32)
+
+
+def tile_layout(name, order=(1, 0)):
+  """One rank-two blocked layout that a single warp can place on any tile."""
+  return BlockedLayoutPlan(name, (1, 1), (1, 32), (1, 1), order)
+
+
+class TensorGluonPaddedTailTests(unittest.TestCase):
+  """A tailed logical extent runs on a declared power-of-two execution tile."""
+
+  def test_a_tail_shape_is_admitted_by_the_emission_entry_point(self):
+    generated = render_gluon_kernel(tailed_region_source(), tile=TAIL_TILE)
+
+    ast.parse(generated.source)
+    self.assertEqual(generated.shape, TAIL_SHAPE)
+    self.assertEqual(generated.tile, TAIL_TILE)
+    self.assertIn("gl.load(input_ptr + load_offsets, mask=", generated.source)
+    self.assertIn("for _ in range(2):", generated.source)
+
+  def test_the_mask_excludes_padded_lanes_from_a_reduction(self):
+    generated = render_gluon_kernel(tailed_region_source(), tile=TAIL_TILE)
+
+    self.assertIn(
+      "valid_load_layout = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+      generated.source,
+    )
+    # The reduction reads a view in its own layout, so its mask is stated in
+    # that layout and zeroes the padded lanes before the sum sees them.
+    self.assertIn(
+      "valid_reduction_layout = "
+      "(reduction_layout_rows[:, None] < 8) & "
+      "(reduction_layout_columns[None, :] < 31)",
+      generated.source,
+    )
+    self.assertIn(
+      "v0_reduction_input_1_masked = "
+      "gl.where(valid_reduction_layout, v0_reduction_input_1, 0.0)",
+      generated.source,
+    )
+    self.assertIn("gl.sum(v0_reduction_input_1_masked, axis=1)", generated.source)
+
+  def test_padded_lanes_never_appear_in_the_stored_output(self):
+    generated = render_gluon_kernel(tailed_region_source(), tile=TAIL_TILE)
+
+    self.assertIn(
+      "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
+      generated.source,
+    )
+    self.assertIn(
+      "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
+      generated.source,
+    )
+    self.assertRegex(
+      generated.source,
+      r"gl\.store\(output_ptr \+ store_offsets, output, mask=valid_\w+\)",
+    )
+
+  def test_a_plan_assigned_to_the_tile_is_preserved_for_a_tailed_shape(self):
+    sampled = generate_layout_plans(
+      TAIL_SHAPE, num_warps=1, seed=0, count=3, tile=TAIL_TILE
+    )
+    for layout in sampled:
+      layout.validate(TAIL_SHAPE, num_warps=1, tile=TAIL_TILE)
+    load, compute, reduction, store = (
+      tile_layout("tile-load"),
+      tile_layout("tile-compute"),
+      tile_layout("tile-reduction", order=(0, 1)),
+      tile_layout("tile-store", order=(0, 1)),
+    )
+    plan = GluonRegionPlan(
+      "tile-plan",
+      TAIL_SHAPE,
+      load,
+      compute,
+      store,
+      reduction=reduction,
+      tile=TAIL_TILE,
+    )
+
+    generated = render_gluon_kernel(tailed_region_source(), plan=plan)
+    body = kernel_body(generated.source)
+
+    self.assertEqual(generated.tile, TAIL_TILE)
+    self.assertEqual(plan.as_record()["tile"], list(TAIL_TILE))
+    for layout in (load, compute, reduction, store):
+      with self.subTest(layout=layout.name):
+        self.assertIn(identifier(layout), generated.layout_parameters)
+        self.assertRegex(body, rf"\b{re.escape(identifier(layout))}\b")
+
+  def test_a_non_power_of_two_shape_without_a_declared_tile_is_refused(self):
+    with self.assertRaisesRegex(ValueError, "power-of-two dimensions"):
+      render_gluon_kernel(tailed_region_source())
+
+    plan = GluonRegionPlan(
+      "untiled",
+      TAIL_SHAPE,
+      tile_layout("untiled-load"),
+      tile_layout("untiled-compute"),
+      tile_layout("untiled-store"),
+      reduction=tile_layout("untiled-reduction", order=(0, 1)),
+    )
+    with self.assertRaisesRegex(ValueError, "power-of-two dimensions"):
+      render_gluon_kernel(tailed_region_source(), plan=plan)
+
+
+class TensorGluonPaddedTailEdgeTests(unittest.TestCase):
+  """The two tile extremes: no padding at all, and a one-element tail."""
+
+  def test_a_tile_that_equals_the_logical_extent_emits_no_mask(self):
+    generated = render_gluon_kernel(generated_region_source(), tile=(2, 2))
+
+    self.assertEqual(generated.tile, (2, 2))
+    self.assertNotIn("valid", generated.source)
+    self.assertIn("gl.load(input_ptr + load_offsets)", generated.source)
+    self.assertIn("gl.store(output_ptr + store_offsets, output)", generated.source)
+
+  def test_a_one_element_tail_keeps_the_tile_and_masks_the_padded_axis(self):
+    generated = render_gluon_kernel(tailed_region_source((1, 31)), tile=(1, 32))
+
+    self.assertIn("gl.zeros((1, 32), gl.float32", generated.source)
+    self.assertIn(
+      "valid_load_layout = (load_rows[:, None] < 1) & (load_columns[None, :] < 31)",
+      generated.source,
+    )
+    self.assertIn("mask=valid_load_layout", generated.source)
 
 
 class TensorGluonDeclaredRoleTests(unittest.TestCase):

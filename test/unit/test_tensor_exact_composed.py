@@ -95,6 +95,52 @@ class ComposedExactTests(unittest.TestCase):
     )
 
 
+def tailed_region_source(shape=(8, 31), *, axis=1, iterations=2):
+  """One canonical bounded region whose logical extent is a padded tail.
+
+  The graph is the generated `fold` shape: an elementwise fold, a reduction
+  over one axis, and a broadcast of that reduction, so the tail meets a
+  masked axis beside a full one.
+  """
+  rows, columns = shape
+  reduced_shape = f"[{rows}, 1]" if axis == 1 else f"[1, {columns}]"
+  zeros = ", ".join(["0.0"] * (rows * columns))
+  return f"""\
+fun @kernel(%x: tensor [{rows}, {columns}] f32) : tensor [{rows}, {columns}] f32 {{
+  let mut %i: i32 = undef;
+  let mut %acc_x: tensor [{rows}, {columns}] f32 = undef;
+  let mut %acc_y: tensor [{rows}, {columns}] f32 = {{{zeros}}};
+  let mut %t0: tensor [{rows}, {columns}] f32 = undef;
+  let mut %t1: tensor {reduced_shape} f32 = undef;
+  let mut %t2: tensor [{rows}, {columns}] f32 = undef;
+  let mut %t3: tensor [{rows}, {columns}] f32 = undef;
+  let mut %next_x: tensor [{rows}, {columns}] f32 = undef;
+  let mut %next_y: tensor [{rows}, {columns}] f32 = undef;
+  let mut %out: tensor [{rows}, {columns}] f32 = undef;
+^entry:
+  %acc_x = %x;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < {iterations}, ^body, ^exit;
+^body:
+  %t0 = tensor add %acc_x, %acc_y;
+  %t1 = tensor sum %t0, {axis}, keep;
+  %t2 = tensor broadcast %t1, [{rows}, {columns}];
+  %t3 = tensor add %t0, %t2;
+  %next_x = tensor add %acc_x, %t3;
+  %next_y = tensor add %acc_y, %t3;
+  %acc_x = %next_x;
+  %acc_y = %next_y;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  %out = tensor add %acc_x, %acc_y;
+  ret %out;
+}}
+"""
+
+
 def generated_region_source(axis=1, iterations=2):
   reduced_shape = "[2, 1]" if axis == 1 else "[1, 2]"
   return f"""\

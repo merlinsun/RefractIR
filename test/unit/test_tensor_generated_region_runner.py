@@ -1360,13 +1360,15 @@ def _consumers(source):
   return region_consumers(source)
 
 
-def _layout_pool(runner, *, shape=PLAN_SHAPE, count=4, seed=PLAN_LAYOUT_SEED):
+def _layout_pool(
+  runner, *, shape=PLAN_SHAPE, count=4, seed=PLAN_LAYOUT_SEED, tile=None
+):
   """The runner's own deterministic layout pool for one region shape."""
   from test.lib.tensor_gluon_lowering import reduction_blocked_layout
 
   reduction_layout = reduction_blocked_layout(shape, {0, 1}, num_warps=1)
   return runner.region_layout_pool(
-    shape, reduction_layout, num_warps=1, seed=seed, count=count
+    shape, reduction_layout, num_warps=1, seed=seed, count=count, tile=tile
   )
 
 
@@ -1413,19 +1415,31 @@ def _add_one_to_first_word(payload):
   return struct.pack("<f", struct.unpack("<f", payload[:4])[0] + 1.0) + payload[4:]
 
 
-def _run_generated_region_program(*, plan_family=None, layout_count=1):
+def _run_generated_region_program(
+  *,
+  plan_family=None,
+  layout_count=1,
+  source=None,
+  source_path=None,
+  input_values=(1, 2, 4, 8),
+  tile=None,
+):
   """Run the generated-region runner against recorded fake launches.
 
   Only the device and the compiler capture are faked; the exact reference, the
-  layout sampling, and the emitter under test stay real.
+  layout sampling, and the emitter under test stay real. `source` replaces the
+  recorded power-of-two program, which is how a tailed region is launched on a
+  declared execution tile.
   """
   from test.lib import tensor_exact_f32
 
   runner = _load_runner()
-  source = NATIVE_SEED_7_SOURCE
-  input_values = (1, 2, 4, 8)
+  if source is None:
+    source = NATIVE_SEED_7_SOURCE
+    source_path = NATIVE_SEED_7_PATH
+  input_values = tuple(input_values)
   _proof, expected_bytes = tensor_exact_f32.certify(
-    source, struct.pack("<4f", *input_values), (0, 8)
+    source, struct.pack(f"<{len(input_values)}f", *input_values), (0, 8)
   )
   case_count = 1 if plan_family else layout_count
   launches = []
@@ -1478,7 +1492,7 @@ def _run_generated_region_program(*, plan_family=None, layout_count=1):
       mock.patch.object(runner.BlockedLayoutPlan, "to_gluon_layout", lambda self: self),
     ):
       result = runner.run_program(
-        NATIVE_SEED_7_PATH,
+        source_path,
         output_path,
         ir_directory,
         input_values=input_values,
@@ -1487,6 +1501,7 @@ def _run_generated_region_program(*, plan_family=None, layout_count=1):
         num_warps=1,
         layout_count=layout_count,
         plan_family=plan_family,
+        tile=tile,
       )
     return {
       "result": result,
@@ -1636,7 +1651,9 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
     result = observation["result"]
 
     self.assertEqual(len(launches), 3)
-    self.assertEqual(observation["render"].call_args, mock.call(NATIVE_SEED_7_SOURCE))
+    self.assertEqual(
+      observation["render"].call_args, mock.call(NATIVE_SEED_7_SOURCE, tile=None)
+    )
     self.assertEqual(
       [layout.name for layout in launches[1]["args"][2:]],
       [pool[1].name, pool[1].name, pool[0].name, pool[1].name],
@@ -1646,6 +1663,42 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
     self.assertNotIn("plan", result)
     self.assertNotIn("plan", observation["report"])
     self.assertEqual(result["measurement_protocol"]["expected_layout_count"], 2)
+
+  def test_a_tailed_region_launches_on_its_declared_execution_tile(self):
+    from test.lib.tensor_gluon_lowering import render_gluon_kernel
+    from test.unit.test_tensor_exact_composed import tailed_region_source
+
+    runner = _load_runner()
+    source = tailed_region_source((2, 3))
+    with tempfile.TemporaryDirectory() as temporary:
+      program = Path(temporary) / "tailed.sir"
+      program.write_text(source, encoding="utf-8")
+      observation = _run_generated_region_program(
+        source=source,
+        source_path=program,
+        input_values=(1, 2, 3, 4, 5, 6),
+        tile=(2, 4),
+        layout_count=2,
+      )
+    result = observation["result"]
+    emitted = render_gluon_kernel(source, tile=(2, 4)).source
+    pool = _layout_pool(runner, shape=(2, 3), count=2, tile=(2, 4))
+
+    self.assertEqual(observation["render"].call_args.kwargs, {"tile": (2, 4)})
+    self.assertEqual(result["shape"], [2, 3])
+    self.assertEqual(result["execution_tile"], [2, 4])
+    self.assertEqual(list(result["cases"]), [plan.name for plan in pool])
+    for case in result["cases"].values():
+      self.assertEqual(case["status"], "pass")
+    # The launched kernel keeps the padded tile and masks load, reduction, and
+    # store; the layouts it is launched with are the tile's, not the tail's.
+    self.assertIn("gl.zeros((2, 4)", emitted)
+    self.assertIn("valid_load_layout = ", emitted)
+    self.assertIn("valid_reduction_layout", emitted)
+    self.assertIn("mask=valid_store_layout", emitted)
+    self.assertEqual(render_gluon_kernel(source, tile=(2, 4)).tile, (2, 4))
+    for layout in pool:
+      layout.validate((2, 3), num_warps=1, tile=(2, 4))
 
   def test_plan_mode_run_records_the_family_roles_and_launch_order(self):
     from test.lib.tensor_gluon_lowering import render_gluon_kernel

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from functools import reduce
 from operator import mul
 
+from test.lib import tensor_layout
 from test.lib.tensor_exact_f32 import _generated_region_program
 
 
@@ -15,6 +16,45 @@ def _is_power_of_two(value):
 
 def _product(values):
   return reduce(mul, values, 1)
+
+
+def padded_execution_tile(shape):
+  """The execution tile the tensor-v3 profile pads one logical shape up to.
+
+  The profile rounds every extent up to a power of two and keeps the padded
+  volume inside its 512-element cap, so a logical tail never becomes a physical
+  extent: the tile states the padded extents the hardware places values on and
+  the mask states which of its lanes carry logical elements.
+  """
+  if not isinstance(shape, (tuple, list)) or len(shape) != 2:
+    raise ValueError("padded execution tile needs a rank-two logical shape")
+  return tuple(tensor_layout.execution_tile_shape(list(shape), profile="v3"))
+
+
+def execution_tile(shape, *, tile=None):
+  """The power-of-two execution tile one logical rank-two shape runs on.
+
+  A layout plan is validated against this tile rather than against the logical
+  extent, because the hardware places the padded tile. `tile` states the tile a
+  caller already chose; without one the tile is the logical shape itself, which
+  exists only when every extent is already a power of two, so a tailed shape
+  without a declared tile is refused instead of silently rounded up.
+  """
+  if not isinstance(shape, (tuple, list)) or len(shape) != 2:
+    raise ValueError("execution tile needs a rank-two logical shape")
+  if tile is None:
+    if any(not _is_power_of_two(extent) for extent in shape):
+      raise ValueError("shape dimensions must be positive powers of two")
+    return tuple(shape)
+  if (
+    not isinstance(tile, (tuple, list))
+    or len(tile) != 2
+    or any(not _is_power_of_two(extent) for extent in tile)
+  ):
+    raise ValueError("execution tile must be two positive powers of two")
+  if any(extent > padded for extent, padded in zip(shape, tile)):
+    raise ValueError("execution tile must cover the logical shape")
+  return tuple(tile)
 
 
 @dataclass(frozen=True)
@@ -27,13 +67,12 @@ class BlockedLayoutPlan:
   warps_per_cta: tuple[int, int]
   order: tuple[int, int]
 
-  def validate(self, shape, *, num_warps):
+  def validate(self, shape, *, num_warps, tile=None):
     if not isinstance(self.name, str) or not self.name:
       raise ValueError("layout name must be nonempty")
     if not isinstance(shape, (tuple, list)) or len(shape) != 2:
       raise ValueError("shape must have rank two")
-    if any(not _is_power_of_two(dimension) for dimension in shape):
-      raise ValueError("shape dimensions must be positive powers of two")
+    execution_tile(shape, tile=tile)
     for field_value in (
       self.size_per_thread,
       self.threads_per_warp,
@@ -84,14 +123,15 @@ def _factor_pairs(product):
   ]
 
 
-def generate_layout_plans(shape, *, num_warps, seed, count):
-  """Sample distinct rank-two blocked layouts from a bounded legal space."""
-  if (
-    not isinstance(shape, (tuple, list))
-    or len(shape) != 2
-    or any(not _is_power_of_two(size) for size in shape)
-  ):
+def generate_layout_plans(shape, *, num_warps, seed, count, tile=None):
+  """Sample distinct rank-two blocked layouts from a bounded legal space.
+
+  The sampled register shape is bounded by the execution tile, so a tile wider
+  than the logical extent still offers the layouts that place its padding.
+  """
+  if not isinstance(shape, (tuple, list)) or len(shape) != 2:
     raise ValueError("shape must contain two positive powers of two")
+  tile_extents = execution_tile(shape, tile=tile)
   if not _is_power_of_two(num_warps):
     raise ValueError("num_warps must be a positive power of two")
   if type(seed) is not int or seed < 0:
@@ -104,8 +144,8 @@ def generate_layout_plans(shape, *, num_warps, seed, count):
   warp_pairs = _factor_pairs(num_warps)
   for size_per_thread in (
     (row_size, column_size)
-    for row_size in _powers_of_two_at_most(shape[0])
-    for column_size in _powers_of_two_at_most(shape[1])
+    for row_size in _powers_of_two_at_most(tile_extents[0])
+    for column_size in _powers_of_two_at_most(tile_extents[1])
   ):
     for threads_per_warp in thread_pairs:
       for warps_per_cta in warp_pairs:
@@ -118,7 +158,7 @@ def generate_layout_plans(shape, *, num_warps, seed, count):
             warps_per_cta,
             order,
           )
-          plan.validate(shape, num_warps=num_warps)
+          plan.validate(shape, num_warps=num_warps, tile=tile)
           candidates.append(plan)
   if count > len(candidates):
     raise ValueError(
@@ -129,11 +169,11 @@ def generate_layout_plans(shape, *, num_warps, seed, count):
   return candidates[:count]
 
 
-def select_distinct_layouts(required, sampled, *, shape, num_warps, count):
+def select_distinct_layouts(required, sampled, *, shape, num_warps, count, tile=None):
   """Keep a required plan and fill the sample by physical layout identity."""
   if type(count) is not int or count <= 0:
     raise ValueError("count must be a positive integer")
-  required.validate(shape, num_warps=num_warps)
+  required.validate(shape, num_warps=num_warps, tile=tile)
   selected = [required]
   seen = {
     (
@@ -147,7 +187,8 @@ def select_distinct_layouts(required, sampled, *, shape, num_warps, count):
     return selected
 
   for plan in sampled:
-    plan.validate(shape, num_warps=num_warps)
+    plan.validate(shape, num_warps=num_warps, tile=tile)
+
     key = (
       plan.size_per_thread,
       plan.threads_per_warp,
@@ -224,19 +265,26 @@ def _basis_coordinate(bases, index):
   return row, column
 
 
-def effective_mapping(plan, shape):
-  """Return the owner set of every element, row-major.
+def effective_mapping(plan, shape, *, tile=None):
+  """Return the owner set of every tile element, row-major.
 
   An owner is a `(warp, lane, register)` triple. A tensor smaller than the
   layout tile gives one element several owners, because the unused lane and
   warp bits repeat it across the hardware instead of renumbering it. An
   element the tile does not place has no owner at all, which the empty set
   states instead of hiding.
+
+  The mapped elements are the declared execution tile's when `tile` states
+  one, so a tailed shape reports the owners of its padded lanes as well: those
+  lanes are placed by the same hardware and only the mask says they carry no
+  logical element. Without a tile the map covers the logical shape itself,
+  which keeps an element no layout places visible as unowned.
   """
   if not isinstance(shape, (tuple, list)) or len(shape) != 2:
     raise ValueError("effective mapping needs a rank-two shape")
-  shape = tuple(shape)
+  shape = execution_tile(shape, tile=tile) if tile is not None else tuple(shape)
   registers, lanes, warps = _blocked_bases(plan, shape)
+
   owners = {}
   for register in range(1 << len(registers)):
     register_row, register_column = _basis_coordinate(registers, register)
@@ -312,11 +360,13 @@ def _element_requirement(source_owners, destination_owners):
   return "register_only"
 
 
-def classify_layout_pair(left, right, *, shape):
+def classify_layout_pair(left, right, *, shape, tile=None):
   """Name what a layout change between two plans requires of ownership.
 
   Owners are the `(warp, lane, register)` triples `effective_mapping` reports,
-  and the verdict is the strongest requirement any element states.
+  and the verdict is the strongest requirement any element states. The mapped
+  elements are the execution tile's, so a padded tail is classified by what
+  moving its whole tile costs, padding lanes included.
 
   `identical` means the plan parameters match and `equivalent` means every
   element has the same owners in both plans. `subsumed` means every
@@ -341,8 +391,9 @@ def classify_layout_pair(left, right, *, shape):
     raise ValueError("layout classification needs two blocked layout plans")
   if _layout_identity(left) == _layout_identity(right):
     return "identical"
-  source = effective_mapping(left, shape)
-  destination = effective_mapping(right, shape)
+  source = effective_mapping(left, shape, tile=tile)
+  destination = effective_mapping(right, shape, tile=tile)
+
   if any(not owners for owners in source) or any(not owners for owners in destination):
     return "cross_warp"
   return max(
@@ -361,6 +412,11 @@ class GluonRegionPlan:
   A consumer view states the layout one use of a value needs. The emitter
   converts into a fresh view instead of rebinding the value, so a second
   consumer keeps the layout its own entry states.
+
+  `shape` is the logical extent the region computes over and `tile` is the
+  power-of-two execution tile its layouts are assigned to. A plan that leaves
+  `tile` unset claims the logical extent is already the tile, which a tailed
+  shape cannot support.
   """
 
   name: str
@@ -371,6 +427,7 @@ class GluonRegionPlan:
   reduction: BlockedLayoutPlan | None = None
   state_layout: BlockedLayoutPlan | None = None
   consumer_views: dict = field(default_factory=dict)
+  tile: tuple[int, int] | None = None
 
   def view_for(self, value, node_index):
     """The layout of one consumer's explicit view, or None when it has none.
@@ -385,6 +442,7 @@ class GluonRegionPlan:
     return {
       "name": self.name,
       "shape": list(self.shape),
+      "tile": list(self.tile) if self.tile is not None else None,
       "load": self.load.name,
       "compute": self.compute.name,
       "reduction": self.reduction.name if self.reduction else None,
@@ -533,7 +591,7 @@ PLAN_FAMILY_MINIMUM_LAYOUTS = {
 }
 
 
-def region_plan_families(shape, *, num_warps, layouts, consumers):
+def region_plan_families(shape, *, num_warps, layouts, consumers, tile=None):
   """Build the layout plan families one layout pool and one region can express.
 
   `layouts` holds distinct sampled blocked layouts, which the families place on
@@ -541,14 +599,16 @@ def region_plan_families(shape, *, num_warps, layouts, consumers):
   `consumers` states who the region's graph lets a plan address, so a family
   views the values the region really has. A family the pool cannot afford or
   the graph cannot express is omitted with its reason rather than collapsing
-  two of its roles onto one layout or inventing a consumer.
+  two of its roles onto one layout or inventing a consumer. `tile` is the
+  execution tile the layouts and the plan are assigned to.
   """
   if not isinstance(layouts, (list, tuple)) or not layouts:
     raise ValueError("plan families need at least one distinct layout")
   for layout in layouts:
-    layout.validate(shape, num_warps=num_warps)
+    layout.validate(shape, num_warps=num_warps, tile=tile)
   if not isinstance(consumers, RegionConsumers):
     raise ValueError("plan families need the region's consumer identities")
+
   # A region with no reduction has no reduction role, so no family declares
   # one: a parameter the kernel body never reads would state nothing.
   reductions = bool(consumers.uses_of("sum"))
@@ -579,6 +639,7 @@ def region_plan_families(shape, *, num_warps, layouts, consumers):
       reduction=reduction if reductions else None,
       state_layout=state,
       consumer_views=dict(views or {}),
+      tile=tuple(tile) if tile is not None else None,
     )
 
   region("all-same-layout", baseline, baseline, baseline, reduction=baseline)

@@ -31,6 +31,7 @@ from test.lib.tensor_compiler_observation import (
 from test.lib.tensor_gluon import (
   PLAN_FAMILY_MINIMUM_LAYOUTS,
   BlockedLayoutPlan,
+  execution_tile,
   generate_layout_plans,
   region_consumers,
   region_plan_families,
@@ -172,23 +173,30 @@ def _capture_region_compiler(
   }
 
 
-def region_layout_pool(shape, reduction_layout, *, num_warps, seed, count):
+def region_layout_pool(shape, reduction_layout, *, num_warps, seed, count, tile=None):
   """Sample the distinct layouts one run may place on the region roles.
 
   The required reduction layout comes first so every pool can express the
   baseline role assignment; the rest is drawn deterministically from the seed.
+  `tile` is the execution tile the layouts are assigned to, so a tailed shape
+  samples the layouts of its padded tile rather than of its logical extent.
   """
   sampled_plans = (
-    generate_layout_plans(shape, num_warps=num_warps, seed=seed, count=count)
+    generate_layout_plans(shape, num_warps=num_warps, seed=seed, count=count, tile=tile)
     if count > 1
     else ()
   )
   return select_distinct_layouts(
-    reduction_layout, sampled_plans, shape=shape, num_warps=num_warps, count=count
+    reduction_layout,
+    sampled_plans,
+    shape=shape,
+    num_warps=num_warps,
+    count=count,
+    tile=tile,
   )
 
 
-def select_plan_family(name, shape, *, num_warps, layouts, consumers):
+def select_plan_family(name, shape, *, num_warps, layouts, consumers, tile=None):
   """Select one named plan family the sampled pool and the region can express.
 
   A family states its roles from the pool's distinct layouts and its consumer
@@ -201,7 +209,7 @@ def select_plan_family(name, shape, *, num_warps, layouts, consumers):
       + ", ".join(sorted(PLAN_FAMILY_MINIMUM_LAYOUTS))
     )
   families = region_plan_families(
-    shape, num_warps=num_warps, layouts=layouts, consumers=consumers
+    shape, num_warps=num_warps, layouts=layouts, consumers=consumers, tile=tile
   )
   family = families.get(name)
   if family is None:
@@ -234,6 +242,8 @@ def plan_launch_record(generated, plan, pool):
   identities = {layout.name: layout.to_dict() for layout in named if layout is not None}
   return {
     "family": plan.name,
+    "shape": list(plan.shape),
+    "tile": list(plan.tile) if plan.tile is not None else None,
     "roles": plan.as_record(),
     "layouts": {name: identities[name] for name in sorted(identities)},
     "pool": [layout.to_dict() for layout in pool],
@@ -296,12 +306,17 @@ def run_program(
   num_warps=1,
   layout_count=5,
   plan_family=None,
+  tile=None,
 ):
   """Compare sampled Gluon layouts on one admitted generated-region source.
 
   Without `plan_family` the run samples one layout per role and launches the
   historical emitter. With one it launches a single plan-mode kernel whose
   layouts the family names.
+
+  `tile` is the power-of-two execution tile a logical tail runs on. It is
+  required when the region's extent is not a power of two, and refused when it
+  is stated but does not cover the shape.
   """
   probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
@@ -323,6 +338,7 @@ def run_program(
   shape, iterations, tensor_types, nodes, _updates = (
     tensor_exact_f32._generated_region_program(source)
   )
+  tile = execution_tile(shape, tile=tile) if tile is not None else None
   count = math.prod(shape)
   if (
     not isinstance(input_values, (tuple, list))
@@ -373,20 +389,21 @@ def run_program(
   reduction_layout = reduction_blocked_layout(
     shape, reduction_axes, num_warps=num_warps
   )
-  reduction_layout.validate(shape, num_warps=num_warps)
+  reduction_layout.validate(shape, num_warps=num_warps, tile=tile)
   plans = region_layout_pool(
     shape,
     reduction_layout,
     num_warps=num_warps,
     seed=layout_seed,
     count=layout_count,
+    tile=tile,
   )
   cases = {}
   if plan_family is None:
-    generated = render_gluon_kernel(source)
+    generated = render_gluon_kernel(source, tile=tile)
     kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
     for plan in plans:
-      plan.validate(shape, num_warps=num_warps)
+      plan.validate(shape, num_warps=num_warps, tile=tile)
       args = (
         input_tensor,
         output_tensor,
@@ -426,6 +443,7 @@ def run_program(
       num_warps=num_warps,
       layouts=plans,
       consumers=region_consumers(source),
+      tile=tile,
     )
     generated = render_gluon_kernel(source, plan=family_plan)
     kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
@@ -452,9 +470,14 @@ def run_program(
     baseline_layout_arguments = tuple(arguments[2:])
     plan_record = plan_launch_record(generated, family_plan, plans)
 
-  store_line = "    gl.store(output_ptr + store_offsets, output)\n"
-  if generated.source.count(store_line) != 1:
+  store_lines = [
+    line
+    for line in generated.source.splitlines()
+    if line.startswith("    gl.store(output_ptr + store_offsets, output")
+  ]
+  if len(store_lines) != 1:
     raise RuntimeError("generated Gluon kernel has no unique output store")
+  store_line = store_lines[0] + "\n"
   mutant = replace(
     generated,
     source=generated.source.replace(
@@ -498,6 +521,7 @@ def run_program(
     "reference_validation_s": reference_validation_s,
     "iterations": iterations,
     "shape": list(shape),
+    "execution_tile": list(tile) if tile is not None else None,
     "property": {"target": target, "index": list(target_index)},
     "layout_seed": layout_seed,
     "proof_bound": proof["integer_exactness_bound"],
@@ -756,11 +780,24 @@ def main():
   parser.add_argument("--num-warps", type=int, default=1)
   parser.add_argument("--layout-count", type=int, default=5)
   parser.add_argument(
+    "--tile",
+    default=None,
+    help="power-of-two execution tile as rows,columns for a tailed logical extent",
+  )
+  parser.add_argument(
     "--plan-family", choices=sorted(PLAN_FAMILY_MINIMUM_LAYOUTS), default=None
   )
   args = parser.parse_args()
   if args.plan_family and not args.program:
     parser.error("--plan-family requires --program")
+  tile = None
+  if args.tile is not None:
+    try:
+      tile = tuple(int(value.strip()) for value in args.tile.split(","))
+    except ValueError as error:
+      parser.error(f"invalid execution tile: {error}")
+    if len(tile) != 2:
+      parser.error("--tile must contain two integers")
   if args.program:
     try:
       input_values = tuple(int(value.strip()) for value in args.input_values.split(","))
@@ -782,6 +819,7 @@ def main():
       num_warps=args.num_warps,
       layout_count=args.layout_count,
       plan_family=args.plan_family,
+      tile=tile,
     )
   elif args.case_dir:
     report = run(args.case_dir, args.output, args.ir_dir, symiri=args.symiri)

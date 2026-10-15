@@ -124,6 +124,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The encoding fix is folded back into the records it corrects: `track-a-named-passes.json` moves 46 of 102 conversions from ineffective to effective (total 44 to 90, matching its own 90 eliminated) and `track-a-input-proposals.json` follows on its own conversion deltas, while the verdicts, per-pass tables, loop evidence, and every Track C value stay as published. The campaign record's Track A count table, its Track C sentence (38 change an encoding, 76 are equivalent-encoding no-ops, none eliminated), and the observer-limits paragraph now match their records.
 
+- A padded logical tail can run under an explicit Gluon layout plan: the emitter takes the power-of-two execution tile and emits one validity predicate per layout that reads it - a masked load with `other=0.0`, `gl.where(mask, operand, 0.0)` before every reduction, and a masked store - while addressing stays on the logical buffer, so padded lanes never contribute to a reduction or a stored value; a tile equal to the logical extent emits no mask and the same kernel as before. On the V100 a `[8, 31]` tail on its `[8, 32]` tile passes in both the counted arm, under a guard envelope and two padding patterns, and the plan arm, whose loop survives to PTX and whose canary allocation shows nothing outside the logical extent. Physical strides are not yet stated to the emitter, the plan path still lowers only the bounded-region grammar, and the tailed case is admitted by a declared witness rather than exact selection; all three are recorded as unreached.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

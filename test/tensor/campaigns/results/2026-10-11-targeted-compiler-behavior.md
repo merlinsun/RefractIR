@@ -691,6 +691,132 @@ tree from parallel work, and this driver's own region tracker agrees with it on
 digests, and the exact counterexamples are in
 `.planning/2026-10-11-targeted-compiler-behavior/named-passes-driver/`.
 
+## Track C × Track B: a padded logical tail on an explicit layout tile
+
+The intersection the plan asks for - padded logical tails and physical strides,
+with layouts assigned to the power-of-two execution tile - was first established
+as blocked, then implemented as mask-aware emission and run on the device. One
+logical extent carries the whole run: the rank-two tail `[8, 31]` from the
+Track B evidence, on its `[8, 32]` execution tile, with the `fold` region graph
+(elementwise fold, reduction over the tailed axis, broadcast of that reduction)
+in the bounded-region grammar the Gluon emitter consumes.
+
+### What blocked the combination
+
+Four refusals, recorded verbatim in
+`track-c-padded-tail-gluon-evidence.json` (`emitter_refusals`):
+
+| Entry point | Refusal |
+|---|---|
+| `render_gluon_kernel(source)` | `ValueError: Gluon region lowering requires power-of-two dimensions` |
+| `render_gluon_kernel(source, plan)` without a tile | same |
+| `BlockedLayoutPlan.validate((8, 31))` | `ValueError: shape dimensions must be positive powers of two` |
+| `generate_layout_plans((8, 31))` | `ValueError: shape dimensions must be positive powers of two` |
+
+Two further refusals separate the tail *case* from the tail *shape*:
+
+* Track B's admitted tails are compositional leaf functions, not bounded
+  regions. A freshly generated `[8, 31]` case from the committed v3 sampler
+  (`rysmith --tensor-profile-version v3 --tensor-generator compositional`, case
+  `program.sha256 c00aa0d9…`) is refused by the emitter with
+  `ValueError: source is outside the bounded generated-region signature`: the
+  plan path can only lower the region grammar, so no Track B tail case can be
+  fed to it unchanged.
+* The exact-selection arm cannot certify a tailed region either:
+  `symirsolve --tensor-profile-version v3` refuses the selection twin
+  (`selection-query.sha256 89c3685f…`) with
+  `error: tensor-profile: unsupported tensor operation in tensor-v3 profile`,
+  because the query selects its target with `tensor extract`, which the v3
+  operation set (`add`, `sub`, `mul`, `expand`, `broadcast`, `transpose`,
+  `sum`) excludes. The tailed case is therefore admitted by a declared
+  in-domain witness instead of a solver selection: the reference is still the
+  exact obligation proof of that input (`certify`) replayed by `symiri`, the
+  evidence kind is `construction`, and the comparison is zero-tolerance
+  numeric. Reading the recorded bytes closes the gap the comparator leaves: the
+  run's `actual.bin` equals `expected.bin` byte for byte.
+
+### Mask-aware emission
+
+`render_gluon_kernel(source, *, plan=None, tile=None)` now takes the execution
+tile explicitly and keeps it while honouring the logical extent. The tile is
+required whenever an extent is not a power of two, so a tailed shape without a
+declared tile is still refused; a plan states the tile it assigns its layouts
+to (`GluonRegionPlan.tile`), and `BlockedLayoutPlan.validate`,
+`generate_layout_plans`, `select_distinct_layouts`, and
+`region_plan_families` validate against that tile rather than the logical
+extent. Five host tests cover the entry point, the reduction mask, the stored
+output, a plan preserved on the tile, and the untiled refusal, with edge tests
+for a tile that equals the logical extent (no mask is emitted at all) and a
+one-element tail.
+
+For `[8, 31]` on `[8, 32]` the emitter writes one predicate per layout that
+reads it, and no padded lane can reach a value:
+
+```
+valid_load_layout = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)
+acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_load_layout, other=0.0), compute_layout)
+...
+v0_reduction_input_1_masked = gl.where(valid_reduction_layout, v0_reduction_input_1, 0.0)
+v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_reduction_input_1_masked, axis=1), 1), compute_layout)
+...
+gl.store(output_ptr + store_offsets, output, mask=valid_store_layout)
+```
+
+The addressing stays on the logical buffer (`load_offsets = load_rows[:, None] *
+31 + load_columns[None, :]`), so a padded lane computes an address it never
+dereferences. That is the same shape as the counted emitter's v3 kernel
+(`tl.load(..., mask=..., other=0.0)`, `tl.sum(tl.where(valid, x, 0.0), …)`,
+`tl.store(..., mask=...)`), which is what makes the two arms comparable.
+
+### Device runs
+
+The counted arm is the region case above at `tensor-v3` with a padded physical
+layout (row stride 32 at element offset 1, storage span 256) inside a `(3, 5)`
+guard envelope, launched through `test.lib.run_triton_tests --mode compiled`.
+Its runtime input is the committed proposal `sparse-final-lanes`
+(sha256 `775b2ea6…`) from `test.lib.tensor_input_proposals`; the other three
+proposals and their hashes are recorded in the JSON.
+The plan arm runs the same program through
+`test/tensor/gluon/run_generated_region.py` with `--tile 8,32`.
+
+| Arm | Variant | Result | Mask predicate reaching the kernel | Loop | Effective conversions |
+|---|---|---|---|---|---|
+| counted | padding pattern A | pass, `campaign_valid`, output bytes == reference | `_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)` | TTIR/TTGIR hold `scf.for`; LLIR/PTX none | 0 |
+| counted | padding pattern B | pass, `campaign_valid`, identical output hash | same | same | 0 |
+| counted | PTX reading | — | `setp.ne.b32 %p1, %r7, 31`, 4 predicated ops | 20 warp shuffles | — |
+| plan | `no-plan` (sampled layouts) | pass, complete output bits | `valid_load_layout`, `valid_reduction_layout`, `valid_store_layout` | retained in TTGIR, LLIR, PTX | 2 (18 operations) |
+| plan | `all-same-layout` | pass | one predicate shared by load, reduction, and store | retained | 0 (8 same-encoding ops) |
+| plan | `load-to-compute` | pass | load mask + reduction/store mask | retained | 1 (`load_to_compute`) |
+| plan | canary allocation | pass | — | — | — |
+
+Readings:
+
+* Both padding patterns produce the same 992-byte logical output as the
+  certified witness output (`e523c11e…`), and the recorded `actual.bin` equals
+  `expected.bin` word for word. The guarded allocation (`prefix` 3, `suffix` 5,
+  padding `3f800001` / `3f800002` by pattern) is what makes a padded lane that
+  leaked into the arithmetic or the store visible.
+* The plan-mode kernel was also launched against a canary allocation on both
+  sides: the logical output equals the reference bits, the 72 slots past the
+  logical extent are unchanged on both buffers, and the input allocation is
+  unchanged. A store that ignored the mask would have overwritten canary slots
+  and a load that ignored it would have read them.
+* The counted arm's loop is a two-trip `scf.for` in TTIR and TTGIR and is gone
+  from LLIR and PTX, so its mask is observed against an unrolled body; the plan
+  arm keeps a structured loop in TTGIR and a real branch cycle in PTX, which is
+  the loop the plan's `all-same-layout` family states a single layout on.
+* The plan families keep 47–48 registers per thread with no spills; the wider
+  sampled layout in the `no-plan` run reaches 123, so the sampled pool is not
+  uniformly cheap at one warp even though nothing spills.
+
+Driver, provenance, and artifacts:
+`.planning/2026-10-11-targeted-compiler-behavior/padded-tails/` holds the three
+device drivers, the emitted kernels, the region source, and the imported-module
+and binary digests; the record is
+`test/tensor/campaigns/results/track-c-padded-tail-gluon-evidence.json`
+(export revision `43d9e163…` plus three staged `test/lib` overrides, no device
+build performed in `/host/refractir-targeted-20261011`).
+
 ## Gaps and controls
 
 * Guard *detection* is verified on the host (a mutated allocation is refused by
@@ -702,10 +828,20 @@ digests, and the exact counterexamples are in
   register-only limb of the surviving-conversion evidence still rests on
   per-run register counts.
 * The Track C intersection with Track B (padded logical tails under explicit
-  layouts) is not implemented: the Gluon emitter still rejects non-power-of-two
-  dimensions, and the intersection needs more than that guard (mask-aware
-  emission, logical-versus-padded layout validation, physical stride and offset
-  addressing).
+  layouts) is now implemented and run for one shape: the emitter takes a
+  declared power-of-two tile, masks the load, the reduction, and the store, and
+  both arms compute the complete logical reference on the device. What is *not*
+  reached: the plan path consumes the bounded-region grammar only, so Track B's
+  compositional tail cases still cannot be lowered by it; the exact-selection
+  arm cannot certify a tailed region, because tensor-v3 excludes the
+  `tensor extract` the selection query uses, so the tailed case is admitted by a
+  declared witness with a zero-tolerance numeric comparison and a driver-side
+  byte check rather than by `exact_smt` selection; the plan arm runs against a
+  dense logical allocation, so the *physical* strides and offsets that the
+  counted arm uses are not yet stated to the Gluon emitter, whose addressing
+  stays on the logical row-major buffer; and one shape at one warp does not
+  cover the six planned tail pairs, other warp counts, or the plan families that
+  need more than two layouts.
 * Ranks, warps, and layouts beyond the runs above are untouched; the run
   counts here are far below the plan's per-track budgets.
 * Two of the four Track A families carry no input proposal at the
@@ -717,7 +853,10 @@ digests, and the exact counterexamples are in
   selection and the loader's exact comparator is unavailable to it; the
   comparison is zero-tolerance numeric plus a driver-side word-for-word check.
   An exact-mode proposal case would need the loader to accept a non-solver
-  witness, which is a library change and was not made here.
+  witness, which is a library change and was not made here. The padded-tail run
+  above did make the narrower version of that change for region cases
+  (`build_tensor_exact_region_case.build_case(selection="witness")`), and it
+  uses the same zero-tolerance numeric comparison plus a byte check.
 * The four proposals of one kernel compile to identical IR, so they add
   numerical and comparison coverage, not layout coverage; the layout and
   rematerialization gaps above are unchanged by this run.

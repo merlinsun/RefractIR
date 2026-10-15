@@ -103,6 +103,12 @@ class GeneratedRegionCaseTests(unittest.TestCase):
     shape=(2, 2),
     guard_envelope=None,
     padding=None,
+    profile="tensor-v2",
+    row_padding=0,
+    element_offset=0,
+    commands=None,
+    selection="solver",
+    witness=None,
   ):
     if source is not None:
       self.source = source
@@ -112,9 +118,14 @@ class GeneratedRegionCaseTests(unittest.TestCase):
     self.input_bytes = struct.pack(f"<{len(self.values)}f", *self.values)
     self.expected = self.exact.certify(self.source, self.input_bytes, domain)[1]
     helper = importlib.import_module("test.lib.build_tensor_exact_loop_case")
-    with mock.patch.object(
-      helper.subprocess, "run", side_effect=side_effect or self._tools
-    ):
+    tools = side_effect or self._tools
+
+    def record(command, **kwargs):
+      if commands is not None:
+        commands.append(list(command))
+      return tools(command, **kwargs)
+
+    with mock.patch.object(helper.subprocess, "run", side_effect=record):
       return self.builder.build_case(
         Path(root) / "case",
         source=self.source,
@@ -126,6 +137,11 @@ class GeneratedRegionCaseTests(unittest.TestCase):
         timeout_s=0.1,
         guard_envelope=guard_envelope,
         padding=padding,
+        profile=profile,
+        row_padding=row_padding,
+        element_offset=element_offset,
+        selection=selection,
+        witness=witness,
       )
 
   def _load(self, case):
@@ -327,6 +343,120 @@ class GeneratedRegionCaseTests(unittest.TestCase):
     self.assertNotIn("guard_envelope", plain["execution"])
     self.assertEqual(manifest["inputs"], plain["inputs"])
     self.assertEqual(manifest["output"], plain["output"])
+
+  def test_a_tensor_v3_tail_case_records_the_padded_tile_and_strides(self):
+    source = generated_region_source_for_shape(4, 3)
+    values = (1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4)
+    self.source = source
+    self.shape = (4, 3)
+    self.input_bytes = struct.pack(f"<{len(values)}f", *values)
+    expected = self.exact.certify(source, self.input_bytes, (0, 8))[1]
+    target = int(struct.unpack(f"<{len(values)}f", expected)[0])
+    commands = []
+    with tempfile.TemporaryDirectory() as root:
+      case = self._build(
+        root,
+        source=source,
+        shape=(4, 3),
+        values=values,
+        target=target,
+        profile="tensor-v3",
+        row_padding=2,
+        element_offset=1,
+        guard_envelope=(3, 5),
+        commands=commands,
+      )
+      manifest = json.loads((case / "case.json").read_text())
+      record = manifest["inputs"][0]
+      loaded = self._load(case)
+
+    self.assertEqual(manifest["profile"], "tensor-v3")
+    self.assertEqual(record["shape"], [4, 3])
+    self.assertEqual(record["tile_shape"], [4, 4])
+    self.assertEqual(record["element_strides"], [6, 1])
+    self.assertEqual(record["element_offset"], 1)
+    self.assertEqual(record["storage_span"], 1 + 3 * 6 + 2 * 1 + 1)
+    self.assertEqual(manifest["output"]["tile_shape"], [4, 4])
+    self.assertEqual(manifest["output"]["element_strides"], [6, 1])
+    self.assertEqual(loaded.expected, self.expected)
+    versions = {
+      command[command.index("--tensor-profile-version") + 1]
+      for command in commands
+      if "--tensor-profile-version" in command
+    }
+    self.assertEqual(versions, {"v3"})
+    compile_command = next(command for command in commands if "--target" in command)
+    self.assertIn("--tensor-layout-manifest", compile_command)
+
+  def test_a_witness_admitted_tail_case_loads_without_a_solver_selection(self):
+    source = generated_region_source_for_shape(4, 3)
+    witness = (2,) * 12
+    commands = []
+    with tempfile.TemporaryDirectory() as root:
+      case = self._build(
+        root,
+        source=source,
+        shape=(4, 3),
+        values=witness,
+        target=0,
+        profile="tensor-v3",
+        selection="witness",
+        witness=witness,
+        commands=commands,
+      )
+      manifest = json.loads((case / "case.json").read_text())
+      loaded = self._load(case)
+
+    self.assertEqual(manifest["evidence"]["kind"], "construction")
+    self.assertEqual(manifest["evidence"]["status"], "construction_checked")
+    self.assertEqual(manifest["comparison"]["mode"], "numeric")
+    self.assertEqual(manifest["comparison"]["atol"], [0, 1])
+    self.assertEqual(manifest["comparison"]["rtol"], [0, 1])
+    self.assertEqual(manifest["reference"]["precisions"], [128, 256])
+    self.assertIsNone(manifest["reference"]["exactness"])
+    self.assertNotIn("solver_selection", manifest)
+    self.assertNotIn("selection-query.sir", manifest["files"])
+    self.assertNotIn("target", manifest["property"])
+    self.assertEqual(
+      manifest["coverage"]["input_behavior"]["pattern"], "repeated-value"
+    )
+    self.assertEqual(
+      manifest["generator"]["input_pattern"],
+      manifest["coverage"]["input_behavior"]["pattern"],
+    )
+    self.assertEqual(loaded.inputs, struct.pack(f"<{len(witness)}f", *witness))
+    self.assertEqual(loaded.expected, self.expected)
+    self.assertFalse([command for command in commands if "symirsolve" in command[0]])
+
+  def test_a_witness_outside_the_declared_domain_is_refused(self):
+    source = generated_region_source_for_shape(4, 3)
+    with tempfile.TemporaryDirectory() as root:
+      with self.assertRaisesRegex(
+        importlib.import_module("test.lib.build_tensor_exact_loop_case").CaseBuildError,
+        "domain",
+      ):
+        self._build(
+          root,
+          source=source,
+          shape=(4, 3),
+          values=(1,) * 12,
+          target=0,
+          profile="tensor-v3",
+          selection="witness",
+          witness=(9,) + (1,) * 11,
+        )
+
+  def test_a_tensor_v2_case_keeps_its_dense_logical_tile(self):
+    with tempfile.TemporaryDirectory() as root:
+      case = self._build(root)
+      manifest = json.loads((case / "case.json").read_text())
+      record = manifest["inputs"][0]
+
+    self.assertEqual(manifest["profile"], "tensor-v2")
+    self.assertEqual(record["tile_shape"], [2, 2])
+    self.assertEqual(record["element_strides"], [2, 1])
+    self.assertEqual(record["element_offset"], 0)
+    self.assertEqual(record["storage_span"], 4)
 
   @unittest.skipUnless(
     TOOLS_AVAILABLE, "built symiri, symirc and symirsolve are required"
