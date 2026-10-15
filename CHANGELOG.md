@@ -120,6 +120,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The observation library reads a loop it previously could not see: a counted result list (`%acc:2 = scf.for ...`) and a quoted generic opener (`%v = "tt.reduce"(...) ({`) both open a region now, so conversions inside a multi-result loop report that loop as their enclosing region instead of `tt.func`, and per-pass movement is no longer computed against the wrong regions. A tensor encoding is read by bracket matching rather than a regex that could not cross an inner `>`, so an inline parameterized encoding is compared by its resolved parameters instead of being reported as unchanged: over twenty-three archived dumps, 450 conversion occurrences move from ineffective to effective and none move the other way.
 
+- Every layout conversion in the campaign is attributed to a named pass: the eight Track A compilations create 102 conversions (`ConvertTritonToTritonGPU` 74, `TritonGPUCoalesce` 28) and the first occurrence of `TritonGPURemoveLayoutConversions` removes all 102 - 90 eliminated, 12 folded as same-encoding no-ops - with none surviving to the final TTGIR and none crossing a loop boundary. The twelve Track C compilations lower all 114 present conversions in `ConvertTritonGPUToLLVM`, 38 effective and 76 equivalent-encoding. Nothing is unattributed. Rematerialization stays explicitly unreached: zero confirmed events across twenty compilations, with 174 candidate transitions inspected and every one a rename or a structural re-print, plus a concrete generation proposal to reach one.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

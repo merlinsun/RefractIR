@@ -1,0 +1,3166 @@
+{
+ "method": {
+  "cases": "the twelve archived sweep dumps under gluon-plan-sweep/ir/, six plan families at one and four warps; the family compilation of each dump is the first of its two compilations",
+  "classification": {
+   "counts_are_not_attribution": "a conversion count or a PTX counter is evidence only together with the conversion identity that the count belongs to",
+   "eliminated": "the conversion is removed by a named pass while the module still holds tensor operations, and no equivalent definition took over its consumers in that transition",
+   "folded": "the conversion carries no layout change (its source and target encoding resolve equal), or the transition that removes it also recomputes the value for its former consumers",
+   "origin": "a conversion present in the first snapshot has no creating pass in the dump; its origin is reported as before-the-first-snapshot rather than credited to the first pass",
+   "stage_boundary": "the tensor-dialect stages end at the first transition whose left snapshot holds a tensor-dialect operation and whose right snapshot holds none; the conversion operations cannot outlive that boundary",
+   "surviving": "the conversion is still present in the last snapshot of the tensor dialects; it is lowered, not eliminated, by the transition that converts the tensor operations to LLVM",
+   "unattributed": "the conversion appears before the first snapshot, or disappears without a matched transition, or its transition has no named pass"
+  },
+  "library_entry_point": "test.lib.tensor_compiler_observation.observe_pass_dumps(dump, target_passes=..., rematerialization=True) over the archived text",
+  "no_new_device_run": "these dumps and the PTX/LLIR beside them were produced by the recorded sweep; this analysis re-reads them and adds no compilation"
+ },
+ "observer_limitations": [
+  {
+   "counterexample": "%_sir_x_d0_0 = ttg.convert_layout %_sir_x_d0 : tensor<4xi32, #blocked2> -> tensor<4xi32, #ttg.slice<{dim = 1, parent = #blocked3}>>",
+   "effect": "an encoding printed inline in parameterized form cannot be read: the regex has no way past the inner '>', so the conversion reports source == target and is excluded from the effective count",
+   "handling": "the driver re-reads every tensor type by bracket matching and reports both readings per conversion",
+   "module": "test.lib.tensor_compiler_observation",
+   "observed_impact": "in the four [4,8] family dumps the library reads 4 of 11 conversions as effective while 8 change encoding; every Track A table that labelled the total conversion count 'effective' inherits this",
+   "symbol": "_TENSOR_ENCODING"
+  },
+  {
+   "counterexample": "Gluon track C: 10 of 14 conversions report region 'module' at snapshot 1, while the same lines are inside @generated_region_kernel",
+   "effect": "one scope is popped per line that starts with a brace, so an operation printed in generic form ('tt.reduce' ... ({ ... }) : ...) drifts the scope stack; values inside a function then report 'module', and repackaged regions appear as moves",
+   "handling": "the driver tracks scopes by pushing only on a line that ends with '{' and popping by the net brace count; the correction now also exists in the library from parallel work, and the two readings agree on every conversion occurrence of these dumps",
+   "module": "test.lib.tensor_compiler_observation",
+   "observed_impact": "the library reading reports 86 conversions as moved between regions in the 12 Track C dumps; the corrected map places every one of them inside tt.func / scf.for, and the only region change is the loop the same transition folds away",
+   "symbol": "_region_map"
+  }
+ ],
+ "provenance": {
+  "assembling_script": "build_deliverable.py writes these files and embeds the digests above, so it records every digest except its own; it adds no measurement of its own",
+  "compiler_flags": "clang++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include",
+  "compiler_sha256": {
+   "symirc": "5915fbda057ffb0efc5bd846cc7166414338028e5ec70f07063bb737522512dd",
+   "symiri": "8f506bbd9085cb4d8f8996dc2dbda254486113cc599f08683aee860a5d738e0e",
+   "symirsolve": "9a1e27e2d0fb0ff530cd9f3135a47f02aac511d879ee920548a13b0fd8d23a35"
+  },
+  "cuda": "12.1",
+  "device": "Tesla V100-SXM2-32GB (sm_70)",
+  "driver": "535.274.02",
+  "driver_sha256": {
+   "analyze.py": "eb864a7fdc0370d53a2f54d692277330825bf31d98c5d5e890cc4706e2d6ba0f",
+   "analyze_track_c.py": "e72695886c20413d058fb1efe0685448fba0f80c91a3ff7cebb3432aba8805cd",
+   "build_pair.py": "dd733f05e400d5c97ee28c82aff24c5a3d63d81164c89504f0fd6536515ba33b",
+   "register_probe.py": "2d1817088563c6754c90af45abbdcf8cec532166c3cce638cb51250d87c25944",
+   "run_cases.py": "091719eab4208d297c37db65dd88e7e047b6c39aa34b28fa61c330521e617dcd"
+  },
+  "import_root": "/host/named-passes-20261015/refractir",
+  "import_root_export": "git checkout-index -a --prefix=<dir>/ of the committed tree, rsynced to the host",
+  "imported_module_note": "every test/lib module of the imported revision, not only the ones this analysis names; the import root is an export of the committed tree, so these are the committed blobs",
+  "imported_module_sha256": {
+   "test/lib/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "test/lib/build_tensor_11186_case.py": "0043e53f9b969465985694299a4438e42ed1d87dc30ed2a2f35c8f9ff3be7eb9",
+   "test/lib/build_tensor_11986_case.py": "2b8221409b0c02ca8455038021562f3d8d428250fde135b4e5e270d220dc3c05",
+   "test/lib/build_tensor_exact_loop_case.py": "4e0a2ab3cebbb2b3be157695c2e3387db50eedabd18e2ceb8b6226bb3f50ffbb",
+   "test/lib/build_tensor_exact_region_case.py": "4c0af28dee25ad99d0611c782e58382605f3dda976dde9e1186b34920f6b0789",
+   "test/lib/build_tensor_property_pilot_cases.py": "3419084cd90d8c412766e36e9b7a359fd7ded50a4b27f62e65d91590165f9f96",
+   "test/lib/build_tensor_regression_cases.py": "1eac3927f03e6fcd3223eff19fd98dd69972a350419bf5ec25524a88dd666e3f",
+   "test/lib/build_tensor_smoke_cases.py": "6fd10bcffeb776aad8cadc756723623e52fc8e00ad48d06e9f08d18bee0a04d5",
+   "test/lib/framework.py": "457ba70faa6dfe85d5a816a2e7b8c81445fb1cceae80a5dcae9b9db0ccd695d6",
+   "test/lib/probe_cvc5_tensor.py": "795fbd7770412746e1810c354832ae35d4a618c28351c99e1e8d2117297f5ca6",
+   "test/lib/probe_triton_env.py": "742d4e4cfaf9cc5a641854e980d8f3fc09be108015230ccd347a64483da4e0e0",
+   "test/lib/replay_triton_11186.py": "fc6dd09c3590837c8dc8b422174856ca67a7d939d021cc1dde1b481b8794cd2b",
+   "test/lib/replay_triton_11406.py": "b29c5602609f113444ea62f593d2bcd0d3478526729770dcd1526d69a67f8f83",
+   "test/lib/run_c_preamble_test.py": "c1d84deab51cc910053c2562c05cef32c75549069d26a5694287eb42089d39c9",
+   "test/lib/run_compiler_tests.py": "0fdc1754be7fa402aa5e6c4bc7c3e6428fec6daa4514fded072a69a0fcf8c071",
+   "test/lib/run_example_tests.py": "ca0712cd8a72d0a3607c2d18beabd08820e277e3fb38f1728ba23dce50f17d73",
+   "test/lib/run_interp_tests.py": "893e2628c11959eb843c5cd59c941af9b6ddc3ae85b46959079d39a011bb7033",
+   "test/lib/run_reducibility_tests.py": "d710e45580e38cca1518c23f08c5cae07422bd467e4e5965621750733b81a5bd",
+   "test/lib/run_reify_diff_tests.py": "3645c397a509dc61bcea35a3a3f7736f65b4e0d7b99507f8bbb1faf61f9afb9a",
+   "test/lib/run_solver_tests.py": "4162fe463261b3ed982b73ce91b06fc27d3b729327308a4c0e141fb104cbaee8",
+   "test/lib/run_tensor_property_pilot.py": "c920e25ab7c9687b02c1107f88a6193e3cfb4ca410354f2e93839741e7d26810",
+   "test/lib/run_triton_tests.py": "efe74bc8606eff7710bd383e4481846585b01d1fa74179bfd71259dea33ae9c4",
+   "test/lib/run_xval_tests.py": "d75a2527043bcfcc8fb469457adfb5e2ae56bb8d635279c27e16a771f2b269af",
+   "test/lib/style.py": "81a382c7c1343b5518d97249dc058f1a577e8f42c3d59cbd35271fd8d31b7fc5",
+   "test/lib/tensor_case.py": "67643011ab61220828922fe08acb463e4327c1a4050924283c283667ab2de62e",
+   "test/lib/tensor_case_manifest.py": "4f999a1a3d75be50ceaa17af7837e9b21af02aba865c9e2ba64455f3821ebbd1",
+   "test/lib/tensor_compare.py": "a4d71b3c03ac3f7938c7d78b89e4bd0e2f41fb578e1f7d51715994abbb2ba451",
+   "test/lib/tensor_compiler_observation.py": "182fb3f7853099f9b4d402d2e8828737e1dcc85530b2d3b6aea7eeb6446454e0",
+   "test/lib/tensor_coverage.py": "8b6354c23fedfb3caff3b2e69b36bf8f4623be79cf1d72410209c973df1bcdb0",
+   "test/lib/tensor_directed.py": "b70933c4f16dec130602429ff79eddfc715ffc83bfec4b00c021949299a7d18a",
+   "test/lib/tensor_evaluation.py": "d8611614d057733e4ba0e087fae1efad3a27ed9e84f0d6b8eca860d1bfc6a6ef",
+   "test/lib/tensor_exact_f32.py": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8",
+   "test/lib/tensor_fixed_study.py": "3d45d4ad98c06407e1bd4d0db1ece021afa6c439da62ac7e5311f41b01f511c2",
+   "test/lib/tensor_fp32_reference.py": "331278c2e193525b99a5ac48272861fdf6edb5c722811c3fac71badd003cacc7",
+   "test/lib/tensor_fpsan.py": "5539478046652bc54eca49e1ad02382dc721c51353b84c5c0721a6cf04f8790e",
+   "test/lib/tensor_gluon.py": "b9eecccaa84cc13abe7c01be610e98ea6c76dd90724f4244bf0edebf686e0a20",
+   "test/lib/tensor_gluon_lowering.py": "90ec98c383ff2261bcbdee87ec30fc267102bfa89ce157ea861e25cb7ebacacd",
+   "test/lib/tensor_graph_audit.py": "1fa646d18ba51a77eb9e8671260babaeb62cb54cfa5cf2519f353cd09b552dc9",
+   "test/lib/tensor_layout.py": "7f3fbe3303237a6657e60a73033ec85db542cc6acae1a7fdea0c71a1144a449c",
+   "test/lib/tensor_property_inputs.py": "5ef8ae2ab98b6997f374b2f5d98c047c4d2e03ae7e6e3ed08186a9e0bea4df57",
+   "test/lib/tensor_property_workload.py": "f707e61988ad7baf2d872dbdb8c4c6001fda98210b5ffeb8c8671342ba697467",
+   "test/lib/tensor_reducer.py": "7e04edaa828e0c5abaccec3d8b666d797f00477d72266539fc0f350d6c4c31c8",
+   "test/lib/tensor_region_generation.py": "a3826fb7f788f37d15d5ef7a58793b5aeb876e1c402ed5f944e77e85de53d786",
+   "test/lib/tensor_route_protocol.py": "fa355989022413c5010e16349da150522522c5785c399fcc705795fe20bae939",
+   "test/lib/tensor_unrolled_companion.py": "f9aacfc943e34012c5a6b83fbc89b3ae71f8ff4c25d7f013b2e7884c6338e8d6",
+   "test/lib/triton_case_worker.py": "ea025fe1b8479c910694dae9529b9ba31df57b931ddc0af47ee1331322cd9063",
+   "test/lib/triton_mutants.py": "f34ada2ec97b724af20a058746e2112b48b151be51ca3d8d89a2353ea30395aa"
+  },
+  "pass_dump_capture": "REFRACTIR_TRITON_PASS_DUMP=1 with MLIR_DUMP_PATH set by test.lib.triton_case_worker.configure_pass_dumps; one file per worker compilation in runs/compiled/compiler-pass-dump.txt",
+  "python": "3.12.15",
+  "refractir_revision": "81a55d3125093f2db0586923307992aa9bb67b2d",
+  "torch": "2.5.1+cu121",
+  "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+  "triton_version": "3.9.0+git32f06df4",
+  "working_tree_note": "the runs imported test/lib/tensor_compiler_observation.py at the committed revision (182fb3f7...); the working tree has since gained a region-map fix from parallel work (d27d270a...), and the driver's own region tracker agrees with it on every conversion occurrence of these dumps"
+ },
+ "question": "For the requested conversions of the recorded Gluon layout-plan sweep, which survive to the tensor-dialect boundary, which the compiler removes, and which remain unattributed",
+ "runs": [
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-all-same-layout-w1/mlir-pass-dump.txt",
+   "dump_sha256": "cdb386d9a607ec14dd11371082fdb67730831d22bdc6b23cb981859f069edc23",
+   "effective_conversions": 0,
+   "equivalent_conversions": 8,
+   "family": "all-same-layout",
+   "llir_evidence": {
+    "shared_lines": [],
+    "shuffle_lines": [
+     "%46 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %30, i32 4, i32 31), !dbg !15",
+     "%50 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %49, i32 2, i32 31), !dbg !15",
+     "%54 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %53, i32 1, i32 31), !dbg !15",
+     "%57 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %32, i32 4, i32 31), !dbg !15",
+     "%61 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %60, i32 2, i32 31), !dbg !15",
+     "%65 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %64, i32 1, i32 31), !dbg !15",
+     "%68 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %34, i32 4, i32 31), !dbg !15",
+     "%72 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %71, i32 2, i32 31), !dbg !15"
+    ]
+   },
+   "llir_sha256": "1876a57fc8661576a50653ce1921d449deb2311ce43950fa76491b93e6755bc4",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 14
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 1,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 8
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 6
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [],
+    "shared_transfer_count": 0,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r19, %r1, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r21, %r20, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r23, %r22, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r25, %r2, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r27, %r26, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r29, %r28, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r31, %r3, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r33, %r32, 2, 31, -1;"
+    ],
+    "warp_shuffle_count": 24
+   },
+   "ptx_sha256": "426910e266ba59df6c0ca443396aa2f36381020295e29a54e0ccf78f33755527",
+   "rematerialization": {
+    "candidates": 6,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-all-same-layout-w1",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 30,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 0,
+    "ttgir_layout_conversion_operation_count": 8
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc50)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 14,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked> -> tensor<8x1xf32, #blocked> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 17,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 19,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked> -> tensor<1x8xf32, #blocked> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 20,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 25,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 28,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 33,
+     "target_encoding": "#blocked"
+    }
+   ],
+   "ttgir_sha256": "724ae7820e671795d9e5801cdbca5023c97987305014104c71127200b16be89e",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 8
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-all-same-layout-w4/mlir-pass-dump.txt",
+   "dump_sha256": "b13aea46ac76a8fc15cf34205f91a357a7c007af7ba8449304ddc4f98f4cf7c8",
+   "effective_conversions": 0,
+   "equivalent_conversions": 8,
+   "family": "all-same-layout",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%44 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %42, !dbg !23",
+     "%45 = getelementptr inbounds nuw i8, ptr addrspace(3) %44, i32 %43, !dbg !23",
+     "store float %41, ptr addrspace(3) %45, align 4, !dbg !23",
+     "%48 = getelementptr inbounds nuw i8, ptr addrspace(3) %44, i32 %47, !dbg !23",
+     "%49 = load i32, ptr addrspace(3) %48, align 4, !dbg !23"
+    ],
+    "shuffle_lines": [
+     "%19 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %15, i32 4, i32 31), !dbg !16",
+     "%23 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %22, i32 2, i32 31), !dbg !16",
+     "%27 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %26, i32 1, i32 31), !dbg !16",
+     "%30 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %17, i32 4, i32 31), !dbg !16",
+     "%34 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %33, i32 2, i32 31), !dbg !16",
+     "%38 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %37, i32 1, i32 31), !dbg !16",
+     "%51 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %49, i32 16, i32 31), !dbg !23",
+     "%55 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %54, i32 8, i32 31), !dbg !23"
+    ]
+   },
+   "llir_sha256": "8053af9d89be325a32150d12fc60f0b3692b98158ec0ec79c991e33c7901d4ee",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 14
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 4,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 8
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 6
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r27], %r22;",
+     "ld.shared.b32 \t%r31, [%r30];"
+    ],
+    "shared_transfer_count": 2,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r10, %r1, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r12, %r11, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r14, %r13, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r16, %r2, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r18, %r17, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r20, %r19, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r32, %r31, 16, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r34, %r33, 8, 31, -1;"
+    ],
+    "warp_shuffle_count": 8
+   },
+   "ptx_sha256": "4a8dfcb05e8f9a2446e56132993265a2a8b37973f6410247c6cee01f7713e677",
+   "rematerialization": {
+    "candidates": 8,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-all-same-layout-w4",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 19,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 0,
+    "ttgir_layout_conversion_operation_count": 8
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc50)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 14,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked> -> tensor<8x1xf32, #blocked> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 17,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 19,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked> -> tensor<1x8xf32, #blocked> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 20,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 25,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 28,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 33,
+     "target_encoding": "#blocked"
+    }
+   ],
+   "ttgir_sha256": "7c893a2897d43b846c971df3f63467a80b47b1f556575b138354d33bfca38a46",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 8
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w1/mlir-pass-dump.txt",
+   "dump_sha256": "1470d8958fefd4d0502243dff5d014ae5f0c39a88a6f07210b7c3725e44f10d0",
+   "effective_conversions": 1,
+   "equivalent_conversions": 7,
+   "family": "load-to-compute",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%27 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %26, !dbg !15",
+     "store <1 x i32> %28, ptr addrspace(3) %27, align 4, !dbg !15",
+     "%29 = getelementptr inbounds nuw i8, ptr addrspace(3) %27, i32 8, !dbg !15",
+     "store <1 x i32> %30, ptr addrspace(3) %29, align 4, !dbg !15",
+     "%31 = getelementptr inbounds nuw i8, ptr addrspace(3) %27, i32 16, !dbg !15",
+     "store <1 x i32> %32, ptr addrspace(3) %31, align 4, !dbg !15",
+     "%33 = getelementptr inbounds nuw i8, ptr addrspace(3) %27, i32 24, !dbg !15"
+    ],
+    "shuffle_lines": [
+     "%71 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %47, i32 4, i32 31), !dbg !16",
+     "%75 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %74, i32 2, i32 31), !dbg !16",
+     "%79 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %78, i32 1, i32 31), !dbg !16",
+     "%82 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %60, i32 4, i32 31), !dbg !16",
+     "%86 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %85, i32 2, i32 31), !dbg !16",
+     "%90 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %89, i32 1, i32 31), !dbg !16",
+     "%93 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %50, i32 4, i32 31), !dbg !16",
+     "%97 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %96, i32 2, i32 31), !dbg !16"
+    ]
+   },
+   "llir_sha256": "9db6997f7da3b8017b1a0659438068e41f4d7e87288c12f61226cff311c13ca1",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 1,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 8
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 6
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r26], %r1;",
+     "st.shared.b32 \t[%r26+8], %r3;",
+     "st.shared.b32 \t[%r26+16], %r5;",
+     "st.shared.b32 \t[%r26+24], %r7;",
+     "st.shared.b32 \t[%r28], %r2;",
+     "st.shared.b32 \t[%r28+8], %r4;",
+     "st.shared.b32 \t[%r28+16], %r6;",
+     "st.shared.b32 \t[%r28+24], %r8;"
+    ],
+    "shared_transfer_count": 16,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r42, %r32, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r44, %r43, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r46, %r45, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r48, %r38, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r50, %r49, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r52, %r51, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r54, %r33, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r56, %r55, 2, 31, -1;"
+    ],
+    "warp_shuffle_count": 24
+   },
+   "ptx_sha256": "fdb24f5b63cb3fc55d2c3a68b9f4a3e2aef41d85a8757f452b081c136f707d50",
+   "rematerialization": {
+    "candidates": 0,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-load-to-compute-w1",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "load_to_compute"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 31,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 1,
+    "ttgir_layout_conversion_operation_count": 8
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc50)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 15,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked1> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 18,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 20,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked1> -> tensor<1x8xf32, #blocked1> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 21,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 23,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 26,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 29,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked1",
+     "source_line": 34,
+     "target_encoding": "#blocked1"
+    }
+   ],
+   "ttgir_sha256": "7253fe9884952e183da97ecccfbf3cddbb4bbff86a3e0b585b490c3614a4cca0",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 8
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-load-to-compute-w4/mlir-pass-dump.txt",
+   "dump_sha256": "8a4ad09449c6bff2996d06f8c81137fb7f18c3abe40b1a00718490806eb16e66",
+   "effective_conversions": 1,
+   "equivalent_conversions": 7,
+   "family": "load-to-compute",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%29 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %28, !dbg !16",
+     "%30 = getelementptr inbounds nuw i8, ptr addrspace(3) %29, i32 %27, !dbg !16",
+     "store <4 x i32> %34, ptr addrspace(3) %30, align 16, !dbg !16",
+     "%35 = getelementptr inbounds nuw i8, ptr addrspace(3) %30, i32 128, !dbg !16",
+     "store <4 x i32> %39, ptr addrspace(3) %35, align 16, !dbg !16",
+     "%47 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %43, !dbg !16",
+     "%48 = getelementptr inbounds nuw i8, ptr addrspace(3) %47, i32 %44, !dbg !16"
+    ],
+    "shuffle_lines": [
+     "%56 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %51, i32 4, i32 31), !dbg !17",
+     "%60 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %59, i32 2, i32 31), !dbg !17",
+     "%64 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %63, i32 1, i32 31), !dbg !17",
+     "%67 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %54, i32 4, i32 31), !dbg !17",
+     "%71 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %70, i32 2, i32 31), !dbg !17",
+     "%75 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %74, i32 1, i32 31), !dbg !17",
+     "%90 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %88, i32 16, i32 31), !dbg !23",
+     "%94 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %93, i32 8, i32 31), !dbg !23"
+    ]
+   },
+   "llir_sha256": "a186e44905fddfb16a0d55bf47eb89c5ccb77009750bc10721c4a3478af61fd5",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 4,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 8
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 6
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.v4.b32 \t[%r20], {%r1, %r5, %r2, %r6};",
+     "st.shared.v4.b32 \t[%r20+128], {%r3, %r7, %r4, %r8};",
+     "ld.shared.b32 \t%r32, [%r31];",
+     "ld.shared.b32 \t%r33, [%r31+16];",
+     "st.shared.b32 \t[%r52], %r46;",
+     "ld.shared.b32 \t%r56, [%r55];"
+    ],
+    "shared_transfer_count": 6,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r34, %r32, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r36, %r35, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r38, %r37, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r40, %r33, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r42, %r41, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r44, %r43, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r57, %r56, 16, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r59, %r58, 8, 31, -1;"
+    ],
+    "warp_shuffle_count": 8
+   },
+   "ptx_sha256": "c11661782809a16834789d8e3cf909135ce5dc280258a9703d9c79967aff13ae",
+   "rematerialization": {
+    "candidates": 2,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-load-to-compute-w4",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "load_to_compute"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 21,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 1,
+    "ttgir_layout_conversion_operation_count": 8
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc50)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 15,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked1> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 18,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 20,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked1> -> tensor<1x8xf32, #blocked1> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 21,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 23,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 26,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 29,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked1",
+     "source_line": 34,
+     "target_encoding": "#blocked1"
+    }
+   ],
+   "ttgir_sha256": "9610b8d27382deb3a34d7aa6c4e8f50e14a7f20c486b7f51513414a2b5024c70",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 8
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-reduction-result-expand-w1/mlir-pass-dump.txt",
+   "dump_sha256": "90b1f70585a8ad43cb42c33564cfbaa35cbabe898f7b9cdd3e835c6020fc85de",
+   "effective_conversions": 2,
+   "equivalent_conversions": 6,
+   "family": "reduction-result-expand",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%29 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %28, !dbg !14",
+     "store <1 x i32> %30, ptr addrspace(3) %29, align 4, !dbg !14",
+     "%31 = getelementptr inbounds nuw i8, ptr addrspace(3) %29, i32 16, !dbg !14",
+     "store <1 x i32> %32, ptr addrspace(3) %31, align 4, !dbg !14",
+     "%33 = getelementptr inbounds nuw i8, ptr addrspace(3) %29, i32 32, !dbg !14",
+     "store <1 x i32> %34, ptr addrspace(3) %33, align 4, !dbg !14",
+     "%35 = getelementptr inbounds nuw i8, ptr addrspace(3) %29, i32 48, !dbg !14"
+    ],
+    "shuffle_lines": [
+     "%79 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %78, i32 8, i32 31), !dbg !19",
+     "%82 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %53, i32 4, i32 31), !dbg !22",
+     "%86 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %85, i32 2, i32 31), !dbg !22",
+     "%90 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %89, i32 1, i32 31), !dbg !22",
+     "%91 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %58, i32 4, i32 31), !dbg !22",
+     "%95 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %94, i32 2, i32 31), !dbg !22",
+     "%99 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %98, i32 1, i32 31), !dbg !22",
+     "%100 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %55, i32 4, i32 31), !dbg !22"
+    ]
+   },
+   "llir_sha256": "dbbed38bb984a57765295dd7f897964084f73f46a3938987ed811639c283e4bd",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 1,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 8
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 6
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r25], %r1;",
+     "st.shared.b32 \t[%r25+16], %r3;",
+     "st.shared.b32 \t[%r25+32], %r5;",
+     "st.shared.b32 \t[%r25+48], %r7;",
+     "st.shared.b32 \t[%r27+128], %r2;",
+     "st.shared.b32 \t[%r27+144], %r4;",
+     "st.shared.b32 \t[%r27+160], %r6;",
+     "st.shared.b32 \t[%r27+176], %r8;"
+    ],
+    "shared_transfer_count": 12,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r49, %r48, 8, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r51, %r35, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r53, %r52, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r55, %r54, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r56, %r39, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r58, %r57, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r60, %r59, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r61, %r36, 4, 31, -1;"
+    ],
+    "warp_shuffle_count": 21
+   },
+   "ptx_sha256": "31aec28b096d03c505b6f6294fd9f8cb5146e327a1498f6c7a44bcb2e7bc6220",
+   "rematerialization": {
+    "candidates": 0,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-reduction-result-expand-w1",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "compute_to_store",
+     "load_to_compute"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 30,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 2,
+    "ttgir_layout_conversion_operation_count": 8
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc50)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 16,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked1> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 19,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 21,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked1> -> tensor<1x8xf32, #blocked1> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 22,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 24,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 27,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 30,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked2> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked1",
+     "source_line": 35,
+     "target_encoding": "#blocked2"
+    }
+   ],
+   "ttgir_sha256": "50c26d3ccea18433e5b52f3adca195c273307cbfb6c04c0b2fe73afe4bb8a3f2",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 8
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-reduction-result-expand-w4/mlir-pass-dump.txt",
+   "dump_sha256": "ccc2f6c9c32c725a6375630371cd295c1e26e584f436e7e0d3cc9448c3f5f2e0",
+   "effective_conversions": 2,
+   "equivalent_conversions": 6,
+   "family": "reduction-result-expand",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%23 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %18, !dbg !16",
+     "%24 = getelementptr inbounds nuw i8, ptr addrspace(3) %23, i32 %20, !dbg !16",
+     "%25 = getelementptr inbounds nuw i8, ptr addrspace(3) %24, i32 %22, !dbg !16",
+     "%26 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 %16, !dbg !16",
+     "store <1 x i32> %27, ptr addrspace(3) %26, align 4, !dbg !16",
+     "%28 = getelementptr inbounds nuw i8, ptr addrspace(3) %26, i32 32, !dbg !16",
+     "store <1 x i32> %29, ptr addrspace(3) %28, align 4, !dbg !16"
+    ],
+    "shuffle_lines": [
+     "%48 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %47, i32 16, i32 31), !dbg !20",
+     "%50 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %49, i32 16, i32 31), !dbg !20",
+     "%52 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %51, i32 16, i32 31), !dbg !20",
+     "%54 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %53, i32 16, i32 31), !dbg !20",
+     "%56 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %55, i32 1, i32 31), !dbg !23",
+     "%58 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %57, i32 1, i32 31), !dbg !23",
+     "%60 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %59, i32 1, i32 31), !dbg !23",
+     "%62 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %61, i32 1, i32 31), !dbg !23"
+    ]
+   },
+   "llir_sha256": "0ad8d90f8e3de56e823600d9879e0faf9036711e3766a48fd1b06674ec96ead7",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 4,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 8
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 6
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r28], %r1;",
+     "st.shared.b32 \t[%r28+32], %r2;",
+     "ld.shared.v4.b32 \t{%r35, %r36, %r37, %r38}, [%r34+16];",
+     "ld.shared.v4.b32 \t{%r39, %r40, %r41, %r42}, [%r34];",
+     "ld.shared.v4.b32 \t{%r43, %r44, %r45, %r46}, [%r34+144];",
+     "ld.shared.v4.b32 \t{%r47, %r48, %r49, %r50}, [%r34+128];"
+    ],
+    "shared_transfer_count": 6,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r75, %r74, 16, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r76, %r73, 16, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r77, %r72, 16, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r78, %r71, 16, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r79, %r70, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r80, %r69, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r81, %r68, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r82, %r67, 1, 31, -1;"
+    ],
+    "warp_shuffle_count": 24
+   },
+   "ptx_sha256": "23e2d7fe8db12745f500dfd638b7a0885c0074c3b44dd54ae265069d3e0f3316",
+   "rematerialization": {
+    "candidates": 2,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-reduction-result-expand-w4",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "compute_to_store",
+     "load_to_compute"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 32,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 2,
+    "ttgir_layout_conversion_operation_count": 8
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc50)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 16,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked1> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 19,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 21,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked1> -> tensor<1x8xf32, #blocked1> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 22,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 24,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 27,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked1> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 30,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked2> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked1",
+     "source_line": 35,
+     "target_encoding": "#blocked2"
+    }
+   ],
+   "ttgir_sha256": "c33d61238215761ca0bbc3f27cdf5233db923f303c45c98fb0184910a4db01e2",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 8
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w1/mlir-pass-dump.txt",
+   "dump_sha256": "bcefede0423daf3945dffb442969937251e92313636b86edd7546cc32a3ec851",
+   "effective_conversions": 4,
+   "equivalent_conversions": 5,
+   "family": "shared-value-reused",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%25 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %24, !dbg !14",
+     "store <1 x i32> %26, ptr addrspace(3) %25, align 4, !dbg !14",
+     "%27 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 32, !dbg !14",
+     "store <1 x i32> %28, ptr addrspace(3) %27, align 4, !dbg !14",
+     "%29 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 64, !dbg !14",
+     "store <1 x i32> %30, ptr addrspace(3) %29, align 4, !dbg !14",
+     "%31 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 96, !dbg !14"
+    ],
+    "shuffle_lines": [
+     "%83 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %49, i32 8, i32 31), !dbg !22",
+     "%87 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %86, i32 4, i32 31), !dbg !22",
+     "%91 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %90, i32 2, i32 31), !dbg !22",
+     "%92 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %62, i32 8, i32 31), !dbg !22",
+     "%96 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %95, i32 4, i32 31), !dbg !22",
+     "%100 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %99, i32 2, i32 31), !dbg !22",
+     "%101 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %52, i32 8, i32 31), !dbg !22",
+     "%105 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %104, i32 4, i32 31), !dbg !22"
+    ]
+   },
+   "llir_sha256": "ac013a1d44e61dc905053b4fe505afbbb78d6466536081d0e78043214f7d2813",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 1,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 9
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 7
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r21], %r1;",
+     "st.shared.b32 \t[%r21+32], %r3;",
+     "st.shared.b32 \t[%r21+64], %r5;",
+     "st.shared.b32 \t[%r21+96], %r7;",
+     "st.shared.b32 \t[%r23+128], %r2;",
+     "st.shared.b32 \t[%r23+160], %r4;",
+     "st.shared.b32 \t[%r23+192], %r6;",
+     "st.shared.b32 \t[%r23+224], %r8;"
+    ],
+    "shared_transfer_count": 38,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r50, %r30, 8, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r52, %r51, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r54, %r53, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r55, %r36, 8, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r57, %r56, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r59, %r58, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r60, %r31, 8, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r62, %r61, 4, 31, -1;"
+    ],
+    "warp_shuffle_count": 24
+   },
+   "ptx_sha256": "4de09726bfe845969197be51a396b2589b6e236a8fac7fefa2f3fdf2b22ec762",
+   "rematerialization": {
+    "candidates": 0,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-shared-value-reused-w1",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "compute_to_store",
+     "region_sum_0_result_layout",
+     "region_sum_0_to_reduction",
+     "region_sum_2_result_layout"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 41,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 4,
+    "ttgir_layout_conversion_operation_count": 9
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc51)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 15,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_view_blocked_0045 = ttg.convert_layout %acc_x_60 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc54)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 18,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked> loc(#loc57)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 19,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc58)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 21,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked1> -> tensor<1x8xf32, #blocked> loc(#loc61)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 24,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 27,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 30,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc68)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 35,
+     "target_encoding": "#blocked1"
+    }
+   ],
+   "ttgir_sha256": "cd13ea9695eb778125c32bffe4d0d70cdfaae2a0ecf6afc42b539bf5c82fafcf",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 9
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-shared-value-reused-w4/mlir-pass-dump.txt",
+   "dump_sha256": "5a217545331af5c8ac2d2715abb4b8559e97b7147af19f0c704eb0f1ade33cc2",
+   "effective_conversions": 4,
+   "equivalent_conversions": 5,
+   "family": "shared-value-reused",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%25 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %20, !dbg !16",
+     "%26 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 %22, !dbg !16",
+     "%27 = getelementptr inbounds nuw i8, ptr addrspace(3) %26, i32 %24, !dbg !16",
+     "%28 = getelementptr inbounds nuw i8, ptr addrspace(3) %27, i32 %18, !dbg !16",
+     "store <1 x i32> %29, ptr addrspace(3) %28, align 4, !dbg !16",
+     "%30 = getelementptr inbounds nuw i8, ptr addrspace(3) %28, i32 16, !dbg !16",
+     "store <1 x i32> %31, ptr addrspace(3) %30, align 4, !dbg !16"
+    ],
+    "shuffle_lines": [
+     "%57 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %56, i32 2, i32 31), !dbg !20",
+     "%64 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %63, i32 1, i32 31), !dbg !20",
+     "%65 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %59, i32 2, i32 31), !dbg !20",
+     "%69 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %68, i32 1, i32 31), !dbg !20",
+     "%70 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %60, i32 2, i32 31), !dbg !20",
+     "%74 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %73, i32 1, i32 31), !dbg !20",
+     "%75 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %61, i32 2, i32 31), !dbg !20",
+     "%79 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %78, i32 1, i32 31), !dbg !20"
+    ]
+   },
+   "llir_sha256": "f18070613953891d741f1402c6f8caa7b894d9bf58433c0d79d65040e7bfe762",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 4,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 9
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 7
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r28], %r1;",
+     "st.shared.b32 \t[%r28+16], %r2;",
+     "ld.shared.v4.b32 \t{%r34, %r35, %r36, %r37}, [%r33];",
+     "ld.shared.v4.b32 \t{%r38, %r39, %r40, %r41}, [%r33+128];",
+     "st.shared.v4.b32 \t[%r32], {%r58, %r59, %r60, %r61};",
+     "ld.shared.b32 \t%r64, [%r63];",
+     "ld.shared.b32 \t%r65, [%r63+16];",
+     "st.shared.v2.b32 \t[%r75], {%r68, %r71};"
+    ],
+    "shared_transfer_count": 13,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r46, %r42, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r48, %r47, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r49, %r43, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r51, %r50, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r52, %r44, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r54, %r53, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r55, %r45, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r57, %r56, 1, 31, -1;"
+    ],
+    "warp_shuffle_count": 12
+   },
+   "ptx_sha256": "c86122644c2bda9c7f1ca34dbddb8a74b4134b19d7bb37c69e7094533fe275ea",
+   "rematerialization": {
+    "candidates": 2,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-shared-value-reused-w4",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "compute_to_store",
+     "region_sum_0_result_layout",
+     "region_sum_0_to_reduction",
+     "region_sum_2_result_layout"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 32,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 4,
+    "ttgir_layout_conversion_operation_count": 9
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc51)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 15,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_view_blocked_0329 = ttg.convert_layout %acc_x_60 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc54)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 18,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked> loc(#loc57)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 19,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc58)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 21,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked1> -> tensor<1x8xf32, #blocked> loc(#loc61)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc62)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 24,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 27,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 30,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc68)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 35,
+     "target_encoding": "#blocked1"
+    }
+   ],
+   "ttgir_sha256": "8961566645bec4fa166f48b0da414481a67b5f14454d2fdb8594c7ae9365fb48",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 9
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-split-reduction-consumers-w1/mlir-pass-dump.txt",
+   "dump_sha256": "df68ceb7056efd8b10c358e1fea530e9614c0be278bff05458970a495793b04f",
+   "effective_conversions": 5,
+   "equivalent_conversions": 5,
+   "family": "split-reduction-consumers",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%25 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %24, !dbg !14",
+     "store <1 x i32> %26, ptr addrspace(3) %25, align 4, !dbg !14",
+     "%27 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 32, !dbg !14",
+     "store <1 x i32> %28, ptr addrspace(3) %27, align 4, !dbg !14",
+     "%29 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 64, !dbg !14",
+     "store <1 x i32> %30, ptr addrspace(3) %29, align 4, !dbg !14",
+     "%31 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 96, !dbg !14"
+    ],
+    "shuffle_lines": [
+     "%120 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %112, i32 4, i32 31), !dbg !24",
+     "%124 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %123, i32 2, i32 31), !dbg !24",
+     "%128 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %127, i32 1, i32 31), !dbg !24",
+     "%129 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %116, i32 4, i32 31), !dbg !24",
+     "%133 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %132, i32 2, i32 31), !dbg !24",
+     "%137 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %136, i32 1, i32 31), !dbg !24",
+     "%138 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %114, i32 4, i32 31), !dbg !24",
+     "%142 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %141, i32 2, i32 31), !dbg !24"
+    ]
+   },
+   "llir_sha256": "009e8330548efedc611ab5e180698a13a8b83543a8d49e8765157f90079ffd4d",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 1,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 10
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 8
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r21], %r1;",
+     "st.shared.b32 \t[%r21+32], %r3;",
+     "st.shared.b32 \t[%r21+64], %r5;",
+     "st.shared.b32 \t[%r21+96], %r7;",
+     "st.shared.b32 \t[%r23+128], %r2;",
+     "st.shared.b32 \t[%r23+160], %r4;",
+     "st.shared.b32 \t[%r23+192], %r6;",
+     "st.shared.b32 \t[%r23+224], %r8;"
+    ],
+    "shared_transfer_count": 49,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r81, %r77, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r83, %r82, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r85, %r84, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r86, %r79, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r88, %r87, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r90, %r89, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r91, %r78, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r93, %r92, 2, 31, -1;"
+    ],
+    "warp_shuffle_count": 12
+   },
+   "ptx_sha256": "3ffd83090a6306d68a31f6329400ca5b523a1cf56b9784237d03b805a052e19c",
+   "rematerialization": {
+    "candidates": 0,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-split-reduction-consumers-w1",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "compute_to_store",
+     "region_sum_0_result_layout",
+     "region_sum_0_to_reduction",
+     "region_sum_2_result_layout",
+     "region_sum_2_to_reduction"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 40,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 5,
+    "ttgir_layout_conversion_operation_count": 10
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc52)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 16,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_view_blocked_0045 = ttg.convert_layout %acc_x_60 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 19,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked> loc(#loc58)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 20,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_view_blocked_0030 = ttg.convert_layout %acc_x_60 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked2> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 23,
+     "target_encoding": "#blocked2"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked2> -> tensor<1x8xf32, #blocked> loc(#loc63)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked2",
+     "source_line": 24,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 26,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 29,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc68)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 32,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc70)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 37,
+     "target_encoding": "#blocked1"
+    }
+   ],
+   "ttgir_sha256": "0c164574a536101b2494b73f5dfee7234e8b82a8daacfe514fd68d3303a4895a",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 10
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-split-reduction-consumers-w4/mlir-pass-dump.txt",
+   "dump_sha256": "8000711f93ed91b1e30b07dbab9868b4e93ec0bb161131c2182c19c7a18a4bb1",
+   "effective_conversions": 5,
+   "equivalent_conversions": 5,
+   "family": "split-reduction-consumers",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%25 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %20, !dbg !16",
+     "%26 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 %18, !dbg !16",
+     "%27 = getelementptr inbounds nuw i8, ptr addrspace(3) %26, i32 %22, !dbg !16",
+     "%28 = getelementptr inbounds nuw i8, ptr addrspace(3) %27, i32 %24, !dbg !16",
+     "store <1 x i32> %29, ptr addrspace(3) %28, align 4, !dbg !16",
+     "%30 = getelementptr inbounds nuw i8, ptr addrspace(3) %28, i32 16, !dbg !16",
+     "store <1 x i32> %31, ptr addrspace(3) %30, align 4, !dbg !16"
+    ],
+    "shuffle_lines": [
+     "%57 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %56, i32 2, i32 31), !dbg !20",
+     "%64 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %63, i32 1, i32 31), !dbg !20",
+     "%65 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %59, i32 2, i32 31), !dbg !20",
+     "%69 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %68, i32 1, i32 31), !dbg !20",
+     "%70 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %60, i32 2, i32 31), !dbg !20",
+     "%74 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %73, i32 1, i32 31), !dbg !20",
+     "%75 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %61, i32 2, i32 31), !dbg !20",
+     "%79 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %78, i32 1, i32 31), !dbg !20"
+    ]
+   },
+   "llir_sha256": "846d852394aa24429fe404ccdcddc65a4c5957ce736cf806e66e67601676b56a",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 4,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 10
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 8
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r28], %r1;",
+     "st.shared.b32 \t[%r28+16], %r2;",
+     "ld.shared.v4.b32 \t{%r34, %r35, %r36, %r37}, [%r33];",
+     "ld.shared.v4.b32 \t{%r38, %r39, %r40, %r41}, [%r33+128];",
+     "st.shared.v4.b32 \t[%r32], {%r58, %r59, %r60, %r61};",
+     "ld.shared.b32 \t%r64, [%r63];",
+     "ld.shared.b32 \t%r65, [%r63+16];",
+     "st.shared.b32 \t[%r71], %r1;"
+    ],
+    "shared_transfer_count": 19,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r46, %r42, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r48, %r47, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r49, %r43, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r51, %r50, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r52, %r44, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r54, %r53, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r55, %r45, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r57, %r56, 1, 31, -1;"
+    ],
+    "warp_shuffle_count": 12
+   },
+   "ptx_sha256": "e8e65d3beb0111de48bf87664c91c8b6dbfdcd2589b4776f9a936058382d628c",
+   "rematerialization": {
+    "candidates": 2,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-split-reduction-consumers-w4",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "compute_to_store",
+     "region_sum_0_result_layout",
+     "region_sum_0_to_reduction",
+     "region_sum_2_result_layout",
+     "region_sum_2_to_reduction"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 32,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 5,
+    "ttgir_layout_conversion_operation_count": 10
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc52)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 16,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_view_blocked_0329 = ttg.convert_layout %acc_x_60 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc55)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 19,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%v0_63 = ttg.convert_layout %v0_62 : tensor<8x1xf32, #blocked1> -> tensor<8x1xf32, #blocked> loc(#loc58)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 20,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_view_blocked_0388 = ttg.convert_layout %acc_x_60 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked2> loc(#loc60)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 23,
+     "target_encoding": "#blocked2"
+    },
+    {
+     "instruction": "%v2_65 = ttg.convert_layout %v2_64 : tensor<1x8xf32, #blocked2> -> tensor<1x8xf32, #blocked> loc(#loc63)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked2",
+     "source_line": 24,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 26,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_66 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc66)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 29,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_67 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc68)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 32,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%output_32 = ttg.convert_layout %output : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc70)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 37,
+     "target_encoding": "#blocked1"
+    }
+   ],
+   "ttgir_sha256": "322f963f8c276b252f1146383159383af909d148b08fdfbb9b92b4faa058c067",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 10
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-loop-state-layout-w1/mlir-pass-dump.txt",
+   "dump_sha256": "283b0db391b5e925d25706fb587b6013bf5007e5865a088658e6a86a7bb2960e",
+   "effective_conversions": 7,
+   "equivalent_conversions": 7,
+   "family": "loop-state-layout",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%30 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %29, !dbg !14",
+     "store <1 x i32> %31, ptr addrspace(3) %30, align 4, !dbg !14",
+     "%32 = getelementptr inbounds nuw i8, ptr addrspace(3) %30, i32 16, !dbg !14",
+     "store <1 x i32> %33, ptr addrspace(3) %32, align 4, !dbg !14",
+     "%34 = getelementptr inbounds nuw i8, ptr addrspace(3) %30, i32 32, !dbg !14",
+     "store <1 x i32> %35, ptr addrspace(3) %34, align 4, !dbg !14",
+     "%36 = getelementptr inbounds nuw i8, ptr addrspace(3) %30, i32 48, !dbg !14"
+    ],
+    "shuffle_lines": [
+     "%107 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %99, i32 4, i32 31), !dbg !17",
+     "%112 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %111, i32 2, i32 31), !dbg !17",
+     "%116 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %115, i32 1, i32 31), !dbg !17",
+     "%117 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %104, i32 4, i32 31), !dbg !17",
+     "%122 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %121, i32 2, i32 31), !dbg !17",
+     "%126 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %125, i32 1, i32 31), !dbg !17",
+     "%127 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %98, i32 4, i32 31), !dbg !17",
+     "%132 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %131, i32 2, i32 31), !dbg !17"
+    ]
+   },
+   "llir_sha256": "0bfc8e95be433d5fbfbad0d6603cd7481ee67d430bd3d252eeab536af4aa94ee",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 1,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 14
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 10
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r82], %r1;",
+     "st.shared.b32 \t[%r82+16], %r3;",
+     "st.shared.b32 \t[%r82+32], %r5;",
+     "st.shared.b32 \t[%r82+48], %r7;",
+     "st.shared.b32 \t[%r84+128], %r2;",
+     "st.shared.b32 \t[%r84+144], %r4;",
+     "st.shared.b32 \t[%r84+160], %r6;",
+     "st.shared.b32 \t[%r84+176], %r8;"
+    ],
+    "shared_transfer_count": 77,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r123, %r115, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r125, %r124, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r127, %r126, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r128, %r119, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r130, %r129, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r132, %r131, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r133, %r116, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r135, %r134, 2, 31, -1;"
+    ],
+    "warp_shuffle_count": 24
+   },
+   "ptx_sha256": "48ee69f078ae528d625c7385c58c50ae8bd95fd9d07483ab8c9d9cc03bc79b74",
+   "rematerialization": {
+    "candidates": 0,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-loop-state-layout-w1",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "acc_x_to_state_layout",
+     "acc_y_to_state_layout",
+     "compute_to_store",
+     "region_add_5_left_layout",
+     "region_sum_0_to_reduction"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 58,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 7,
+    "ttgir_layout_conversion_operation_count": 14
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 17,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_30 = ttg.convert_layout %acc_x_29 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc58)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 19,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%acc_y_31 = ttg.convert_layout %acc_y : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 20,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%acc_x_view_reduction_blocked_1_warps = ttg.convert_layout %acc_x_62 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked> loc(#loc61)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v0_65 = ttg.convert_layout %v0_64 : tensor<8x1xf32, #blocked> -> tensor<8x1xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 23,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc65)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 25,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v2_67 = ttg.convert_layout %v2_66 : tensor<1x8xf32, #blocked> -> tensor<1x8xf32, #blocked> loc(#loc68)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 26,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc69)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 28,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_68 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc71)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 31,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_y_view_reduction_blocked_1_warps = ttg.convert_layout %acc_y_63 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked> loc(#loc72)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 32,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_69 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc74)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 35,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_70 = ttg.convert_layout %v4_68 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc75)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 36,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%acc_y_71 = ttg.convert_layout %v5_69 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc76)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 37,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%output_34 = ttg.convert_layout %output : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked2> loc(#loc78)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked1",
+     "source_line": 40,
+     "target_encoding": "#blocked2"
+    }
+   ],
+   "ttgir_sha256": "8b3b50dd08f1a6eb1452945da2a1fce3fb3706c58675e9c08972b7e88cbb49ff",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 14
+   }
+  },
+  {
+   "dump": "/host/gluon-plan-sweep/ir/gluon-plan-sweep-loop-state-layout-w4/mlir-pass-dump.txt",
+   "dump_sha256": "1a895d1063b387b7d0c47f7fb78bd5c7ae0c688b1372de09ae988b1de067ada9",
+   "effective_conversions": 7,
+   "equivalent_conversions": 7,
+   "family": "loop-state-layout",
+   "llir_evidence": {
+    "shared_lines": [
+     "@global_smem = external local_unnamed_addr addrspace(3) global [0 x i8], align 16",
+     "%23 = getelementptr inbounds nuw i8, ptr addrspace(3) @global_smem, i32 %18, !dbg !16",
+     "%24 = getelementptr inbounds nuw i8, ptr addrspace(3) %23, i32 %20, !dbg !16",
+     "%25 = getelementptr inbounds nuw i8, ptr addrspace(3) %24, i32 %22, !dbg !16",
+     "%26 = getelementptr inbounds nuw i8, ptr addrspace(3) %25, i32 %16, !dbg !16",
+     "store <1 x i32> %27, ptr addrspace(3) %26, align 4, !dbg !16",
+     "%28 = getelementptr inbounds nuw i8, ptr addrspace(3) %26, i32 32, !dbg !16",
+     "store <1 x i32> %29, ptr addrspace(3) %28, align 4, !dbg !16"
+    ],
+    "shuffle_lines": [
+     "%51 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %47, i32 4, i32 31), !dbg !19",
+     "%55 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %54, i32 2, i32 31), !dbg !19",
+     "%67 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %66, i32 1, i32 31), !dbg !19",
+     "%68 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %49, i32 4, i32 31), !dbg !19",
+     "%72 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %71, i32 2, i32 31), !dbg !19",
+     "%76 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %75, i32 1, i32 31), !dbg !19",
+     "%79 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %77, i32 16, i32 31), !dbg !26",
+     "%83 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %82, i32 8, i32 31), !dbg !26"
+    ]
+   },
+   "llir_sha256": "0ccba4a13202dc28a282d26bae1fd015983ad4932efbd05cd8f6f5bda7be0aee",
+   "loop_evidence": {
+    "loop_count_changes": [
+     {
+      "after": 0,
+      "before": 1,
+      "delta": -1,
+      "occurrence": 1,
+      "pass": "GluonInline",
+      "transition_index": 0
+     }
+    ]
+   },
+   "lowering_transition": {
+    "index": 23,
+    "pass": "ConvertTritonGPUToLLVM",
+    "tensor_operations_after": 0,
+    "tensor_operations_before": 20
+   },
+   "movements": [
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    },
+    {
+     "direction": "out_of_loop",
+     "pass": "GluonInline"
+    }
+   ],
+   "num_warps": 4,
+   "per_pass": {
+    "(before first snapshot)": {
+     "added": 14
+    },
+    "ConvertTritonGPUToLLVM": {},
+    "GluonInline": {
+     "moved_out_of_loop": 10
+    }
+   },
+   "ptx_evidence": {
+    "shared_lines": [
+     "st.shared.b32 \t[%r24], %r1;",
+     "st.shared.b32 \t[%r24+32], %r2;",
+     "ld.shared.v4.b32 \t{%r31, %r32, %r33, %r34}, [%r30];",
+     "ld.shared.v4.b32 \t{%r35, %r36, %r37, %r38}, [%r30+128];",
+     "ld.shared.v4.b32 \t{%r39, %r40, %r41, %r42}, [%r30+16];",
+     "ld.shared.v4.b32 \t{%r43, %r44, %r45, %r46}, [%r30+144];",
+     "st.shared.b32 \t[%r24], 0;",
+     "st.shared.b32 \t[%r24+32], 0;"
+    ],
+    "shared_transfer_count": 43,
+    "shuffle_lines": [
+     "shfl.sync.bfly.b32 \t%r65, %r63, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r67, %r66, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r77, %r76, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r78, %r64, 4, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r80, %r79, 2, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r82, %r81, 1, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r84, %r83, 16, 31, -1;",
+     "shfl.sync.bfly.b32 \t%r86, %r85, 8, 31, -1;"
+    ],
+    "warp_shuffle_count": 8
+   },
+   "ptx_sha256": "634e034350df2aa8ec38d4ae5b28591d819b20f9a1d7e9ead02136f3f5afab1f",
+   "rematerialization": {
+    "candidates": 2,
+    "confirmed": 0
+   },
+   "run": "gluon-plan-sweep-loop-state-layout-w4",
+   "run_record": {
+    "device_name": "Tesla V100-SXM2-32GB",
+    "effective_conversion_operations": [
+     "acc_x_to_state_layout",
+     "acc_y_to_state_layout",
+     "compute_to_store",
+     "region_add_5_left_layout",
+     "region_sum_0_to_reduction"
+    ],
+    "final_loop_construct_count": 0,
+    "iterations": 1,
+    "program_sha256": "08a8f2c7e24929bb6fe0e5c5a3006b235d69bc2b7aaa5725288e30c4e5d9a336",
+    "registers_per_thread": 46,
+    "shape": [
+     8,
+     8
+    ],
+    "snapshot_count": 34,
+    "spill_bytes": 0,
+    "status": "pass",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "ttgir_layout_conversion_count": 7,
+    "ttgir_layout_conversion_operation_count": 14
+   },
+   "status": "pass",
+   "surviving": [
+    {
+     "instruction": "%acc_x_29 = ttg.convert_layout %acc_x_28 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc56)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 17,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_30 = ttg.convert_layout %acc_x_29 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc58)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 19,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%acc_y_31 = ttg.convert_layout %acc_y : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc59)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked",
+     "source_line": 20,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%acc_x_view_reduction_blocked_4_warps = ttg.convert_layout %acc_x_62 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked> loc(#loc61)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 22,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v0_65 = ttg.convert_layout %v0_64 : tensor<8x1xf32, #blocked> -> tensor<8x1xf32, #blocked> loc(#loc64)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 23,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v1 = ttg.convert_layout %6 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc65)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 25,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v2_67 = ttg.convert_layout %v2_66 : tensor<1x8xf32, #blocked> -> tensor<1x8xf32, #blocked> loc(#loc68)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 26,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v3 = ttg.convert_layout %7 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc69)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 28,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v4_68 = ttg.convert_layout %v4 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc71)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 31,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_y_view_reduction_blocked_4_warps = ttg.convert_layout %acc_y_63 : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked> loc(#loc72)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked1",
+     "source_line": 32,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%v5_69 = ttg.convert_layout %v5 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked> loc(#loc74)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 35,
+     "target_encoding": "#blocked"
+    },
+    {
+     "instruction": "%acc_x_70 = ttg.convert_layout %v4_68 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc75)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 36,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%acc_y_71 = ttg.convert_layout %v5_69 : tensor<8x8xf32, #blocked> -> tensor<8x8xf32, #blocked1> loc(#loc76)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "scf.for",
+     "source_encoding": "#blocked",
+     "source_line": 37,
+     "target_encoding": "#blocked1"
+    },
+    {
+     "instruction": "%output_34 = ttg.convert_layout %output : tensor<8x8xf32, #blocked1> -> tensor<8x8xf32, #blocked2> loc(#loc78)",
+     "lowered_by": {
+      "pass": "ConvertTritonGPUToLLVM",
+      "transition_index": 23
+     },
+     "region": "tt.func",
+     "source_encoding": "#blocked1",
+     "source_line": 40,
+     "target_encoding": "#blocked2"
+    }
+   ],
+   "ttgir_sha256": "d2a22d96fa3b6631bbdf27867c0a8c8787e8dad9672ff481bf728c02d463536d",
+   "unattributed": [],
+   "verdict_counts": {
+    "surviving": 14
+   }
+  }
+ ],
+ "schema": "refractir.track-c-named-passes.v1",
+ "summary": {
+  "conversion_totals": {
+   "conversions": 114,
+   "effective_encoding_change": 38,
+   "equivalent_encoding": 76,
+   "surviving": 114
+  },
+  "per_pass": {
+   "(before first snapshot)": {
+    "added": 114,
+    "eliminated": 0,
+    "folded": 0,
+    "moved_across_regions": 0,
+    "moved_into_loop": 0,
+    "moved_out_of_loop": 0
+   },
+   "ConvertTritonGPUToLLVM": {
+    "added": 0,
+    "eliminated": 0,
+    "folded": 0,
+    "moved_across_regions": 0,
+    "moved_into_loop": 0,
+    "moved_out_of_loop": 0
+   },
+   "GluonInline": {
+    "added": 0,
+    "eliminated": 0,
+    "folded": 0,
+    "moved_across_regions": 0,
+    "moved_into_loop": 0,
+    "moved_out_of_loop": 86
+   }
+  }
+ }
+}
