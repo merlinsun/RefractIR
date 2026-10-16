@@ -142,6 +142,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - A resumed discovery case keeps the comparison contract of the record it reuses, so a signed-zero byte mismatch still fails the execution instead of being counted as a pass, and a validated case with no certificate is not treated as certified. A missing output no longer erases what happened: a compile failure, runtime failure, or timeout keeps its class with the comparison marked unavailable, while a supposedly successful execution with no output is rejected as a failure.
 
+- The rematerialization matcher can see a layout rematerialization: it compares a layout-independent reading of the canonical expression for the equality, the surviving producer, and the consumer correspondence, and requires the copy to hold a layout the original did not, so a same-encoding rename is still refused while a computation re-created in another layout confirms. The synthetic boundary pair that previously read `none` now confirms, with the encoding change recorded on the entry; re-deriving every archived dump leaves all recorded counts unchanged, so no earlier result moves and a future zero is a statement about candidates rather than about the matcher.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

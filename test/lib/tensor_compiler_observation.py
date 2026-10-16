@@ -41,6 +41,10 @@ _REGION_OPENER = re.compile(
 )
 _RESOLUTION_DEPTH = 4
 _UNRESOLVED = object()
+# The text a tensor encoding is reworded to when a comparison reads two
+# computations without regard to the layout either side holds. It is no alias a
+# snapshot defines, so an encoding the scan cannot read stays unequal to it.
+_ANY_LAYOUT = "#any-layout"
 
 
 def _location_definitions(text):
@@ -98,6 +102,27 @@ def _split_top_level(text):
   return parts
 
 
+def _tensor_bodies(text):
+  """Yield the span of every closed tensor type body printed in the text.
+
+  MLIR prints an encoding inline in parameterized form, which holds `>` characters
+  that no single regular expression can pair with the `>` that closes the tensor
+  type, so the body is scanned with a bracket counter. A type the text does not
+  close contributes no span rather than a truncated one. Callers read one tensor
+  type from each result, so every reading of that type agrees on its body.
+  """
+  for match in _TENSOR_OPEN.finditer(text):
+    depth, index = 1, match.end()
+    while index < len(text) and depth:
+      if text[index] == "<":
+        depth += 1
+      elif text[index] == ">":
+        depth -= 1
+      index += 1
+    if not depth:
+      yield match.end(), index - 1, text[match.end() : index - 1]
+
+
 def _tensor_encodings(line):
   """Return the trailing encoding of every tensor type printed on a line.
 
@@ -115,15 +140,7 @@ def _tensor_encodings(line):
   printed: its name is not validated against a dialect.
   """
   encodings = []
-  for match in _TENSOR_OPEN.finditer(line):
-    depth, index = 1, match.end()
-    while index < len(line) and depth:
-      if line[index] == "<":
-        depth += 1
-      elif line[index] == ">":
-        depth -= 1
-      index += 1
-    body = line[match.end() : index - 1] if not depth else ""
+  for _start, _end, body in _tensor_bodies(line):
     components = _split_top_level(body)
     candidate = components[-1].strip() if len(components) > 1 else ""
     encodings.append(candidate if _ENCODING_TEXT.match(candidate) else None)
@@ -1003,6 +1020,196 @@ def _comparable_expression(name, definitions):
   return None if expression is _UNRESOLVED else expression
 
 
+def _layout_text(expression, layout_of, layout_free):
+  """Reword every tensor encoding of one canonical expression.
+
+  MLIR prints an encoding inline in parameterized form, which holds `>` characters
+  that no single regular expression can pair with the `>` that closes the tensor
+  type, so `_tensor_bodies` supplies the body of each type and the trailing
+  component of that body is the encoding. An encoding the scan cannot read keeps
+  its printed text, which no replacement equals. The definition text of every
+  operand a canonical expression prints lives in the same text, so the rewording
+  reaches every encoding the expression mentions.
+  """
+  encodings = _tensor_encodings(expression)
+  if not encodings:
+    return expression
+  reworded = []
+  cursor = 0
+  for (start, _end, body), encoding in zip(_tensor_bodies(expression), encodings):
+    if encoding is None:
+      continue
+    components = _split_top_level(body)
+    position = len(body) - len(components[-1]) + components[-1].index(encoding)
+    reworded.append(expression[cursor : start + position])
+    reworded.append(_ANY_LAYOUT if layout_free else layout_of(encoding))
+    cursor = start + position + len(encoding)
+  reworded.append(expression[cursor:])
+  return "".join(reworded)
+
+
+def _layout_independent_expression(expression):
+  """Reword one canonical expression so its layouts do not decide equality.
+
+  A layout rematerialization recomputes the same operation in the layout a
+  consumer asked for, so the printed tensor encodings differ while the
+  computation does not. Every encoding is replaced by one marker, so two
+  expressions are equal under this reading exactly when they print the same
+  computation over the same operand shapes and hold a layout wherever the other
+  does. Which layout each holds is not part of this reading; it is what the
+  count of definitions reads instead (`_resolved_layout_expression`), and what
+  the record reports (`_encoding_change`).
+  """
+  return _layout_text(expression, None, True)
+
+
+def _resolved_layout_expression(expression, before_text, after_text):
+  """Reword one canonical expression so each encoding reads as the layout it denotes.
+
+  Replacing every printed encoding by the text its definition supplies, expanded
+  through `_resolve_encoding_text` against the definitions of both snapshots,
+  makes a comparison read the layout a definition denotes instead of the alias
+  name a snapshot printed. An alias, an inline parameter list, the generic quoted
+  form, and two names for one parameter set therefore read as the one layout they
+  denote, while two parameter sets that differ anywhere stay unequal. An encoding
+  neither snapshot defines keeps its printed name, which no defined layout
+  equals.
+  """
+  encodings = {
+    **_encoding_definitions(after_text),
+    **_encoding_definitions(before_text),
+  }
+  return _layout_text(
+    expression,
+    lambda encoding: _encoding_identity(encoding, encodings) or encoding,
+    False,
+  )
+
+
+def _encoding_change(
+  original_expression, recomputed_expression, before_text, after_text
+):
+  """Report the encodings a recomputed definition carries against the original's.
+
+  The equality the matcher decided is independent of which layout each side
+  holds, so the record has to say what they were: a reader sees that a confirmed
+  recomputation moved a layout, and which one, instead of having to reconstruct
+  it from two definitions whose equality ignores exactly that difference. Each
+  printed encoding is resolved to the layout it denotes through the definitions
+  of both snapshots, so two alias names for one layout read as no change, and an
+  encoding neither snapshot defines is reported as the name that was printed.
+  """
+  encodings = {
+    **_encoding_definitions(after_text),
+    **_encoding_definitions(before_text),
+  }
+
+  def resolved(expression):
+    # The encoding is printed on its own here, not inside a tensor type, so it
+    # is resolved as the definition it names rather than reworded in place.
+    return [
+      None if encoding is None else _encoding_identity(encoding, encodings) or encoding
+      for encoding in _tensor_encodings(expression)
+    ]
+
+  original = resolved(original_expression)
+  recomputed = resolved(recomputed_expression)
+  return {
+    "changed": original != recomputed,
+    "original": original,
+    "recomputed": recomputed,
+  }
+
+
+def _redirected_uses(
+  original,
+  recomputed,
+  after_consumers,
+  before_reading,
+  after_reading,
+  former_consumers,
+  layout_unchanged,
+):
+  """Return the consumers the pass moved from the original to the copy.
+
+  A consumer of the copy is a former consumer of the original when its own
+  definition reads as one the original used to serve, so a use the pass rewrote
+  is recognised even after a layout change. When the copy is printed in the
+  layout the original held and the consumer already read that very computation,
+  the copy only took over a use the original had: the pass renumbered a use
+  rather than moving one, so nothing was recomputed for it. A consumer whose
+  reading changed is a use the pass moved, and it can only have read the
+  original through something else, such as a conversion the pass removed.
+  """
+  redirected = []
+  for consumer in sorted(set(after_consumers.get(recomputed, []))):
+    if consumer == original:
+      continue
+    reading = after_reading["independent"].get(consumer)
+    if reading not in former_consumers:
+      continue
+    if layout_unchanged and before_reading["independent"].get(consumer) == reading:
+      # The consumer read this very computation before the pass as well, so the
+      # copy only took over a use the original already served.
+      continue
+    redirected.append(consumer)
+  return redirected
+
+
+def _layouts_of_one_expression(reading):
+  """Group one snapshot's definitions by their reading, keeping each layout."""
+  families = collections.defaultdict(list)
+  for name, expression in reading["independent"].items():
+    if expression is not None:
+      families[expression].append(reading["resolved"][name])
+  return families
+
+
+def _recomputes_another_layout(expression, original_reading, original_layout, families):
+  """Report whether a recomputation in another layout took over this expression.
+
+  A layout rematerialization is one computation recomputed in the layout a
+  consumer asked for, so the after snapshot must hold a definition that reads as
+  the original's expression and resolves to a layout the original did not hold.
+  A computation printed without an encoding has no layout to move, and a scalar
+  recomputation is decided by the count of definitions alone, so this reading
+  leaves it to that count.
+  """
+  encodings = _tensor_encodings(expression)
+  if not any(encoding is not None for encoding in encodings):
+    # A tensor type with no encoding holds no layout a pass could move, and a
+    # scalar type holds none either: the count of definitions decides those.
+    return True
+  return any(
+    layout != original_layout
+    for layout in families.get(original_reading, ())
+    if layout is not None
+  )
+
+
+def _layout_readings(canonical, before_text, after_text):
+  """Return both readings of one snapshot's canonical expressions.
+
+  `independent` reads a computation without regard to the layout it holds, and
+  `resolved` reads each encoding as the layout it denotes. The matcher needs
+  both: the equality and the consumer correspondence compare computations while
+  the count of definitions separates two layouts of one computation from one
+  computation printed twice.
+  """
+  return {
+    "independent": {
+      name: None if expression is None else _layout_independent_expression(expression)
+      for name, expression in canonical.items()
+    },
+    "resolved": {
+      name: None
+      if expression is None
+      else _resolved_layout_expression(expression, before_text, after_text)
+      for name, expression in canonical.items()
+    },
+  }
+
+
 def _denoted_expression(name, canonical):
   """Return the computation a name denotes, or None when it is only a name.
 
@@ -1076,8 +1283,16 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     before_canonical[name] = _comparable_expression(name, before_definitions)
   for name in after_definitions:
     after_canonical[name] = _comparable_expression(name, after_definitions)
-  before_expressions = _pure_expression_counts(before_canonical)
-  after_expressions = _pure_expression_counts(after_canonical)
+  # The equality reads a computation without regard to the layout it holds,
+  # because a layout rematerialization recomputes the same operation for a
+  # consumer that asked for another layout. Renaming is refused by the count of
+  # definitions under its own layout, not by this reading: a copy in the layout
+  # its original held is the same computation and adds nothing.
+  before_reading = _layout_readings(before_canonical, before_text, after_text)
+  after_reading = _layout_readings(after_canonical, before_text, after_text)
+  before_expressions = _pure_expression_counts(before_reading["independent"])
+  after_expressions = _pure_expression_counts(after_reading["independent"])
+  after_layouts = _layouts_of_one_expression(after_reading)
 
   candidates = collections.defaultdict(lambda: {"recomputed": [], "redirected": []})
   for original, canonical in sorted(before_canonical.items()):
@@ -1085,31 +1300,53 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
       # An unresolved original has no identity to compare, and an impure or
       # unparsed one canonicalizes to its own name.
       continue
-    if _denoted_expression(original, after_canonical) != canonical:
+    original_reading = before_reading["independent"][original]
+    original_layout = before_reading["resolved"][original]
+    if _denoted_expression(original, after_reading["independent"]) != original_reading:
       # The producer survived only if the name still denotes the same pure
       # computation: a name rebound to a load, a call, or any different
       # definition is not the original.
       continue
-    if after_expressions[canonical] <= before_expressions[canonical]:
+    if after_expressions[original_reading] <= before_expressions[original_reading]:
       # No additional computation exists, so this is a rename, not a copy.
       continue
+    if not _recomputes_another_layout(
+      original_reading, original_reading, original_layout, after_layouts
+    ):
+      # The after snapshot holds this expression only in the layout the original
+      # already held, so no layout moved and the count above saw one computation
+      # printed twice. Only a consumer the pass rewrote to read the copy can
+      # still show a recomputation (see `_redirected_uses`).
+      layout_unchanged = True
+    else:
+      layout_unchanged = False
     before_uses = sorted(set(before_consumers.get(original, [])))
     after_uses = sorted(set(after_consumers.get(original, [])))
     if len(after_uses) >= len(before_uses):
       continue
     former_consumers = set()
     for consumer in before_uses:
-      expression = _denoted_expression(consumer, before_canonical)
+      expression = _denoted_expression(consumer, before_reading["independent"])
       if expression is not None:
         former_consumers.add(expression)
     for recomputed, recomputed_canonical in sorted(after_canonical.items()):
-      if recomputed == original or recomputed_canonical != canonical:
+      if recomputed == original or recomputed_canonical is None:
         continue
-      redirected = [
-        consumer
-        for consumer in sorted(set(after_consumers.get(recomputed, [])))
-        if consumer != original and after_canonical.get(consumer) in former_consumers
-      ]
+      if (
+        _denoted_expression(recomputed, after_reading["independent"])
+        != original_reading
+      ):
+        # The copy must denote the same computation the original does.
+        continue
+      redirected = _redirected_uses(
+        original,
+        recomputed,
+        after_consumers,
+        before_reading,
+        after_reading,
+        former_consumers,
+        layout_unchanged,
+      )
       if not redirected:
         continue
       entry = candidates[original]
@@ -1140,6 +1377,13 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
         "original_value": original,
         "recomputed_values": [recomputed],
         "expression": entry["expression"],
+        "original_expression": before_definitions[original],
+        "encoding_change": _encoding_change(
+          before_definitions[original],
+          entry["expression"],
+          before_text,
+          after_text,
+        ),
         "redirected_consumers": entry["redirected"],
         "remaining_consumers": entry["consumers"],
         "source_line": before_lines.get(original),

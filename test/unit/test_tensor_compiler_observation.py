@@ -1852,6 +1852,187 @@ tt.return %21, %28, %11, %13, %14 : f32, f32, f32, f32, f32
     self.assertEqual(report["status"], "unattributed_only")
 
 
+class TensorCompilerLayoutRematerializationTests(unittest.TestCase):
+  """A recomputation in another tensor encoding is the same computation."""
+
+  _LAYOUTS = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_a = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+"""
+  # The record keeps the encoding as the definition resolves it, so a reader
+  # compares layouts rather than alias names.
+  _BLOCKED = (
+    "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[2,16],"
+    "warpsPerCTA=[1,1],order=[1,0]}>"
+  )
+  _BLOCKED_ALT = (
+    "#ttg.blocked<{sizePerThread=[1,4],threadsPerWarp=[8,4],"
+    "warpsPerCTA=[1,1],order=[1,0]}>"
+  )
+
+  def _snapshot(self, body):
+    return self._LAYOUTS + "module {\n" + body + "}\n"
+
+  def test_copy_computed_in_another_encoding_confirms_rematerialization(self):
+    # The copy computes the same broadcast from the same source for the consumer
+    # that asked for another layout. The printed encodings differ; the
+    # computation does not, so the redirected consumer confirms it.
+    before = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["status"], "confirmed_only")
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%b")
+    self.assertEqual(candidate["recomputed_values"], ["%b2"])
+    self.assertEqual(candidate["redirected_consumers"], ["%d"])
+    self.assertEqual(candidate["remaining_consumers"], ["%e"])
+
+  def test_rename_in_the_same_encoding_is_still_not_rematerialization(self):
+    # The copy keeps the encoding the original had, so this is the recorded
+    # rename: no additional computation exists and nothing was recomputed.
+    before = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["status"], "unattributed_only")
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed_count"], 1)
+    self.assertEqual(report["unattributed"][0]["values"], ["%b", "%b2"])
+
+  def test_unrelated_duplicate_in_another_encoding_is_still_not_confirmed(self):
+    # The copy in the other encoding serves a new consumer while the original
+    # keeps every use it had: duplicated work, not a redirected recomputation.
+    before = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
+  %f = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+
+  def test_the_record_states_the_encoding_change(self):
+    # The equality ignores which layout each side holds, so the record says what
+    # they were: a reader sees that a confirmed recomputation moved a layout.
+    before = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(
+      candidate["original_expression"],
+      "tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>",
+    )
+    self.assertEqual(
+      candidate["encoding_change"],
+      {
+        "changed": True,
+        "original": [self._BLOCKED, self._BLOCKED],
+        "recomputed": [self._BLOCKED, self._BLOCKED_ALT],
+      },
+    )
+
+  def test_a_same_encoding_copy_that_only_renames_a_use_is_not_confirmed(self):
+    # The copy is printed exactly as the original was, and the consumer already
+    # read the original: nothing about the computation changed, so the pass only
+    # renumbered a use. A layout rematerialization differs in the layout it
+    # prints, which is what criterion (b) counts.
+    before = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_same_encoding_copy_that_replaces_a_conversion_still_confirms(self):
+    # The pass removed the conversion and rewired its consumer to the copy, so
+    # the consumer reads a recomputation even though the copy keeps the layout
+    # the original had. This is the confirmation the matcher already made before
+    # the layout reading existed, and it is unchanged.
+    before = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %c = ttg.convert_layout %b : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %c, %c : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%b")
+    self.assertEqual(candidate["redirected_consumers"], ["%d"])
+    self.assertEqual(candidate["remaining_consumers"], ["%e"])
+    self.assertEqual(candidate["encoding_change"]["changed"], False)
+
+  def test_two_alias_names_for_one_layout_are_not_an_encoding_change(self):
+    # The copy is printed through another alias, but both aliases define the same
+    # layout, so no layout moved: the copy is a duplicate of the original under
+    # one layout and the transition adds no recomputation. Were the aliases two
+    # different layouts, the same pair of definitions would confirm (see
+    # test_copy_computed_in_another_encoding_confirms_rematerialization).
+    before = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+  %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked_a>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_a>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["confirmed"], [])
+
+
 class TensorCompilerNestedSnapshotTests(unittest.TestCase):
   """Nested pipelines dump their own snapshots inside a module-level one."""
 
