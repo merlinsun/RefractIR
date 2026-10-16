@@ -454,6 +454,25 @@ def _transition_label(transition, identity):
   }
 
 
+def _transition_record(arm):
+  """The transition list one arm of a record holds, and why it holds none.
+
+  An arm that is absent, that carries no analysis, and that states no
+  transitions field all leave nothing to compare, and the reason says which of
+  the three it is, so a dropped arm, a dropped analysis, and a dropped field
+  stay apart. An arm that states an empty list is comparable and has no reason.
+  """
+  if arm is None:
+    return None, "missing_arm"
+  analysis = arm.get("analysis")
+  if not isinstance(analysis, dict):
+    return None, "missing_analysis"
+  transitions = analysis.get("transitions")
+  if transitions is None:
+    return None, "missing_transitions"
+  return transitions, None
+
+
 def matcher_drift(previous, cases):
   """What re-reading the device dumps moved, field by field against the record.
 
@@ -468,27 +487,55 @@ def matcher_drift(previous, cases):
   additional. Comparing only the positions two lists share would report a
   shortened or reordered arm as unchanged, which is the one reading a drift check
   must never give.
+
+  An arm the two records do not both hold comparably is never skipped quietly:
+  the transitions one side holds are reported as removed or as added, and the
+  arm is named in `unavailable_arms` with the reason the other side gave none -
+  a missing arm, a missing analysis, or a missing transitions field. Skipping
+  is reserved for an arm that neither record holds a comparable analysis for,
+  and those arms are named in `skipped_arms`, so no arm can leave the check
+  unnamed.
   """
   compared = []
   changed = []
   removed = []
   added = []
+  unavailable = []
+  skipped = []
   previous_cases = previous.get("cases") or {}
   for case_id in sorted(set(cases) | set(previous_cases)):
-    arm = cases.get(case_id) or {}
-    previous_arm = previous_cases.get(case_id) or {}
-    transitions = (arm.get("analysis") or {}).get("transitions")
-    previous_transitions = (previous_arm.get("analysis") or {}).get("transitions")
-    if transitions is None or previous_transitions is None:
+    transitions, corrected_absence = _transition_record(cases.get(case_id))
+    previous_transitions, recorded_absence = _transition_record(
+      previous_cases.get(case_id)
+    )
+    if transitions is None and previous_transitions is None:
+      skipped.append(
+        {
+          "case": case_id,
+          "recorded": recorded_absence,
+          "corrected": corrected_absence,
+        }
+      )
       continue
-    compared.append(case_id)
+    if corrected_absence or recorded_absence:
+      unavailable.append(
+        {
+          "case": case_id,
+          "recorded": recorded_absence,
+          "corrected": corrected_absence,
+          "removed_transition_count": len(previous_transitions or ()),
+          "added_transition_count": len(transitions or ()),
+        }
+      )
+    else:
+      compared.append(case_id)
     recorded = {
       _transition_identity(transition, position): transition
-      for position, transition in enumerate(previous_transitions)
+      for position, transition in enumerate(previous_transitions or ())
     }
     corrected = {
       _transition_identity(transition, position): transition
-      for position, transition in enumerate(transitions)
+      for position, transition in enumerate(transitions or ())
     }
     removed.extend(
       {"case": case_id, **_transition_label(recorded[identity], identity)}
@@ -521,6 +568,8 @@ def matcher_drift(previous, cases):
     "removed_transition_count": len(removed),
     "added_transitions": added,
     "added_transition_count": len(added),
+    "unavailable_arms": unavailable,
+    "skipped_arms": skipped,
   }
 
 

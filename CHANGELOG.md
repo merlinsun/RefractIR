@@ -152,6 +152,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The matcher resolves each expression against the alias table of the snapshot that printed it, so renaming aliases in the after snapshot no longer reads as a layout change; decides the "new work" criterion per definition and per layout rather than by a module-wide definition count, so a retained producer with an unrelated extra definition is not reported as recomputed; and requires a genuine redirect - a consumer the pass rewired off a definition it removed - before a copy counts as serving one. The drift checker compares a keyed union of transition identities and reports missing and additional records, so a shortened list cannot pass as unchanged. Re-deriving every record and all seventeen archived dumps leaves every count identical; what changes is that two false positives are gone.
 
+- The generated Gluon runner now checks input immutability: it retains the staged input allocation, compares the whole of it after the launch - guards, gaps, and logical elements - and refuses a change with the affected slots named by role, so a kernel that quietly reads or writes its inputs no longer passes on the strength of a correct output. The drift checker also stops skipping a one-sided record: a missing arm, a missing analysis, a missing transitions field, and an empty transitions list are four distinguishable readings rather than a silent pass.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

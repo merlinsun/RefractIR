@@ -470,6 +470,72 @@ class TensorRematerializationDriftTests(unittest.TestCase):
     self.assertEqual(drift["added_transitions"], [])
     self.assertEqual(drift["changed"], [])
 
+  def test_a_one_sided_missing_record_is_reported_rather_than_skipped(self):
+    # A recorded arm of 26 transitions that the corrected record no longer
+    # holds must not pass as unchanged, whether the arm is gone, its analysis
+    # is gone, or its transitions field is gone. Each absence is named, so a
+    # dropped arm, a dropped analysis, and a dropped field stay apart from one
+    # another and from an arm that is still there and states no transitions at
+    # all - which stays a compared arm with 26 removals.
+    previous = {"cases": {"arm": _arm(list(self._PREVIOUS))}}
+    variants = {
+      "missing_arm": {},
+      "missing_analysis": {"arm": {}},
+      "missing_transitions": {"arm": {"analysis": {}}},
+    }
+    for reason, cases in variants.items():
+      with self.subTest(reason=reason):
+        drift = tensor_rematerialization_evidence.matcher_drift(previous, cases)
+
+        self.assertNotIn("arm", drift["arms_compared"])
+        self.assertEqual(drift["removed_transition_count"], 26)
+        self.assertEqual(len(drift["removed_transitions"]), 26)
+        self.assertEqual(
+          [entry["index"] for entry in drift["removed_transitions"]],
+          list(range(26)),
+        )
+        self.assertEqual(
+          drift["unavailable_arms"],
+          [
+            {
+              "case": "arm",
+              "recorded": None,
+              "corrected": reason,
+              "removed_transition_count": 26,
+              "added_transition_count": 0,
+            }
+          ],
+        )
+
+    empty = tensor_rematerialization_evidence.matcher_drift(previous, {"arm": _arm([])})
+    self.assertEqual(empty["arms_compared"], ["arm"])
+    self.assertEqual(empty["unavailable_arms"], [])
+    self.assertEqual(empty["removed_transition_count"], 26)
+
+  def test_an_arm_that_neither_record_analysed_is_named_as_skipped(self):
+    # An arm both records hold but neither analyses has nothing comparable, so
+    # the check skips it - and the skip names the arm and the reason each side
+    # gave, so it cannot pass for an arm that was compared and found unchanged.
+    drift = tensor_rematerialization_evidence.matcher_drift(
+      {"cases": {"arm": {"analysis": {}}}},
+      {"arm": {}},
+    )
+
+    self.assertEqual(drift["arms_compared"], [])
+    self.assertEqual(drift["removed_transitions"], [])
+    self.assertEqual(drift["added_transitions"], [])
+    self.assertEqual(drift["unavailable_arms"], [])
+    self.assertEqual(
+      drift["skipped_arms"],
+      [
+        {
+          "case": "arm",
+          "recorded": "missing_transitions",
+          "corrected": "missing_analysis",
+        }
+      ],
+    )
+
 
 if __name__ == "__main__":
   unittest.main()

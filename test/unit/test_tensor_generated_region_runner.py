@@ -2417,5 +2417,143 @@ class GeneratedRegionStrideRunnerTests(unittest.TestCase):
     self.assertIn("mask=valid_store_layout", emitted)
 
 
+# The physical layout the input-immutability probes address: rows strided by a
+# gap, the tensor starting at element 1, and three prefix and five suffix guard
+# slots around its storage span.
+PROBE_LAYOUT = {
+  "shape": [2, 2],
+  "element_strides": [3, 1],
+  "element_offset": 1,
+  "storage_span": 6,
+  "axis_order": [1, 0],
+}
+
+
+def _probe_region_case(*, slot=None, envelope=(3, 5)):
+  """One region launch whose kernel also writes one slot of its input.
+
+  The launch is simulated, but every path under test is real: the runner stages
+  the allocation, the launch leaves the exact reference at the addresses the
+  record names - a correct output, read back by the same gather and verdict a
+  device run uses - and then one element of the input allocation is changed,
+  which is what a kernel writing through its input pointer would leave behind.
+  `slot` is the whole-allocation slot index the launch changes, or None for a
+  launch that leaves its input alone.
+  """
+  from test.lib import tensor_layout
+
+  runner = _load_runner()
+  staging = runner._staging(
+    tensor_layout.storage_addressing(PROBE_LAYOUT), envelope, 2.0, -1.0
+  )
+  expected_bytes = struct.pack("<4f", 5, 6, 7, 8)
+  staged_output = tensor_layout.stage_envelope(
+    expected_bytes,
+    PROBE_LAYOUT,
+    element_size=4,
+    envelope=staging.envelope,
+    padding=struct.pack("<f", staging.canary),
+    profile=staging.addressing.profile,
+  )
+  with mock.patch.object(runner, "torch", _recording_torch({"allocations": []})):
+    allocation = staging.allocate((1, 2, 3, 4))
+    initial_input = allocation["input_buffer"].tobytes()
+
+    def launch(*_args, **_kwargs):
+      allocation["output_buffer"].data[:] = staged_output
+      if slot is not None:
+        allocation["input_buffer"].data[slot * 4 : (slot + 1) * 4] = struct.pack(
+          "<f", 99.0
+        )
+      return SimpleNamespace(asm={}), {}
+
+    with (
+      mock.patch.object(runner, "_measure_region_kernel", side_effect=launch),
+      mock.patch.object(runner, "_capture_region_compiler", return_value={}),
+    ):
+      try:
+        record = runner._region_case_record(
+          None,
+          (allocation["input"], allocation["output"]),
+          allocation["output_buffer"],
+          name="input-immutability-probe",
+          layouts={},
+          ir_directory=Path("."),
+          generated=SimpleNamespace(conversion_source_lines={}, iterations=2),
+          num_warps=1,
+          expected_bytes=expected_bytes,
+          staging=staging,
+          allocation=allocation,
+        )
+        refusal = None
+      except RuntimeError as error:
+        record, refusal = None, error
+    return {
+      "record": record,
+      "refusal": refusal,
+      "input_changed": initial_input != allocation["input_buffer"].tobytes(),
+      "output_correct": allocation["output_buffer"].tobytes() == staged_output,
+    }
+
+
+class GeneratedRegionInputImmutabilityTests(unittest.TestCase):
+  """A launch may not change any slot of the input allocation it was staged with.
+
+  The output is correct in every probe, so a refusal can only come from the
+  input comparison, and the slot a kernel would have changed is named by the
+  same role vocabulary the layout module names output slots with.
+  """
+
+  def test_a_changed_input_prefix_guard_is_refused_by_name(self):
+    observation = _probe_region_case(slot=0)
+
+    self.assertTrue(observation["input_changed"])
+    self.assertTrue(observation["output_correct"])
+    self.assertIsInstance(observation["refusal"], RuntimeError)
+    self.assertIn("input allocation", str(observation["refusal"]))
+    self.assertIn("prefix-guard-0", str(observation["refusal"]))
+
+  def test_a_changed_input_gap_is_refused_by_name(self):
+    observation = _probe_region_case(slot=3)
+
+    self.assertTrue(observation["input_changed"])
+    self.assertTrue(observation["output_correct"])
+    self.assertIsInstance(observation["refusal"], RuntimeError)
+    self.assertIn("input allocation", str(observation["refusal"]))
+    self.assertIn("gap-0", str(observation["refusal"]))
+
+  def test_a_changed_logical_input_element_is_refused_by_name(self):
+    observation = _probe_region_case(slot=4)
+
+    self.assertTrue(observation["input_changed"])
+    self.assertTrue(observation["output_correct"])
+    self.assertIsInstance(observation["refusal"], RuntimeError)
+    self.assertIn("input allocation", str(observation["refusal"]))
+    self.assertIn("input-0", str(observation["refusal"]))
+
+  def test_an_unchanged_input_allocation_passes(self):
+    observation = _probe_region_case()
+
+    self.assertFalse(observation["input_changed"])
+    self.assertIsNone(observation["refusal"])
+    record = observation["record"]
+    self.assertEqual(record["status"], "pass")
+    self.assertEqual(record["guard_verdict"]["input_slots_changed"], [])
+    self.assertEqual(record["guard_verdict"]["guard_or_gap_slots_changed"], [])
+    self.assertEqual(record["actual_output_bits"], record["expected_output_bits"])
+
+  def test_a_zero_guard_envelope_still_checks_the_logical_input(self):
+    # An envelope that declares no guards names no guard slots, and the logical
+    # input is compared all the same: the element a kernel wrote is refused by
+    # the role name it holds.
+    observation = _probe_region_case(slot=1, envelope=None)
+
+    self.assertTrue(observation["input_changed"])
+    self.assertTrue(observation["output_correct"])
+    self.assertIsInstance(observation["refusal"], RuntimeError)
+    self.assertIn("input-0", str(observation["refusal"]))
+    self.assertNotIn("guard", str(observation["refusal"]))
+
+
 if __name__ == "__main__":
   unittest.main()

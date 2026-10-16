@@ -9546,12 +9546,24 @@
   }
  },
  "matcher_rederivation": {
+  "added_transition_count": 0,
+  "added_transitions": [],
   "arms_compared": [
    "broadcast-hoist-32x16-it2",
    "broadcast-hoist-4x8-it4",
    "mixed-depth-32x16-it4"
   ],
-  "changed": []
+  "changed": [],
+  "removed_transition_count": 0,
+  "removed_transitions": [],
+  "skipped_arms": [
+   {
+    "case": "broadcast-hoist-32x16-it4",
+    "corrected": "missing_analysis",
+    "recorded": "missing_arm"
+   }
+  ],
+  "unavailable_arms": []
  },
  "probe_kernels": {
   "kernels": {
@@ -11499,7 +11511,7 @@
   "field_provenance": {
    "analysis.tree/analysis.work": "the roots driver/analyze.py ran with, written into .planning/2026-10-16-review-073a8f8/device/analysis-regenerated.json: analysis.tree is the re-derivation tree, while provenance.import_root is the tree the device runs imported",
    "cases[].analysis.matcher/structural_recomputations": "test.lib.tensor_compiler_observation@08c4772a0926b3630b487dd0c06e5a7242b7627b36525e1fe1f5ceb0dbd4e30e through driver/analyze.py",
-   "cases[].analysis.state_views_before/opportunities_before": "test.lib.tensor_rematerialization_evidence@4aa43e0133f044caaec7a9cb7a7ace93cc589ed0facb4b0738e75ad7b3133101 (broadcast_state_views, consuming_operations) over the shared operand scan in test.lib.tensor_compiler_observation@08c4772a0926b3630b487dd0c06e5a7242b7627b36525e1fe1f5ceb0dbd4e30e, through driver/analyze.py",
+   "cases[].analysis.state_views_before/opportunities_before": "test.lib.tensor_rematerialization_evidence@43ef80c7ddc95038c5559e66479370a622292c76d4cfdc1c902fad5cac07165a (broadcast_state_views, consuming_operations) over the shared operand scan in test.lib.tensor_compiler_observation@08c4772a0926b3630b487dd0c06e5a7242b7627b36525e1fe1f5ceb0dbd4e30e, through driver/analyze.py",
    "cases[].configuration/selection/status/build_reason/bounds/region_pattern": ".planning/2026-10-16-review-073a8f8/device/work/build.json as written by driver/build_cases.py",
    "cases[].digests.inputs/digests.reference/qualification": "cases/<case>/case.json as written by test.lib.build_tensor_exact_region_case",
    "cases[].provenance.refractir/cases[].provenance.compiler": "cases/<case>/runs/compiled/run.json as written by test.lib.run_triton_tests.run_case",
@@ -11513,7 +11525,7 @@
    "matcher_boundary_probe": "driver/analyze.py on synthetic IR, read with test.lib.tensor_compiler_observation@08c4772a0926b3630b487dd0c06e5a7242b7627b36525e1fe1f5ceb0dbd4e30e (the digest is in the block); a reading the previous record stated differently is in superseded",
    "matcher_rederivation": "driver/analyze.py comparing the regenerated per-transition matcher and structural fields with the previous record at .planning/2026-10-16-review-073a8f8/device/previous-record.json",
    "probe_kernels": ".planning/2026-10-16-review-073a8f8/device/work/probe-kernels.json as written by driver/probe_kernels.py",
-   "record": "test.lib.tensor_rematerialization_evidence@4aa43e0133f044caaec7a9cb7a7ace93cc589ed0facb4b0738e75ad7b3133101",
+   "record": "test.lib.tensor_rematerialization_evidence@43ef80c7ddc95038c5559e66479370a622292c76d4cfdc1c902fad5cac07165a",
    "superseded": "the previous record at .planning/2026-10-16-review-073a8f8/device/previous-record.json"
   },
   "import_root": "/host/remat-20261016/refractir",
@@ -11596,7 +11608,7 @@
    "library": {
     "module": "test.lib.tensor_rematerialization_evidence",
     "path": "/Users/merlin/Documents/GitHub/RefractIR-triton/test/lib/tensor_rematerialization_evidence.py",
-    "sha256": "4aa43e0133f044caaec7a9cb7a7ace93cc589ed0facb4b0738e75ad7b3133101"
+    "sha256": "43ef80c7ddc95038c5559e66479370a622292c76d4cfdc1c902fad5cac07165a"
    },
    "raw_records": {
     "analysis": ".planning/2026-10-16-review-073a8f8/device/analysis-regenerated.json",

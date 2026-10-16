@@ -139,8 +139,10 @@ class _Staging:
   `addressing` is the validated restatement of the case's layout record, so the
   addresses the emitter writes and the addresses the buffers are staged at come
   from one validation of one record. Every nonlogical slot of the input holds
-  `padding` and the whole output allocation holds `canary` before the launch, so
-  a write that leaves the logical mapping changes a slot the verdict names.
+  `padding` and the whole output allocation holds `canary` before the launch, and
+  the staged input bytes are retained, so a write that leaves the logical mapping
+  changes a slot the verdict names and a write into the input is refused by the
+  slots it changed.
   """
 
   addressing: object
@@ -177,12 +179,33 @@ class _Staging:
       "input": input_buffer[begin:end],
       "output_buffer": output_buffer,
       "output": output_buffer[begin:end],
+      "initial_input": staged_input,
       "initial_output": initial_output,
     }
 
-  def read(self, allocation):
-    """The gathered logical output and the guard and gap verdict of one launch."""
+  def read(self, allocation, name):
+    """The gathered logical output and the storage verdict of one launch.
+
+    The whole input allocation is compared with the bytes it was staged with
+    before the output is judged, so a kernel that writes through its input
+    pointer - into a guard, a gap, or a logical element - is refused with the
+    slots it changed, named by role exactly as an output write is. A kernel has
+    no right to any of them, and an input reading is only meaningful if the
+    bytes it read were never rewritten.
+    """
     record = self.record()
+    changed_input = tensor_layout.classify_changed_slots(
+      allocation["initial_input"],
+      _host_bytes(allocation["input_buffer"]),
+      record,
+      element_size=4,
+      envelope=self.envelope,
+      profile=self.addressing.profile,
+    )
+    if changed_input:
+      raise RuntimeError(
+        f"{name} modified its input allocation: slots differ at {changed_input[:16]}"
+      )
     physical = _host_bytes(allocation["output_buffer"])
     logical = tensor_layout.gather_envelope(
       physical,
@@ -203,10 +226,11 @@ class _Staging:
       "profile": self.addressing.profile,
       "allocation_slots": self.slots(),
       "changed_slot_count": len(changed),
-      "logical_slots_changed": sum(1 for name in changed if name.startswith("input-")),
+      "logical_slots_changed": sum(1 for slot in changed if slot.startswith("input-")),
       "guard_or_gap_slots_changed": [
-        name for name in changed if not name.startswith("input-")
+        slot for slot in changed if not slot.startswith("input-")
       ],
+      "input_slots_changed": changed_input,
     }
     return logical, verdict
 
@@ -561,17 +585,18 @@ def _region_case_record(
   """One launched case: its logical bytes, its storage verdict, its identity.
 
   Without a layout record the bytes are the dense output the kernel stored.
-  With one the kernel wrote into a physical allocation, so the bytes are
-  gathered from the addresses the record names and the slots outside them are
-  named: a write there has left the tensor's own mapping and is refused with
-  the slots it touched, before the logical values are judged.
+  With one the kernel wrote into a physical allocation, so the input allocation
+  is compared with the bytes it was staged with and the bytes are gathered from
+  the addresses the record names; the slots outside them are named: a write into
+  either allocation has left the tensor's own mapping and is refused with the
+  slots it touched, before the logical values are judged.
   """
   compiled, measurement = _measure_region_kernel(kernel, args, num_warps=num_warps)
   guard_verdict = None
   if staging is None:
     actual_bytes = output_buffer.view(torch.uint8).cpu().numpy().tobytes()
   else:
-    actual_bytes, guard_verdict = staging.read(allocation)
+    actual_bytes, guard_verdict = staging.read(allocation, name)
     if guard_verdict["guard_or_gap_slots_changed"]:
       raise RuntimeError(
         f"{name} wrote outside its logical output mapping: guards and gaps "
@@ -662,7 +687,9 @@ def run_program(
   suffix guards around the recorded storage span, `padding` fills every
   nonlogical slot of the input allocation, and `canary` fills the output
   allocation before the launch, so a write outside the logical mapping is
-  reported as the slots it changed.
+  reported as the slots it changed, and a write into any slot of the input
+  allocation - guard, gap, or logical element - is refused with the slots it
+  changed before the output is judged.
   """
   probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
@@ -882,7 +909,9 @@ def run_program(
   else:
     # The mutant adds one to every stored value, so its own copy of the
     # allocation is read rather than the baseline case's.
-    mutant_bytes, mutant_verdict = staging.read(mutant_allocation)
+    mutant_bytes, mutant_verdict = staging.read(
+      mutant_allocation, "calibration-add-one-output-mutant"
+    )
   mutant_detected = mutant_bytes != expected_bytes
   if not mutant_detected:
     raise AssertionError("generated-region output mutation was not detected")
@@ -1108,7 +1137,7 @@ def run(case_directory, output_path, ir_directory, *, symiri=None):
   if staging is None:
     actual_bytes = output_tensor.view(torch.uint8).cpu().numpy().tobytes()
   else:
-    actual_bytes, guard_verdict = staging.read(allocation)
+    actual_bytes, guard_verdict = staging.read(allocation, "generated Gluon kernel")
     if guard_verdict["guard_or_gap_slots_changed"]:
       raise RuntimeError(
         "generated Gluon kernel wrote outside its logical output mapping: "
