@@ -1438,9 +1438,11 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     "interpretation_limit": (
       "a confirmed recomputation needs an equivalent surviving producer, a "
       "definition the before snapshot did not already hold, and a redirected "
-      "former consumer; a definition the before snapshot already held is "
-      "elimination, which this record does not name, and duplicate expressions "
-      "alone are reported as unattributed work"
+      "former consumer; a copy that duplicates a definition the before snapshot "
+      "already held in the same layout is outside that criterion, and this "
+      "reading names it neither as elimination nor as a redundant repeat, "
+      "because it cannot tell the two apart; duplicate expressions alone are "
+      "reported as unattributed work"
     ),
   }
 
