@@ -148,6 +148,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The broadcast-hoist evidence is regenerated from the raw build and run records: every arm carries its execution, qualification, input, reference, and observed digests plus the compiler and Triton provenance; the refused four-trip arm is a first-class record; the consumer count comes from operand uses rather than from whole lines, which withdraws the claim that the two-consumer broadcast fed a conversion; and the probe's reading is the committed matcher's, with the previous values kept in a superseded block and an empty drift list showing that no device reading moved.
 
+- The physical-stride pilot is requalified through the committed routes: the generated runner takes the layout record a case declares - validating it before emission, staging the physical allocation from it, gathering the logical output, and naming every changed slot - so a plan arm can run against a padded allocation without a private adapter, and the three cases ran both arms on the V100 with full provenance (revision, compiler flags, `symirc` digest, Triton version and source revision, package lock, module digests). All six arms pass, 248 of 248 logical slots match the exact reference, no guard or gap slot changes, and every reading shared with the earlier direct-worker run reproduces.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

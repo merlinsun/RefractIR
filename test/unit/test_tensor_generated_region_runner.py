@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import struct
 import sys
 import tempfile
@@ -1394,10 +1395,58 @@ class _RecordedTensor:
     return self.state["bytes"]
 
 
+class _StagedTensor:
+  """A whole physical allocation a fake launch can rewrite in place.
+
+  The runner stages one allocation per case and hands the kernel a view that
+  starts at the guard prefix, so a view reports the bytes of the allocation
+  behind it while a launch writes the allocation it was staged into.
+  """
+
+  def __init__(self, data, *, base=0, length=None):
+    self.data = data
+    self.base = base
+    self.length = len(data) // 4 if length is None else length
+
+  def __getitem__(self, key):
+    if not isinstance(key, slice):
+      raise IndexError(f"staged allocation index {key!r} is not a recorded view")
+    start = self.base + (key.start or 0)
+    stop = self.base + (key.stop if key.stop is not None else self.length)
+    return _StagedTensor(self.data, base=start, length=stop - start)
+
+  def clone(self):
+    return self
+
+  def to(self, _device):
+    return self
+
+  def cpu(self):
+    return self
+
+  def view(self, _dtype):
+    return self
+
+  def numpy(self):
+    return self
+
+  def tobytes(self):
+    return bytes(self.data[self.base * 4 : (self.base + self.length) * 4])
+
+
 def _recording_torch(state):
+  """The device the runner launches on, recording every staged allocation."""
+
+  def frombuffer(buffer, *_args, **_kwargs):
+    allocation = _StagedTensor(buffer, length=len(buffer) // 4)
+    state["allocations"].append(allocation)
+    return allocation
+
   return SimpleNamespace(
     tensor=lambda *_args, **_kwargs: _RecordedTensor(state),
     empty=lambda *_args, **_kwargs: _RecordedTensor(state),
+    frombuffer=frombuffer,
+    device=lambda name: name,
     float32="float32",
     uint8="uint8",
     __version__="2.5.0",
@@ -1406,8 +1455,56 @@ def _recording_torch(state):
       get_device_name=lambda: "NVIDIA V100-SXM2-16GB",
       get_device_capability=lambda: (7, 0),
       synchronize=lambda: None,
+      Event=lambda **_kwargs: SimpleNamespace(
+        record=lambda: None, elapsed_time=lambda _other: 0.0
+      ),
     ),
   )
+
+
+class _LaunchedKernel:
+  """The kernel a case-directory run launches, and what one launch leaves."""
+
+  def __init__(self, name, write):
+    self.name = name
+    self.asm = {}
+    self._write = write
+
+  def __getitem__(self, _grid):
+    def launch(*args, **_options):
+      self._write(args)
+      return self
+
+    return launch
+
+
+def _qualified_environment(**overrides):
+  """The environment record a qualified device run reports."""
+  record = {
+    "schema": "refractir.tensor-environment.v1",
+    "status": "environment_available",
+    "campaign_available": True,
+    "failure_reasons": [],
+    "gpus": [
+      {
+        "name": "Tesla V100-SXM2-32GB",
+        "compute_capability": [7, 0],
+        "driver_version": "535.274.02",
+      }
+    ],
+    "driver_version": "535.274.02",
+    "cuda_version": "12.1",
+    "python_version": "3.12.15",
+    "torch_version": "2.5.1+cu121",
+    "triton_version": "3.9.0",
+    "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+    "refractir_revision": "073a8f89c25a7c00c30ff7400fd02958541549b7",
+    "package_lock_file": "package-lock.json",
+    "package_lock_sha256": "b" * 64,
+    "package_lock": {"schema": "refractir.tensor-environment-lock.v1", "packages": []},
+  }
+  record.update(overrides)
+  return record
 
 
 def _add_one_to_first_word(payload):
@@ -1423,15 +1520,30 @@ def _run_generated_region_program(
   source_path=None,
   input_values=(1, 2, 4, 8),
   tile=None,
+  layout=None,
+  guard_envelope=None,
+  padding=None,
+  canary=None,
+  revision=None,
+  compiler_flags=None,
+  symirc=None,
+  environment=None,
 ):
   """Run the generated-region runner against recorded fake launches.
 
-  Only the device and the compiler capture are faked; the exact reference, the
-  layout sampling, and the emitter under test stay real. `source` replaces the
-  recorded power-of-two program, which is how a tailed region is launched on a
-  declared execution tile.
+  Only the device, the compiler capture, and the environment probe are faked;
+  the exact reference, the layout sampling, and the emitter under test stay
+  real. `source` replaces the recorded power-of-two program, which is how a
+  tailed region is launched on a declared execution tile.
+
+  `layout` is the physical layout record a case declares. The runner then
+  stages that allocation, and the fake device leaves the exact reference at the
+  addresses the record names, so the bytes the runner gathers are the bytes a
+  real launch of the emitted kernel would leave behind. `environment`,
+  `revision`, `compiler_flags`, and `symirc` state the toolchain identity the
+  run records instead of whatever host happens to run the test.
   """
-  from test.lib import tensor_exact_f32
+  from test.lib import tensor_exact_f32, tensor_layout
 
   runner = _load_runner()
   if source is None:
@@ -1443,13 +1555,41 @@ def _run_generated_region_program(
   )
   case_count = 1 if plan_family else layout_count
   launches = []
-  tensor_state = {"bytes": expected_bytes}
+  tensor_state = {"bytes": expected_bytes, "allocations": []}
+  kernels = {}
+  try:
+    addressing = None if layout is None else tensor_layout.storage_addressing(layout)
+  except tensor_layout.LayoutError:
+    # A record the runner refuses is never staged: the run stops before the
+    # device, so the stand-in keeps its dense answers for the refusal itself.
+    addressing = None
+  envelope = tensor_layout.GuardEnvelope(*(guard_envelope or (0, 0)))
+  sentinel = float("nan") if padding is None else float(padding)
+  canary_word = sentinel if canary is None else float(canary)
+
+  def physical_after(logical):
+    """The allocation a correct launch leaves: the reference at its addresses."""
+    return tensor_layout.stage_envelope(
+      logical,
+      addressing.as_record(),
+      element_size=4,
+      envelope=envelope,
+      padding=struct.pack("<f", canary_word),
+      profile=addressing.profile,
+    )
 
   def measure(kernel, args, *, num_warps):
     (ir_directory / "mlir-pass-dump.txt").write_text("dump", encoding="utf-8")
     launches.append({"kernel": kernel, "args": args, "num_warps": num_warps})
+    payload = expected_bytes
     if kernel.name == "calibration-add-one-output-mutant":
-      tensor_state["bytes"] = _add_one_to_first_word(expected_bytes)
+      payload = _add_one_to_first_word(expected_bytes)
+    if addressing is None:
+      tensor_state["bytes"] = payload
+    else:
+      # A correct launch writes the logical mapping and nothing else, so any
+      # other slot that differs afterwards is the kernel's own write.
+      args[1].data[:] = physical_after(payload)
     return SimpleNamespace(asm={}), {"median_gpu_event_ms_per_launch": 0.0}
 
   def compiler(_compiled, _name, _ir_directory, _source_lines, *, expected_loop):
@@ -1470,45 +1610,88 @@ def _run_generated_region_program(
       "interpretation_limit": "test",
     }
 
+  def load_kernel(generated, path):
+    kernels[Path(path).stem] = generated.source
+    return SimpleNamespace(name=Path(path).stem)
+
+  environment_record = _qualified_environment(**(environment or {}))
+  variables = {
+    "REFRACTIR_REVISION": revision,
+    "REFRACTIR_COMPILER_FLAGS": compiler_flags,
+    "REFRACTIR_WORKTREE_DIRTY": "false",
+    "REFRACTIR_SYMIRC": None if symirc is None else str(symirc),
+  }
   with tempfile.TemporaryDirectory() as temporary:
-    root = Path(temporary)
+    root = Path(temporary).resolve()
     ir_directory = root / "ir"
     output_path = root / "report.json"
-    with (
-      mock.patch.object(runner, "torch", _recording_torch(tensor_state)),
-      mock.patch.object(runner, "triton", SimpleNamespace(__version__="3.4.0")),
-      mock.patch.object(runner.probe_triton_env, "require_qualified_triton"),
-      mock.patch.object(
-        runner,
-        "_load_kernel",
-        side_effect=lambda _generated, path: SimpleNamespace(name=Path(path).stem),
-      ),
-      mock.patch.object(runner, "_measure_region_kernel", side_effect=measure),
-      mock.patch.object(runner, "_capture_region_compiler", side_effect=compiler),
-      mock.patch.object(
-        runner, "render_gluon_kernel", wraps=runner.render_gluon_kernel
-      ) as render,
-      mock.patch.object(runner, "observe_pass_dumps", side_effect=pass_observation),
-      mock.patch.object(runner.BlockedLayoutPlan, "to_gluon_layout", lambda self: self),
-    ):
-      result = runner.run_program(
-        source_path,
-        output_path,
-        ir_directory,
-        input_values=input_values,
-        domain=(0, 8),
-        layout_seed=PLAN_LAYOUT_SEED,
-        num_warps=1,
-        layout_count=layout_count,
-        plan_family=plan_family,
-        tile=tile,
-      )
+    # The recorded environment replaces whatever the host happens to export, so
+    # what a run says about its toolchain is what the probe returned.
+    with mock.patch.dict(os.environ, {}):
+      for name, value in variables.items():
+        if value is None:
+          os.environ.pop(name, None)
+        else:
+          os.environ[name] = value
+      with (
+        mock.patch.object(runner, "torch", _recording_torch(tensor_state)),
+        mock.patch.object(runner, "triton", SimpleNamespace(__version__="3.4.0")),
+        mock.patch.object(runner.probe_triton_env, "require_qualified_triton"),
+        mock.patch.object(
+          runner.probe_triton_env, "collect_environment", lambda: environment_record
+        ),
+        mock.patch.object(runner, "_load_kernel", side_effect=load_kernel) as loader,
+        mock.patch.object(runner, "_measure_region_kernel", side_effect=measure),
+        mock.patch.object(runner, "_capture_region_compiler", side_effect=compiler),
+        mock.patch.object(
+          runner, "render_gluon_kernel", wraps=runner.render_gluon_kernel
+        ) as render,
+        mock.patch.object(runner, "observe_pass_dumps", side_effect=pass_observation),
+        mock.patch.object(
+          runner.BlockedLayoutPlan, "to_gluon_layout", lambda self: self
+        ),
+      ):
+        try:
+          result = runner.run_program(
+            source_path,
+            output_path,
+            ir_directory,
+            input_values=input_values,
+            domain=(0, 8),
+            layout_seed=PLAN_LAYOUT_SEED,
+            num_warps=1,
+            layout_count=layout_count,
+            plan_family=plan_family,
+            tile=tile,
+            layout=layout,
+            guard_envelope=guard_envelope,
+            padding=padding,
+            canary=canary,
+          )
+          refusal = None
+        except Exception as failure:  # noqa: BLE001 - the refusal is the record
+          result = None
+          refusal = failure
     return {
       "result": result,
-      "report": json.loads(output_path.read_text(encoding="utf-8")),
+      "refusal": refusal,
+      "report": (
+        json.loads(output_path.read_text(encoding="utf-8"))
+        if output_path.exists()
+        else None
+      ),
       "launches": launches,
+      "kernels": kernels,
+      "allocations": tensor_state["allocations"],
+      "ir_files": (
+        sorted(path.name for path in ir_directory.iterdir())
+        if ir_directory.exists()
+        else []
+      ),
       "render": render,
+      "loader": loader,
       "runner": runner,
+      "ir_directory": ir_directory,
       "output_path": output_path,
     }
 
@@ -1806,6 +1989,432 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
             input_values=(1, 2, 4, 8),
             plan_family="loop-state-layout",
           )
+
+
+TAIL_SHAPE = (2, 3)
+TAIL_TILE = (2, 4)
+TAIL_INPUT_VALUES = (1, 2, 3, 4, 5, 6)
+# The physical layout the padded-tail cases declare: rows strided by the
+# execution tile's width plus a gap, with the tensor starting at element 1.
+STRIDED_TAIL_RECORD = {
+  "shape": list(TAIL_SHAPE),
+  "element_strides": [4, 1],
+  "element_offset": 1,
+  "storage_span": 10,
+  "axis_order": [1, 0],
+}
+
+
+def _tailed_case_file(root):
+  """One tailed region written where the runner can read it."""
+  from test.unit.test_tensor_exact_composed import tailed_region_source
+
+  source = tailed_region_source(TAIL_SHAPE)
+  path = Path(root) / "tailed-2x3.sir"
+  path.write_text(source, encoding="utf-8")
+  return source, path
+
+
+def _run_case_directory_runner(
+  *,
+  source,
+  record,
+  input_values=(1, 2, 4, 8),
+  guard_envelope=(3, 5),
+  padding="3f800001",
+  canary="3f000002",
+):
+  """Run the case-directory route against a recorded manifest and fake device.
+
+  `record` is restated into both buffer records of the manifest, which is what a
+  case builder writes when both buffers are staged in one layout, and the fake
+  device leaves the exact reference at the addresses that record names. The
+  cross-lane route places the whole warp on one reduction axis, so the region it
+  runs is the power-of-two shape that route is built for.
+  """
+  from test.lib import tensor_exact_f32, tensor_layout
+
+  runner = _load_runner()
+  input_bytes = struct.pack(f"<{len(input_values)}f", *input_values)
+  _proof, expected_bytes = tensor_exact_f32.certify(source, input_bytes, (0, 8))
+  envelope = tensor_layout.GuardEnvelope(*guard_envelope)
+  addressing = None if record is None else tensor_layout.storage_addressing(record)
+  state = {"bytes": expected_bytes, "allocations": []}
+  kernels = {}
+
+  def write(args):
+    if not isinstance(args[1], _StagedTensor):
+      # A run that launches the dense route records its own bytes, which is the
+      # reading a record the route never received is missing.
+      state["bytes"] = expected_bytes
+      return
+    args[1].data[:] = tensor_layout.stage_envelope(
+      expected_bytes,
+      record,
+      element_size=4,
+      envelope=envelope,
+      padding=bytes.fromhex(canary),
+      profile=addressing.profile,
+    )
+
+  # A manifest that declares no addressing is what the exact profiles carry: its
+  # buffer records hold only what the worker needs to stage the dense buffers.
+  layout_fields = {"shape": [2, 2]} if record is None else record
+  execution = (
+    {}
+    if record is None
+    else {
+      "guard_envelope": {"prefix": guard_envelope[0], "suffix": guard_envelope[1]},
+      "padding_by_dtype": {"f32": padding},
+      "output_canary_by_dtype": {"f32": canary},
+    }
+  )
+  case = SimpleNamespace(
+    manifest={
+      "profile": "tensor-v3",
+      "inputs": [{**layout_fields, "name": "x", "dtype": "f32"}],
+      "output": {**layout_fields, "name": "out", "dtype": "f32"},
+      "execution": execution,
+      "reference": {
+        "exactness": {
+          "kind": tensor_exact_f32.REGION_KIND,
+          "input_domain": [0, 8],
+        }
+      },
+    },
+    program=source.encode("utf-8"),
+    inputs=input_bytes,
+    expected=expected_bytes,
+  )
+
+  def load_kernel(generated, path):
+    kernels[Path(path).stem] = generated.source
+    return _LaunchedKernel(Path(path).stem, write)
+
+  with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary).resolve()
+    with mock.patch.dict(os.environ, {}):
+      with (
+        mock.patch.object(runner, "torch", _recording_torch(state)),
+        mock.patch.object(runner, "triton", SimpleNamespace(__version__="3.4.0")),
+        mock.patch.object(runner.probe_triton_env, "require_qualified_triton"),
+        mock.patch.object(
+          runner.probe_triton_env,
+          "collect_environment",
+          lambda: _qualified_environment(),
+        ),
+        mock.patch.object(
+          runner.tensor_case, "load_case", lambda *_args, **_kwargs: case
+        ),
+        mock.patch.object(runner, "_load_kernel", side_effect=load_kernel),
+        mock.patch.object(
+          runner, "render_gluon_kernel", wraps=runner.render_gluon_kernel
+        ) as render,
+        mock.patch.object(
+          runner,
+          "observe_compiler_ir",
+          lambda _stages, *, source_lines: {
+            "layout_conversion_count": 1,
+            "stages": {
+              "ptx": {"warp_shuffle_count": 1, "shared_memory_transfer_count": 0}
+            },
+          },
+        ),
+        mock.patch.object(
+          runner.BlockedLayoutPlan, "to_gluon_layout", lambda self: self
+        ),
+      ):
+        try:
+          report = runner.run(
+            root / "case",
+            root / "report.json",
+            root / "ir",
+            symiri="symiri",
+          )
+          refusal = None
+        except Exception as failure:  # noqa: BLE001 - the refusal is the record
+          report, refusal = None, failure
+    return {
+      "report": report,
+      "refusal": refusal,
+      "render": render,
+      "kernels": kernels,
+      "allocations": state["allocations"],
+    }
+
+
+class GeneratedRegionStrideRunnerTests(unittest.TestCase):
+  """The runner addresses the physical layout record a case declares."""
+
+  def test_the_runner_passes_the_layout_record_to_the_emitter(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      source, path = _tailed_case_file(temporary)
+      for plan_family in (None, "all-same-layout"):
+        with self.subTest(plan_family=plan_family):
+          observation = _run_generated_region_program(
+            source=source,
+            source_path=path,
+            input_values=TAIL_INPUT_VALUES,
+            tile=TAIL_TILE,
+            layout=STRIDED_TAIL_RECORD,
+            plan_family=plan_family,
+            layout_count=1,
+          )
+
+          self.assertIsNone(observation["refusal"])
+          self.assertEqual(
+            observation["render"].call_args.kwargs["layout"], STRIDED_TAIL_RECORD
+          )
+
+  def test_a_strided_record_addresses_the_staged_allocation(self):
+    from test.lib import tensor_layout
+
+    with tempfile.TemporaryDirectory() as temporary:
+      source, path = _tailed_case_file(temporary)
+      observation = _run_generated_region_program(
+        source=source,
+        source_path=path,
+        input_values=TAIL_INPUT_VALUES,
+        tile=TAIL_TILE,
+        layout=STRIDED_TAIL_RECORD,
+        guard_envelope=(3, 5),
+        padding=1.0000001,
+        layout_count=1,
+      )
+
+      self.assertIsNone(observation["refusal"])
+      emitted = observation["kernels"]["generated-region-kernel"]
+      self.assertIn(
+        "load_offsets = 1 + load_rows[:, None] * 4 + load_columns[None, :]", emitted
+      )
+      self.assertIn(
+        "store_offsets = 1 + store_rows[:, None] * 4 + store_columns[None, :]",
+        emitted,
+      )
+      self.assertNotIn("load_rows[:, None] * 3", emitted)
+      # The allocation the kernel is handed places the logical input at the
+      # recorded addresses, so the emitted strides and the staged bytes agree.
+      self.assertEqual(
+        bytes(observation["allocations"][0].data),
+        tensor_layout.stage_envelope(
+          struct.pack(f"<{len(TAIL_INPUT_VALUES)}f", *TAIL_INPUT_VALUES),
+          STRIDED_TAIL_RECORD,
+          element_size=4,
+          envelope=tensor_layout.GuardEnvelope(3, 5),
+          padding=struct.pack("<f", 1.0000001),
+          profile="v3",
+        ),
+      )
+      for case in observation["result"]["cases"].values():
+        self.assertEqual(case["status"], "pass")
+        self.assertEqual(case["guard_verdict"]["guard_or_gap_slots_changed"], [])
+        self.assertEqual(case["guard_verdict"]["logical_slots_changed"], 6)
+
+  def test_an_identity_record_emits_the_pre_change_kernel(self):
+    identity = {
+      "shape": [2, 2],
+      "element_strides": [2, 1],
+      "element_offset": 0,
+      "storage_span": 4,
+      "axis_order": [1, 0],
+    }
+    without = _run_generated_region_program(layout_count=1)
+    with_record = _run_generated_region_program(layout=identity, layout_count=1)
+
+    self.assertIsNone(without["refusal"])
+    self.assertIsNone(with_record["refusal"])
+    self.assertEqual(
+      with_record["kernels"]["generated-region-kernel"],
+      without["kernels"]["generated-region-kernel"],
+    )
+
+  def test_an_inconsistent_record_is_refused_before_emission(self):
+    from test.lib import tensor_layout
+
+    def record(**overrides):
+      return {**STRIDED_TAIL_RECORD, **overrides}
+
+    cases = (
+      (record(storage_span=7), "exceeds storage span"),
+      (record(axis_order=[0, 1]), "fastest to slowest stride"),
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+      source, path = _tailed_case_file(temporary)
+      for layout, reason in cases:
+        with self.subTest(layout=layout):
+          observation = _run_generated_region_program(
+            source=source,
+            source_path=path,
+            input_values=TAIL_INPUT_VALUES,
+            tile=TAIL_TILE,
+            layout=layout,
+            layout_count=1,
+          )
+
+          self.assertIsInstance(observation["refusal"], tensor_layout.LayoutError)
+          self.assertIn(reason, str(observation["refusal"]))
+          self.assertEqual(observation["render"].call_count, 0)
+          self.assertEqual(observation["loader"].call_count, 0)
+          self.assertEqual(observation["ir_files"], [])
+
+  def test_a_runner_invocation_records_the_toolchain_qualification(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      symirc = Path(temporary).resolve() / "symirc"
+      symirc.write_bytes(b"recorded-symirc-bytes")
+      observation = _run_generated_region_program(
+        layout_count=1,
+        revision="073a8f89c25a7c00c30ff7400fd02958541549b7",
+        compiler_flags="-O2 -DTEST",
+        symirc=symirc,
+      )
+
+    self.assertIsNone(observation["refusal"])
+    qualification = observation["report"]["qualification"]
+    self.assertEqual(
+      qualification["refractir_revision"],
+      "073a8f89c25a7c00c30ff7400fd02958541549b7",
+    )
+    self.assertEqual(qualification["working_tree_dirty"], "false")
+    self.assertEqual(qualification["compiler"]["flags"], "-O2 -DTEST")
+    self.assertEqual(
+      qualification["compiler"]["sha256"],
+      hashlib.sha256(b"recorded-symirc-bytes").hexdigest(),
+    )
+    self.assertEqual(qualification["compiler"]["executable"], str(symirc))
+    self.assertEqual(qualification["triton_version"], "3.9.0")
+    self.assertEqual(
+      qualification["triton_source_revision"],
+      "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+    )
+    self.assertEqual(qualification["package_lock_sha256"], "b" * 64)
+    self.assertEqual(qualification["device"]["name"], "NVIDIA V100-SXM2-16GB")
+    self.assertEqual(qualification["device"]["compute_capability"], [7, 0])
+    self.assertTrue(qualification["campaign_valid"])
+    self.assertEqual(
+      qualification["environment_file"],
+      str(observation["ir_directory"] / "environment.json"),
+    )
+    self.assertIn("environment.json", observation["ir_files"])
+    self.assertIn("package-lock.json", observation["ir_files"])
+    for case in observation["report"]["cases"].values():
+      self.assertTrue(case["qualification"]["campaign_valid"])
+      self.assertEqual(
+        case["qualification"]["refractir_revision"],
+        qualification["refractir_revision"],
+      )
+      self.assertEqual(case["qualification"]["package_lock_sha256"], "b" * 64)
+
+  def test_an_unqualified_environment_leaves_every_case_unqualified(self):
+    with tempfile.TemporaryDirectory() as temporary:
+      symirc = Path(temporary).resolve() / "symirc"
+      symirc.write_bytes(b"recorded-symirc-bytes")
+      observation = _run_generated_region_program(
+        layout_count=1,
+        revision="073a8f89c25a7c00c30ff7400fd02958541549b7",
+        compiler_flags="-O2",
+        symirc=symirc,
+        environment={
+          "status": "environment_unavailable",
+          "campaign_available": False,
+          "failure_reasons": ["gpu_unavailable"],
+        },
+      )
+
+    self.assertIsNone(observation["refusal"])
+    qualification = observation["report"]["qualification"]
+    self.assertFalse(qualification["campaign_valid"])
+    self.assertEqual(qualification["failure_reasons"], ["gpu_unavailable"])
+    for case in observation["report"]["cases"].values():
+      self.assertFalse(case["qualification"]["campaign_valid"])
+
+  def test_a_manifest_without_addressing_keeps_the_dense_route(self):
+    with tempfile.TemporaryDirectory():
+      observation = _run_case_directory_runner(source=NATIVE_SEED_7_SOURCE, record=None)
+
+    self.assertIsNone(observation["refusal"])
+    report = observation["report"]
+    self.assertEqual(observation["render"].call_args.kwargs, {})
+    self.assertIsNone(report["physical_layout"])
+    self.assertIsNone(report["guard_verdict"])
+    self.assertEqual(report["actual_output_bits"], report["expected_output_bits"])
+
+  def test_the_case_directory_runner_addresses_the_manifest_record(self):
+    from test.lib import tensor_layout
+
+    # The cross-lane route lowers the power-of-two shape it is built for, so its
+    # record strides rows by more than the row length rather than by a tile.
+    record = {
+      "shape": [2, 2],
+      "element_strides": [3, 1],
+      "element_offset": 1,
+      "storage_span": 8,
+      "axis_order": [1, 0],
+    }
+    observation = _run_case_directory_runner(source=NATIVE_SEED_7_SOURCE, record=record)
+
+    self.assertIsNone(observation["refusal"])
+    report = observation["report"]
+    self.assertEqual(observation["render"].call_args.kwargs, {"layout": record})
+    self.assertEqual(report["physical_layout"]["record"], record)
+    self.assertEqual(
+      report["physical_layout"]["guard_envelope"], {"prefix": 3, "suffix": 5}
+    )
+    self.assertEqual(report["guard_verdict"]["guard_or_gap_slots_changed"], [])
+    self.assertEqual(report["guard_verdict"]["logical_slots_changed"], 4)
+    self.assertEqual(report["actual_output_bits"], report["expected_output_bits"])
+    self.assertIn(
+      "load_offsets = 1 + load_rows[:, None] * 3 + load_columns[None, :]",
+      observation["kernels"]["generated-region-kernel"],
+    )
+    self.assertEqual(
+      bytes(observation["allocations"][0].data),
+      tensor_layout.stage_envelope(
+        struct.pack("<4f", 1, 2, 4, 8),
+        record,
+        element_size=4,
+        envelope=tensor_layout.GuardEnvelope(3, 5),
+        padding=bytes.fromhex("3f800001"),
+        profile="v2",
+      ),
+    )
+
+  def test_a_dense_record_on_a_padded_tile_keeps_its_addressing(self):
+    dense = {
+      "shape": list(TAIL_SHAPE),
+      "element_strides": [3, 1],
+      "element_offset": 0,
+      "storage_span": 6,
+      "axis_order": [1, 0],
+    }
+    with tempfile.TemporaryDirectory() as temporary:
+      source, path = _tailed_case_file(temporary)
+      without = _run_generated_region_program(
+        source=source,
+        source_path=path,
+        input_values=TAIL_INPUT_VALUES,
+        tile=TAIL_TILE,
+        layout_count=1,
+      )
+      with_record = _run_generated_region_program(
+        source=source,
+        source_path=path,
+        input_values=TAIL_INPUT_VALUES,
+        tile=TAIL_TILE,
+        layout=dense,
+        layout_count=1,
+      )
+
+    self.assertIsNone(without["refusal"])
+    self.assertIsNone(with_record["refusal"])
+    emitted = without["kernels"]["generated-region-kernel"]
+    self.assertEqual(with_record["kernels"]["generated-region-kernel"], emitted)
+    self.assertIn(
+      "load_offsets = load_rows[:, None] * 3 + load_columns[None, :]", emitted
+    )
+    # The padded tile still keeps its validity predicates: a dense record states
+    # where the tensor is, not how wide the tile is.
+    self.assertIn("valid_load_layout", emitted)
+    self.assertIn("mask=valid_store_layout", emitted)
 
 
 if __name__ == "__main__":

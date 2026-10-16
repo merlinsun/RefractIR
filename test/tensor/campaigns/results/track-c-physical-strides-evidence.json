@@ -1,147 +1,1515 @@
 {
- "binaries": {
-  "symirc": {
-   "bytes": 3196344,
-   "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
-  },
-  "symiri": {
-   "bytes": 2421344,
-   "sha256": "4674cc7db05fe3c1f03e7ad340513974baa222e2f0b652f5647e47e4d520c2b1"
-  }
+ "cross_check": {
+  "against": "direct_worker_run",
+  "all_match": true,
+  "rows": [
+   {
+    "case": "identity-strides-offset",
+    "counted_actual_sha256": true,
+    "counted_guard_verdict": true,
+    "counted_kernel_sha256": true,
+    "plan_actual_sha256": true,
+    "plan_emitted_sha256": true,
+    "plan_guard_verdict": true
+   },
+   {
+    "case": "strided-zero-offset",
+    "counted_actual_sha256": true,
+    "counted_guard_verdict": true,
+    "counted_kernel_sha256": true,
+    "plan_actual_sha256": true,
+    "plan_emitted_sha256": true,
+    "plan_guard_verdict": true
+   },
+   {
+    "case": "strided-offset",
+    "counted_actual_sha256": true,
+    "counted_guard_verdict": true,
+    "counted_kernel_sha256": true,
+    "plan_actual_sha256": true,
+    "plan_emitted_sha256": true,
+    "plan_guard_verdict": true
+   }
+  ]
  },
- "cases": [
-  {
-   "arms": {
+ "direct_worker_run": {
+  "binaries": {
+   "symirc": {
+    "bytes": 3196344,
+    "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+   },
+   "symiri": {
+    "bytes": 2421344,
+    "sha256": "4674cc7db05fe3c1f03e7ad340513974baa222e2f0b652f5647e47e4d520c2b1"
+   }
+  },
+  "cases": [
+   {
     "arms": {
-     "counted": {
-      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "complete_logical_reference": true,
-      "exit_code": 0,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 264,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [],
-       "logical_slots_changed": 248,
-       "profile": "v3"
+     "arms": {
+      "counted": {
+       "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "complete_logical_reference": true,
+       "exit_code": 0,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 264,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [],
+        "logical_slots_changed": 248,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "llir": "56b1d4ff34c5993522969bfa289251231ad821de8969dd859034267b0410b63c",
+        "ptx": "0658e7d7ce27c958db9432fa650acac685d763dad2a4b6c1c4142e45ac8177b0",
+        "source": "ea7e49478b6eaa9b1397be6c28022a787765d296b42c8f7daf93dda2d2f50001",
+        "ttgir": "4f4aee75d4381084c614d03a597855cfda0ad6643b342ec202da5bbab88611f9",
+        "ttir": "7992ed9531cd3841e9599152ae075f4b061de039f12c5208674c8ef11a33d844"
+       },
+       "status": "pass",
+       "stderr_tail": []
       },
-      "ir_stages": {
-       "llir": "56b1d4ff34c5993522969bfa289251231ad821de8969dd859034267b0410b63c",
-       "ptx": "0658e7d7ce27c958db9432fa650acac685d763dad2a4b6c1c4142e45ac8177b0",
-       "source": "ea7e49478b6eaa9b1397be6c28022a787765d296b42c8f7daf93dda2d2f50001",
-       "ttgir": "4f4aee75d4381084c614d03a597855cfda0ad6643b342ec202da5bbab88611f9",
-       "ttir": "7992ed9531cd3841e9599152ae075f4b061de039f12c5208674c8ef11a33d844"
+      "plan": {
+       "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "complete_logical_reference": true,
+       "exit_code": 0,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 264,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [],
+        "logical_slots_changed": 248,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "glir": "76358b0564be3c7f5406e0ab7cc409ef5c33793f5f417692872099eba13801fd",
+        "llir": "1d4e676ae94ee9a8c8d5aa3c039c4bde494bec4d202bd13d263a32db2c55b626",
+        "ptx": "d0d7678b548d31a0a91e7b70a40680f197b459424ebe7fa5373a7876f48e34cb",
+        "source": "76358b0564be3c7f5406e0ab7cc409ef5c33793f5f417692872099eba13801fd",
+        "ttgir": "3fdff582c26e9aad2020f48ea9a456b7f84a30cd4fa564954cce25348eb3a23b"
+       },
+       "status": "pass",
+       "stderr_tail": []
       },
-      "status": "pass",
-      "stderr_tail": []
+      "plan_dense_control": {
+       "actual_sha256": "1aa5f41bbdf8866a195e2cf4b78e4dee954ada5a9d4abf6b9264a8271ba8b8fb",
+       "complete_logical_reference": false,
+       "exit_code": 1,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 264,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [
+         "gap-0",
+         "gap-32",
+         "gap-64",
+         "gap-96",
+         "gap-128",
+         "gap-160",
+         "gap-192",
+         "gap-224"
+        ],
+        "logical_slots_changed": 240,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+        "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
+        "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
+        "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+        "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+       },
+       "status": "failed",
+       "stderr_tail": [
+        "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-0', 'gap-32', 'gap-64', 'gap-96', 'gap-128', 'gap-160', 'gap-192', 'gap-224']"
+       ]
+      }
      },
-     "plan": {
-      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "complete_logical_reference": true,
-      "exit_code": 0,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 264,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [],
-       "logical_slots_changed": 248,
-       "profile": "v3"
-      },
-      "ir_stages": {
-       "glir": "76358b0564be3c7f5406e0ab7cc409ef5c33793f5f417692872099eba13801fd",
-       "llir": "1d4e676ae94ee9a8c8d5aa3c039c4bde494bec4d202bd13d263a32db2c55b626",
-       "ptx": "d0d7678b548d31a0a91e7b70a40680f197b459424ebe7fa5373a7876f48e34cb",
-       "source": "76358b0564be3c7f5406e0ab7cc409ef5c33793f5f417692872099eba13801fd",
-       "ttgir": "3fdff582c26e9aad2020f48ea9a456b7f84a30cd4fa564954cce25348eb3a23b"
-      },
-      "status": "pass",
-      "stderr_tail": []
+     "case": "identity-strides-offset",
+     "case_directory": "counted-identity-strides-offset",
+     "comparison": {
+      "counted_equals_reference": true,
+      "dense_control_equals_reference": false,
+      "plan_equals_counted": true,
+      "plan_equals_reference": true
      },
-     "plan_dense_control": {
-      "actual_sha256": "1aa5f41bbdf8866a195e2cf4b78e4dee954ada5a9d4abf6b9264a8271ba8b8fb",
-      "complete_logical_reference": false,
-      "exit_code": 1,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 264,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [
-        "gap-0",
-        "gap-32",
-        "gap-64",
-        "gap-96",
-        "gap-128",
-        "gap-160",
-        "gap-192",
-        "gap-224"
+     "counted_kernel_addressing": [
+      "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
+      "_sir_x_offsets = 1 + _sir_x_d0 * 32 + _sir_x_d1",
+      "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
+      "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
+      "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
+      "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
+      "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
+      "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
+      "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+      "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
+      "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
+      "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
+      "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
+      "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
+      "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
+      "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
+      "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
+      "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
+      "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
+      "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
+      "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
+      "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
+      "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
+      "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
+      "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+      "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
+      "_sir_out_offsets = 1 + _sir_out_d0 * 32 + _sir_out_d1",
+      "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
+     ],
+     "dense_control_record": {
+      "addressing": [
+       "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+       "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
+       "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+      ],
+      "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
+      "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+     },
+     "guard_envelope": {
+      "prefix": 3,
+      "suffix": 5
+     },
+     "launch": {
+      "enable_fp_fusion": false,
+      "num_stages": 1,
+      "num_warps": 4
+     },
+     "layout": {
+      "axis_order": [
+       1,
+       0
+      ],
+      "element_offset": 1,
+      "element_strides": [
+       32,
+       1
+      ],
+      "shape": [
+       8,
+       31
+      ],
+      "storage_span": 256
+     },
+     "padding_by_dtype": {
+      "f32": "3f800001",
+      "i32": "55555555"
+     },
+     "plan_record": {
+      "addressing": [
+       "load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+       "store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]",
+       "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+      ],
+      "emitted_sha256": "9cf9af8a69d8c0e00731e4ef5aed75d053a53e146a04cb9b40f36eb77128b3c6",
+      "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
+      "family": {
+       "compute": "reduction-blocked-4-warps",
+       "consumer_views": {},
+       "load": "reduction-blocked-4-warps",
+       "name": "all-same-layout",
+       "reduction": "reduction-blocked-4-warps",
+       "shape": [
+        8,
+        31
        ],
-       "logical_slots_changed": 240,
-       "profile": "v3"
+       "state_layout": null,
+       "store": "reduction-blocked-4-warps",
+       "tile": [
+        8,
+        32
+       ]
       },
-      "ir_stages": {
-       "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
-       "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
-       "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
-       "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
-       "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
-      },
-      "status": "failed",
-      "stderr_tail": [
-       "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-0', 'gap-32', 'gap-64', 'gap-96', 'gap-128', 'gap-160', 'gap-192', 'gap-224']"
+      "layout_arguments": [
+       "reduction-blocked-4-warps"
+      ],
+      "layout_parameters": [
+       "reduction_blocked_4_warps"
+      ],
+      "pool": [
+       {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0177",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         16
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         2,
+         2
+        ]
+       },
+       {
+        "name": "blocked-0862",
+        "order": [
+         0,
+         1
+        ],
+        "size_per_thread": [
+         8,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0427",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         2,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         1,
+         4
+        ]
+       }
+      ],
+      "tile": [
+       8,
+       32
       ]
      }
     },
+    "axis_order": [
+     1,
+     0
+    ],
     "case": "identity-strides-offset",
-    "case_directory": "counted-identity-strides-offset",
+    "case_dir": "/tmp/strides/counted-identity-strides-offset",
+    "counted_kernel_sha256": "f2f3b74807fd0ff3686af16886b1ee5771df9c9aa4b56523892258f7ac45605d",
+    "element_offset": 1,
+    "element_strides": [
+     32,
+     1
+    ],
+    "evidence_kind": {
+     "artifacts": [
+      "program.sir",
+      "inputs.bin",
+      "expected.bin",
+      "kernel.py",
+      "tensor-layout.json"
+     ],
+     "kind": "construction",
+     "status": "construction_checked"
+    },
+    "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+    "guard_envelope": {
+     "prefix": 3,
+     "suffix": 5
+    },
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "padding_by_dtype": {
+     "f32": "3f800001",
+     "i32": "55555555"
+    },
+    "profile": "tensor-v3",
+    "request": {
+     "element_offset": 1,
+     "row_padding": 0
+    },
+    "shape": [
+     8,
+     31
+    ],
+    "status": "built",
+    "storage_span": 256,
+    "tile_shape": [
+     8,
+     32
+    ],
+    "witness": "sparse-final-lanes",
+    "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
+   },
+   {
+    "arms": {
+     "arms": {
+      "counted": {
+       "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "complete_logical_reference": true,
+       "exit_code": 0,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 270,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [],
+        "logical_slots_changed": 248,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "llir": "ce46933a016c13585ea2ea6c0ded530731cc547e8962cc0a27a6e52c712bd93a",
+        "ptx": "907b717282e8365c06a7a4e9b3a663de3bb576e0347de0a0a3d4954611669421",
+        "source": "8347a7144e642db9da2ec1fa905b60fe00d6ca0bbf35320d3c5e866422a32286",
+        "ttgir": "77d6b38fc2da9c6b5dcf27c02f337c95ac5289060fd4088d3b1bf38eb1f6cb5c",
+        "ttir": "7c402a96475d815e1f0f4c667c4e2be3769443f086aabaac730fba64330092f8"
+       },
+       "status": "pass",
+       "stderr_tail": []
+      },
+      "plan": {
+       "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "complete_logical_reference": true,
+       "exit_code": 0,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 270,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [],
+        "logical_slots_changed": 248,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "glir": "8cf74d0c5ed2e9c9dbb5f3d8dc0fac65b93f44cfe50eeafaaf7559f7d0958e6c",
+        "llir": "225531b8ede570604f2c93dd51195a99c014773b59147e674a8c6b369cdf8316",
+        "ptx": "db7cef603dcd5e22353d9a79049c952e22af44660eb4fc6dcdc0c2944b1ebfab",
+        "source": "8cf74d0c5ed2e9c9dbb5f3d8dc0fac65b93f44cfe50eeafaaf7559f7d0958e6c",
+        "ttgir": "1cbec229b511fabf15d095b70078ee8f0ed689cbe8d12310b8aa799eec8fca2b"
+       },
+       "status": "pass",
+       "stderr_tail": []
+      },
+      "plan_dense_control": {
+       "actual_sha256": "4f6940c96d7db03f843c612499b77ed2e171553108285c57f15f8093c9a57e2e",
+       "complete_logical_reference": false,
+       "exit_code": 1,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 270,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [
+         "gap-31",
+         "gap-32",
+         "gap-64",
+         "gap-65",
+         "gap-97",
+         "gap-98",
+         "gap-130",
+         "gap-131",
+         "gap-163",
+         "gap-164",
+         "gap-196",
+         "gap-197",
+         "gap-229",
+         "gap-230"
+        ],
+        "logical_slots_changed": 234,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+        "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
+        "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
+        "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+        "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+       },
+       "status": "failed",
+       "stderr_tail": [
+        "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-31', 'gap-32', 'gap-64', 'gap-65', 'gap-97', 'gap-98', 'gap-130', 'gap-131', 'gap-163', 'gap-164', 'gap-196', 'gap-197', 'gap-229', 'gap-230']"
+       ]
+      }
+     },
+     "case": "strided-zero-offset",
+     "case_directory": "counted-strided-zero-offset",
+     "comparison": {
+      "counted_equals_reference": true,
+      "dense_control_equals_reference": false,
+      "plan_equals_counted": true,
+      "plan_equals_reference": true
+     },
+     "counted_kernel_addressing": [
+      "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
+      "_sir_x_offsets = _sir_x_d0 * 33 + _sir_x_d1",
+      "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
+      "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
+      "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
+      "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
+      "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
+      "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
+      "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+      "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
+      "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
+      "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
+      "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
+      "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
+      "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
+      "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
+      "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
+      "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
+      "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
+      "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
+      "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
+      "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
+      "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
+      "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
+      "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+      "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
+      "_sir_out_offsets = _sir_out_d0 * 33 + _sir_out_d1",
+      "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
+     ],
+     "dense_control_record": {
+      "addressing": [
+       "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+       "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
+       "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+      ],
+      "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
+      "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+     },
+     "guard_envelope": {
+      "prefix": 3,
+      "suffix": 5
+     },
+     "launch": {
+      "enable_fp_fusion": false,
+      "num_stages": 1,
+      "num_warps": 4
+     },
+     "layout": {
+      "axis_order": [
+       1,
+       0
+      ],
+      "element_offset": 0,
+      "element_strides": [
+       33,
+       1
+      ],
+      "shape": [
+       8,
+       31
+      ],
+      "storage_span": 262
+     },
+     "padding_by_dtype": {
+      "f32": "3f800001",
+      "i32": "55555555"
+     },
+     "plan_record": {
+      "addressing": [
+       "load_offsets = load_rows[:, None] * 33 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+       "store_offsets = store_rows[:, None] * 33 + store_columns[None, :]",
+       "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+      ],
+      "emitted_sha256": "50055cd37bc6252b98d3931b887e2dd1d8e42c59e652973e7819e35a34006ad1",
+      "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 33 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 33 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
+      "family": {
+       "compute": "reduction-blocked-4-warps",
+       "consumer_views": {},
+       "load": "reduction-blocked-4-warps",
+       "name": "all-same-layout",
+       "reduction": "reduction-blocked-4-warps",
+       "shape": [
+        8,
+        31
+       ],
+       "state_layout": null,
+       "store": "reduction-blocked-4-warps",
+       "tile": [
+        8,
+        32
+       ]
+      },
+      "layout_arguments": [
+       "reduction-blocked-4-warps"
+      ],
+      "layout_parameters": [
+       "reduction_blocked_4_warps"
+      ],
+      "pool": [
+       {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0177",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         16
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         2,
+         2
+        ]
+       },
+       {
+        "name": "blocked-0862",
+        "order": [
+         0,
+         1
+        ],
+        "size_per_thread": [
+         8,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0427",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         2,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         1,
+         4
+        ]
+       }
+      ],
+      "tile": [
+       8,
+       32
+      ]
+     }
+    },
+    "axis_order": [
+     1,
+     0
+    ],
+    "case": "strided-zero-offset",
+    "case_dir": "/tmp/strides/counted-strided-zero-offset",
+    "counted_kernel_sha256": "6b4f0c364e333204000a80aaaab338f333475e09ad92b9f64e2ad9df23183ac3",
+    "element_offset": 0,
+    "element_strides": [
+     33,
+     1
+    ],
+    "evidence_kind": {
+     "artifacts": [
+      "program.sir",
+      "inputs.bin",
+      "expected.bin",
+      "kernel.py",
+      "tensor-layout.json"
+     ],
+     "kind": "construction",
+     "status": "construction_checked"
+    },
+    "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+    "guard_envelope": {
+     "prefix": 3,
+     "suffix": 5
+    },
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "padding_by_dtype": {
+     "f32": "3f800001",
+     "i32": "55555555"
+    },
+    "profile": "tensor-v3",
+    "request": {
+     "element_offset": 0,
+     "row_padding": 1
+    },
+    "shape": [
+     8,
+     31
+    ],
+    "status": "built",
+    "storage_span": 262,
+    "tile_shape": [
+     8,
+     32
+    ],
+    "witness": "sparse-final-lanes",
+    "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
+   },
+   {
+    "arms": {
+     "arms": {
+      "counted": {
+       "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "complete_logical_reference": true,
+       "exit_code": 0,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 271,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [],
+        "logical_slots_changed": 248,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "llir": "ecd5ce78bda94808fb80e72f8bb9e21d7085caacfac4020f9403ac5096003472",
+        "ptx": "2093fe99d557625f92b092f64648192b9517964604ec32f824219eca7f76eb79",
+        "source": "a4297fe017528d90d3068d5cd6ff4e6e897ddc784d38b6853f63d67eb5fb8f15",
+        "ttgir": "0dddc0455f8704a8a5ab94046097467616130a6b5f74ffa9941e64c8dcbfed2a",
+        "ttir": "c882e1362a703669670cce293ae3037b9c73b229c5c8c3c49e533f7f564ee6bf"
+       },
+       "status": "pass",
+       "stderr_tail": []
+      },
+      "plan": {
+       "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "complete_logical_reference": true,
+       "exit_code": 0,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 271,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [],
+        "logical_slots_changed": 248,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "glir": "5de6d9a0ec7698a4648ca7565d53ff30a5ac17a8554792ceff82f69ffd6ef273",
+        "llir": "024c1b185705e1c08bd90294cf2025829f38487e2aecef2254c1b3baa6e3aa5a",
+        "ptx": "b641545c920603f23cb2930d7ffcf8e059f44b820e21bd0b5fbd2a77021be2fa",
+        "source": "5de6d9a0ec7698a4648ca7565d53ff30a5ac17a8554792ceff82f69ffd6ef273",
+        "ttgir": "bc13236d12024046997f89978e71769fc2543ac6a1935d8dda83cd5eb0b35e5b"
+       },
+       "status": "pass",
+       "stderr_tail": []
+      },
+      "plan_dense_control": {
+       "actual_sha256": "1c927eddd6ca75253bee1892a6a1b3e0d1582a851c6e48e0db6e61ae3a04d6d4",
+       "complete_logical_reference": false,
+       "exit_code": 1,
+       "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+       "guard_verdict": {
+        "allocation_slots": 271,
+        "changed_slot_count": 248,
+        "guard_or_gap_slots_changed": [
+         "gap-0",
+         "gap-32",
+         "gap-33",
+         "gap-65",
+         "gap-66",
+         "gap-98",
+         "gap-99",
+         "gap-131",
+         "gap-132",
+         "gap-164",
+         "gap-165",
+         "gap-197",
+         "gap-198",
+         "gap-230",
+         "gap-231"
+        ],
+        "logical_slots_changed": 233,
+        "profile": "v3"
+       },
+       "ir_stages": {
+        "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+        "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
+        "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
+        "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+        "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+       },
+       "status": "failed",
+       "stderr_tail": [
+        "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-0', 'gap-32', 'gap-33', 'gap-65', 'gap-66', 'gap-98', 'gap-99', 'gap-131', 'gap-132', 'gap-164', 'gap-165', 'gap-197', 'gap-198', 'gap-230', 'gap-231']"
+       ]
+      }
+     },
+     "case": "strided-offset",
+     "case_directory": "counted-strided-offset",
+     "comparison": {
+      "counted_equals_reference": true,
+      "dense_control_equals_reference": false,
+      "plan_equals_counted": true,
+      "plan_equals_reference": true
+     },
+     "counted_kernel_addressing": [
+      "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
+      "_sir_x_offsets = 1 + _sir_x_d0 * 33 + _sir_x_d1",
+      "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
+      "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
+      "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
+      "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
+      "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
+      "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
+      "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+      "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
+      "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
+      "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
+      "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
+      "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
+      "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
+      "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
+      "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
+      "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
+      "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
+      "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
+      "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
+      "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
+      "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
+      "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
+      "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+      "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
+      "_sir_out_offsets = 1 + _sir_out_d0 * 33 + _sir_out_d1",
+      "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
+     ],
+     "dense_control_record": {
+      "addressing": [
+       "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+       "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
+       "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+      ],
+      "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
+      "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+     },
+     "guard_envelope": {
+      "prefix": 3,
+      "suffix": 5
+     },
+     "launch": {
+      "enable_fp_fusion": false,
+      "num_stages": 1,
+      "num_warps": 4
+     },
+     "layout": {
+      "axis_order": [
+       1,
+       0
+      ],
+      "element_offset": 1,
+      "element_strides": [
+       33,
+       1
+      ],
+      "shape": [
+       8,
+       31
+      ],
+      "storage_span": 263
+     },
+     "padding_by_dtype": {
+      "f32": "3f800001",
+      "i32": "55555555"
+     },
+     "plan_record": {
+      "addressing": [
+       "load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+       "store_offsets = 1 + store_rows[:, None] * 33 + store_columns[None, :]",
+       "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+      ],
+      "emitted_sha256": "cf4485c80657af97470f419434a90abfe5c3391d55c30677b95958c9fa5c5541",
+      "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = 1 + store_rows[:, None] * 33 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
+      "family": {
+       "compute": "reduction-blocked-4-warps",
+       "consumer_views": {},
+       "load": "reduction-blocked-4-warps",
+       "name": "all-same-layout",
+       "reduction": "reduction-blocked-4-warps",
+       "shape": [
+        8,
+        31
+       ],
+       "state_layout": null,
+       "store": "reduction-blocked-4-warps",
+       "tile": [
+        8,
+        32
+       ]
+      },
+      "layout_arguments": [
+       "reduction-blocked-4-warps"
+      ],
+      "layout_parameters": [
+       "reduction_blocked_4_warps"
+      ],
+      "pool": [
+       {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0177",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         16
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         2,
+         2
+        ]
+       },
+       {
+        "name": "blocked-0862",
+        "order": [
+         0,
+         1
+        ],
+        "size_per_thread": [
+         8,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0427",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         2,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         1,
+         4
+        ]
+       }
+      ],
+      "tile": [
+       8,
+       32
+      ]
+     }
+    },
+    "axis_order": [
+     1,
+     0
+    ],
+    "case": "strided-offset",
+    "case_dir": "/tmp/strides/counted-strided-offset",
+    "counted_kernel_sha256": "c5ca51703c1d6d043d68143f4710253b450a891d988deb2334f75038de169415",
+    "element_offset": 1,
+    "element_strides": [
+     33,
+     1
+    ],
+    "evidence_kind": {
+     "artifacts": [
+      "program.sir",
+      "inputs.bin",
+      "expected.bin",
+      "kernel.py",
+      "tensor-layout.json"
+     ],
+     "kind": "construction",
+     "status": "construction_checked"
+    },
+    "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+    "guard_envelope": {
+     "prefix": 3,
+     "suffix": 5
+    },
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "padding_by_dtype": {
+     "f32": "3f800001",
+     "i32": "55555555"
+    },
+    "profile": "tensor-v3",
+    "request": {
+     "element_offset": 1,
+     "row_padding": 1
+    },
+    "shape": [
+     8,
+     31
+    ],
+    "status": "built",
+    "storage_span": 263,
+    "tile_shape": [
+     8,
+     32
+    ],
+    "witness": "sparse-final-lanes",
+    "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
+   }
+  ],
+  "environment": {
+   "compute_capability": [
+    7,
+    0
+   ],
+   "device_name": "Tesla V100-SXM2-32GB",
+   "platform": "Linux-5.15.0-60-generic-x86_64-with-glibc2.35",
+   "python": "3.12.15",
+   "torch_version": "2.5.1+cu121",
+   "triton_version": "3.9.0"
+  },
+  "modules": {
+   "test.lib.build_tensor_exact_loop_case": {
+    "bytes": 13046,
+    "path": "/host/refractir-strides-20261016/test/lib/build_tensor_exact_loop_case.py",
+    "sha256": "4e0a2ab3cebbb2b3be157695c2e3387db50eedabd18e2ceb8b6226bb3f50ffbb"
+   },
+   "test.lib.build_tensor_exact_region_case": {
+    "bytes": 21391,
+    "path": "/host/refractir-strides-20261016/test/lib/build_tensor_exact_region_case.py",
+    "sha256": "085ab3942ae00afe808d02bc19dc4fb8714ea2e847c23da104620764617ac533"
+   },
+   "test.lib.probe_triton_env": {
+    "bytes": 10835,
+    "path": "/host/refractir-strides-20261016/test/lib/probe_triton_env.py",
+    "sha256": "742d4e4cfaf9cc5a641854e980d8f3fc09be108015230ccd347a64483da4e0e0"
+   },
+   "test.lib.tensor_exact_f32": {
+    "bytes": 38552,
+    "path": "/host/refractir-strides-20261016/test/lib/tensor_exact_f32.py",
+    "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
+   },
+   "test.lib.tensor_gluon": {
+    "bytes": 26662,
+    "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon.py",
+    "sha256": "7e047e49b6bbe72d304644dadb3c07c58512e7f8d58517a6d724b7c3724526c2"
+   },
+   "test.lib.tensor_gluon_lowering": {
+    "bytes": 22238,
+    "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon_lowering.py",
+    "sha256": "3fb3498b2dc7d3ea666da3fe6cf9220b79b4d8ea4f1ff80892c92f0d5b1ef741"
+   },
+   "test.lib.tensor_gluon_replay": {
+    "bytes": 12963,
+    "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon_replay.py",
+    "sha256": "7c868ebdc2bea03361889e91ea315e0ea73022166453b43ca918d1e8a8ba5f6f"
+   },
+   "test.lib.tensor_input_proposals": {
+    "bytes": 9636,
+    "path": "/host/refractir-strides-20261016/test/lib/tensor_input_proposals.py",
+    "sha256": "48033ed1d05551d1c4a7a34a28dc1bb9da34691329b8148ad7d68920396dabbe"
+   },
+   "test.lib.tensor_layout": {
+    "bytes": 13696,
+    "path": "/host/refractir-strides-20261016/test/lib/tensor_layout.py",
+    "sha256": "7e313abbe24dffebe1c8f36ff84bdeb735b134c65cb85bcf8c4f8bebf06c041a"
+   },
+   "test.lib.triton_case_worker": {
+    "bytes": 16986,
+    "path": "/host/refractir-strides-20261016/test/lib/triton_case_worker.py",
+    "sha256": "2f9cb39bf4187572503055b94ae157eb10742a99cc77b17f2876930fa6f5782c"
+   }
+  },
+  "program": {
+   "bytes": 2146,
+   "path": "/host/refractir-strides-20261016/test/tensor/gluon/programs/padded-tail-8x31-region-v1.sir",
+   "sha256": "7ab66271e07d4599a2b521042d27a7184f2e3a2e04e51cb7b1766f6495fe88e9"
+  },
+  "python": "3.12.15",
+  "revision": "073a8f89c25a7c00c30ff7400fd02958541549b7+physical-strides-overrides",
+  "schema": "refractir.gluon-physical-strides.v1",
+  "summary": {
+   "cases": [
+    "identity-strides-offset",
+    "strided-zero-offset",
+    "strided-offset"
+   ],
+   "counted_equals_reference": true,
+   "dense_control_matches_reference": [
+    false,
+    false,
+    false
+   ],
+   "guard_or_gap_slots_changed": {
+    "identity-strides-offset": {
+     "counted": [],
+     "plan": [],
+     "plan_dense_control": [
+      "gap-0",
+      "gap-32",
+      "gap-64",
+      "gap-96",
+      "gap-128",
+      "gap-160",
+      "gap-192",
+      "gap-224"
+     ]
+    },
+    "strided-offset": {
+     "counted": [],
+     "plan": [],
+     "plan_dense_control": [
+      "gap-0",
+      "gap-32",
+      "gap-33",
+      "gap-65",
+      "gap-66",
+      "gap-98",
+      "gap-99",
+      "gap-131"
+     ]
+    },
+    "strided-zero-offset": {
+     "counted": [],
+     "plan": [],
+     "plan_dense_control": [
+      "gap-31",
+      "gap-32",
+      "gap-64",
+      "gap-65",
+      "gap-97",
+      "gap-98",
+      "gap-130",
+      "gap-131"
+     ]
+    }
+   },
+   "plan_equals_counted": true,
+   "plan_equals_reference": true
+  }
+ },
+ "primary_run": "qualified",
+ "provenance": {
+  "direct_worker_run": "the previous planning driver's direct-worker run, kept for its dense control arm and its per-arm compiled artifacts; its environment and revision are the driver's own readings rather than the runner's",
+  "qualified_run": "the qualified re-run of this record: counted through test.lib.run_triton_tests --mode compiled and plan through test.tensor.gluon.run_generated_region.run_program with the case's layout record",
+  "qualified_run.cases[].counted": "runs/compiled/report.json, run.json, environment.json, and actual-physical.bin of the locked runner",
+  "qualified_run.cases[].plan": "the committed Gluon runner's report: actual_output_bits, guard_verdict, physical_layout, emission, and per-case qualification"
+ },
+ "qualified_run": {
+  "binaries": {
+   "symirc": {
+    "bytes": 3196344,
+    "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+   },
+   "symiri": {
+    "bytes": 2421344,
+    "sha256": "4674cc7db05fe3c1f03e7ad340513974baa222e2f0b652f5647e47e4d520c2b1"
+   },
+   "symirsolve": {
+    "bytes": 7084960,
+    "sha256": "f45bc6d90e1224721dbfc0c745bfa35f17490e1834347a97bc58cdd27cc1b8e0"
+   }
+  },
+  "cases": [
+   {
+    "artifacts": {
+     "counted_artifacts": {
+      "actual-physical.bin": {
+       "bytes": 1056,
+       "sha256": "2ad91e334b2adeb910eaec8fa24bed8e09d21e8d4d185a674414431f3593c6f0"
+      },
+      "actual.bin": {
+       "bytes": 992,
+       "sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2"
+      },
+      "compiler-llir.ir": {
+       "bytes": 10485,
+       "sha256": "11202727146725b4a16b564c656d151b7a0495048302cbfd206ee6a9414beae7"
+      },
+      "compiler-ptx.ir": {
+       "bytes": 16510,
+       "sha256": "4b2416a90166c3023444b88eaf82b6a62625f91f9c0e9c2274d0a95d605b0381"
+      },
+      "compiler-source.ir": {
+       "bytes": 288066,
+       "sha256": "9715ac936e3ded4af6bba30e083b0c4e0d11fddc1113c84c3b5eee4dcd4fada5"
+      },
+      "compiler-ttgir.ir": {
+       "bytes": 10680,
+       "sha256": "9d14adeff626043c627a4e918a8386c0f03c3cb69b22c109363719daee93849c"
+      },
+      "compiler-ttir.ir": {
+       "bytes": 9756,
+       "sha256": "f4bf0df634d1c987af6d74e98e530d472b80f74238afd0df50763554466fc311"
+      },
+      "compiler.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "environment.json": {
+       "bytes": 1556,
+       "sha256": "127d6f0d5c4d0bb7005ec30303fedb3918ff8d3b45185935bb68cd33006e1af0"
+      },
+      "kernel.py": {
+       "bytes": 28021,
+       "sha256": "f2f3b74807fd0ff3686af16886b1ee5771df9c9aa4b56523892258f7ac45605d"
+      },
+      "package-lock.json": {
+       "bytes": 2666667,
+       "sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e"
+      },
+      "run.json": {
+       "bytes": 2706,
+       "sha256": "6fa7f4098998e2f7be1ceb5b47155038d627a9342be11f03634d68bf7b1b81f0"
+      },
+      "stderr.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "tensor-layout.json": {
+       "bytes": 465,
+       "sha256": "ac85482d201229c441cd0f43bf23c9ca271bb4f5e59580948e5816a807e42c3c"
+      },
+      "worker-phase.json": {
+       "bytes": 21,
+       "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+      },
+      "worker-staging.json": {
+       "bytes": 413,
+       "sha256": "eccca23712e9f5f1b91261f9f48a03d0b33ff78ee877222cf9d7e9d27651abd2"
+      },
+      "worker-timing.json": {
+       "bytes": 330,
+       "sha256": "7e194efb85a0651325ac9c8e1f81ec08eae1f50f8348ee652094edd9a87415e4"
+      }
+     },
+     "counted_ir_stages": {
+      "llir": "11202727146725b4a16b564c656d151b7a0495048302cbfd206ee6a9414beae7",
+      "ptx": "4b2416a90166c3023444b88eaf82b6a62625f91f9c0e9c2274d0a95d605b0381",
+      "source": "9715ac936e3ded4af6bba30e083b0c4e0d11fddc1113c84c3b5eee4dcd4fada5",
+      "ttgir": "9d14adeff626043c627a4e918a8386c0f03c3cb69b22c109363719daee93849c",
+      "ttir": "f4bf0df634d1c987af6d74e98e530d472b80f74238afd0df50763554466fc311"
+     },
+     "plan_artifacts": {
+      "all-same-layout.llir": {
+       "bytes": 10080,
+       "sha256": "9f94922c183b97d17b72b1010ae8ec52e703198300213088698a214a4f6cc75f"
+      },
+      "all-same-layout.ptx": {
+       "bytes": 17030,
+       "sha256": "54090954d080997048027b30f6f196624422452af7343da817eaadd81acdc265"
+      },
+      "all-same-layout.ttgir": {
+       "bytes": 10464,
+       "sha256": "ceb1938b338e2b9db44d81d4df51bc8936ce9da6fab1ca15f73b64dcb1540857"
+      },
+      "calibration-add-one-output-mutant.llir": {
+       "bytes": 10239,
+       "sha256": "dae365ca04ef01ae336e40fc859aad6fea885296da1d07f1e862c0b51481db85"
+      },
+      "calibration-add-one-output-mutant.ptx": {
+       "bytes": 17502,
+       "sha256": "2574f60977f099577241d9a278219181781b23672a318e420f8acb0033011d26"
+      },
+      "calibration-add-one-output-mutant.py": {
+       "bytes": 2625,
+       "sha256": "ecbbbfa924fc3106d8f2cc52f8e02062d87aa4dc0da0c75928d36b3292d51c84"
+      },
+      "calibration-add-one-output-mutant.ttgir": {
+       "bytes": 11096,
+       "sha256": "e92c9c1921158524d53531b8b38a765721a9686936c576ec4d27ca1bc9b28b61"
+      },
+      "environment.json": {
+       "bytes": 1556,
+       "sha256": "127d6f0d5c4d0bb7005ec30303fedb3918ff8d3b45185935bb68cd33006e1af0"
+      },
+      "generated-region-kernel.py": {
+       "bytes": 2599,
+       "sha256": "9cf9af8a69d8c0e00731e4ef5aed75d053a53e146a04cb9b40f36eb77128b3c6"
+      },
+      "mlir-pass-dump.txt": {
+       "bytes": 948059,
+       "sha256": "df3d67b0fff5cc852000aabc12b12d6f02e647e507a087c7cbc867e14e1590a6"
+      },
+      "package-lock.json": {
+       "bytes": 2666667,
+       "sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e"
+      }
+     }
+    },
+    "case": "identity-strides-offset",
+    "case_dir": "/tmp/stride-requalify/counted-identity-strides-offset",
     "comparison": {
      "counted_equals_reference": true,
-     "dense_control_equals_reference": false,
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
      "plan_equals_counted": true,
-     "plan_equals_reference": true
+     "plan_equals_reference": true,
+     "same_staged_layout": true
     },
-    "counted_kernel_addressing": [
-     "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
-     "_sir_x_offsets = 1 + _sir_x_d0 * 32 + _sir_x_d1",
-     "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
-     "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
-     "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
-     "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
-     "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
-     "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
-     "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
-     "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
-     "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
-     "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
-     "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
-     "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
-     "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
-     "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
-     "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
-     "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
-     "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
-     "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
-     "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
-     "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
-     "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
-     "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
-     "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
-     "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
-     "_sir_out_offsets = 1 + _sir_out_d0 * 32 + _sir_out_d1",
-     "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
-    ],
-    "dense_control_record": {
-     "addressing": [
-      "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
-      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
-      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
-      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
-      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
-      "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
-      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+    "counted": {
+     "actual_equals_expected": true,
+     "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "artifacts": [
+      "runs/compiled/actual-physical.bin",
+      "runs/compiled/actual.bin",
+      "runs/compiled/compiler-llir.ir",
+      "runs/compiled/compiler-ptx.ir",
+      "runs/compiled/compiler-source.ir",
+      "runs/compiled/compiler-ttgir.ir",
+      "runs/compiled/compiler-ttir.ir",
+      "runs/compiled/compiler.log",
+      "runs/compiled/environment.json",
+      "runs/compiled/kernel.py",
+      "runs/compiled/package-lock.json",
+      "runs/compiled/run.json",
+      "runs/compiled/stderr.log",
+      "runs/compiled/stdout.log",
+      "runs/compiled/tensor-layout.json",
+      "runs/compiled/worker-phase.json",
+      "runs/compiled/worker-staging.json",
+      "runs/compiled/worker-timing.json"
      ],
-     "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
-     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+     "buffer_layouts": {
+      "inputs": [
+       {
+        "axis_order": [
+         1,
+         0
+        ],
+        "element_offset": 1,
+        "element_strides": [
+         32,
+         1
+        ],
+        "name": "x",
+        "shape": [
+         8,
+         31
+        ],
+        "storage_span": 256
+       }
+      ],
+      "output": {
+       "axis_order": [
+        1,
+        0
+       ],
+       "element_offset": 1,
+       "element_strides": [
+        32,
+        1
+       ],
+       "shape": [
+        8,
+        31
+       ],
+       "storage_span": 256
+      }
+     },
+     "campaign_valid": true,
+     "comparison": {
+      "max_absolute_error": [
+       0,
+       1
+      ],
+      "max_relative_error": [
+       0,
+       1
+      ],
+      "mismatches": [],
+      "mismatching_indices": [],
+      "status": "pass"
+     },
+     "compiler": {
+      "executable": "/host/refractir-requalify-20261016/symirc",
+      "flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include; solver=bitwuzla; triton=32f06df4bf1c30885ff61ee3488836ca81ed65f0; num_stages=1; enable_fp_fusion=False",
+      "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+     },
+     "environment": {
+      "campaign_available": true,
+      "cuda_version": "12.1",
+      "driver_version": "535.274.02",
+      "failure_reasons": [],
+      "gpus": [
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       }
+      ],
+      "package_lock_file": "package-lock.json",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "python_version": "3.12.15",
+      "refractir_revision": "unavailable",
+      "schema": "refractir.tensor-environment.v1",
+      "status": "environment_available",
+      "torch_version": "2.5.1+cu121",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+      "triton_version": "3.9.0+git32f06df4"
+     },
+     "exit_code": 0,
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "guard_verdict": {
+      "allocation_slots": 264,
+      "changed_slot_count": 248,
+      "guard_or_gap_slots_changed": [],
+      "logical_slots_changed": 248,
+      "profile": "v3"
+     },
+     "kernel_sha256": "f2f3b74807fd0ff3686af16886b1ee5771df9c9aa4b56523892258f7ac45605d",
+     "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+     "route": "test.lib.run_triton_tests --mode compiled",
+     "run_record": "/tmp/stride-requalify/counted-identity-strides-offset/runs/compiled/run.json",
+     "selected_device": 0,
+     "status": "pass",
+     "working_tree_dirty": "true"
     },
+    "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
     "guard_envelope": {
      "prefix": 3,
      "suffix": 5
@@ -167,322 +1535,574 @@
      ],
      "storage_span": 256
     },
+    "output_canary_by_dtype": {
+     "f32": "3f000002",
+     "i32": "aaaaaaaa"
+    },
     "padding_by_dtype": {
      "f32": "3f800001",
      "i32": "55555555"
     },
-    "plan_record": {
-     "addressing": [
-      "load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]",
-      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
-      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
-      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
-      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
-      "store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]",
-      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
-     ],
-     "emitted_sha256": "9cf9af8a69d8c0e00731e4ef5aed75d053a53e146a04cb9b40f36eb77128b3c6",
-     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
-     "family": {
-      "compute": "reduction-blocked-4-warps",
-      "consumer_views": {},
-      "load": "reduction-blocked-4-warps",
-      "name": "all-same-layout",
-      "reduction": "reduction-blocked-4-warps",
+    "plan": {
+     "actual_equals_expected": true,
+     "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "campaign_valid": true,
+     "case_status": "pass",
+     "emission": {
+      "addressing": [
+       "load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]"
+      ],
+      "sha256": "9cf9af8a69d8c0e00731e4ef5aed75d053a53e146a04cb9b40f36eb77128b3c6"
+     },
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "guard_verdict": {
+      "allocation_slots": 264,
+      "changed_slot_count": 248,
+      "guard_or_gap_slots_changed": [],
+      "logical_slots_changed": 248,
+      "profile": "v3"
+     },
+     "invocation_qualification": {
+      "campaign_available": true,
+      "campaign_valid": true,
+      "compiler": {
+       "executable": "/host/refractir-requalify-20261016/symirc",
+       "flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include; solver=bitwuzla; triton=32f06df4bf1c30885ff61ee3488836ca81ed65f0; num_stages=1; enable_fp_fusion=False",
+       "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+      },
+      "device": {
+       "compute_capability": [
+        7,
+        0
+       ],
+       "name": "Tesla V100-SXM2-32GB"
+      },
+      "driver_version": "535.274.02",
+      "emitter_modules": {
+       "test.lib.tensor_exact_f32": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_exact_f32.py",
+        "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
+       },
+       "test.lib.tensor_gluon": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon.py",
+        "sha256": "7e047e49b6bbe72d304644dadb3c07c58512e7f8d58517a6d724b7c3724526c2"
+       },
+       "test.lib.tensor_gluon_lowering": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon_lowering.py",
+        "sha256": "3fb3498b2dc7d3ea666da3fe6cf9220b79b4d8ea4f1ff80892c92f0d5b1ef741"
+       },
+       "test.lib.tensor_layout": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_layout.py",
+        "sha256": "7e313abbe24dffebe1c8f36ff84bdeb735b134c65cb85bcf8c4f8bebf06c041a"
+       },
+       "test.tensor.gluon.run_generated_region": {
+        "path": "/host/refractir-requalify-20261016/test/tensor/gluon/run_generated_region.py",
+        "sha256": "eb1389f98dcd21d96a259b3d8bbbd485d9a0496f6ce8b4b29aa705eae2147877"
+       }
+      },
+      "environment_file": "/tmp/stride-requalify/ir/plan-identity-strides-offset/environment.json",
+      "environment_status": "environment_available",
+      "failure_reasons": [],
+      "package_lock_file": "/tmp/stride-requalify/ir/plan-identity-strides-offset/package-lock.json",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "python_version": "3.12.15",
+      "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+      "schema": "refractir.tensor-run-qualification.v1",
+      "torch_version": "2.5.1+cu121",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+      "triton_version": "3.9.0+git32f06df4",
+      "working_tree_dirty": "true"
+     },
+     "measurement": {
+      "first_launch_wall_s_including_compilation": 2.810249676986132,
+      "launches_per_batch": 10,
+      "measured_launches": 30,
+      "measurement_batches": 3,
+      "median_gpu_event_ms_per_launch": 0.039628800749778745,
+      "warmup_launches": 3
+     },
+     "physical_layout": {
+      "allocation_slots": 264,
+      "canary_bits": "0200003f",
+      "guard_envelope": {
+       "prefix": 3,
+       "suffix": 5
+      },
+      "padding_bits": "0100803f",
+      "profile": "v3",
+      "record": {
+       "axis_order": [
+        1,
+        0
+       ],
+       "element_offset": 1,
+       "element_strides": [
+        32,
+        1
+       ],
+       "shape": [
+        8,
+        31
+       ],
+       "storage_span": 256
+      }
+     },
+     "plan": {
+      "arguments": [
+       {
+        "layout": "reduction-blocked-4-warps",
+        "parameter": "reduction_blocked_4_warps"
+       }
+      ],
+      "family": "all-same-layout",
+      "layout_parameters": [
+       "reduction_blocked_4_warps"
+      ],
+      "layouts": {
+       "reduction-blocked-4-warps": {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       }
+      },
+      "pool": [
+       {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0177",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         16
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         2,
+         2
+        ]
+       },
+       {
+        "name": "blocked-0862",
+        "order": [
+         0,
+         1
+        ],
+        "size_per_thread": [
+         8,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0427",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         2,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         1,
+         4
+        ]
+       }
+      ],
+      "roles": {
+       "compute": "reduction-blocked-4-warps",
+       "consumer_views": {},
+       "load": "reduction-blocked-4-warps",
+       "name": "all-same-layout",
+       "reduction": "reduction-blocked-4-warps",
+       "shape": [
+        8,
+        31
+       ],
+       "state_layout": null,
+       "store": "reduction-blocked-4-warps",
+       "tile": [
+        8,
+        32
+       ]
+      },
       "shape": [
        8,
        31
       ],
-      "state_layout": null,
-      "store": "reduction-blocked-4-warps",
       "tile": [
        8,
        32
       ]
      },
-     "layout_arguments": [
-      "reduction-blocked-4-warps"
-     ],
-     "layout_parameters": [
-      "reduction_blocked_4_warps"
-     ],
-     "pool": [
-      {
-       "name": "reduction-blocked-4-warps",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        1,
-        1
-       ],
-       "threads_per_warp": [
-        1,
-        32
-       ],
-       "warps_per_cta": [
-        4,
-        1
-       ]
-      },
-      {
-       "name": "blocked-0177",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        1,
-        16
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        2,
-        2
-       ]
-      },
-      {
-       "name": "blocked-0862",
-       "order": [
-        0,
-        1
-       ],
-       "size_per_thread": [
-        8,
-        32
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        4,
-        1
-       ]
-      },
-      {
-       "name": "blocked-0427",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        2,
-        32
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        1,
-        4
-       ]
-      }
-     ],
-     "tile": [
-      8,
-      32
-     ]
-    }
-   },
-   "axis_order": [
-    1,
-    0
-   ],
-   "case": "identity-strides-offset",
-   "case_dir": "/tmp/strides/counted-identity-strides-offset",
-   "counted_kernel_sha256": "f2f3b74807fd0ff3686af16886b1ee5771df9c9aa4b56523892258f7ac45605d",
-   "element_offset": 1,
-   "element_strides": [
-    32,
-    1
-   ],
-   "evidence_kind": {
-    "artifacts": [
-     "program.sir",
-     "inputs.bin",
-     "expected.bin",
-     "kernel.py",
-     "tensor-layout.json"
+     "qualification": {
+      "campaign_valid": true,
+      "compiler_sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0"
+     },
+     "report": "/tmp/stride-requalify/reports/plan-identity-strides-offset.json",
+     "route": "test.tensor.gluon.run_generated_region --program --layout --plan-family",
+     "status": "pass"
+    },
+    "profile": "tensor-v3",
+    "request": {
+     "element_offset": 1,
+     "row_padding": 0
+    },
+    "status": "built",
+    "tile_shape": [
+     8,
+     32
     ],
-    "kind": "construction",
-    "status": "construction_checked"
+    "witness_proposal": "sparse-final-lanes",
+    "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
    },
-   "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-   "guard_envelope": {
-    "prefix": 3,
-    "suffix": 5
-   },
-   "launch": {
-    "enable_fp_fusion": false,
-    "num_stages": 1,
-    "num_warps": 4
-   },
-   "padding_by_dtype": {
-    "f32": "3f800001",
-    "i32": "55555555"
-   },
-   "profile": "tensor-v3",
-   "request": {
-    "element_offset": 1,
-    "row_padding": 0
-   },
-   "shape": [
-    8,
-    31
-   ],
-   "status": "built",
-   "storage_span": 256,
-   "tile_shape": [
-    8,
-    32
-   ],
-   "witness": "sparse-final-lanes",
-   "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
-  },
-  {
-   "arms": {
-    "arms": {
-     "counted": {
-      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "complete_logical_reference": true,
-      "exit_code": 0,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 270,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [],
-       "logical_slots_changed": 248,
-       "profile": "v3"
+   {
+    "artifacts": {
+     "counted_artifacts": {
+      "actual-physical.bin": {
+       "bytes": 1080,
+       "sha256": "57c64b651526984ede0c9a09d9d8a70d818bef221e8ab0323c2315abf649dbe7"
       },
-      "ir_stages": {
-       "llir": "ce46933a016c13585ea2ea6c0ded530731cc547e8962cc0a27a6e52c712bd93a",
-       "ptx": "907b717282e8365c06a7a4e9b3a663de3bb576e0347de0a0a3d4954611669421",
-       "source": "8347a7144e642db9da2ec1fa905b60fe00d6ca0bbf35320d3c5e866422a32286",
-       "ttgir": "77d6b38fc2da9c6b5dcf27c02f337c95ac5289060fd4088d3b1bf38eb1f6cb5c",
-       "ttir": "7c402a96475d815e1f0f4c667c4e2be3769443f086aabaac730fba64330092f8"
+      "actual.bin": {
+       "bytes": 992,
+       "sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2"
       },
-      "status": "pass",
-      "stderr_tail": []
+      "compiler-llir.ir": {
+       "bytes": 10474,
+       "sha256": "69c18a5c77b7e8af15ac57ca1c935b17af9f7fdbe76b91a68d93f446a5f29075"
+      },
+      "compiler-ptx.ir": {
+       "bytes": 16514,
+       "sha256": "90585b455587a74ec936a658252cfdcb5b437e25d14206ff571acf7d901033c5"
+      },
+      "compiler-source.ir": {
+       "bytes": 282808,
+       "sha256": "886d9aec1ab9861a85503339564930a7b3c1c854df7bdb7e62e3eec0a015a868"
+      },
+      "compiler-ttgir.ir": {
+       "bytes": 10237,
+       "sha256": "0470913f59e9f5424a3b3bc225eae196d3ea599d8093dc830cca08078ed9776f"
+      },
+      "compiler-ttir.ir": {
+       "bytes": 9331,
+       "sha256": "fa48140f90f72434eaac815fb0ec9705d4d3fe04fcb274ff55d30872f3de756a"
+      },
+      "compiler.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "environment.json": {
+       "bytes": 1556,
+       "sha256": "127d6f0d5c4d0bb7005ec30303fedb3918ff8d3b45185935bb68cd33006e1af0"
+      },
+      "kernel.py": {
+       "bytes": 28013,
+       "sha256": "6b4f0c364e333204000a80aaaab338f333475e09ad92b9f64e2ad9df23183ac3"
+      },
+      "package-lock.json": {
+       "bytes": 2666667,
+       "sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e"
+      },
+      "run.json": {
+       "bytes": 2706,
+       "sha256": "99a0f43a0ae996b325b9da1409ed74619162ea4999ebf83a3b94b3b81b70d215"
+      },
+      "stderr.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "tensor-layout.json": {
+       "bytes": 465,
+       "sha256": "eb6a4ea160634ffc463f9967b27f729026c624ba06a30ce594672cce2fd8398f"
+      },
+      "worker-phase.json": {
+       "bytes": 21,
+       "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+      },
+      "worker-staging.json": {
+       "bytes": 413,
+       "sha256": "05c7421debb2084364bfbb808280a68a0a2b6cd0dadca93ea8fe0127b68acf35"
+      },
+      "worker-timing.json": {
+       "bytes": 330,
+       "sha256": "1d2c3a8ae50f02ae187da5b69957df0abea6427cab18ddbcb029ca64da98fd5d"
+      }
      },
-     "plan": {
-      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "complete_logical_reference": true,
-      "exit_code": 0,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 270,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [],
-       "logical_slots_changed": 248,
-       "profile": "v3"
-      },
-      "ir_stages": {
-       "glir": "8cf74d0c5ed2e9c9dbb5f3d8dc0fac65b93f44cfe50eeafaaf7559f7d0958e6c",
-       "llir": "225531b8ede570604f2c93dd51195a99c014773b59147e674a8c6b369cdf8316",
-       "ptx": "db7cef603dcd5e22353d9a79049c952e22af44660eb4fc6dcdc0c2944b1ebfab",
-       "source": "8cf74d0c5ed2e9c9dbb5f3d8dc0fac65b93f44cfe50eeafaaf7559f7d0958e6c",
-       "ttgir": "1cbec229b511fabf15d095b70078ee8f0ed689cbe8d12310b8aa799eec8fca2b"
-      },
-      "status": "pass",
-      "stderr_tail": []
+     "counted_ir_stages": {
+      "llir": "69c18a5c77b7e8af15ac57ca1c935b17af9f7fdbe76b91a68d93f446a5f29075",
+      "ptx": "90585b455587a74ec936a658252cfdcb5b437e25d14206ff571acf7d901033c5",
+      "source": "886d9aec1ab9861a85503339564930a7b3c1c854df7bdb7e62e3eec0a015a868",
+      "ttgir": "0470913f59e9f5424a3b3bc225eae196d3ea599d8093dc830cca08078ed9776f",
+      "ttir": "fa48140f90f72434eaac815fb0ec9705d4d3fe04fcb274ff55d30872f3de756a"
      },
-     "plan_dense_control": {
-      "actual_sha256": "4f6940c96d7db03f843c612499b77ed2e171553108285c57f15f8093c9a57e2e",
-      "complete_logical_reference": false,
-      "exit_code": 1,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 270,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [
-        "gap-31",
-        "gap-32",
-        "gap-64",
-        "gap-65",
-        "gap-97",
-        "gap-98",
-        "gap-130",
-        "gap-131",
-        "gap-163",
-        "gap-164",
-        "gap-196",
-        "gap-197",
-        "gap-229",
-        "gap-230"
-       ],
-       "logical_slots_changed": 234,
-       "profile": "v3"
+     "plan_artifacts": {
+      "all-same-layout.llir": {
+       "bytes": 10069,
+       "sha256": "ae997a31016203b0726a52c303af578d4c7cab176e8fa78481b1dc86916a1690"
       },
-      "ir_stages": {
-       "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
-       "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
-       "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
-       "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
-       "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+      "all-same-layout.ptx": {
+       "bytes": 17053,
+       "sha256": "22208e07125e55023eb849eaf9da3b6bd2285c080259f95e68090ac326843640"
       },
-      "status": "failed",
-      "stderr_tail": [
-       "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-31', 'gap-32', 'gap-64', 'gap-65', 'gap-97', 'gap-98', 'gap-130', 'gap-131', 'gap-163', 'gap-164', 'gap-196', 'gap-197', 'gap-229', 'gap-230']"
-      ]
+      "all-same-layout.ttgir": {
+       "bytes": 10028,
+       "sha256": "4638ac49b68b5400773c120a793809e94f9455de003242054b175a4b7a94338e"
+      },
+      "calibration-add-one-output-mutant.llir": {
+       "bytes": 10228,
+       "sha256": "b11547d9a3eafbb35def23a62659e8f98ee41e44432afa05d2253c366a006f46"
+      },
+      "calibration-add-one-output-mutant.ptx": {
+       "bytes": 17535,
+       "sha256": "6a267921df4c35bcafa5dba05a9f53a5336793d116a1f5666b5c5235d9fdf538"
+      },
+      "calibration-add-one-output-mutant.py": {
+       "bytes": 2617,
+       "sha256": "0a22df14ea2e67e15fc70531935a2b3f71d28b996d4557beb80d620aa7edf2e2"
+      },
+      "calibration-add-one-output-mutant.ttgir": {
+       "bytes": 10645,
+       "sha256": "f899872c2eaf0432aabb496559cbe796cdb2739f5b2816a6084993c4fe547471"
+      },
+      "environment.json": {
+       "bytes": 1556,
+       "sha256": "127d6f0d5c4d0bb7005ec30303fedb3918ff8d3b45185935bb68cd33006e1af0"
+      },
+      "generated-region-kernel.py": {
+       "bytes": 2591,
+       "sha256": "50055cd37bc6252b98d3931b887e2dd1d8e42c59e652973e7819e35a34006ad1"
+      },
+      "mlir-pass-dump.txt": {
+       "bytes": 910985,
+       "sha256": "91c4015b780cc8f3f489b64094b097d9b1d4a3ece570d22e76b03c877da4ce2a"
+      },
+      "package-lock.json": {
+       "bytes": 2666667,
+       "sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e"
+      }
      }
     },
     "case": "strided-zero-offset",
-    "case_directory": "counted-strided-zero-offset",
+    "case_dir": "/tmp/stride-requalify/counted-strided-zero-offset",
     "comparison": {
      "counted_equals_reference": true,
-     "dense_control_equals_reference": false,
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
      "plan_equals_counted": true,
-     "plan_equals_reference": true
+     "plan_equals_reference": true,
+     "same_staged_layout": true
     },
-    "counted_kernel_addressing": [
-     "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
-     "_sir_x_offsets = _sir_x_d0 * 33 + _sir_x_d1",
-     "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
-     "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
-     "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
-     "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
-     "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
-     "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
-     "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
-     "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
-     "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
-     "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
-     "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
-     "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
-     "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
-     "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
-     "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
-     "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
-     "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
-     "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
-     "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
-     "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
-     "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
-     "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
-     "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
-     "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
-     "_sir_out_offsets = _sir_out_d0 * 33 + _sir_out_d1",
-     "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
-    ],
-    "dense_control_record": {
-     "addressing": [
-      "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
-      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
-      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
-      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
-      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
-      "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
-      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+    "counted": {
+     "actual_equals_expected": true,
+     "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "artifacts": [
+      "runs/compiled/actual-physical.bin",
+      "runs/compiled/actual.bin",
+      "runs/compiled/compiler-llir.ir",
+      "runs/compiled/compiler-ptx.ir",
+      "runs/compiled/compiler-source.ir",
+      "runs/compiled/compiler-ttgir.ir",
+      "runs/compiled/compiler-ttir.ir",
+      "runs/compiled/compiler.log",
+      "runs/compiled/environment.json",
+      "runs/compiled/kernel.py",
+      "runs/compiled/package-lock.json",
+      "runs/compiled/run.json",
+      "runs/compiled/stderr.log",
+      "runs/compiled/stdout.log",
+      "runs/compiled/tensor-layout.json",
+      "runs/compiled/worker-phase.json",
+      "runs/compiled/worker-staging.json",
+      "runs/compiled/worker-timing.json"
      ],
-     "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
-     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+     "buffer_layouts": {
+      "inputs": [
+       {
+        "axis_order": [
+         1,
+         0
+        ],
+        "element_offset": 0,
+        "element_strides": [
+         33,
+         1
+        ],
+        "name": "x",
+        "shape": [
+         8,
+         31
+        ],
+        "storage_span": 262
+       }
+      ],
+      "output": {
+       "axis_order": [
+        1,
+        0
+       ],
+       "element_offset": 0,
+       "element_strides": [
+        33,
+        1
+       ],
+       "shape": [
+        8,
+        31
+       ],
+       "storage_span": 262
+      }
+     },
+     "campaign_valid": true,
+     "comparison": {
+      "max_absolute_error": [
+       0,
+       1
+      ],
+      "max_relative_error": [
+       0,
+       1
+      ],
+      "mismatches": [],
+      "mismatching_indices": [],
+      "status": "pass"
+     },
+     "compiler": {
+      "executable": "/host/refractir-requalify-20261016/symirc",
+      "flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include; solver=bitwuzla; triton=32f06df4bf1c30885ff61ee3488836ca81ed65f0; num_stages=1; enable_fp_fusion=False",
+      "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+     },
+     "environment": {
+      "campaign_available": true,
+      "cuda_version": "12.1",
+      "driver_version": "535.274.02",
+      "failure_reasons": [],
+      "gpus": [
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       }
+      ],
+      "package_lock_file": "package-lock.json",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "python_version": "3.12.15",
+      "refractir_revision": "unavailable",
+      "schema": "refractir.tensor-environment.v1",
+      "status": "environment_available",
+      "torch_version": "2.5.1+cu121",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+      "triton_version": "3.9.0+git32f06df4"
+     },
+     "exit_code": 0,
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "guard_verdict": {
+      "allocation_slots": 270,
+      "changed_slot_count": 248,
+      "guard_or_gap_slots_changed": [],
+      "logical_slots_changed": 248,
+      "profile": "v3"
+     },
+     "kernel_sha256": "6b4f0c364e333204000a80aaaab338f333475e09ad92b9f64e2ad9df23183ac3",
+     "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+     "route": "test.lib.run_triton_tests --mode compiled",
+     "run_record": "/tmp/stride-requalify/counted-strided-zero-offset/runs/compiled/run.json",
+     "selected_device": 0,
+     "status": "pass",
+     "working_tree_dirty": "true"
     },
+    "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
     "guard_envelope": {
      "prefix": 3,
      "suffix": 5
@@ -508,323 +2128,574 @@
      ],
      "storage_span": 262
     },
+    "output_canary_by_dtype": {
+     "f32": "3f000002",
+     "i32": "aaaaaaaa"
+    },
     "padding_by_dtype": {
      "f32": "3f800001",
      "i32": "55555555"
     },
-    "plan_record": {
-     "addressing": [
-      "load_offsets = load_rows[:, None] * 33 + load_columns[None, :]",
-      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
-      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
-      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
-      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
-      "store_offsets = store_rows[:, None] * 33 + store_columns[None, :]",
-      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
-     ],
-     "emitted_sha256": "50055cd37bc6252b98d3931b887e2dd1d8e42c59e652973e7819e35a34006ad1",
-     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 33 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 33 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
-     "family": {
-      "compute": "reduction-blocked-4-warps",
-      "consumer_views": {},
-      "load": "reduction-blocked-4-warps",
-      "name": "all-same-layout",
-      "reduction": "reduction-blocked-4-warps",
+    "plan": {
+     "actual_equals_expected": true,
+     "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "campaign_valid": true,
+     "case_status": "pass",
+     "emission": {
+      "addressing": [
+       "load_offsets = load_rows[:, None] * 33 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "store_offsets = store_rows[:, None] * 33 + store_columns[None, :]"
+      ],
+      "sha256": "50055cd37bc6252b98d3931b887e2dd1d8e42c59e652973e7819e35a34006ad1"
+     },
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "guard_verdict": {
+      "allocation_slots": 270,
+      "changed_slot_count": 248,
+      "guard_or_gap_slots_changed": [],
+      "logical_slots_changed": 248,
+      "profile": "v3"
+     },
+     "invocation_qualification": {
+      "campaign_available": true,
+      "campaign_valid": true,
+      "compiler": {
+       "executable": "/host/refractir-requalify-20261016/symirc",
+       "flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include; solver=bitwuzla; triton=32f06df4bf1c30885ff61ee3488836ca81ed65f0; num_stages=1; enable_fp_fusion=False",
+       "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+      },
+      "device": {
+       "compute_capability": [
+        7,
+        0
+       ],
+       "name": "Tesla V100-SXM2-32GB"
+      },
+      "driver_version": "535.274.02",
+      "emitter_modules": {
+       "test.lib.tensor_exact_f32": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_exact_f32.py",
+        "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
+       },
+       "test.lib.tensor_gluon": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon.py",
+        "sha256": "7e047e49b6bbe72d304644dadb3c07c58512e7f8d58517a6d724b7c3724526c2"
+       },
+       "test.lib.tensor_gluon_lowering": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon_lowering.py",
+        "sha256": "3fb3498b2dc7d3ea666da3fe6cf9220b79b4d8ea4f1ff80892c92f0d5b1ef741"
+       },
+       "test.lib.tensor_layout": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_layout.py",
+        "sha256": "7e313abbe24dffebe1c8f36ff84bdeb735b134c65cb85bcf8c4f8bebf06c041a"
+       },
+       "test.tensor.gluon.run_generated_region": {
+        "path": "/host/refractir-requalify-20261016/test/tensor/gluon/run_generated_region.py",
+        "sha256": "eb1389f98dcd21d96a259b3d8bbbd485d9a0496f6ce8b4b29aa705eae2147877"
+       }
+      },
+      "environment_file": "/tmp/stride-requalify/ir/plan-strided-zero-offset/environment.json",
+      "environment_status": "environment_available",
+      "failure_reasons": [],
+      "package_lock_file": "/tmp/stride-requalify/ir/plan-strided-zero-offset/package-lock.json",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "python_version": "3.12.15",
+      "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+      "schema": "refractir.tensor-run-qualification.v1",
+      "torch_version": "2.5.1+cu121",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+      "triton_version": "3.9.0+git32f06df4",
+      "working_tree_dirty": "true"
+     },
+     "measurement": {
+      "first_launch_wall_s_including_compilation": 2.7916412850026973,
+      "launches_per_batch": 10,
+      "measured_launches": 30,
+      "measurement_batches": 3,
+      "median_gpu_event_ms_per_launch": 0.03461120128631592,
+      "warmup_launches": 3
+     },
+     "physical_layout": {
+      "allocation_slots": 270,
+      "canary_bits": "0200003f",
+      "guard_envelope": {
+       "prefix": 3,
+       "suffix": 5
+      },
+      "padding_bits": "0100803f",
+      "profile": "v3",
+      "record": {
+       "axis_order": [
+        1,
+        0
+       ],
+       "element_offset": 0,
+       "element_strides": [
+        33,
+        1
+       ],
+       "shape": [
+        8,
+        31
+       ],
+       "storage_span": 262
+      }
+     },
+     "plan": {
+      "arguments": [
+       {
+        "layout": "reduction-blocked-4-warps",
+        "parameter": "reduction_blocked_4_warps"
+       }
+      ],
+      "family": "all-same-layout",
+      "layout_parameters": [
+       "reduction_blocked_4_warps"
+      ],
+      "layouts": {
+       "reduction-blocked-4-warps": {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       }
+      },
+      "pool": [
+       {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0177",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         16
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         2,
+         2
+        ]
+       },
+       {
+        "name": "blocked-0862",
+        "order": [
+         0,
+         1
+        ],
+        "size_per_thread": [
+         8,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0427",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         2,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         1,
+         4
+        ]
+       }
+      ],
+      "roles": {
+       "compute": "reduction-blocked-4-warps",
+       "consumer_views": {},
+       "load": "reduction-blocked-4-warps",
+       "name": "all-same-layout",
+       "reduction": "reduction-blocked-4-warps",
+       "shape": [
+        8,
+        31
+       ],
+       "state_layout": null,
+       "store": "reduction-blocked-4-warps",
+       "tile": [
+        8,
+        32
+       ]
+      },
       "shape": [
        8,
        31
       ],
-      "state_layout": null,
-      "store": "reduction-blocked-4-warps",
       "tile": [
        8,
        32
       ]
      },
-     "layout_arguments": [
-      "reduction-blocked-4-warps"
-     ],
-     "layout_parameters": [
-      "reduction_blocked_4_warps"
-     ],
-     "pool": [
-      {
-       "name": "reduction-blocked-4-warps",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        1,
-        1
-       ],
-       "threads_per_warp": [
-        1,
-        32
-       ],
-       "warps_per_cta": [
-        4,
-        1
-       ]
-      },
-      {
-       "name": "blocked-0177",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        1,
-        16
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        2,
-        2
-       ]
-      },
-      {
-       "name": "blocked-0862",
-       "order": [
-        0,
-        1
-       ],
-       "size_per_thread": [
-        8,
-        32
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        4,
-        1
-       ]
-      },
-      {
-       "name": "blocked-0427",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        2,
-        32
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        1,
-        4
-       ]
-      }
-     ],
-     "tile": [
-      8,
-      32
-     ]
-    }
-   },
-   "axis_order": [
-    1,
-    0
-   ],
-   "case": "strided-zero-offset",
-   "case_dir": "/tmp/strides/counted-strided-zero-offset",
-   "counted_kernel_sha256": "6b4f0c364e333204000a80aaaab338f333475e09ad92b9f64e2ad9df23183ac3",
-   "element_offset": 0,
-   "element_strides": [
-    33,
-    1
-   ],
-   "evidence_kind": {
-    "artifacts": [
-     "program.sir",
-     "inputs.bin",
-     "expected.bin",
-     "kernel.py",
-     "tensor-layout.json"
+     "qualification": {
+      "campaign_valid": true,
+      "compiler_sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0"
+     },
+     "report": "/tmp/stride-requalify/reports/plan-strided-zero-offset.json",
+     "route": "test.tensor.gluon.run_generated_region --program --layout --plan-family",
+     "status": "pass"
+    },
+    "profile": "tensor-v3",
+    "request": {
+     "element_offset": 0,
+     "row_padding": 1
+    },
+    "status": "built",
+    "tile_shape": [
+     8,
+     32
     ],
-    "kind": "construction",
-    "status": "construction_checked"
+    "witness_proposal": "sparse-final-lanes",
+    "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
    },
-   "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-   "guard_envelope": {
-    "prefix": 3,
-    "suffix": 5
-   },
-   "launch": {
-    "enable_fp_fusion": false,
-    "num_stages": 1,
-    "num_warps": 4
-   },
-   "padding_by_dtype": {
-    "f32": "3f800001",
-    "i32": "55555555"
-   },
-   "profile": "tensor-v3",
-   "request": {
-    "element_offset": 0,
-    "row_padding": 1
-   },
-   "shape": [
-    8,
-    31
-   ],
-   "status": "built",
-   "storage_span": 262,
-   "tile_shape": [
-    8,
-    32
-   ],
-   "witness": "sparse-final-lanes",
-   "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
-  },
-  {
-   "arms": {
-    "arms": {
-     "counted": {
-      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "complete_logical_reference": true,
-      "exit_code": 0,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 271,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [],
-       "logical_slots_changed": 248,
-       "profile": "v3"
+   {
+    "artifacts": {
+     "counted_artifacts": {
+      "actual-physical.bin": {
+       "bytes": 1084,
+       "sha256": "e47bf909b583da2064048e048a257b0a599cee59b8760c15fef606777e0fd95c"
       },
-      "ir_stages": {
-       "llir": "ecd5ce78bda94808fb80e72f8bb9e21d7085caacfac4020f9403ac5096003472",
-       "ptx": "2093fe99d557625f92b092f64648192b9517964604ec32f824219eca7f76eb79",
-       "source": "a4297fe017528d90d3068d5cd6ff4e6e897ddc784d38b6853f63d67eb5fb8f15",
-       "ttgir": "0dddc0455f8704a8a5ab94046097467616130a6b5f74ffa9941e64c8dcbfed2a",
-       "ttir": "c882e1362a703669670cce293ae3037b9c73b229c5c8c3c49e533f7f564ee6bf"
+      "actual.bin": {
+       "bytes": 992,
+       "sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2"
       },
-      "status": "pass",
-      "stderr_tail": []
+      "compiler-llir.ir": {
+       "bytes": 10562,
+       "sha256": "8f8966ee7b2cca848a1da96cf7d425dbcde407c91925091884bf6b82803a06df"
+      },
+      "compiler-ptx.ir": {
+       "bytes": 16521,
+       "sha256": "a4c47c80dc7310461626b12f0abd16b7a27e87557cd6eb194a79fc54a59c2de2"
+      },
+      "compiler-source.ir": {
+       "bytes": 282702,
+       "sha256": "c21b56ed9ae8a8b3183427d98b942b68956f9087ec3d5426f55699ef25f4e580"
+      },
+      "compiler-ttgir.ir": {
+       "bytes": 10410,
+       "sha256": "895b7d8aac6cb4121c91d94ba817652fdeed5e21e35c41203823b5fc9016866b"
+      },
+      "compiler-ttir.ir": {
+       "bytes": 9486,
+       "sha256": "cdddf007105600fbf058261727cc332a9306b3df95b9f1e84fd920a8844f8bea"
+      },
+      "compiler.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "environment.json": {
+       "bytes": 1556,
+       "sha256": "127d6f0d5c4d0bb7005ec30303fedb3918ff8d3b45185935bb68cd33006e1af0"
+      },
+      "kernel.py": {
+       "bytes": 28021,
+       "sha256": "c5ca51703c1d6d043d68143f4710253b450a891d988deb2334f75038de169415"
+      },
+      "package-lock.json": {
+       "bytes": 2666667,
+       "sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e"
+      },
+      "run.json": {
+       "bytes": 2706,
+       "sha256": "3976da471e126182c1c1d447b9b1e908fa259aa3dafaa7dd21ec8faa23269952"
+      },
+      "stderr.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout.log": {
+       "bytes": 0,
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "tensor-layout.json": {
+       "bytes": 465,
+       "sha256": "f96ea3fd1a947f11a4a3b5c05d094d707cca59ec8d360b87ff0fdf3f4208e149"
+      },
+      "worker-phase.json": {
+       "bytes": 21,
+       "sha256": "38415b1f6d2a509807f5236060d4abcaae7e1a48544eb7b60e9bdf69753799f7"
+      },
+      "worker-staging.json": {
+       "bytes": 413,
+       "sha256": "6b8208479405674dee2a5a318fe1e0ec03461a6f5c3bce886892853a97f15057"
+      },
+      "worker-timing.json": {
+       "bytes": 332,
+       "sha256": "b04f9b680309ba24aac862f6842102ae7d671f1b748a4a5cc424e5c8be82f8b1"
+      }
      },
-     "plan": {
-      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "complete_logical_reference": true,
-      "exit_code": 0,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 271,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [],
-       "logical_slots_changed": 248,
-       "profile": "v3"
-      },
-      "ir_stages": {
-       "glir": "5de6d9a0ec7698a4648ca7565d53ff30a5ac17a8554792ceff82f69ffd6ef273",
-       "llir": "024c1b185705e1c08bd90294cf2025829f38487e2aecef2254c1b3baa6e3aa5a",
-       "ptx": "b641545c920603f23cb2930d7ffcf8e059f44b820e21bd0b5fbd2a77021be2fa",
-       "source": "5de6d9a0ec7698a4648ca7565d53ff30a5ac17a8554792ceff82f69ffd6ef273",
-       "ttgir": "bc13236d12024046997f89978e71769fc2543ac6a1935d8dda83cd5eb0b35e5b"
-      },
-      "status": "pass",
-      "stderr_tail": []
+     "counted_ir_stages": {
+      "llir": "8f8966ee7b2cca848a1da96cf7d425dbcde407c91925091884bf6b82803a06df",
+      "ptx": "a4c47c80dc7310461626b12f0abd16b7a27e87557cd6eb194a79fc54a59c2de2",
+      "source": "c21b56ed9ae8a8b3183427d98b942b68956f9087ec3d5426f55699ef25f4e580",
+      "ttgir": "895b7d8aac6cb4121c91d94ba817652fdeed5e21e35c41203823b5fc9016866b",
+      "ttir": "cdddf007105600fbf058261727cc332a9306b3df95b9f1e84fd920a8844f8bea"
      },
-     "plan_dense_control": {
-      "actual_sha256": "1c927eddd6ca75253bee1892a6a1b3e0d1582a851c6e48e0db6e61ae3a04d6d4",
-      "complete_logical_reference": false,
-      "exit_code": 1,
-      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-      "guard_verdict": {
-       "allocation_slots": 271,
-       "changed_slot_count": 248,
-       "guard_or_gap_slots_changed": [
-        "gap-0",
-        "gap-32",
-        "gap-33",
-        "gap-65",
-        "gap-66",
-        "gap-98",
-        "gap-99",
-        "gap-131",
-        "gap-132",
-        "gap-164",
-        "gap-165",
-        "gap-197",
-        "gap-198",
-        "gap-230",
-        "gap-231"
-       ],
-       "logical_slots_changed": 233,
-       "profile": "v3"
+     "plan_artifacts": {
+      "all-same-layout.llir": {
+       "bytes": 10158,
+       "sha256": "91d34d854c113ce600c78d283b2af7f7781fb293c348732e0c1259df70ca9767"
       },
-      "ir_stages": {
-       "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
-       "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
-       "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
-       "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
-       "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+      "all-same-layout.ptx": {
+       "bytes": 17060,
+       "sha256": "82339db13faac9f043686d56154641823905f9bb55f106c30afbeb01988ad631"
       },
-      "status": "failed",
-      "stderr_tail": [
-       "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-0', 'gap-32', 'gap-33', 'gap-65', 'gap-66', 'gap-98', 'gap-99', 'gap-131', 'gap-132', 'gap-164', 'gap-165', 'gap-197', 'gap-198', 'gap-230', 'gap-231']"
-      ]
+      "all-same-layout.ttgir": {
+       "bytes": 10185,
+       "sha256": "54a99e493644fd1f1bb7cc22e0320f370e3c7de5ce203b4064ea00bbe6370d78"
+      },
+      "calibration-add-one-output-mutant.llir": {
+       "bytes": 10317,
+       "sha256": "08c9aee6f83ca8e31581899873b69f28669c34af459ef4124da1b635bbca477e"
+      },
+      "calibration-add-one-output-mutant.ptx": {
+       "bytes": 17542,
+       "sha256": "8d78c8247ff7960ccc43a8d8573eb8a8308766e132377d3658363e6c90352b98"
+      },
+      "calibration-add-one-output-mutant.py": {
+       "bytes": 2625,
+       "sha256": "173779ea06c57f6c174dfd73101e0edef53682735332a6ba5e6adaa3ff26ad9b"
+      },
+      "calibration-add-one-output-mutant.ttgir": {
+       "bytes": 10808,
+       "sha256": "9f9d5217a530d5a04e10bd27bece285731684a4673b60c460f1080cd3411ead0"
+      },
+      "environment.json": {
+       "bytes": 1556,
+       "sha256": "127d6f0d5c4d0bb7005ec30303fedb3918ff8d3b45185935bb68cd33006e1af0"
+      },
+      "generated-region-kernel.py": {
+       "bytes": 2599,
+       "sha256": "cf4485c80657af97470f419434a90abfe5c3391d55c30677b95958c9fa5c5541"
+      },
+      "mlir-pass-dump.txt": {
+       "bytes": 929771,
+       "sha256": "ff5685a0f33785988663a30bc050010108a228a9a5e4e5115196baa235e0dd47"
+      },
+      "package-lock.json": {
+       "bytes": 2666667,
+       "sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e"
+      }
      }
     },
     "case": "strided-offset",
-    "case_directory": "counted-strided-offset",
+    "case_dir": "/tmp/stride-requalify/counted-strided-offset",
     "comparison": {
      "counted_equals_reference": true,
-     "dense_control_equals_reference": false,
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
      "plan_equals_counted": true,
-     "plan_equals_reference": true
+     "plan_equals_reference": true,
+     "same_staged_layout": true
     },
-    "counted_kernel_addressing": [
-     "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
-     "_sir_x_offsets = 1 + _sir_x_d0 * 33 + _sir_x_d1",
-     "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
-     "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
-     "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
-     "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
-     "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
-     "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
-     "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
-     "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
-     "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
-     "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
-     "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
-     "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
-     "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
-     "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
-     "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
-     "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
-     "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
-     "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
-     "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
-     "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
-     "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
-     "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
-     "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
-     "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
-     "_sir_out_offsets = 1 + _sir_out_d0 * 33 + _sir_out_d1",
-     "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
-    ],
-    "dense_control_record": {
-     "addressing": [
-      "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
-      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
-      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
-      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
-      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
-      "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
-      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+    "counted": {
+     "actual_equals_expected": true,
+     "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "artifacts": [
+      "runs/compiled/actual-physical.bin",
+      "runs/compiled/actual.bin",
+      "runs/compiled/compiler-llir.ir",
+      "runs/compiled/compiler-ptx.ir",
+      "runs/compiled/compiler-source.ir",
+      "runs/compiled/compiler-ttgir.ir",
+      "runs/compiled/compiler-ttir.ir",
+      "runs/compiled/compiler.log",
+      "runs/compiled/environment.json",
+      "runs/compiled/kernel.py",
+      "runs/compiled/package-lock.json",
+      "runs/compiled/run.json",
+      "runs/compiled/stderr.log",
+      "runs/compiled/stdout.log",
+      "runs/compiled/tensor-layout.json",
+      "runs/compiled/worker-phase.json",
+      "runs/compiled/worker-staging.json",
+      "runs/compiled/worker-timing.json"
      ],
-     "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
-     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+     "buffer_layouts": {
+      "inputs": [
+       {
+        "axis_order": [
+         1,
+         0
+        ],
+        "element_offset": 1,
+        "element_strides": [
+         33,
+         1
+        ],
+        "name": "x",
+        "shape": [
+         8,
+         31
+        ],
+        "storage_span": 263
+       }
+      ],
+      "output": {
+       "axis_order": [
+        1,
+        0
+       ],
+       "element_offset": 1,
+       "element_strides": [
+        33,
+        1
+       ],
+       "shape": [
+        8,
+        31
+       ],
+       "storage_span": 263
+      }
+     },
+     "campaign_valid": true,
+     "comparison": {
+      "max_absolute_error": [
+       0,
+       1
+      ],
+      "max_relative_error": [
+       0,
+       1
+      ],
+      "mismatches": [],
+      "mismatching_indices": [],
+      "status": "pass"
+     },
+     "compiler": {
+      "executable": "/host/refractir-requalify-20261016/symirc",
+      "flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include; solver=bitwuzla; triton=32f06df4bf1c30885ff61ee3488836ca81ed65f0; num_stages=1; enable_fp_fusion=False",
+      "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+     },
+     "environment": {
+      "campaign_available": true,
+      "cuda_version": "12.1",
+      "driver_version": "535.274.02",
+      "failure_reasons": [],
+      "gpus": [
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       },
+       {
+        "compute_capability": "7.0",
+        "driver_version": "535.274.02",
+        "name": "Tesla V100-SXM2-32GB"
+       }
+      ],
+      "package_lock_file": "package-lock.json",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "python_version": "3.12.15",
+      "refractir_revision": "unavailable",
+      "schema": "refractir.tensor-environment.v1",
+      "status": "environment_available",
+      "torch_version": "2.5.1+cu121",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+      "triton_version": "3.9.0+git32f06df4"
+     },
+     "exit_code": 0,
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "guard_verdict": {
+      "allocation_slots": 271,
+      "changed_slot_count": 248,
+      "guard_or_gap_slots_changed": [],
+      "logical_slots_changed": 248,
+      "profile": "v3"
+     },
+     "kernel_sha256": "c5ca51703c1d6d043d68143f4710253b450a891d988deb2334f75038de169415",
+     "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+     "route": "test.lib.run_triton_tests --mode compiled",
+     "run_record": "/tmp/stride-requalify/counted-strided-offset/runs/compiled/run.json",
+     "selected_device": 0,
+     "status": "pass",
+     "working_tree_dirty": "true"
     },
+    "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
     "guard_envelope": {
      "prefix": 3,
      "suffix": 5
@@ -850,313 +2721,780 @@
      ],
      "storage_span": 263
     },
+    "output_canary_by_dtype": {
+     "f32": "3f000002",
+     "i32": "aaaaaaaa"
+    },
     "padding_by_dtype": {
      "f32": "3f800001",
      "i32": "55555555"
     },
-    "plan_record": {
-     "addressing": [
-      "load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]",
-      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
-      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
-      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
-      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
-      "store_offsets = 1 + store_rows[:, None] * 33 + store_columns[None, :]",
-      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
-     ],
-     "emitted_sha256": "cf4485c80657af97470f419434a90abfe5c3391d55c30677b95958c9fa5c5541",
-     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = 1 + store_rows[:, None] * 33 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
-     "family": {
-      "compute": "reduction-blocked-4-warps",
-      "consumer_views": {},
-      "load": "reduction-blocked-4-warps",
-      "name": "all-same-layout",
-      "reduction": "reduction-blocked-4-warps",
+    "plan": {
+     "actual_equals_expected": true,
+     "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "campaign_valid": true,
+     "case_status": "pass",
+     "emission": {
+      "addressing": [
+       "load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]",
+       "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+       "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+       "store_offsets = 1 + store_rows[:, None] * 33 + store_columns[None, :]"
+      ],
+      "sha256": "cf4485c80657af97470f419434a90abfe5c3391d55c30677b95958c9fa5c5541"
+     },
+     "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+     "guard_verdict": {
+      "allocation_slots": 271,
+      "changed_slot_count": 248,
+      "guard_or_gap_slots_changed": [],
+      "logical_slots_changed": 248,
+      "profile": "v3"
+     },
+     "invocation_qualification": {
+      "campaign_available": true,
+      "campaign_valid": true,
+      "compiler": {
+       "executable": "/host/refractir-requalify-20261016/symirc",
+       "flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include; solver=bitwuzla; triton=32f06df4bf1c30885ff61ee3488836ca81ed65f0; num_stages=1; enable_fp_fusion=False",
+       "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+      },
+      "device": {
+       "compute_capability": [
+        7,
+        0
+       ],
+       "name": "Tesla V100-SXM2-32GB"
+      },
+      "driver_version": "535.274.02",
+      "emitter_modules": {
+       "test.lib.tensor_exact_f32": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_exact_f32.py",
+        "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
+       },
+       "test.lib.tensor_gluon": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon.py",
+        "sha256": "7e047e49b6bbe72d304644dadb3c07c58512e7f8d58517a6d724b7c3724526c2"
+       },
+       "test.lib.tensor_gluon_lowering": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon_lowering.py",
+        "sha256": "3fb3498b2dc7d3ea666da3fe6cf9220b79b4d8ea4f1ff80892c92f0d5b1ef741"
+       },
+       "test.lib.tensor_layout": {
+        "path": "/host/refractir-requalify-20261016/test/lib/tensor_layout.py",
+        "sha256": "7e313abbe24dffebe1c8f36ff84bdeb735b134c65cb85bcf8c4f8bebf06c041a"
+       },
+       "test.tensor.gluon.run_generated_region": {
+        "path": "/host/refractir-requalify-20261016/test/tensor/gluon/run_generated_region.py",
+        "sha256": "eb1389f98dcd21d96a259b3d8bbbd485d9a0496f6ce8b4b29aa705eae2147877"
+       }
+      },
+      "environment_file": "/tmp/stride-requalify/ir/plan-strided-offset/environment.json",
+      "environment_status": "environment_available",
+      "failure_reasons": [],
+      "package_lock_file": "/tmp/stride-requalify/ir/plan-strided-offset/package-lock.json",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "python_version": "3.12.15",
+      "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+      "schema": "refractir.tensor-run-qualification.v1",
+      "torch_version": "2.5.1+cu121",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+      "triton_version": "3.9.0+git32f06df4",
+      "working_tree_dirty": "true"
+     },
+     "measurement": {
+      "first_launch_wall_s_including_compilation": 2.8012639910448343,
+      "launches_per_batch": 10,
+      "measured_launches": 30,
+      "measurement_batches": 3,
+      "median_gpu_event_ms_per_launch": 0.032153600454330446,
+      "warmup_launches": 3
+     },
+     "physical_layout": {
+      "allocation_slots": 271,
+      "canary_bits": "0200003f",
+      "guard_envelope": {
+       "prefix": 3,
+       "suffix": 5
+      },
+      "padding_bits": "0100803f",
+      "profile": "v3",
+      "record": {
+       "axis_order": [
+        1,
+        0
+       ],
+       "element_offset": 1,
+       "element_strides": [
+        33,
+        1
+       ],
+       "shape": [
+        8,
+        31
+       ],
+       "storage_span": 263
+      }
+     },
+     "plan": {
+      "arguments": [
+       {
+        "layout": "reduction-blocked-4-warps",
+        "parameter": "reduction_blocked_4_warps"
+       }
+      ],
+      "family": "all-same-layout",
+      "layout_parameters": [
+       "reduction_blocked_4_warps"
+      ],
+      "layouts": {
+       "reduction-blocked-4-warps": {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       }
+      },
+      "pool": [
+       {
+        "name": "reduction-blocked-4-warps",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         1
+        ],
+        "threads_per_warp": [
+         1,
+         32
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0177",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         1,
+         16
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         2,
+         2
+        ]
+       },
+       {
+        "name": "blocked-0862",
+        "order": [
+         0,
+         1
+        ],
+        "size_per_thread": [
+         8,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         4,
+         1
+        ]
+       },
+       {
+        "name": "blocked-0427",
+        "order": [
+         1,
+         0
+        ],
+        "size_per_thread": [
+         2,
+         32
+        ],
+        "threads_per_warp": [
+         32,
+         1
+        ],
+        "warps_per_cta": [
+         1,
+         4
+        ]
+       }
+      ],
+      "roles": {
+       "compute": "reduction-blocked-4-warps",
+       "consumer_views": {},
+       "load": "reduction-blocked-4-warps",
+       "name": "all-same-layout",
+       "reduction": "reduction-blocked-4-warps",
+       "shape": [
+        8,
+        31
+       ],
+       "state_layout": null,
+       "store": "reduction-blocked-4-warps",
+       "tile": [
+        8,
+        32
+       ]
+      },
       "shape": [
        8,
        31
       ],
-      "state_layout": null,
-      "store": "reduction-blocked-4-warps",
       "tile": [
        8,
        32
       ]
      },
-     "layout_arguments": [
-      "reduction-blocked-4-warps"
-     ],
-     "layout_parameters": [
-      "reduction_blocked_4_warps"
-     ],
-     "pool": [
-      {
-       "name": "reduction-blocked-4-warps",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        1,
-        1
-       ],
-       "threads_per_warp": [
-        1,
-        32
-       ],
-       "warps_per_cta": [
-        4,
-        1
-       ]
-      },
-      {
-       "name": "blocked-0177",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        1,
-        16
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        2,
-        2
-       ]
-      },
-      {
-       "name": "blocked-0862",
-       "order": [
-        0,
-        1
-       ],
-       "size_per_thread": [
-        8,
-        32
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        4,
-        1
-       ]
-      },
-      {
-       "name": "blocked-0427",
-       "order": [
-        1,
-        0
-       ],
-       "size_per_thread": [
-        2,
-        32
-       ],
-       "threads_per_warp": [
-        32,
-        1
-       ],
-       "warps_per_cta": [
-        1,
-        4
-       ]
-      }
-     ],
-     "tile": [
-      8,
-      32
-     ]
+     "qualification": {
+      "campaign_valid": true,
+      "compiler_sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36",
+      "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+      "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+      "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0"
+     },
+     "report": "/tmp/stride-requalify/reports/plan-strided-offset.json",
+     "route": "test.tensor.gluon.run_generated_region --program --layout --plan-family",
+     "status": "pass"
+    },
+    "profile": "tensor-v3",
+    "request": {
+     "element_offset": 1,
+     "row_padding": 1
+    },
+    "status": "built",
+    "tile_shape": [
+     8,
+     32
+    ],
+    "witness_proposal": "sparse-final-lanes",
+    "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
+   }
+  ],
+  "environment": {
+   "campaign_available": true,
+   "cuda_version": "12.1",
+   "driver_version": "535.274.02",
+   "failure_reasons": [],
+   "gpus": [
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
+    },
+    {
+     "compute_capability": "7.0",
+     "driver_version": "535.274.02",
+     "name": "Tesla V100-SXM2-32GB"
     }
+   ],
+   "package_lock_file": "package-lock.json",
+   "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+   "python_version": "3.12.15",
+   "refractir_revision": "unavailable",
+   "schema": "refractir.tensor-environment.v1",
+   "status": "environment_available",
+   "torch_version": "2.5.1+cu121",
+   "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+   "triton_version": "3.9.0+git32f06df4"
+  },
+  "modules": {
+   "test.lib.build_tensor_exact_region_case": {
+    "bytes": 21391,
+    "path": "/host/refractir-requalify-20261016/test/lib/build_tensor_exact_region_case.py",
+    "sha256": "085ab3942ae00afe808d02bc19dc4fb8714ea2e847c23da104620764617ac533"
    },
-   "axis_order": [
-    1,
+   "test.lib.run_triton_tests": {
+    "bytes": 30274,
+    "path": "/host/refractir-requalify-20261016/test/lib/run_triton_tests.py",
+    "sha256": "efe74bc8606eff7710bd383e4481846585b01d1fa74179bfd71259dea33ae9c4"
+   },
+   "test.lib.tensor_case": {
+    "bytes": 48233,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_case.py",
+    "sha256": "14748bea1cef5ef1c4f31f3dac41fa18c91b6aa276a0a5512a2202a6367da594"
+   },
+   "test.lib.tensor_compiler_observation": {
+    "bytes": 67040,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_compiler_observation.py",
+    "sha256": "c98c41681de96a13c75de04badb3541db7f0401e54bcedc2955c0d98fa81feba"
+   },
+   "test.lib.tensor_exact_f32": {
+    "bytes": 38552,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_exact_f32.py",
+    "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
+   },
+   "test.lib.tensor_gluon": {
+    "bytes": 26662,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon.py",
+    "sha256": "7e047e49b6bbe72d304644dadb3c07c58512e7f8d58517a6d724b7c3724526c2"
+   },
+   "test.lib.tensor_gluon_lowering": {
+    "bytes": 22238,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon_lowering.py",
+    "sha256": "3fb3498b2dc7d3ea666da3fe6cf9220b79b4d8ea4f1ff80892c92f0d5b1ef741"
+   },
+   "test.lib.tensor_gluon_replay": {
+    "bytes": 12963,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_gluon_replay.py",
+    "sha256": "7c868ebdc2bea03361889e91ea315e0ea73022166453b43ca918d1e8a8ba5f6f"
+   },
+   "test.lib.tensor_input_proposals": {
+    "bytes": 9636,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_input_proposals.py",
+    "sha256": "48033ed1d05551d1c4a7a34a28dc1bb9da34691329b8148ad7d68920396dabbe"
+   },
+   "test.lib.tensor_layout": {
+    "bytes": 13696,
+    "path": "/host/refractir-requalify-20261016/test/lib/tensor_layout.py",
+    "sha256": "7e313abbe24dffebe1c8f36ff84bdeb735b134c65cb85bcf8c4f8bebf06c041a"
+   },
+   "test.lib.triton_case_worker": {
+    "bytes": 16986,
+    "path": "/host/refractir-requalify-20261016/test/lib/triton_case_worker.py",
+    "sha256": "2f9cb39bf4187572503055b94ae157eb10742a99cc77b17f2876930fa6f5782c"
+   },
+   "test.tensor.gluon.run_generated_region": {
+    "bytes": 49950,
+    "path": "/host/refractir-requalify-20261016/test/tensor/gluon/run_generated_region.py",
+    "sha256": "eb1389f98dcd21d96a259b3d8bbbd485d9a0496f6ce8b4b29aa705eae2147877"
+   }
+  },
+  "notes": [
+   "the export root is not a git checkout, so the environment probe reports refractir_revision unavailable; the revision label is the driver's REFRACTIR_REVISION and the imported bytes are pinned by the module and binary digests",
+   "each plan arm compiled into a fresh empty Triton cache with REFRACTIR_CACHE_EMPTY_AT_START=1, so its MLIR pass dump exists and the recorded measurement states a cold cache",
+   "Triton latches its MLIR dump path on the first compilation in a process, so each case ran in its own process",
+   "the plan arm's qualification is recorded by the committed runner for every case; the counted arm's is recorded by test.lib.run_triton_tests",
+   "the record pins every imported module by digest; test.lib.tensor_compiler_observation, which decides the compiler pass-dump reading rather than the emission or the addressing, has changed in the shared working tree since this run"
+  ],
+  "program": {
+   "bytes": 2146,
+   "path": "/host/refractir-requalify-20261016/test/tensor/gluon/programs/padded-tail-8x31-region-v1.sir",
+   "sha256": "7ab66271e07d4599a2b521042d27a7184f2e3a2e04e51cb7b1766f6495fe88e9"
+  },
+  "routes": {
+   "counted": "test.lib.run_triton_tests --mode compiled",
+   "plan": "test.tensor.gluon.run_generated_region.run_program with the case's layout record (plan family all-same-layout)"
+  },
+  "toolchain": {
+   "campaign_available": true,
+   "compiler_flags": "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF -DUSE_BITWUZLA -I/usr/local/include; solver=bitwuzla; triton=32f06df4bf1c30885ff61ee3488836ca81ed65f0; num_stages=1; enable_fp_fusion=False",
+   "compiler_sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36",
+   "compute_capability": [
+    7,
     0
    ],
-   "case": "strided-offset",
-   "case_dir": "/tmp/strides/counted-strided-offset",
-   "counted_kernel_sha256": "c5ca51703c1d6d043d68143f4710253b450a891d988deb2334f75038de169415",
-   "element_offset": 1,
-   "element_strides": [
-    33,
-    1
+   "device_name": "Tesla V100-SXM2-32GB",
+   "interpreter_sha256": "4674cc7db05fe3c1f03e7ad340513974baa222e2f0b652f5647e47e4d520c2b1",
+   "package_lock_sha256": "c42d5b4dbb62d3c0703f1d3e3f212b90f98ffbe8db4948af327dcdbcdc1c4d4e",
+   "python_version": "3.12.15",
+   "refractir_revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+   "symirc_link_command": [
+    "g++ -std=c++20 -Iinclude -Wall -Wextra -O2 -DREFRACTIR_TENSOR_REF  -DUSE_BITWUZLA -I/usr/local/include -o symirc src/frontend/lexer.o src/frontend/parser.o src/frontend/ast_dumper.o src/frontend/sir_printer.o src/frontend/pipeline.o src/ast/clone.o src/analysis/cfgbuilder.o src/analysis/definite_init.o src/analysis/dominators.o src/analysis/reducibility.o src/analysis/loop_info.o src/analysis/structurizer.o src/analysis/structured_lowering.o src/frontend/typechecker.o src/frontend/semchecker.o src/analysis/pass_manager.o src/analysis/reachability.o src/analysis/unused_name.o src/analysis/type_utils.o src/analysis/state_set.o src/analysis/tensor.o src/frontend/diagnostics.o src/solver/solved_header.o src/symirc.o src/backend/emit.o src/backend/c_backend.o src/backend/wasm_backend.o src/backend/c_expr.o src/backend/c_vec.o src/backend/c_lvalue.o src/backend/c_types.o src/backend/c_structured.o src/backend/wasm_expr.o src/backend/wasm_vec.o src/backend/wasm_structured.o src/backend/wasm_lvalue.o src/backend/wasm_types.o src/backend/wasm_vec_lowering_array.o src/backend/wasm_vec_lowering_scalars.o src/backend/wasm_vec_lowering_vecext.o src/backend/py_backend.o src/backend/py_expr.o src/backend/py_types.o src/backend/py_lvalue.o src/backend/triton_backend.o src/backend/py_vec_lowering_array.o src/backend/py_vec_lowering_scalars.o src/backend/py_vec_lowering_struct.o src/backend/vec_shapes.o src/backend/c_intrinsics.o src/backend/wasm_intrinsics.o src/backend/py_intrinsics.o src/backend/c_vec_lowering_vecext.o src/backend/c_vec_lowering_array.o src/backend/c_vec_lowering_scalars.o src/backend/c_vec_lowering_struct.o -L/usr/local/lib/x86_64-linux-gnu -lbitwuzla -lbitwuzlals -lbitwuzlabv -lbitwuzlabb -lgmp -lmpfr -lgmp"
    ],
-   "evidence_kind": {
-    "artifacts": [
-     "program.sir",
-     "inputs.bin",
-     "expected.bin",
-     "kernel.py",
-     "tensor-layout.json"
-    ],
-    "kind": "construction",
-    "status": "construction_checked"
+   "torch_version": "2.5.1+cu121",
+   "triton_module": "/root/triton-latest/python/triton/__init__.py",
+   "triton_source_revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+   "triton_version": "3.9.0",
+   "working_tree_dirty": "true"
+  },
+  "unreached": [
+   {
+    "item": "dense plan-mode control arm",
+    "reason": "the committed runner addresses one record for both pointers, so a dense emission cannot be launched against a recorded allocation through it; the previous direct-worker run's control is kept"
    },
-   "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
-   "guard_envelope": {
-    "prefix": 3,
-    "suffix": 5
+   {
+    "item": "warp counts, plan families, tile shapes, and padding sentinels",
+    "reason": "one case set: [8, 31] on [8, 32], 4 warps, all-same-layout"
    },
-   "launch": {
-    "enable_fp_fusion": false,
-    "num_stages": 1,
-    "num_warps": 4
+   {
+    "item": "one layout record per buffer",
+    "reason": "the emitter addresses both pointers from one record; a case whose input and output records differ is refused rather than run"
    },
-   "padding_by_dtype": {
-    "f32": "3f800001",
-    "i32": "55555555"
+   {
+    "item": "rank other than two, and a nonzero tile origin",
+    "reason": "the region grammar is rank two and the case builder states tile_origin [0, 0]; neither is emitted or refused explicitly"
    },
-   "profile": "tensor-v3",
-   "request": {
-    "element_offset": 1,
-    "row_padding": 1
+   {
+    "item": "executed-address instrumentation",
+    "reason": "addressing is proved by the gathered logical bytes and by the guard and gap verdicts, not by disassembling the addresses the device ran; a kernel that read a gap value and dropped it would still agree"
    },
-   "shape": [
-    8,
-    31
-   ],
-   "status": "built",
-   "storage_span": 263,
-   "tile_shape": [
-    8,
-    32
-   ],
-   "witness": "sparse-final-lanes",
-   "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
-  }
- ],
- "environment": {
-  "compute_capability": [
-   7,
-   0
-  ],
-  "device_name": "Tesla V100-SXM2-32GB",
-  "platform": "Linux-5.15.0-60-generic-x86_64-with-glibc2.35",
-  "python": "3.12.15",
-  "torch_version": "2.5.1+cu121",
-  "triton_version": "3.9.0"
+   {
+    "item": "the imported test-library revisions beyond this run",
+    "reason": "every imported module is pinned by digest; a module that changes after the run needs the build, case, and collect commands again to refresh the record"
+   },
+   {
+    "item": "repeated qualified execution",
+    "reason": "each arm ran once; the previous direct-worker run is the independent second reading, and the cross-check states every reading the two runs share"
+   }
+  ]
  },
- "modules": {
-  "test.lib.build_tensor_exact_loop_case": {
-   "bytes": 13046,
-   "path": "/host/refractir-strides-20261016/test/lib/build_tensor_exact_loop_case.py",
-   "sha256": "4e0a2ab3cebbb2b3be157695c2e3387db50eedabd18e2ceb8b6226bb3f50ffbb"
-  },
-  "test.lib.build_tensor_exact_region_case": {
-   "bytes": 21391,
-   "path": "/host/refractir-strides-20261016/test/lib/build_tensor_exact_region_case.py",
-   "sha256": "085ab3942ae00afe808d02bc19dc4fb8714ea2e847c23da104620764617ac533"
-  },
-  "test.lib.probe_triton_env": {
-   "bytes": 10835,
-   "path": "/host/refractir-strides-20261016/test/lib/probe_triton_env.py",
-   "sha256": "742d4e4cfaf9cc5a641854e980d8f3fc09be108015230ccd347a64483da4e0e0"
-  },
-  "test.lib.tensor_exact_f32": {
-   "bytes": 38552,
-   "path": "/host/refractir-strides-20261016/test/lib/tensor_exact_f32.py",
-   "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
-  },
-  "test.lib.tensor_gluon": {
-   "bytes": 26662,
-   "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon.py",
-   "sha256": "7e047e49b6bbe72d304644dadb3c07c58512e7f8d58517a6d724b7c3724526c2"
-  },
-  "test.lib.tensor_gluon_lowering": {
-   "bytes": 22238,
-   "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon_lowering.py",
-   "sha256": "3fb3498b2dc7d3ea666da3fe6cf9220b79b4d8ea4f1ff80892c92f0d5b1ef741"
-  },
-  "test.lib.tensor_gluon_replay": {
-   "bytes": 12963,
-   "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon_replay.py",
-   "sha256": "7c868ebdc2bea03361889e91ea315e0ea73022166453b43ca918d1e8a8ba5f6f"
-  },
-  "test.lib.tensor_input_proposals": {
-   "bytes": 9636,
-   "path": "/host/refractir-strides-20261016/test/lib/tensor_input_proposals.py",
-   "sha256": "48033ed1d05551d1c4a7a34a28dc1bb9da34691329b8148ad7d68920396dabbe"
-  },
-  "test.lib.tensor_layout": {
-   "bytes": 13696,
-   "path": "/host/refractir-strides-20261016/test/lib/tensor_layout.py",
-   "sha256": "7e313abbe24dffebe1c8f36ff84bdeb735b134c65cb85bcf8c4f8bebf06c041a"
-  },
-  "test.lib.triton_case_worker": {
-   "bytes": 16986,
-   "path": "/host/refractir-strides-20261016/test/lib/triton_case_worker.py",
-   "sha256": "2f9cb39bf4187572503055b94ae157eb10742a99cc77b17f2876930fa6f5782c"
-  }
- },
- "program": {
-  "bytes": 2146,
-  "path": "/host/refractir-strides-20261016/test/tensor/gluon/programs/padded-tail-8x31-region-v1.sir",
-  "sha256": "7ab66271e07d4599a2b521042d27a7184f2e3a2e04e51cb7b1766f6495fe88e9"
- },
- "python": "3.12.15",
- "revision": "073a8f89c25a7c00c30ff7400fd02958541549b7+physical-strides-overrides",
- "schema": "refractir.gluon-physical-strides.v1",
+ "revision": "bb695230d8914761bbfa2a59ed1ca1897fbf3152+physical-strides-requalified",
+ "schema": "refractir.gluon-physical-strides.v2",
  "summary": {
+  "built_cases": [
+   "identity-strides-offset",
+   "strided-zero-offset",
+   "strided-offset"
+  ],
   "cases": [
    "identity-strides-offset",
    "strided-zero-offset",
    "strided-offset"
   ],
+  "counted_campaign_valid": true,
   "counted_equals_reference": true,
-  "dense_control_matches_reference": [
-   false,
-   false,
-   false
+  "counted_status": [
+   "pass",
+   "pass",
+   "pass"
   ],
+  "cross_check_against_direct_worker_run": true,
   "guard_or_gap_slots_changed": {
    "identity-strides-offset": {
     "counted": [],
-    "plan": [],
-    "plan_dense_control": [
-     "gap-0",
-     "gap-32",
-     "gap-64",
-     "gap-96",
-     "gap-128",
-     "gap-160",
-     "gap-192",
-     "gap-224"
-    ]
+    "plan": []
    },
    "strided-offset": {
     "counted": [],
-    "plan": [],
-    "plan_dense_control": [
-     "gap-0",
-     "gap-32",
-     "gap-33",
-     "gap-65",
-     "gap-66",
-     "gap-98",
-     "gap-99",
-     "gap-131"
-    ]
+    "plan": []
    },
    "strided-zero-offset": {
     "counted": [],
-    "plan": [],
-    "plan_dense_control": [
-     "gap-31",
-     "gap-32",
-     "gap-64",
-     "gap-65",
-     "gap-97",
-     "gap-98",
-     "gap-130",
-     "gap-131"
-    ]
+    "plan": []
    }
   },
+  "logical_slots_changed": {
+   "identity-strides-offset": {
+    "counted": 248,
+    "plan": 248
+   },
+   "strided-offset": {
+    "counted": 248,
+    "plan": 248
+   },
+   "strided-zero-offset": {
+    "counted": 248,
+    "plan": 248
+   }
+  },
+  "plan_campaign_valid": true,
   "plan_equals_counted": true,
-  "plan_equals_reference": true
+  "plan_equals_reference": true,
+  "plan_status": [
+   "pass",
+   "pass",
+   "pass"
+  ]
+ },
+ "witness": {
+  "proposal": "sparse-final-lanes",
+  "proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791",
+  "values": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   8
+  ]
  }
 }
