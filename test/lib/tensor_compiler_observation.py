@@ -1127,52 +1127,11 @@ def _encoding_change(
   }
 
 
-def _reads_the_original(consumer, before_definitions, after_definitions, new_work):
-  """Report whether this consumer's use of the copy is evidence of a recomputation.
-
-  A copy that is new work serves its consumer with a definition the before
-  snapshot did not hold, whatever that consumer read before. Otherwise the
-  consumer has to show a change of its own, and only one kind of change counts:
-  the pass removed a definition the consumer read and rewired it to the copy. A
-  consumer that reads the computation it already read, from a copy that holds the
-  definition the snapshot already had, had its use relabelled; a consumer the
-  pass gave a different definition to read was not using this original at all.
-  Neither is evidence about this original.
-  """
-  if new_work:
-    return True
-  return _replaced_a_removed_definition(consumer, before_definitions, after_definitions)
-
-
-def _replaced_a_removed_definition(consumer, before_definitions, after_definitions):
-  """Report whether the pass rewired a consumer off a definition it removed.
-
-  The consumer read the original through a value this pass no longer prints - a
-  conversion it eliminated, for instance - and now reads the copy instead. Only
-  the definitions the snapshot actually held are compared, so an argument, which
-  carries no correspondence, never decides it.
-  """
-
-  def operands(definitions):
-    definition = definitions.get(consumer)
-    if definition is None:
-      return None
-    return tuple(name for name in _SSA.findall(definition) if name in definitions)
-
-  before = operands(before_definitions)
-  after = operands(after_definitions)
-  if before is None or after is None or before == after:
-    return False
-  return any(operand not in after_definitions for operand in before)
-
-
 def _redirected_uses(
   original,
   recomputed,
   after_consumers,
   after_reading,
-  before_definitions,
-  after_definitions,
   former_consumers,
   new_work,
 ):
@@ -1180,32 +1139,23 @@ def _redirected_uses(
 
   A consumer of the copy is a former consumer of the original when its own
   definition reads as one the original used to serve, so a use the pass rewrote
-  is recognised even after a layout change. `_reads_the_original` then decides
-  whether that consumer's use is evidence at all, with the copy's own definition
-  in hand: a consumer that only relabelled a use reads what it already read, and
-  the pass recomputed nothing for it.
+  is recognised even after a layout change. That correspondence is necessary and
+  never sufficient: `new_work` carries the independent evidence, read off the
+  definitions alone, that the copy is a computation this pass introduced. A
+  consumer the pass rewired onto a definition the before snapshot already held
+  was served by an elimination, so it is not counted here however its own
+  definition changed.
   """
+  if not new_work:
+    return []
   redirected = []
   for consumer in sorted(set(after_consumers.get(recomputed, []))):
     if consumer == original:
       continue
     if after_reading["independent"].get(consumer) not in former_consumers:
       continue
-    if not _reads_the_original(
-      consumer, before_definitions, after_definitions, new_work
-    ):
-      continue
     redirected.append(consumer)
   return redirected
-
-
-def _layouts_of_one_expression(reading):
-  """Group one snapshot's definitions by their reading, keeping each layout."""
-  families = collections.defaultdict(list)
-  for name, expression in reading["independent"].items():
-    if expression is not None:
-      families[expression].append(reading["resolved"][name])
-  return families
 
 
 def _has_layout(expression):
@@ -1213,33 +1163,32 @@ def _has_layout(expression):
   return any(encoding is not None for encoding in _tensor_encodings(expression))
 
 
-def _holds_definition(expression, layout, families):
-  """Report whether a snapshot holds this computation in this layout already."""
-  return layout in families.get(expression, ())
-
-
 def _is_new_definition(recomputed, after_reading, before_reading, before_counts):
-  """Report whether the before snapshot already holds the copy's definition.
+  """Report whether the before snapshot already holds this exact definition.
 
-  A copy is new work only as a specific definition, and never as a fresh name
-  alone: a pass that prints a computation the snapshot already held under another
-  name added no definition of it. What makes a copy new depends on what it
-  prints. One carrying a layout is new when the after snapshot holds that
-  computation in a layout the before snapshot did not, which is the layout a
-  consumer asked for; a copy that keeps a layout the snapshot already held is the
-  same computation printed again. One printed without a layout has none to move,
-  so the count of definitions of it separates a copy from a rename, as it did
-  before the layout reading existed. A definition added elsewhere in the module
-  raises a count without being this copy (see `observe_rematerialization`).
+  A copy is new work only as a definition the before snapshot did not print, and
+  never as a fresh name alone: equal name, equal definition is a rename. What
+  the copy prints decides which definitions can equal it. One carrying a layout
+  prints a computation in a layout, so the before snapshot has to hold that
+  computation in that very layout for the copy to be the same definition -
+  another layout is another definition, and so is the same layout of the same
+  computation only when no definition printed it yet. One printed without a
+  layout has no layout to separate a copy from a rename, so the count of
+  definitions of it decides, as it did before the layout reading existed. A
+  definition added elsewhere in the module raises a count without being this
+  copy (see `observe_rematerialization`), and a copy that merely duplicates a
+  definition the snapshot already held introduces nothing, whatever a consumer
+  of the original now reads.
   """
   expression = after_reading["independent"].get(recomputed)
   if expression is None:
     return False
   if _has_layout(expression):
-    return not _holds_definition(
-      expression,
-      after_reading["resolved"].get(recomputed),
-      _layouts_of_one_expression(before_reading),
+    layout = after_reading["resolved"].get(recomputed)
+    return not any(
+      before_reading["independent"].get(name) == expression
+      and before_reading["resolved"].get(name) == layout
+      for name in before_reading["independent"]
     )
   return (
     _pure_expression_counts(after_reading["independent"])[expression]
@@ -1310,16 +1259,26 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
   the pass under the same name with the same canonical expression (e).
 
   Requirement (b) is established per definition and per layout, never by a
-  module-wide total. A copy that prints a layout is new work only when the after
-  snapshot holds that computation in a layout the before snapshot held nowhere,
-  which is the layout a consumer asked for; a copy that keeps a layout the
-  snapshot already held is the same computation printed again, whatever name it
-  prints. A computation printed without a layout has none to move, so the count
-  of definitions of it decides, as it did before the layout reading existed. A
-  definition added elsewhere in the module raises a count without being this
-  copy. A consumer of the copy can still show a recomputation in either case, and
-  only one the pass rewired off a definition it removed does (see
-  `_redirected_uses`).
+  module-wide total. A copy that prints a layout is new work only when the before
+  snapshot holds no definition equal to it: same layout-independent computation
+  and same resolved layout. A computation the before snapshot printed in that
+  very layout is the same definition however the after snapshot renames or
+  renumbers it, so it introduces nothing; a computation the before snapshot
+  never printed in that layout is an introduction, which is what a layout
+  rematerialization produces. A computation printed without a layout has no
+  layout to separate a copy from a rename, so the count of definitions of it
+  decides, as it did before the layout reading existed. A definition added
+  elsewhere in the module raises a count without being this copy.
+
+  Requirements (c) and (d) are necessary conditions on the consumer, never a
+  substitute for (b): a consumer the pass rewired onto a definition the before
+  snapshot already held was served by an elimination. Removing a conversion and
+  reading a value the snapshot already had is therefore not reported as a
+  recomputation, and the transition stays unconfirmed. The record has no key for
+  elimination; the conversion removal itself is measured per transition by
+  `_pass_snapshot_observation` outside this matcher, so this reading is left to
+  say "no recomputation" rather than to claim a classification the keys cannot
+  carry (see the module's `interpretation_limit`).
 
   Correspondence is decided by canonical expressions in which every operand is
   replaced by the identity its own definition supplies: the definition text when
@@ -1403,8 +1362,6 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
         recomputed,
         after_consumers,
         after_reading,
-        before_definitions,
-        after_definitions,
         former_consumers,
         new_work,
       )
@@ -1479,9 +1436,11 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     "unattributed": unattributed,
     "unattributed_count": len(unattributed),
     "interpretation_limit": (
-      "a confirmed recomputation needs an equivalent surviving producer, an "
-      "additional pure definition, and a redirected former consumer; duplicate "
-      "expressions alone are reported as unattributed work"
+      "a confirmed recomputation needs an equivalent surviving producer, a "
+      "definition the before snapshot did not already hold, and a redirected "
+      "former consumer; a definition the before snapshot already held is "
+      "elimination, which this record does not name, and duplicate expressions "
+      "alone are reported as unattributed work"
     ),
   }
 

@@ -154,6 +154,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The generated Gluon runner now checks input immutability: it retains the staged input allocation, compares the whole of it after the launch - guards, gaps, and logical elements - and refuses a change with the affected slots named by role, so a kernel that quietly reads or writes its inputs no longer passes on the strength of a correct output. The drift checker also stops skipping a one-sided record: a missing arm, a missing analysis, a missing transitions field, and an empty transitions list are four distinguishable readings rather than a silent pass.
 
+- Rematerialization now requires a newly introduced computation, not merely a rewired consumer: a layout-bearing copy counts only when no earlier definition already held that computation in that same layout, so removing a conversion and reusing an existing value reads as elimination rather than as recomputation, and the reviewer's transition returns to its pre-series reading. A pre-existing test that asserted the defective reading is corrected in place with the finding named.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

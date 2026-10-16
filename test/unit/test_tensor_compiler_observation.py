@@ -1987,10 +1987,11 @@ class TensorCompilerLayoutRematerializationTests(unittest.TestCase):
     self.assertEqual(report["status"], "unattributed_only")
 
   def test_a_same_encoding_copy_that_replaces_a_conversion_still_confirms(self):
-    # The pass removed the conversion and rewired its consumer to the copy, so
-    # the consumer reads a recomputation even though the copy keeps the layout
-    # the original had. This is the confirmation the matcher already made before
-    # the layout reading existed, and it is unchanged.
+    # CORRECTED: this test previously asserted one confirmation here. The copy is
+    # printed exactly as the original was, so the before snapshot already held
+    # that definition; the pass only eliminated the conversion and rewired its
+    # consumer onto a definition the snapshot had. That is elimination, and the
+    # matcher no longer reports it as a recomputation (review finding 1).
     before = self._snapshot("""\
   %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
   %c = ttg.convert_layout %b : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
@@ -2005,12 +2006,9 @@ class TensorCompilerLayoutRematerializationTests(unittest.TestCase):
 """)
     report = tensor_compiler_observation.observe_rematerialization(before, after)
 
-    self.assertEqual(report["confirmed_count"], 1)
-    candidate = report["confirmed"][0]
-    self.assertEqual(candidate["original_value"], "%b")
-    self.assertEqual(candidate["redirected_consumers"], ["%d"])
-    self.assertEqual(candidate["remaining_consumers"], ["%e"])
-    self.assertEqual(candidate["encoding_change"]["changed"], False)
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
 
   def test_two_alias_names_for_one_layout_are_not_an_encoding_change(self):
     # The copy is printed through another alias, but both aliases define the same
@@ -2031,6 +2029,204 @@ class TensorCompilerLayoutRematerializationTests(unittest.TestCase):
 
     self.assertEqual(report["confirmed_count"], 0)
     self.assertEqual(report["confirmed"], [])
+
+
+class TensorCompilerEliminationTests(unittest.TestCase):
+  """Reusing what a snapshot already held is elimination, never recomputation.
+
+  Every transition here redirects a consumer onto a definition that computes the
+  value it now reads. Only a copy the before snapshot did not already print is
+  recomputation, so these transitions confirm nothing. The genuine layout
+  rematerialization below is the control that still confirms.
+  """
+
+  _LAYOUTS = TensorCompilerLayoutRematerializationTests._LAYOUTS
+  _BLOCKED = TensorCompilerLayoutRematerializationTests._BLOCKED
+  # The boundary probe's second layout, and a third no definition below holds.
+  _LAYOUTS += (
+    "#blocked1 = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4],"
+    " warpsPerCTA = [1, 1], order = [1, 0]}>\n"
+    "#blocked_wide = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [4, 8],"
+    " warpsPerCTA = [1, 1], order = [1, 0]}>\n"
+  )
+  _BLOCKED1 = (
+    "#ttg.blocked<{sizePerThread=[1,4],threadsPerWarp=[8,4],"
+    "warpsPerCTA=[1,1],order=[1,0]}>"
+  )
+  # `matcher_boundary_probe` of the remat driver, verbatim.
+  _BOUNDARY_BEFORE = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked1 = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  tt.func public @kernel(%x: tensor<1x16xf32, #blocked>) {
+    %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+    %c = ttg.convert_layout %b : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked1>
+    %d = arith.addf %c, %c : tensor<32x16xf32, #blocked1>
+    %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+    tt.return
+  }
+}
+"""
+  _BOUNDARY_AFTER = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked1 = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  tt.func public @kernel(%x: tensor<1x16xf32, #blocked>) {
+    %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
+    %b2 = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked1>
+    %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked1>
+    %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+    tt.return
+  }
+}
+"""
+
+  def _snapshot(self, body):
+    return self._LAYOUTS + "module {\n" + body + "}\n"
+
+  def test_a_genuine_layout_rematerialization_still_confirms(self):
+    # The boundary probe's layout arm. The copy is the first definition of the
+    # broadcast in `#blocked1`, so the pass introduced it and the consumer that
+    # asked for that layout reads a recomputation. This is the transition the
+    # reviewer's elimination is distinguished from.
+    report = tensor_compiler_observation.observe_rematerialization(
+      self._BOUNDARY_BEFORE, self._BOUNDARY_AFTER
+    )
+
+    self.assertEqual(report["status"], "confirmed_only")
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%b")
+    self.assertEqual(candidate["recomputed_values"], ["%b2"])
+    self.assertEqual(candidate["redirected_consumers"], ["%d"])
+    self.assertEqual(
+      candidate["encoding_change"]["recomputed"], [self._BLOCKED, self._BLOCKED1]
+    )
+
+  def test_conversion_elimination_into_an_existing_copy_is_not_a_recomputation(self):
+    # Review finding 1, verbatim from existing-reuse-before/after.mlir. Both
+    # splats are printed by both snapshots, the conversion simply disappears and
+    # its consumer switches to the splat that already held the layout it wanted.
+    # No computation was introduced, so nothing can be attributed, whatever the
+    # consumer now reads.
+    before = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %c = ttg.convert_layout %b : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %c, %c : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+""")
+    after = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "none")
+
+  def test_a_retained_producer_with_an_unrelated_definition_stays_unconfirmed(self):
+    # The previous finding's control. `%b2` and its layout exist before the pass,
+    # so the extra splats add no definition of `%b` the snapshot did not hold,
+    # and the rewired consumer is reusing `%b2` rather than a recomputation.
+    before = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+""")
+    after = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %b3 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b4 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %g = arith.divf %b3, %b3 : tensor<32x16xf32, #blocked>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_same_encoding_rename_stays_unconfirmed(self):
+    # The copy is printed exactly as the original was, so the before snapshot
+    # already held that definition: a consumer it took over reads a rename.
+    before = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    after = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_reused_value_confirms_when_an_equivalent_computation_is_also_new(self):
+    # Both arms at once. The converted consumer reads `%b3`, which the before
+    # snapshot already held, while `%b2` is the first definition of the same
+    # splat in `#blocked_wide` and takes over `%e`. Both would look like
+    # redirected uses; only the definition the pass introduced is attributed,
+    # and the reused `%b3` is not reported even though it serves `%d`.
+    before = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b3 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %c = ttg.convert_layout %b : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %c, %c : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b3, %b3 : tensor<32x16xf32, #blocked_alt>
+""")
+    after = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_wide>
+  %b3 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b3, %b3 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_wide>
+  %f = arith.mulf %b3, %b3 : tensor<32x16xf32, #blocked_alt>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["status"], "confirmed_only")
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%b")
+    self.assertEqual(candidate["recomputed_values"], ["%b2"])
+    self.assertEqual(candidate["redirected_consumers"], ["%e"])
+    self.assertEqual(candidate["remaining_consumers"], [])
+
+  def test_elimination_with_nothing_else_changed_attributes_nothing(self):
+    # The smallest edge case: the conversion disappears, its consumer reads the
+    # original directly, and no other definition or use moves. No definition was
+    # introduced and no duplicate was created, so the transition is empty.
+    before = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %c = ttg.convert_layout %b : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %c, %c : tensor<32x16xf32, #blocked_alt>
+""")
+    after = self._snapshot("""\
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+""")
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["status"], "none")
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed"], [])
+    self.assertEqual(report["unattributed_count"], 0)
 
 
 # The review's alias-renaming probe, verbatim. An alias name is a snapshot-local

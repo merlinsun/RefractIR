@@ -9452,7 +9452,7 @@
   "unchanged": true
  },
  "interpretation_limit": "the structural reading is not the plan's confirmation criterion; it is recorded so a refusal can be attributed to the matcher's equivalence rather than to an absent candidate",
- "matcher": "observe_pass_dumps(..., rematerialization=True): a confirmed recomputation needs an equivalent surviving producer, strictly more pure definitions with the same canonical expression, a lost consumer, a redirected consumer, and the original still present",
+ "matcher": "observe_pass_dumps(..., rematerialization=True): a confirmed recomputation needs an equivalent surviving producer, a definition the before snapshot did not already hold, a lost consumer, a redirected consumer, and the original still present; a copy whose definition the before snapshot already printed is elimination, which this reading does not name",
  "matcher_boundary_probe": {
   "layout_rematerialization": {
    "confirmed": [
@@ -9508,41 +9508,14 @@
   "library": {
    "module": "test.lib.tensor_compiler_observation",
    "path": "/Users/merlin/Documents/GitHub/RefractIR-triton/test/lib/tensor_compiler_observation.py",
-   "sha256": "08c4772a0926b3630b487dd0c06e5a7242b7627b36525e1fe1f5ceb0dbd4e30e"
+   "sha256": "39d9cf893dc68cb5422ff5b54a7ba9d392a0eca40397cb0e80bf4dc4ec93a680"
   },
   "same_encoding_copy": {
-   "confirmed": [
-    {
-     "encoding_change": {
-      "changed": false,
-      "original": [
-       "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[2,16],warpsPerCTA=[1,1],order=[1,0]}>",
-       "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[2,16],warpsPerCTA=[1,1],order=[1,0]}>"
-      ],
-      "recomputed": [
-       "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[2,16],warpsPerCTA=[1,1],order=[1,0]}>",
-       "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[2,16],warpsPerCTA=[1,1],order=[1,0]}>"
-      ]
-     },
-     "expression": "tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>",
-     "original_expression": "tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>",
-     "original_value": "%b",
-     "recomputed_values": [
-      "%b2"
-     ],
-     "redirected_consumers": [
-      "%d"
-     ],
-     "remaining_consumers": [
-      "%e"
-     ],
-     "source_line": null
-    }
-   ],
-   "confirmed_count": 1,
-   "status": "confirmed_only",
+   "confirmed": [],
+   "confirmed_count": 0,
+   "status": "unattributed_only",
    "structural_recomputations": [],
-   "unattributed_count": 0
+   "unattributed_count": 1
   }
  },
  "matcher_rederivation": {
@@ -11522,7 +11495,7 @@
    "frozen_corpus": ".planning/2026-10-16-review-073a8f8/device/frozen-corpus-carried.json; carried unchanged from the previous record because the raw invariance record is not in the retrieved work directory",
    "imported_modules": "/host/remat-20261016/refractir",
    "imported_modules.revision_comparison": "073a8f8",
-   "matcher_boundary_probe": "driver/analyze.py on synthetic IR, read with test.lib.tensor_compiler_observation@08c4772a0926b3630b487dd0c06e5a7242b7627b36525e1fe1f5ceb0dbd4e30e (the digest is in the block); a reading the previous record stated differently is in superseded",
+   "matcher_boundary_probe": "driver/analyze.py on synthetic IR, read with test.lib.tensor_compiler_observation@39d9cf893dc68cb5422ff5b54a7ba9d392a0eca40397cb0e80bf4dc4ec93a680 (the digest is in the block); a reading the previous record stated differently is in superseded",
    "matcher_rederivation": "driver/analyze.py comparing the regenerated per-transition matcher and structural fields with the previous record at .planning/2026-10-16-review-073a8f8/device/previous-record.json",
    "probe_kernels": ".planning/2026-10-16-review-073a8f8/device/work/probe-kernels.json as written by driver/probe_kernels.py",
    "record": "test.lib.tensor_rematerialization_evidence@43ef80c7ddc95038c5559e66479370a622292c76d4cfdc1c902fad5cac07165a",
@@ -11872,6 +11845,36 @@
    "path": "matcher_boundary_probe[layout_rematerialization].confirmed_count",
    "previous": 0,
    "reason": "the probe was re-read with this library, which compares the canonical expression without regard to the encoding the copy was created to change; the previous reading came from the library the runs imported"
+  },
+  {
+   "corrected": "unattributed_only",
+   "path": "matcher_boundary_probe[same_encoding_copy].status",
+   "previous": "confirmed_only",
+   "reason": "criterion (b) is the copy's own definition: this arm repeats a definition the before snapshot already printed, so the pass eliminated a conversion and reused an existing definition rather than recomputing it (review finding 1)"
+  },
+  {
+   "corrected": 0,
+   "path": "matcher_boundary_probe[same_encoding_copy].confirmed_count",
+   "previous": 1,
+   "reason": "criterion (b) is the copy's own definition: this arm repeats a definition the before snapshot already printed, so the pass eliminated a conversion and reused an existing definition rather than recomputing it (review finding 1)"
+  },
+  {
+   "corrected": 1,
+   "path": "matcher_boundary_probe[same_encoding_copy].unattributed_count",
+   "previous": 0,
+   "reason": "criterion (b) is the copy's own definition: this arm repeats a definition the before snapshot already printed, so the pass eliminated a conversion and reused an existing definition rather than recomputing it (review finding 1)"
+  },
+  {
+   "corrected": "39d9cf893dc68cb5422ff5b54a7ba9d392a0eca40397cb0e80bf4dc4ec93a680",
+   "path": "matcher_boundary_probe.library.sha256",
+   "previous": "08c4772a0926b3630b487dd0c06e5a7242b7627b36525e1fe1f5ceb0dbd4e30e",
+   "reason": "the probe names the library that took its reading, and the criterion (b) fix changes that library"
+  },
+  {
+   "corrected": "39d9cf893dc68cb5422ff5b54a7ba9d392a0eca40397cb0e80bf4dc4ec93a680",
+   "path": "matcher_boundary_probe.library.sha256",
+   "previous": "39d9cf893dc68cb5422ff5b54a7ba9d392a0eca40397cb0e80bf4dc4ec93a680",
+   "reason": "the probe names the library that took its reading, and the criterion (b) fix changes that library"
   }
  ]
 }
