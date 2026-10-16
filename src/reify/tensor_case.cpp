@@ -203,6 +203,8 @@ namespace refractir::reify {
     void writeSelectionProvenance(std::ostringstream &out, const TensorCase &testCase) {
       if (!testCase.inputPolicy.empty())
         out << "\"policy\":" << jsonString(testCase.inputPolicy) << ',';
+      if (!testCase.inputSamplerVersion.empty())
+        out << "\"sampler_version\":" << jsonString(testCase.inputSamplerVersion) << ',';
       if (testCase.propertyTarget)
         out << "\"property_target\":" << *testCase.propertyTarget << ',';
       if (testCase.inputDomain)
@@ -696,6 +698,8 @@ namespace refractir::reify {
         out << ",\"input_pattern\":" << jsonString(testCase.inputPattern);
       if (!testCase.inputPolicy.empty())
         out << ",\"input_policy\":" << jsonString(testCase.inputPolicy);
+      if (!testCase.inputSamplerVersion.empty())
+        out << ",\"input_sampler_version\":" << jsonString(testCase.inputSamplerVersion);
       if (testCase.inputDomain)
         out << ",\"input_domain\":{\"lo\":" << testCase.inputDomain->first
             << ",\"hi\":" << testCase.inputDomain->second << "}";

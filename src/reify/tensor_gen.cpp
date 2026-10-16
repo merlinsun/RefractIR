@@ -150,6 +150,7 @@ namespace refractir::reify {
       // proposed the runtime inputs, the target it solved for, and the
       // inclusive leaf domain it respected.
       std::string inputPolicy;
+      std::string inputSamplerVersion;
       std::optional<TensorInputProperty> inputProperty;
       std::optional<std::pair<std::int64_t, std::int64_t>> inputDomain;
       // ElementsEqual only: whether the constraints cover every output
@@ -281,6 +282,9 @@ namespace refractir::reify {
       out << ",\"input_policy\":" << jsonString(options.inputPolicy)
           << ",\"target\":" << jsonString(options.target)
           << ",\"attempt_budget\":" << options.attemptBudget;
+      if (options.inputPolicy == "boundary")
+        out << ",\"input_sampler_version\":"
+            << jsonString(tensorInputSamplerVersion(TensorInputPolicy::Boundary));
       if (options.propertyTarget)
         out << ",\"property_target\":" << *options.propertyTarget;
       // A failed attempt still has to say what it was asked for.
@@ -1400,7 +1404,7 @@ namespace refractir::reify {
 
     /// The manifest's input-pattern label for a compositional case. The
     /// vocabulary names value families, so this records the sampler that ran:
-    /// seeded draws, the boundary walk, or the solver's witness. A scheduled
+    /// seeded draws, boundary draws, or the solver's witness. A scheduled
     /// v3 pattern would claim a family this route never implements.
     std::string inputPatternForPolicy(TensorInputPolicy policy) {
       switch (policy) {
@@ -1509,6 +1513,7 @@ namespace refractir::reify {
         );
       candidate.inputs = proposal.inputs;
       candidate.inputPolicy = std::string(tensorInputPolicyName(policyOptions.policy));
+      candidate.inputSamplerVersion = proposal.samplerVersion;
       candidate.inputPattern = inputPatternForPolicy(policyOptions.policy);
       candidate.inputMode = candidate.inputPolicy;
       candidate.inputProperty = policyOptions.property;
@@ -2373,6 +2378,7 @@ namespace refractir::reify {
       testCase.inputSeed = candidate.inputSeed;
       testCase.inputPattern = std::move(candidate.inputPattern);
       testCase.inputPolicy = std::move(candidate.inputPolicy);
+      testCase.inputSamplerVersion = std::move(candidate.inputSamplerVersion);
       testCase.inputDomain = candidate.inputDomain;
       if (candidate.inputProperty) {
         switch (candidate.inputProperty->kind) {

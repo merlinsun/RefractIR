@@ -442,6 +442,17 @@ def _check_selection_provenance(
     policy is None or generator.get("input_policy", policy) == policy,
     "recorded input policy labels disagree",
   )
+  sampler_version = behavior.get("sampler_version")
+  generator_sampler_version = generator.get("input_sampler_version")
+  _require(
+    sampler_version == generator_sampler_version,
+    "recorded input sampler versions disagree",
+  )
+  _require(
+    sampler_version is None
+    or (isinstance(sampler_version, str) and bool(sampler_version)),
+    "input sampler version must be a nonempty string",
+  )
   domain = behavior.get("input_domain")
   _require(
     domain is None or generator.get("input_domain", domain) == domain,

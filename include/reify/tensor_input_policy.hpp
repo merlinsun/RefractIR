@@ -25,13 +25,18 @@ namespace refractir::reify {
 
   TensorInputPolicy parseTensorInputPolicy(std::string_view name);
   std::string_view tensorInputPolicyName(TensorInputPolicy policy);
+  /// Stable algorithm identifier for the boundary sampler; ordinary sampling
+  /// keeps its existing contract, and exact selection is identified by its
+  /// constraints instead.
+  std::string_view tensorInputSamplerVersion(TensorInputPolicy policy);
 
   /// Inclusive envelope of the values a policy can propose for one leaf.
   ///
   /// `Ordinary` draws from `[1, 2]`; `Boundary` and `Exact` both span
-  /// `[-1, 2]`, the boundary sampler by cycling through every value and the
-  /// exact route by bounding each leaf to the same interval. A target either
-  /// sampler can witness is therefore never outside the exact route's domain.
+  /// `[-1, 2]`, the boundary sampler by drawing each leaf from that interval,
+  /// and the exact route by bounding each leaf to the same interval. A target
+  /// either sampler can witness is therefore never outside the exact route's
+  /// domain.
   /// The intervals are not identical across policies, and every case records
   /// the one it used, so a comparison can state which values it compared.
   std::pair<std::int64_t, std::int64_t> tensorPolicyDomain(TensorInputPolicy policy);
@@ -119,6 +124,8 @@ namespace refractir::reify {
   struct TensorInputProposal {
     TensorInputPolicy policy = TensorInputPolicy::Ordinary;
     TensorInputProperty property;
+    /// Stable sampler identifier, empty when the policy has no sampler version.
+    std::string samplerVersion;
     /// `accepted`, or the first reason the policy could not propose:
     /// `unsupported`, `invalid`, `budget_exceeded`, `unsat`, `unknown`,
     /// `timeout`. These are never conflated: an infeasible property is not a

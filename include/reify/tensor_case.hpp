@@ -79,6 +79,8 @@ namespace refractir::reify {
     // proposed them, the inclusive leaf domain it respected, and the output
     // target it was asked to satisfy. Empty and unset mean "not applicable".
     std::string inputPolicy;
+    // Version of a policy-specific sampler when its behavior can change.
+    std::string inputSamplerVersion;
     std::optional<std::pair<std::int64_t, std::int64_t>> inputDomain;
     std::optional<std::int64_t> propertyTarget;
     // The structured form of the same request. A scalar target states one number

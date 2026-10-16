@@ -22,6 +22,7 @@ namespace refractir::reify {
     /// Query locals carry this prefix so a computation digest can drop them
     /// and compare the constrained clone with the frozen program.
     constexpr std::string_view queryPrefix = "__query_";
+    constexpr std::string_view boundarySamplerVersion = "boundary-splitmix64-v1";
 
     std::string digestHex(std::uint64_t value) {
       std::ostringstream out;
@@ -36,6 +37,43 @@ namespace refractir::reify {
         hash *= 0x100000001b3ULL;
       }
       return hash;
+    }
+
+    std::uint64_t splitMix64(std::uint64_t value) {
+      value += 0x9e3779b97f4a7c15ULL;
+      value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
+      value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
+      return value ^ (value >> 31);
+    }
+
+    void appendIdentityWord(std::string &identity, std::uint32_t word) {
+      constexpr char hex[] = "0123456789abcdef";
+      for (int shift = 28; shift >= 0; shift -= 4)
+        identity.push_back(hex[(word >> shift) & 0xf]);
+      identity.push_back(':');
+    }
+
+    std::uint64_t boundaryStreamKey(
+        const ParamDecl &param, TensorElement element, const Shape &shape, std::uint32_t seed
+    ) {
+      std::string identity(boundarySamplerVersion);
+      identity.push_back('\0');
+      appendIdentityWord(identity, seed);
+      appendIdentityWord(identity, static_cast<std::uint32_t>(param.name.name.size()));
+      identity.append(param.name.name);
+      identity.push_back(element == TensorElement::I32 ? 'i' : 'f');
+      appendIdentityWord(identity, static_cast<std::uint32_t>(shape.size()));
+      for (const auto dimension: shape)
+        appendIdentityWord(identity, dimension);
+      return fnv1a64(identity);
+    }
+
+    std::int32_t boundaryValue(
+        std::uint64_t streamKey, std::uint32_t index, std::int64_t lo, std::int32_t span
+    ) {
+      const auto counter = streamKey + 0x9e3779b97f4a7c15ULL * index;
+      return static_cast<std::int32_t>(lo) +
+             static_cast<std::int32_t>(splitMix64(counter) % static_cast<std::uint32_t>(span));
     }
 
     void appendLittleWord(std::vector<std::uint8_t> &bytes, std::uint32_t word) {
@@ -241,14 +279,12 @@ namespace refractir::reify {
         const FunDecl &entry, TensorInputPolicy policy, std::uint32_t seed,
         std::vector<TensorCaseBuffer> &buffers
     ) {
-      std::mt19937 random(
-          seed ^ (policy == TensorInputPolicy::Boundary ? 0x626f756eULL : 0x6f726469ULL)
-      );
-      // Boundary sampling walks every value of the policy's envelope, which is
-      // also the exact route's default bound: the samplers and the solver never
-      // disagree about which leaves are reachable. The envelope stays small so
-      // an integer reference cannot overflow a reduction, which is UB rather
-      // than a boundary a case can carry.
+      std::mt19937 random(seed ^ 0x6f726469ULL);
+      // Both sampling and exact selection use the same leaf envelope. The
+      // boundary stream is independent per parameter and element; repeated
+      // values remain possible. Small initial values limit growth; reference
+      // replay still checks intermediate overflow, which is UB rather than a
+      // boundary a case can carry.
       const auto [envelopeLo, envelopeHi] = tensorPolicyDomain(policy);
       const auto span = static_cast<std::int32_t>(envelopeHi - envelopeLo + 1);
       for (const auto &param: entry.params) {
@@ -261,11 +297,13 @@ namespace refractir::reify {
         const Shape shape = shapeOf(param.type);
         TensorCaseBuffer buffer{bufferName(param.name.name), element, shape, {}};
         const auto count = elementCountOf(param.type);
+        const auto streamKey = policy == TensorInputPolicy::Boundary
+                                   ? boundaryStreamKey(param, element, shape, seed)
+                                   : 0;
         for (std::uint32_t index = 0; index < count; ++index) {
-          const std::int32_t value =
-              policy == TensorInputPolicy::Boundary
-                  ? envelopeLo + static_cast<std::int32_t>((index + seed) % span)
-                  : 1 + static_cast<std::int32_t>(random() % 2);
+          const std::int32_t value = policy == TensorInputPolicy::Boundary
+                                         ? boundaryValue(streamKey, index, envelopeLo, span)
+                                         : 1 + static_cast<std::int32_t>(random() % 2);
           if (element == TensorElement::I32)
             appendLittleWord(buffer.bytes, std::bit_cast<std::uint32_t>(value));
           else
@@ -365,6 +403,10 @@ namespace refractir::reify {
         return "exact";
     }
     return "ordinary";
+  }
+
+  std::string_view tensorInputSamplerVersion(TensorInputPolicy policy) {
+    return policy == TensorInputPolicy::Boundary ? boundarySamplerVersion : std::string_view{};
   }
 
   std::pair<std::int64_t, std::int64_t> tensorPolicyDomain(TensorInputPolicy policy) {
@@ -659,6 +701,7 @@ namespace refractir::reify {
     TensorInputProposal proposal;
     proposal.policy = options.policy;
     proposal.property = options.property;
+    proposal.samplerVersion = std::string(tensorInputSamplerVersion(options.policy));
     proposal.domain = tensorPolicyDomain(options.policy);
     proposal.computationDigest = computationDigest(program);
 

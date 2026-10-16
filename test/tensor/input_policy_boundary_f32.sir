@@ -1,0 +1,6 @@
+fun @kernel(%left: tensor [8] f32, %right: tensor [8] f32) : tensor [8] f32 {
+  let mut %out: tensor [8] f32 = undef;
+^entry:
+  %out = tensor add %left, %right;
+  ret %out;
+}

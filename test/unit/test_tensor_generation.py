@@ -17,6 +17,14 @@ from test.lib.tensor_coverage import source_signature
 from test.unit.tensor_support import ROOT, check_source, run_typed
 
 RYSMITH = Path(os.environ.get("REFRACTIR_RYSMITH", ROOT / "rysmith")).resolve()
+TENSOR_INPUT_POLICY_API = Path(
+  os.environ.get(
+    "REFRACTIR_TENSOR_INPUT_POLICY_API",
+    ROOT / "build" / "bin" / "tensor_input_policy_api",
+  )
+).resolve()
+BOUNDARY_I32_FIXTURE = ROOT / "test" / "tensor" / "input_policy_boundary_i32.sir"
+BOUNDARY_F32_FIXTURE = ROOT / "test" / "tensor" / "input_policy_boundary_f32.sir"
 
 
 # The outcomes a sweep may step over: the solver did not decide inside the
@@ -2426,6 +2434,116 @@ def load_compositional_case(test, output_dir, **kwargs):
 class TensorInputPolicyTests(unittest.TestCase):
   """Input selection is a separate step over one frozen program."""
 
+  def native_boundary_proposal(self, source, seed):
+    with tempfile.TemporaryDirectory() as directory:
+      if isinstance(source, Path):
+        source_path = source
+      else:
+        source_path = Path(directory) / "program.sir"
+        source_path.write_text(source, encoding="utf-8")
+      result = subprocess.run(
+        [str(TENSOR_INPUT_POLICY_API), str(source_path), str(seed)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+      )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    proposal = json.loads(result.stdout)
+    self.assertEqual(proposal["outcome"], "accepted")
+    inputs = {
+      record["name"].lstrip("%"): bytes.fromhex(record["bytes"])
+      for record in proposal["inputs"]
+    }
+    input_bytes = b"".join(
+      bytes.fromhex(record["bytes"]) for record in proposal["inputs"]
+    )
+    return proposal, inputs, input_bytes
+
+  def test_boundary_same_shape_parameters_have_independent_samples(self):
+    for fixture in (BOUNDARY_I32_FIXTURE, BOUNDARY_F32_FIXTURE):
+      distinct = False
+      for seed in (3, 17, 41):
+        _, inputs, _ = self.native_boundary_proposal(fixture, seed)
+        distinct = distinct or inputs["left"] != inputs["right"]
+      self.assertTrue(
+        distinct,
+        f"same-shaped parameters must receive independent samples: {fixture.name}",
+      )
+
+  def test_boundary_equal_element_count_different_shapes_are_independent(self):
+    distinct = False
+    for seed in (3, 17, 41):
+      _, inputs, _ = self.native_boundary_proposal(BOUNDARY_I32_FIXTURE, seed)
+      distinct = distinct or inputs["left"] != inputs["flat"]
+    self.assertTrue(
+      distinct, "equal-length parameters with different shapes must not share a stream"
+    )
+
+  def test_boundary_rows_do_not_repeat_every_four_elements(self):
+    _, inputs, _ = self.native_boundary_proposal(BOUNDARY_I32_FIXTURE, 17)
+    values = struct.unpack("<16i", inputs["rows"])
+    rows = [values[offset : offset + 4] for offset in range(0, len(values), 4)]
+    self.assertGreater(
+      len(set(rows)), 1, "rows must not repeat a fixed four-element boundary phase"
+    )
+
+  def test_boundary_seed_does_not_repeat_on_a_four_seed_cycle(self):
+    for fixture, name in (
+      (BOUNDARY_I32_FIXTURE, "rows"),
+      (BOUNDARY_F32_FIXTURE, "left"),
+    ):
+      _, first, _ = self.native_boundary_proposal(fixture, 17)
+      _, next_phase, _ = self.native_boundary_proposal(fixture, 21)
+      self.assertNotEqual(
+        first[name],
+        next_phase[name],
+        f"seed changes by four must advance the full {fixture.name} stream",
+      )
+
+  def test_boundary_proposals_distinguish_replaced_operands_for_i32_and_f32(self):
+    for fixture in (BOUNDARY_I32_FIXTURE, BOUNDARY_F32_FIXTURE):
+      original_source = fixture.read_text(encoding="utf-8")
+      replaced_source = original_source.replace(
+        "tensor add %left, %right;", "tensor add %left, %left;", 1
+      )
+      self.assertNotEqual(original_source, replaced_source)
+      distinguished = False
+      for seed in (3, 17, 41, 73):
+        _, _, original_inputs = self.native_boundary_proposal(original_source, seed)
+        _, _, replaced_inputs = self.native_boundary_proposal(replaced_source, seed)
+        self.assertEqual(original_inputs, replaced_inputs)
+        original_result, original_output = run_typed(
+          original_source, original_inputs, tensor_profile="v2"
+        )
+        replaced_result, replaced_output = run_typed(
+          replaced_source, replaced_inputs, tensor_profile="v2"
+        )
+        self.assertEqual(
+          original_result.returncode, 0, original_result.stdout + original_result.stderr
+        )
+        self.assertEqual(
+          replaced_result.returncode, 0, replaced_result.stdout + replaced_result.stderr
+        )
+        distinguished = distinguished or original_output != replaced_output
+      self.assertTrue(
+        distinguished,
+        f"boundary proposals must distinguish a replaced {fixture.name} operand",
+      )
+
+  def test_boundary_singleton_is_reproducible_and_in_domain(self):
+    source = """fun @kernel(%only: tensor [1] i32) : tensor [1] i32 {
+^entry:
+  ret %only;
+}
+"""
+    proposal, first, _ = self.native_boundary_proposal(source, 2027)
+    _, second, _ = self.native_boundary_proposal(source, 2027)
+    value = struct.unpack("<i", first["only"])[0]
+    self.assertEqual(proposal["sampler_version"], "boundary-splitmix64-v1")
+    self.assertEqual(first["only"], second["only"])
+    self.assertIn(value, {-1, 0, 1, 2})
+
   def compositional_case(
     self, output_dir, *, profile="v2", policy="ordinary", property_target=None, seed=3
   ):
@@ -2450,9 +2568,19 @@ class TensorInputPolicyTests(unittest.TestCase):
       with tempfile.TemporaryDirectory() as boundary_dir:
         ordinary = self.compositional_case(ordinary_dir, seed=11, policy="ordinary")
         boundary = self.compositional_case(boundary_dir, seed=11, policy="boundary")
+        summary = read_summary(boundary_dir)
 
     self.assertEqual(ordinary.program, boundary.program)
     self.assertNotEqual(ordinary.inputs, boundary.inputs)
+    self.assertEqual(
+      boundary.manifest["generator"]["input_sampler_version"],
+      "boundary-splitmix64-v1",
+    )
+    self.assertEqual(
+      boundary.manifest["coverage"]["input_behavior"]["sampler_version"],
+      "boundary-splitmix64-v1",
+    )
+    self.assertEqual(summary["input_sampler_version"], "boundary-splitmix64-v1")
     self.assertEqual(self.replay(ordinary), ordinary.expected)
     self.assertEqual(self.replay(boundary), boundary.expected)
 
