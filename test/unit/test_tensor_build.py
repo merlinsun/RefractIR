@@ -203,3 +203,69 @@ class TensorBuildTests(unittest.TestCase):
     self.assertIn("test.unit.test_tensor_generated_region_corpus", recipe)
     _, tensor_recipe = makefile_target("test-tensor")
     self.assertIn("test-tensor-generated-corpus", tensor_recipe)
+
+
+class TensorRegressionGateTests(unittest.TestCase):
+  """Critical proposal and companion checks remain reachable from Make targets."""
+
+  def test_a_missing_target_selects_no_tests(self):
+    self.assertEqual(self.selected_tests("test-tensor-no-such-target"), set())
+
+  @staticmethod
+  def selected_tests(target):
+    modules = set()
+    seen = set()
+
+    def visit(name):
+      if name in seen:
+        return
+      seen.add(name)
+      _, recipe = makefile_target(name)
+      modules.update(re.findall(r"\btest\.unit\.[A-Za-z0-9_.]+", recipe))
+      for child in re.findall(r"\btest-tensor[\w-]*", recipe):
+        visit(child)
+
+    def flatten(suite):
+      for item in suite:
+        if isinstance(item, unittest.TestSuite):
+          yield from flatten(item)
+        else:
+          yield item.id()
+
+    visit(target)
+    return set(flatten(unittest.defaultTestLoader.loadTestsFromNames(sorted(modules))))
+
+  def test_region_gate_checks_the_four_recorded_proposals(self):
+    self.assertIn(
+      "test.unit.test_tensor_input_proposals.TensorInputProposalTests."
+      "test_the_four_required_proposals_are_derived_in_order",
+      self.selected_tests("test-tensor-region-generation"),
+    )
+
+  def test_region_gate_checks_proposal_domain_refusals(self):
+    self.assertIn(
+      "test.unit.test_tensor_input_proposals.TensorInputProposalTests."
+      "test_a_negative_domain_is_refused",
+      self.selected_tests("test-tensor-region-generation"),
+    )
+
+  def test_exact_gate_checks_inherited_input_changes(self):
+    self.assertIn(
+      "test.unit.test_tensor_companion_derivation.CompanionDerivationTests."
+      "test_a_changed_inherited_input_is_refused",
+      self.selected_tests("test-tensor-exact"),
+    )
+
+  def test_exact_gate_checks_changed_loop_bounds(self):
+    self.assertIn(
+      "test.unit.test_tensor_companion_derivation.CompanionDerivationTests."
+      "test_a_changed_loop_bound_is_refused",
+      self.selected_tests("test-tensor-exact"),
+    )
+
+  def test_tensor_aggregate_checks_the_counted_certificate(self):
+    self.assertIn(
+      "test.unit.test_tensor_companion_derivation.CompanionDerivationTests."
+      "test_a_wrong_certificate_is_refused",
+      self.selected_tests("test-tensor"),
+    )

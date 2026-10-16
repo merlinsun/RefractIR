@@ -551,10 +551,6 @@ class TensorRematerializationDriftTests(unittest.TestCase):
     )
 
 
-if __name__ == "__main__":
-  unittest.main()
-
-
 class TensorCorrectionLedgerTests(unittest.TestCase):
   """The correction ledger compares like with like, or not at all.
 
@@ -618,3 +614,17 @@ class TensorCorrectionLedgerTests(unittest.TestCase):
       previous, current["cases"], current["provenance"]
     )
     self.assertEqual(corrections, [])
+
+  def test_an_explicit_zero_count_takes_precedence_over_legacy_names(self):
+    previous = _ledger_record(count=0, consumers=["%legacy"])
+    current = _ledger_record(count=0, consumers=None)
+    self.assertEqual(
+      tensor_rematerialization_evidence.superseded_readings(
+        previous, current["cases"], current["provenance"]
+      ),
+      [],
+    )
+
+
+if __name__ == "__main__":
+  unittest.main()
