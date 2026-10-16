@@ -2034,11 +2034,14 @@ class TensorCompilerLayoutRematerializationTests(unittest.TestCase):
 
 
 class TensorCompilerEliminationTests(unittest.TestCase):
-  """Reusing what a snapshot already held is elimination, never recomputation.
+  """Reusing what a snapshot already held is never evidence of recomputation.
 
   Every transition here redirects a consumer onto a definition that computes the
-  value it now reads. Only a copy the before snapshot did not already print is
-  recomputation, so these transitions confirm nothing. The genuine layout
+  value it now reads, and the before snapshot already held that computation in
+  the same layout. Only a computation the before snapshot did not already hold is
+  recomputation, so these transitions confirm nothing. Whether such a transition
+  is an eliminated conversion or a redundant repeat is not decided here: the
+  record cannot tell the two apart, and it names neither. The genuine layout
   rematerialization below is the control that still confirms.
   """
 
