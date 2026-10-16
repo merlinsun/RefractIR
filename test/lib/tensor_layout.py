@@ -88,6 +88,69 @@ def logical_addresses(layout, *, profile="v2"):
   return addresses
 
 
+def _storage_profile(shape):
+  """The storage profile one logical shape is addressed under.
+
+  A tailed extent belongs to the padded profile only, so a shape whose padded
+  execution tile differs from the shape itself is stated under v3 and every
+  other shape under the exact profile.
+  """
+  logical = _shape(shape, "v3")
+  return "v3" if execution_tile_shape(logical, profile="v3") != logical else "v2"
+
+
+@dataclass(frozen=True)
+class StorageAddressing:
+  """The addressing one layout record declares, once it has been validated.
+
+  `element_strides` are per logical axis and `element_offset` is the address of
+  the tensor's first logical element inside the buffer a kernel is handed, which
+  is the tensor's storage span rather than the whole allocation. `axis_order`
+  lists the axes from the fastest stride to the slowest and is checked against
+  the strides instead of being a second addressing input, so a caller that
+  addresses by strides honours the declared order by construction.
+  """
+
+  shape: tuple
+  element_strides: tuple
+  element_offset: int
+  storage_span: int
+  axis_order: tuple
+  profile: str
+
+  def as_record(self):
+    """The layout record this addressing was validated from."""
+    return {
+      "shape": list(self.shape),
+      "element_strides": list(self.element_strides),
+      "element_offset": self.element_offset,
+      "storage_span": self.storage_span,
+      "axis_order": list(self.axis_order),
+    }
+
+
+def storage_addressing(layout, *, profile=None):
+  """Validate one layout record and restate the addressing it declares.
+
+  Everything that places, reads, or emits an address for a recorded layout goes
+  through here, so a record is accepted or refused once and the addresses a
+  caller uses are the ones the record states.
+  """
+  if not isinstance(layout, dict):
+    raise LayoutError("layout must be an object")
+  resolved = _storage_profile(layout.get("shape")) if profile is None else profile
+  shape = _shape(layout.get("shape"), resolved)
+  logical_addresses(layout, profile=resolved)
+  return StorageAddressing(
+    shape=tuple(shape),
+    element_strides=tuple(layout["element_strides"]),
+    element_offset=layout["element_offset"],
+    storage_span=layout["storage_span"],
+    axis_order=tuple(layout["axis_order"]),
+    profile=resolved,
+  )
+
+
 def _element_size(element_size):
   return _integer(element_size, "element size", 1)
 

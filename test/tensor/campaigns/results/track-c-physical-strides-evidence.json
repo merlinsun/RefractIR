@@ -1,0 +1,1162 @@
+{
+ "binaries": {
+  "symirc": {
+   "bytes": 3196344,
+   "sha256": "42e951d3916743f9728b45bd5e3b9ae1b8d5f22de3e093b7195a01098ccebc36"
+  },
+  "symiri": {
+   "bytes": 2421344,
+   "sha256": "4674cc7db05fe3c1f03e7ad340513974baa222e2f0b652f5647e47e4d520c2b1"
+  }
+ },
+ "cases": [
+  {
+   "arms": {
+    "arms": {
+     "counted": {
+      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "complete_logical_reference": true,
+      "exit_code": 0,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 264,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [],
+       "logical_slots_changed": 248,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "llir": "56b1d4ff34c5993522969bfa289251231ad821de8969dd859034267b0410b63c",
+       "ptx": "0658e7d7ce27c958db9432fa650acac685d763dad2a4b6c1c4142e45ac8177b0",
+       "source": "ea7e49478b6eaa9b1397be6c28022a787765d296b42c8f7daf93dda2d2f50001",
+       "ttgir": "4f4aee75d4381084c614d03a597855cfda0ad6643b342ec202da5bbab88611f9",
+       "ttir": "7992ed9531cd3841e9599152ae075f4b061de039f12c5208674c8ef11a33d844"
+      },
+      "status": "pass",
+      "stderr_tail": []
+     },
+     "plan": {
+      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "complete_logical_reference": true,
+      "exit_code": 0,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 264,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [],
+       "logical_slots_changed": 248,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "glir": "76358b0564be3c7f5406e0ab7cc409ef5c33793f5f417692872099eba13801fd",
+       "llir": "1d4e676ae94ee9a8c8d5aa3c039c4bde494bec4d202bd13d263a32db2c55b626",
+       "ptx": "d0d7678b548d31a0a91e7b70a40680f197b459424ebe7fa5373a7876f48e34cb",
+       "source": "76358b0564be3c7f5406e0ab7cc409ef5c33793f5f417692872099eba13801fd",
+       "ttgir": "3fdff582c26e9aad2020f48ea9a456b7f84a30cd4fa564954cce25348eb3a23b"
+      },
+      "status": "pass",
+      "stderr_tail": []
+     },
+     "plan_dense_control": {
+      "actual_sha256": "1aa5f41bbdf8866a195e2cf4b78e4dee954ada5a9d4abf6b9264a8271ba8b8fb",
+      "complete_logical_reference": false,
+      "exit_code": 1,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 264,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [
+        "gap-0",
+        "gap-32",
+        "gap-64",
+        "gap-96",
+        "gap-128",
+        "gap-160",
+        "gap-192",
+        "gap-224"
+       ],
+       "logical_slots_changed": 240,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+       "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
+       "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
+       "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+       "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+      },
+      "status": "failed",
+      "stderr_tail": [
+       "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-0', 'gap-32', 'gap-64', 'gap-96', 'gap-128', 'gap-160', 'gap-192', 'gap-224']"
+      ]
+     }
+    },
+    "case": "identity-strides-offset",
+    "case_directory": "counted-identity-strides-offset",
+    "comparison": {
+     "counted_equals_reference": true,
+     "dense_control_equals_reference": false,
+     "plan_equals_counted": true,
+     "plan_equals_reference": true
+    },
+    "counted_kernel_addressing": [
+     "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
+     "_sir_x_offsets = 1 + _sir_x_d0 * 32 + _sir_x_d1",
+     "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
+     "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
+     "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
+     "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
+     "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
+     "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
+     "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+     "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
+     "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
+     "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
+     "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
+     "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
+     "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
+     "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
+     "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
+     "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
+     "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
+     "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
+     "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
+     "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
+     "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
+     "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
+     "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+     "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
+     "_sir_out_offsets = 1 + _sir_out_d0 * 32 + _sir_out_d1",
+     "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
+    ],
+    "dense_control_record": {
+     "addressing": [
+      "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
+      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+      "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
+      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+     ],
+     "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
+     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+    },
+    "guard_envelope": {
+     "prefix": 3,
+     "suffix": 5
+    },
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "layout": {
+     "axis_order": [
+      1,
+      0
+     ],
+     "element_offset": 1,
+     "element_strides": [
+      32,
+      1
+     ],
+     "shape": [
+      8,
+      31
+     ],
+     "storage_span": 256
+    },
+    "padding_by_dtype": {
+     "f32": "3f800001",
+     "i32": "55555555"
+    },
+    "plan_record": {
+     "addressing": [
+      "load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]",
+      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+      "store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]",
+      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+     ],
+     "emitted_sha256": "9cf9af8a69d8c0e00731e4ef5aed75d053a53e146a04cb9b40f36eb77128b3c6",
+     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
+     "family": {
+      "compute": "reduction-blocked-4-warps",
+      "consumer_views": {},
+      "load": "reduction-blocked-4-warps",
+      "name": "all-same-layout",
+      "reduction": "reduction-blocked-4-warps",
+      "shape": [
+       8,
+       31
+      ],
+      "state_layout": null,
+      "store": "reduction-blocked-4-warps",
+      "tile": [
+       8,
+       32
+      ]
+     },
+     "layout_arguments": [
+      "reduction-blocked-4-warps"
+     ],
+     "layout_parameters": [
+      "reduction_blocked_4_warps"
+     ],
+     "pool": [
+      {
+       "name": "reduction-blocked-4-warps",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        1,
+        1
+       ],
+       "threads_per_warp": [
+        1,
+        32
+       ],
+       "warps_per_cta": [
+        4,
+        1
+       ]
+      },
+      {
+       "name": "blocked-0177",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        1,
+        16
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        2,
+        2
+       ]
+      },
+      {
+       "name": "blocked-0862",
+       "order": [
+        0,
+        1
+       ],
+       "size_per_thread": [
+        8,
+        32
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        4,
+        1
+       ]
+      },
+      {
+       "name": "blocked-0427",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        2,
+        32
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        1,
+        4
+       ]
+      }
+     ],
+     "tile": [
+      8,
+      32
+     ]
+    }
+   },
+   "axis_order": [
+    1,
+    0
+   ],
+   "case": "identity-strides-offset",
+   "case_dir": "/tmp/strides/counted-identity-strides-offset",
+   "counted_kernel_sha256": "f2f3b74807fd0ff3686af16886b1ee5771df9c9aa4b56523892258f7ac45605d",
+   "element_offset": 1,
+   "element_strides": [
+    32,
+    1
+   ],
+   "evidence_kind": {
+    "artifacts": [
+     "program.sir",
+     "inputs.bin",
+     "expected.bin",
+     "kernel.py",
+     "tensor-layout.json"
+    ],
+    "kind": "construction",
+    "status": "construction_checked"
+   },
+   "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+   "guard_envelope": {
+    "prefix": 3,
+    "suffix": 5
+   },
+   "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+   },
+   "padding_by_dtype": {
+    "f32": "3f800001",
+    "i32": "55555555"
+   },
+   "profile": "tensor-v3",
+   "request": {
+    "element_offset": 1,
+    "row_padding": 0
+   },
+   "shape": [
+    8,
+    31
+   ],
+   "status": "built",
+   "storage_span": 256,
+   "tile_shape": [
+    8,
+    32
+   ],
+   "witness": "sparse-final-lanes",
+   "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
+  },
+  {
+   "arms": {
+    "arms": {
+     "counted": {
+      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "complete_logical_reference": true,
+      "exit_code": 0,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 270,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [],
+       "logical_slots_changed": 248,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "llir": "ce46933a016c13585ea2ea6c0ded530731cc547e8962cc0a27a6e52c712bd93a",
+       "ptx": "907b717282e8365c06a7a4e9b3a663de3bb576e0347de0a0a3d4954611669421",
+       "source": "8347a7144e642db9da2ec1fa905b60fe00d6ca0bbf35320d3c5e866422a32286",
+       "ttgir": "77d6b38fc2da9c6b5dcf27c02f337c95ac5289060fd4088d3b1bf38eb1f6cb5c",
+       "ttir": "7c402a96475d815e1f0f4c667c4e2be3769443f086aabaac730fba64330092f8"
+      },
+      "status": "pass",
+      "stderr_tail": []
+     },
+     "plan": {
+      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "complete_logical_reference": true,
+      "exit_code": 0,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 270,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [],
+       "logical_slots_changed": 248,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "glir": "8cf74d0c5ed2e9c9dbb5f3d8dc0fac65b93f44cfe50eeafaaf7559f7d0958e6c",
+       "llir": "225531b8ede570604f2c93dd51195a99c014773b59147e674a8c6b369cdf8316",
+       "ptx": "db7cef603dcd5e22353d9a79049c952e22af44660eb4fc6dcdc0c2944b1ebfab",
+       "source": "8cf74d0c5ed2e9c9dbb5f3d8dc0fac65b93f44cfe50eeafaaf7559f7d0958e6c",
+       "ttgir": "1cbec229b511fabf15d095b70078ee8f0ed689cbe8d12310b8aa799eec8fca2b"
+      },
+      "status": "pass",
+      "stderr_tail": []
+     },
+     "plan_dense_control": {
+      "actual_sha256": "4f6940c96d7db03f843c612499b77ed2e171553108285c57f15f8093c9a57e2e",
+      "complete_logical_reference": false,
+      "exit_code": 1,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 270,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [
+        "gap-31",
+        "gap-32",
+        "gap-64",
+        "gap-65",
+        "gap-97",
+        "gap-98",
+        "gap-130",
+        "gap-131",
+        "gap-163",
+        "gap-164",
+        "gap-196",
+        "gap-197",
+        "gap-229",
+        "gap-230"
+       ],
+       "logical_slots_changed": 234,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+       "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
+       "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
+       "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+       "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+      },
+      "status": "failed",
+      "stderr_tail": [
+       "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-31', 'gap-32', 'gap-64', 'gap-65', 'gap-97', 'gap-98', 'gap-130', 'gap-131', 'gap-163', 'gap-164', 'gap-196', 'gap-197', 'gap-229', 'gap-230']"
+      ]
+     }
+    },
+    "case": "strided-zero-offset",
+    "case_directory": "counted-strided-zero-offset",
+    "comparison": {
+     "counted_equals_reference": true,
+     "dense_control_equals_reference": false,
+     "plan_equals_counted": true,
+     "plan_equals_reference": true
+    },
+    "counted_kernel_addressing": [
+     "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
+     "_sir_x_offsets = _sir_x_d0 * 33 + _sir_x_d1",
+     "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
+     "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
+     "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
+     "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
+     "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
+     "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
+     "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+     "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
+     "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
+     "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
+     "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
+     "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
+     "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
+     "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
+     "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
+     "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
+     "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
+     "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
+     "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
+     "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
+     "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
+     "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
+     "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+     "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
+     "_sir_out_offsets = _sir_out_d0 * 33 + _sir_out_d1",
+     "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
+    ],
+    "dense_control_record": {
+     "addressing": [
+      "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
+      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+      "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
+      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+     ],
+     "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
+     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+    },
+    "guard_envelope": {
+     "prefix": 3,
+     "suffix": 5
+    },
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "layout": {
+     "axis_order": [
+      1,
+      0
+     ],
+     "element_offset": 0,
+     "element_strides": [
+      33,
+      1
+     ],
+     "shape": [
+      8,
+      31
+     ],
+     "storage_span": 262
+    },
+    "padding_by_dtype": {
+     "f32": "3f800001",
+     "i32": "55555555"
+    },
+    "plan_record": {
+     "addressing": [
+      "load_offsets = load_rows[:, None] * 33 + load_columns[None, :]",
+      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+      "store_offsets = store_rows[:, None] * 33 + store_columns[None, :]",
+      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+     ],
+     "emitted_sha256": "50055cd37bc6252b98d3931b887e2dd1d8e42c59e652973e7819e35a34006ad1",
+     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 33 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 33 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
+     "family": {
+      "compute": "reduction-blocked-4-warps",
+      "consumer_views": {},
+      "load": "reduction-blocked-4-warps",
+      "name": "all-same-layout",
+      "reduction": "reduction-blocked-4-warps",
+      "shape": [
+       8,
+       31
+      ],
+      "state_layout": null,
+      "store": "reduction-blocked-4-warps",
+      "tile": [
+       8,
+       32
+      ]
+     },
+     "layout_arguments": [
+      "reduction-blocked-4-warps"
+     ],
+     "layout_parameters": [
+      "reduction_blocked_4_warps"
+     ],
+     "pool": [
+      {
+       "name": "reduction-blocked-4-warps",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        1,
+        1
+       ],
+       "threads_per_warp": [
+        1,
+        32
+       ],
+       "warps_per_cta": [
+        4,
+        1
+       ]
+      },
+      {
+       "name": "blocked-0177",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        1,
+        16
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        2,
+        2
+       ]
+      },
+      {
+       "name": "blocked-0862",
+       "order": [
+        0,
+        1
+       ],
+       "size_per_thread": [
+        8,
+        32
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        4,
+        1
+       ]
+      },
+      {
+       "name": "blocked-0427",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        2,
+        32
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        1,
+        4
+       ]
+      }
+     ],
+     "tile": [
+      8,
+      32
+     ]
+    }
+   },
+   "axis_order": [
+    1,
+    0
+   ],
+   "case": "strided-zero-offset",
+   "case_dir": "/tmp/strides/counted-strided-zero-offset",
+   "counted_kernel_sha256": "6b4f0c364e333204000a80aaaab338f333475e09ad92b9f64e2ad9df23183ac3",
+   "element_offset": 0,
+   "element_strides": [
+    33,
+    1
+   ],
+   "evidence_kind": {
+    "artifacts": [
+     "program.sir",
+     "inputs.bin",
+     "expected.bin",
+     "kernel.py",
+     "tensor-layout.json"
+    ],
+    "kind": "construction",
+    "status": "construction_checked"
+   },
+   "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+   "guard_envelope": {
+    "prefix": 3,
+    "suffix": 5
+   },
+   "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+   },
+   "padding_by_dtype": {
+    "f32": "3f800001",
+    "i32": "55555555"
+   },
+   "profile": "tensor-v3",
+   "request": {
+    "element_offset": 0,
+    "row_padding": 1
+   },
+   "shape": [
+    8,
+    31
+   ],
+   "status": "built",
+   "storage_span": 262,
+   "tile_shape": [
+    8,
+    32
+   ],
+   "witness": "sparse-final-lanes",
+   "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
+  },
+  {
+   "arms": {
+    "arms": {
+     "counted": {
+      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "complete_logical_reference": true,
+      "exit_code": 0,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 271,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [],
+       "logical_slots_changed": 248,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "llir": "ecd5ce78bda94808fb80e72f8bb9e21d7085caacfac4020f9403ac5096003472",
+       "ptx": "2093fe99d557625f92b092f64648192b9517964604ec32f824219eca7f76eb79",
+       "source": "a4297fe017528d90d3068d5cd6ff4e6e897ddc784d38b6853f63d67eb5fb8f15",
+       "ttgir": "0dddc0455f8704a8a5ab94046097467616130a6b5f74ffa9941e64c8dcbfed2a",
+       "ttir": "c882e1362a703669670cce293ae3037b9c73b229c5c8c3c49e533f7f564ee6bf"
+      },
+      "status": "pass",
+      "stderr_tail": []
+     },
+     "plan": {
+      "actual_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "complete_logical_reference": true,
+      "exit_code": 0,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 271,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [],
+       "logical_slots_changed": 248,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "glir": "5de6d9a0ec7698a4648ca7565d53ff30a5ac17a8554792ceff82f69ffd6ef273",
+       "llir": "024c1b185705e1c08bd90294cf2025829f38487e2aecef2254c1b3baa6e3aa5a",
+       "ptx": "b641545c920603f23cb2930d7ffcf8e059f44b820e21bd0b5fbd2a77021be2fa",
+       "source": "5de6d9a0ec7698a4648ca7565d53ff30a5ac17a8554792ceff82f69ffd6ef273",
+       "ttgir": "bc13236d12024046997f89978e71769fc2543ac6a1935d8dda83cd5eb0b35e5b"
+      },
+      "status": "pass",
+      "stderr_tail": []
+     },
+     "plan_dense_control": {
+      "actual_sha256": "1c927eddd6ca75253bee1892a6a1b3e0d1582a851c6e48e0db6e61ae3a04d6d4",
+      "complete_logical_reference": false,
+      "exit_code": 1,
+      "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+      "guard_verdict": {
+       "allocation_slots": 271,
+       "changed_slot_count": 248,
+       "guard_or_gap_slots_changed": [
+        "gap-0",
+        "gap-32",
+        "gap-33",
+        "gap-65",
+        "gap-66",
+        "gap-98",
+        "gap-99",
+        "gap-131",
+        "gap-132",
+        "gap-164",
+        "gap-165",
+        "gap-197",
+        "gap-198",
+        "gap-230",
+        "gap-231"
+       ],
+       "logical_slots_changed": 233,
+       "profile": "v3"
+      },
+      "ir_stages": {
+       "glir": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+       "llir": "b88d7452c532a1e2b8ab0be706adb5de3f51155bba3dd5282cd9c156d562f5b6",
+       "ptx": "4d426346e26176521b71acdb1fc58fc5702cbeeebbb6ffb1ceb14edc713e994f",
+       "source": "61f9cbba3656060d41e7fb2b49a71ba69fb1211464a329fbb1877558fb387afe",
+       "ttgir": "e731e58e81490a8941c61c7089b8244a4238ad547023b6711c49cf121d911b44"
+      },
+      "status": "failed",
+      "stderr_tail": [
+       "RuntimeError: kernel wrote outside its logical output mapping: guards and gaps differ at ['gap-0', 'gap-32', 'gap-33', 'gap-65', 'gap-66', 'gap-98', 'gap-99', 'gap-131', 'gap-132', 'gap-164', 'gap-165', 'gap-197', 'gap-198', 'gap-230', 'gap-231']"
+      ]
+     }
+    },
+    "case": "strided-offset",
+    "case_directory": "counted-strided-offset",
+    "comparison": {
+     "counted_equals_reference": true,
+     "dense_control_equals_reference": false,
+     "plan_equals_counted": true,
+     "plan_equals_reference": true
+    },
+    "counted_kernel_addressing": [
+     "_sir_x_valid = (_sir_x_d0 < 8) & (_sir_x_d1 < 31)",
+     "_sir_x_offsets = 1 + _sir_x_d0 * 33 + _sir_x_d1",
+     "_sir_acc_y_initializer_valid = (_sir_acc_y_initializer_d0 < 8) & (_sir_acc_y_initializer_d1 < 31)",
+     "_sir_acc_y = tl.where(_sir_acc_y_initializer_valid, _sir_acc_y, 0.0)",
+     "_sir_input_load_tmp250 = tl.load(x_ptr + _sir_x_offsets, mask=_sir_x_valid, other=0.0)",
+     "_sir_acc_x_result_valid = (_sir_acc_x_result_d0 < 8) & (_sir_acc_x_result_d1 < 31)",
+     "_sir_acc_x = tl.where(_sir_acc_x_result_valid, _sir_input_load_tmp250, 0.0)",
+     "_sir_t0_result_valid = (_sir_t0_result_d0 < 8) & (_sir_t0_result_d1 < 31)",
+     "_sir_t0 = tl.where(_sir_t0_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+     "_sir_t1_result_valid = (_sir_t1_result_d0 < 8) & (_sir_t1_result_d1 < 1)",
+     "_sir_t1 = tl.where(_sir_t1_result_valid, tl.sum(tl.where(_sir_t0_result_valid, _sir_t0, 0.0), axis=1, keep_dims=True), 0.0)",
+     "_sir_t2_result_valid = (_sir_t2_result_d0 < 8) & (_sir_t2_result_d1 < 31)",
+     "_sir_t2 = tl.where(_sir_t2_result_valid, tl.broadcast_to(_sir_t1, (8, 32)), 0.0)",
+     "_sir_t3_result_valid = (_sir_t3_result_d0 < 8) & (_sir_t3_result_d1 < 31)",
+     "_sir_t3 = tl.where(_sir_t3_result_valid, (_sir_t0 + _sir_t2), 0.0)",
+     "_sir_next_x_result_valid = (_sir_next_x_result_d0 < 8) & (_sir_next_x_result_d1 < 31)",
+     "_sir_next_x = tl.where(_sir_next_x_result_valid, (_sir_acc_x + _sir_t3), 0.0)",
+     "_sir_next_y_result_valid = (_sir_next_y_result_d0 < 8) & (_sir_next_y_result_d1 < 31)",
+     "_sir_next_y = tl.where(_sir_next_y_result_valid, (_sir_acc_y + _sir_t3), 0.0)",
+     "_sir_acc_x_result_valid_1 = (_sir_acc_x_result_d0_1 < 8) & (_sir_acc_x_result_d1_1 < 31)",
+     "_sir_acc_x = tl.where(_sir_acc_x_result_valid_1, _sir_next_x, 0.0)",
+     "_sir_acc_y_result_valid = (_sir_acc_y_result_d0 < 8) & (_sir_acc_y_result_d1 < 31)",
+     "_sir_acc_y = tl.where(_sir_acc_y_result_valid, _sir_next_y, 0.0)",
+     "_sir_out_result_valid = (_sir_out_result_d0 < 8) & (_sir_out_result_d1 < 31)",
+     "_sir_out = tl.where(_sir_out_result_valid, (_sir_acc_x + _sir_acc_y), 0.0)",
+     "_sir_out_valid = (_sir_out_d0 < 8) & (_sir_out_d1 < 31)",
+     "_sir_out_offsets = 1 + _sir_out_d0 * 33 + _sir_out_d1",
+     "tl.store(out_ptr + _sir_out_offsets, _sir_out, mask=_sir_out_valid)"
+    ],
+    "dense_control_record": {
+     "addressing": [
+      "load_offsets = load_rows[:, None] * 31 + load_columns[None, :]",
+      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+      "store_offsets = store_rows[:, None] * 31 + store_columns[None, :]",
+      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+     ],
+     "emitted_sha256": "23ac448637a1fec97ecce12f5fbdcbd4b73416679a6879e9952fb401cbda8d1f",
+     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = load_rows[:, None] * 31 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = store_rows[:, None] * 31 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n"
+    },
+    "guard_envelope": {
+     "prefix": 3,
+     "suffix": 5
+    },
+    "launch": {
+     "enable_fp_fusion": false,
+     "num_stages": 1,
+     "num_warps": 4
+    },
+    "layout": {
+     "axis_order": [
+      1,
+      0
+     ],
+     "element_offset": 1,
+     "element_strides": [
+      33,
+      1
+     ],
+     "shape": [
+      8,
+      31
+     ],
+     "storage_span": 263
+    },
+    "padding_by_dtype": {
+     "f32": "3f800001",
+     "i32": "55555555"
+    },
+    "plan_record": {
+     "addressing": [
+      "load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]",
+      "valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)",
+      "acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)",
+      "valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)",
+      "v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)",
+      "store_offsets = 1 + store_rows[:, None] * 33 + store_columns[None, :]",
+      "gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)"
+     ],
+     "emitted_sha256": "cf4485c80657af97470f419434a90abfe5c3391d55c30677b95958c9fa5c5541",
+     "emitted_source": "import triton\nfrom triton.experimental import gluon\nfrom triton.experimental.gluon import language as gl\n\n@gluon.jit\ndef generated_region_kernel(\n    input_ptr,\n    output_ptr,\n    reduction_blocked_4_warps: gl.constexpr,\n):\n    load_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    load_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]\n    valid_reduction_blocked_4_warps = (load_rows[:, None] < 8) & (load_columns[None, :] < 31)\n    acc_x = gl.convert_layout(gl.load(input_ptr + load_offsets, mask=valid_reduction_blocked_4_warps, other=0.0), reduction_blocked_4_warps)\n    acc_y = gl.zeros((8, 32), gl.float32, layout=reduction_blocked_4_warps)\n    for _ in range(2):\n        v0_left, v0_right = gl.broadcast(acc_x, acc_y)\n        v0 = v0_left + v0_right\n        v0 = gl.convert_layout(v0, reduction_blocked_4_warps)\n        reduction_blocked_4_warps_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n        reduction_blocked_4_warps_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n        valid_reduction_blocked_4_warps = (reduction_blocked_4_warps_rows[:, None] < 8) & (reduction_blocked_4_warps_columns[None, :] < 31)\n        v0_masked = gl.where(valid_reduction_blocked_4_warps, v0, 0.0)\n        v1 = gl.convert_layout(gl.expand_dims(gl.sum(v0_masked, axis=1), 1), reduction_blocked_4_warps)\n        v2, _ = gl.broadcast(v1, acc_x)\n        v2 = gl.convert_layout(v2, reduction_blocked_4_warps)\n        v3_left, v3_right = gl.broadcast(v0, v2)\n        v3 = v3_left + v3_right\n        v3 = gl.convert_layout(v3, reduction_blocked_4_warps)\n        v4_left, v4_right = gl.broadcast(acc_x, v3)\n        v4 = v4_left + v4_right\n        v4 = gl.convert_layout(v4, reduction_blocked_4_warps)\n        v5_left, v5_right = gl.broadcast(acc_y, v3)\n        v5 = v5_left + v5_right\n        v5 = gl.convert_layout(v5, reduction_blocked_4_warps)\n        acc_x = v4\n        acc_y = v5\n    out_left, out_right = gl.broadcast(acc_x, acc_y)\n    output = out_left + out_right\n    output = gl.convert_layout(output, reduction_blocked_4_warps)\n    store_rows = gl.arange(0, 8, layout=gl.SliceLayout(1, parent=reduction_blocked_4_warps))\n    store_columns = gl.arange(0, 32, layout=gl.SliceLayout(0, parent=reduction_blocked_4_warps))\n    store_offsets = 1 + store_rows[:, None] * 33 + store_columns[None, :]\n    gl.store(output_ptr + store_offsets, output, mask=valid_reduction_blocked_4_warps)\n",
+     "family": {
+      "compute": "reduction-blocked-4-warps",
+      "consumer_views": {},
+      "load": "reduction-blocked-4-warps",
+      "name": "all-same-layout",
+      "reduction": "reduction-blocked-4-warps",
+      "shape": [
+       8,
+       31
+      ],
+      "state_layout": null,
+      "store": "reduction-blocked-4-warps",
+      "tile": [
+       8,
+       32
+      ]
+     },
+     "layout_arguments": [
+      "reduction-blocked-4-warps"
+     ],
+     "layout_parameters": [
+      "reduction_blocked_4_warps"
+     ],
+     "pool": [
+      {
+       "name": "reduction-blocked-4-warps",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        1,
+        1
+       ],
+       "threads_per_warp": [
+        1,
+        32
+       ],
+       "warps_per_cta": [
+        4,
+        1
+       ]
+      },
+      {
+       "name": "blocked-0177",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        1,
+        16
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        2,
+        2
+       ]
+      },
+      {
+       "name": "blocked-0862",
+       "order": [
+        0,
+        1
+       ],
+       "size_per_thread": [
+        8,
+        32
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        4,
+        1
+       ]
+      },
+      {
+       "name": "blocked-0427",
+       "order": [
+        1,
+        0
+       ],
+       "size_per_thread": [
+        2,
+        32
+       ],
+       "threads_per_warp": [
+        32,
+        1
+       ],
+       "warps_per_cta": [
+        1,
+        4
+       ]
+      }
+     ],
+     "tile": [
+      8,
+      32
+     ]
+    }
+   },
+   "axis_order": [
+    1,
+    0
+   ],
+   "case": "strided-offset",
+   "case_dir": "/tmp/strides/counted-strided-offset",
+   "counted_kernel_sha256": "c5ca51703c1d6d043d68143f4710253b450a891d988deb2334f75038de169415",
+   "element_offset": 1,
+   "element_strides": [
+    33,
+    1
+   ],
+   "evidence_kind": {
+    "artifacts": [
+     "program.sir",
+     "inputs.bin",
+     "expected.bin",
+     "kernel.py",
+     "tensor-layout.json"
+    ],
+    "kind": "construction",
+    "status": "construction_checked"
+   },
+   "expected_sha256": "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2",
+   "guard_envelope": {
+    "prefix": 3,
+    "suffix": 5
+   },
+   "launch": {
+    "enable_fp_fusion": false,
+    "num_stages": 1,
+    "num_warps": 4
+   },
+   "padding_by_dtype": {
+    "f32": "3f800001",
+    "i32": "55555555"
+   },
+   "profile": "tensor-v3",
+   "request": {
+    "element_offset": 1,
+    "row_padding": 1
+   },
+   "shape": [
+    8,
+    31
+   ],
+   "status": "built",
+   "storage_span": 263,
+   "tile_shape": [
+    8,
+    32
+   ],
+   "witness": "sparse-final-lanes",
+   "witness_proposal_sha256": "775b2ea6c6af23d284d70ca9198ac6dc95ed4936caa967de8f1eb7be9d214791"
+  }
+ ],
+ "environment": {
+  "compute_capability": [
+   7,
+   0
+  ],
+  "device_name": "Tesla V100-SXM2-32GB",
+  "platform": "Linux-5.15.0-60-generic-x86_64-with-glibc2.35",
+  "python": "3.12.15",
+  "torch_version": "2.5.1+cu121",
+  "triton_version": "3.9.0"
+ },
+ "modules": {
+  "test.lib.build_tensor_exact_loop_case": {
+   "bytes": 13046,
+   "path": "/host/refractir-strides-20261016/test/lib/build_tensor_exact_loop_case.py",
+   "sha256": "4e0a2ab3cebbb2b3be157695c2e3387db50eedabd18e2ceb8b6226bb3f50ffbb"
+  },
+  "test.lib.build_tensor_exact_region_case": {
+   "bytes": 21391,
+   "path": "/host/refractir-strides-20261016/test/lib/build_tensor_exact_region_case.py",
+   "sha256": "085ab3942ae00afe808d02bc19dc4fb8714ea2e847c23da104620764617ac533"
+  },
+  "test.lib.probe_triton_env": {
+   "bytes": 10835,
+   "path": "/host/refractir-strides-20261016/test/lib/probe_triton_env.py",
+   "sha256": "742d4e4cfaf9cc5a641854e980d8f3fc09be108015230ccd347a64483da4e0e0"
+  },
+  "test.lib.tensor_exact_f32": {
+   "bytes": 38552,
+   "path": "/host/refractir-strides-20261016/test/lib/tensor_exact_f32.py",
+   "sha256": "941b8475a8dc923bc41632d5765675e0415481a3ed9057e981d4ac47067372d8"
+  },
+  "test.lib.tensor_gluon": {
+   "bytes": 26662,
+   "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon.py",
+   "sha256": "7e047e49b6bbe72d304644dadb3c07c58512e7f8d58517a6d724b7c3724526c2"
+  },
+  "test.lib.tensor_gluon_lowering": {
+   "bytes": 22238,
+   "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon_lowering.py",
+   "sha256": "3fb3498b2dc7d3ea666da3fe6cf9220b79b4d8ea4f1ff80892c92f0d5b1ef741"
+  },
+  "test.lib.tensor_gluon_replay": {
+   "bytes": 12963,
+   "path": "/host/refractir-strides-20261016/test/lib/tensor_gluon_replay.py",
+   "sha256": "7c868ebdc2bea03361889e91ea315e0ea73022166453b43ca918d1e8a8ba5f6f"
+  },
+  "test.lib.tensor_input_proposals": {
+   "bytes": 9636,
+   "path": "/host/refractir-strides-20261016/test/lib/tensor_input_proposals.py",
+   "sha256": "48033ed1d05551d1c4a7a34a28dc1bb9da34691329b8148ad7d68920396dabbe"
+  },
+  "test.lib.tensor_layout": {
+   "bytes": 13696,
+   "path": "/host/refractir-strides-20261016/test/lib/tensor_layout.py",
+   "sha256": "7e313abbe24dffebe1c8f36ff84bdeb735b134c65cb85bcf8c4f8bebf06c041a"
+  },
+  "test.lib.triton_case_worker": {
+   "bytes": 16986,
+   "path": "/host/refractir-strides-20261016/test/lib/triton_case_worker.py",
+   "sha256": "2f9cb39bf4187572503055b94ae157eb10742a99cc77b17f2876930fa6f5782c"
+  }
+ },
+ "program": {
+  "bytes": 2146,
+  "path": "/host/refractir-strides-20261016/test/tensor/gluon/programs/padded-tail-8x31-region-v1.sir",
+  "sha256": "7ab66271e07d4599a2b521042d27a7184f2e3a2e04e51cb7b1766f6495fe88e9"
+ },
+ "python": "3.12.15",
+ "revision": "073a8f89c25a7c00c30ff7400fd02958541549b7+physical-strides-overrides",
+ "schema": "refractir.gluon-physical-strides.v1",
+ "summary": {
+  "cases": [
+   "identity-strides-offset",
+   "strided-zero-offset",
+   "strided-offset"
+  ],
+  "counted_equals_reference": true,
+  "dense_control_matches_reference": [
+   false,
+   false,
+   false
+  ],
+  "guard_or_gap_slots_changed": {
+   "identity-strides-offset": {
+    "counted": [],
+    "plan": [],
+    "plan_dense_control": [
+     "gap-0",
+     "gap-32",
+     "gap-64",
+     "gap-96",
+     "gap-128",
+     "gap-160",
+     "gap-192",
+     "gap-224"
+    ]
+   },
+   "strided-offset": {
+    "counted": [],
+    "plan": [],
+    "plan_dense_control": [
+     "gap-0",
+     "gap-32",
+     "gap-33",
+     "gap-65",
+     "gap-66",
+     "gap-98",
+     "gap-99",
+     "gap-131"
+    ]
+   },
+   "strided-zero-offset": {
+    "counted": [],
+    "plan": [],
+    "plan_dense_control": [
+     "gap-31",
+     "gap-32",
+     "gap-64",
+     "gap-65",
+     "gap-97",
+     "gap-98",
+     "gap-130",
+     "gap-131"
+    ]
+   }
+  },
+  "plan_equals_counted": true,
+  "plan_equals_reference": true
+ }
+}

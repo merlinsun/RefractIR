@@ -1,11 +1,14 @@
 """Shared generated-region graphs lower to Gluon source and run on the CPU."""
 
 import ast
+import hashlib
 import re
 import struct
 import unittest
 from pathlib import Path
 
+from test.lib import tensor_input_proposals, tensor_layout
+from test.lib.build_tensor_exact_region_case import physical_layout
 from test.lib.tensor_exact_f32 import certify
 from test.lib.tensor_gluon import (
   BlockedLayoutPlan,
@@ -333,6 +336,182 @@ class TensorGluonPaddedTailEdgeTests(unittest.TestCase):
       generated.source,
     )
     self.assertIn("mask=valid_load_layout", generated.source)
+
+
+def case_layout(shape, *, profile="tensor-v3", row_padding=0, element_offset=0):
+  """The physical layout record a tailed region case declares for its buffers.
+
+  The record comes from the case builder itself, so the tests address the layout
+  a built case states instead of an arithmetic they re-derive.
+  """
+  return {
+    "shape": list(shape),
+    **physical_layout(
+      list(shape),
+      profile=profile,
+      row_padding=row_padding,
+      element_offset=element_offset,
+    ),
+  }
+
+
+def staged_values(shape):
+  """A small mixed input pattern inside the certified [0, 8] domain."""
+  return [float((index * 5) % 9) for index in range(shape[0] * shape[1])]
+
+
+def replay_staged(source, *, shape, tile, layout, envelope=None, values=None):
+  """One region's exact reference and the replay of its emission.
+
+  The replay runs against the allocation `test.lib.tensor_layout` stages from
+  the same record the emitter addresses, so a kernel that reads dense logical
+  row-major storage reads a gap or the wrong element and fails instead of
+  agreeing by accident.
+  """
+  values = staged_values(shape) if values is None else values
+  proof, expected = certify(source, struct.pack(f"<{len(values)}f", *values), (0, 8))
+  generated = render_gluon_kernel(source, tile=tile, layout=layout)
+  return (
+    proof,
+    expected,
+    generated,
+    replay_gluon_kernel(generated, values, layout=layout, envelope=envelope),
+  )
+
+
+# The counted arm's logical result for the committed padded-tail case, as
+# `test/tensor/campaigns/results/track-c-padded-tail-gluon-evidence.json` records
+# it: the case's reference buffer, which the counted run's `actual.bin` matched
+# byte for byte. The plan arm has to land on the same digest.
+COUNTED_TAIL_OUTPUT_SHA256 = (
+  "e523c11eb8c81b455ed69bfecd41e52b7236ca0dcaa0a27e5ee511bb74f81fa2"
+)
+
+
+class TensorGluonPhysicalStrideTests(unittest.TestCase):
+  """A region addresses the allocation its own layout record declares."""
+
+  def test_a_non_identity_stride_layout_addresses_the_recorded_elements(self):
+    layout = case_layout(TAIL_SHAPE, row_padding=1)
+    proof, expected, generated, replay = replay_staged(
+      TAIL_PROGRAM_PATH.read_text(encoding="utf-8"),
+      shape=TAIL_SHAPE,
+      tile=TAIL_TILE,
+      layout=layout,
+    )
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(layout["element_strides"], [33, 1])
+    self.assertIn(
+      "load_offsets = load_rows[:, None] * 33 + load_columns[None, :]",
+      generated.source,
+    )
+    self.assertIn(
+      "store_offsets = store_rows[:, None] * 33 + store_columns[None, :]",
+      generated.source,
+    )
+    self.assertEqual(replay_words(replay.output), expected)
+
+  def test_a_nonzero_element_offset_is_honoured(self):
+    layout = case_layout(TAIL_SHAPE, element_offset=1)
+    proof, expected, generated, replay = replay_staged(
+      TAIL_PROGRAM_PATH.read_text(encoding="utf-8"),
+      shape=TAIL_SHAPE,
+      tile=TAIL_TILE,
+      layout=layout,
+    )
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(layout["element_offset"], 1)
+    self.assertIn(
+      "load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]",
+      generated.source,
+    )
+    self.assertIn(
+      "store_offsets = 1 + store_rows[:, None] * 32 + store_columns[None, :]",
+      generated.source,
+    )
+    self.assertEqual(replay_words(replay.output), expected)
+
+  def test_a_padded_allocation_keeps_its_guards_and_gaps(self):
+    layout = case_layout(TAIL_SHAPE, row_padding=1, element_offset=1)
+    envelope = tensor_layout.GuardEnvelope(prefix=3, suffix=5)
+    proof, expected, generated, replay = replay_staged(
+      TAIL_PROGRAM_PATH.read_text(encoding="utf-8"),
+      shape=TAIL_SHAPE,
+      tile=TAIL_TILE,
+      layout=layout,
+      envelope=envelope,
+    )
+
+    self.assertTrue(proof["complete_output"])
+    self.assertEqual(replay_words(replay.output), expected)
+    addressing = tensor_layout.storage_addressing(layout)
+    changed = tensor_layout.classify_changed_slots(
+      replay_words(replay.initial_physical_output),
+      replay_words(replay.physical_output),
+      layout,
+      element_size=4,
+      envelope=envelope,
+      profile=addressing.profile,
+    )
+    # Exactly the logical slots changed: a store into a prefix guard, a suffix
+    # guard, or an internal gap would be named here instead.
+    self.assertEqual(changed, [f"input-{index}" for index in range(len(expected) // 4)])
+
+  def test_the_gathered_plan_mode_result_equals_the_counted_runs_bytes(self):
+    source = TAIL_PROGRAM_PATH.read_text(encoding="utf-8")
+    proposals = tensor_input_proposals.derive_proposals(source, domain=(0, 8), seed=0)
+    witness = next(
+      proposal for proposal in proposals if proposal.name == "sparse-final-lanes"
+    )
+    values = [float(value) for value in witness.values]
+    layout = case_layout(TAIL_SHAPE, element_offset=1)
+    proof, expected, generated, replay = replay_staged(
+      source,
+      shape=TAIL_SHAPE,
+      tile=TAIL_TILE,
+      layout=layout,
+      envelope=tensor_layout.GuardEnvelope(prefix=3, suffix=5),
+      values=values,
+    )
+
+    self.assertTrue(proof["complete_output"])
+    # The local exact reference is the counted arm's recorded result, so the
+    # gathered plan-mode bytes are compared against the counted run itself.
+    self.assertEqual(hashlib.sha256(expected).hexdigest(), COUNTED_TAIL_OUTPUT_SHA256)
+    self.assertEqual(
+      hashlib.sha256(replay_words(replay.output)).hexdigest(),
+      COUNTED_TAIL_OUTPUT_SHA256,
+    )
+
+  def test_a_layout_whose_strides_do_not_fit_its_storage_span_is_refused(self):
+    source = TAIL_PROGRAM_PATH.read_text(encoding="utf-8")
+    layout = case_layout(TAIL_SHAPE, row_padding=1, element_offset=1)
+    layout["storage_span"] -= 1
+
+    with self.assertRaisesRegex(tensor_layout.LayoutError, "exceeds storage span"):
+      render_gluon_kernel(source, tile=TAIL_TILE, layout=layout)
+
+    reordered = case_layout(TAIL_SHAPE)
+    reordered["axis_order"] = [0, 1]
+    with self.assertRaisesRegex(tensor_layout.LayoutError, "fastest to slowest"):
+      render_gluon_kernel(source, tile=TAIL_TILE, layout=reordered)
+
+
+class TensorGluonPhysicalStrideEdgeTests(unittest.TestCase):
+  """The dense layout a region had before physical strides existed."""
+
+  def test_an_identity_layout_with_a_zero_offset_emits_the_same_kernel(self):
+    source = generated_region_source()
+    layout = case_layout((2, 2), profile="tensor-v2")
+
+    self.assertEqual(layout["element_strides"], [2, 1])
+    self.assertEqual(layout["element_offset"], 0)
+    self.assertEqual(
+      render_gluon_kernel(source, layout=layout).source,
+      render_gluon_kernel(source).source,
+    )
 
 
 class TensorGluonDeclaredRoleTests(unittest.TestCase):

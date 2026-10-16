@@ -1430,21 +1430,38 @@ The family's body is fixed: the shared two-state producer, a reduction of the
 state that carries the runtime input, the broadcast of that one-extent result, a
 second reduction of the view on the other axis, the re-broadcast, and the two
 root joins. The view therefore has exactly two consumers, the second reduction
-and the elementwise path into a root, which is the shape
-`hoistConvertOnTopOfExtOrBroadcast` and `backwardRematerialization` accept.
+and the elementwise path into a root. That is what the pass's two
+rematerialization entry points need to see at the conversion they act on, and the
+TTGIR below confirms the two consumers; what it does not confirm is a conversion
+*on* that broadcast.
 
 Evidence: `broadcast-hoist-rematerialization.json`, produced by
 `.planning/2026-10-11-targeted-compiler-behavior/remat-driver/`.
 
-| Case | Selection | Execution | Conversions created / removed by the first `RemoveLayoutConversions` | Conversions on an extend or broadcast at that boundary | Matcher | Structural recomputations |
-|---|---|---|---|---|---|---|
-| `broadcast-hoist` `[4,8]` × 4 | solver | pass | 12 + 3 created, 15 removed | 6 | 0 confirmed | 0 |
-| `broadcast-hoist` `[32,16]` × 2 | declared witness | pass | 12 + 4 created, 16 removed | 6 | 0 confirmed | 0 |
-| `mixed-depth` `[32,16]` × 4 (control) | declared witness | pass | 8 + 4 created, 12 removed | 4 | 0 confirmed | 0 |
+**Correction (2026-10-16).** The consumer counts first published here were
+re-derived and one claim was withdrawn. The driver counted every SSA name on a
+line, including the defining left-hand side, so each conversion's source was
+reported with one consumer too many: all six opportunities per family arm read
+`source_consumers: 2` and all six have exactly **one** consuming operation. The
+broadcast first cited as the family's pattern
+(`tt.broadcast %_sir_x_offsets_5`) is an `i32` address computation with one
+consumer, not the generated `f32` state view. The intended view is now located
+in TTGIR by walking the operand spine down to its floating-point reduction, and
+the record states it per boundary. The superseded counts and the superseded
+comparison are listed in the record's `superseded` block, which now also keeps
+the per-arm compiler, environment, qualification, and dataset digests and the
+certificate refusal as a first-class arm.
 
-All three arms hold one `scf.for` through every layout pass and lose it at
-`SCFToControlFlowPass`, so the layout decision is made while a loop exists. The
-control's program is byte-identical to the archived counted case
+| Case | Selection | Execution | Conversions created / removed by the first `RemoveLayoutConversions` | Conversions on an extend or broadcast at that boundary | Generated state view at that boundary | Matcher | Structural recomputations |
+|---|---|---|---|---|---|---|---|
+| `broadcast-hoist` `[4,8]` × 4 | solver | pass | 12 + 3 created, 15 removed | 6 | present: `tt.broadcast %_sir_t2` (f32), 2 consumers, no conversion reads it | 0 confirmed | 0 |
+| `broadcast-hoist` `[32,16]` × 2 | declared witness | pass | 12 + 4 created, 16 removed | 6 | present: `tt.broadcast %_sir_t2` (f32), 2 consumers, no conversion reads it | 0 confirmed | 0 |
+| `mixed-depth` `[32,16]` × 4 (control) | declared witness | pass | 8 + 4 created, 12 removed | 4 | present: `tt.broadcast %_sir_t3` (f32), 1 consumer, no conversion reads it | 0 confirmed | 0 |
+| `broadcast-hoist` `[32,16]` × 4 | — | refused | — | — | — | — | — |
+
+All three executed arms hold one `scf.for` through every layout pass and lose it
+at `SCFToControlFlowPass`, so the layout decision is made while a loop exists.
+The control's program is byte-identical to the archived counted case
 (`638322a9be95072a`); the two family arms are new programs
 (`206f869cbddffdec`, `b9b37942fca352f1`).
 
@@ -1454,19 +1471,38 @@ state multiplies the state by the product of both extents on every trip, so the
 bounds proof admits one and two trips at that shape (largest partial sum
 2,101,248 at domain `[0,8]`) and refuses three and four (`exceeds exact range`).
 The four-trip arm therefore runs at `[4,8]`, the shape the archived family cases
-use, and the refusal is recorded in the evidence rather than inferred from a
-missing case. The control admits the requested configuration (10,976,000
-against the 16,777,216 exactness bound).
+use, and the refusal has its own arm in the record
+(`broadcast-hoist-32x16-it4`, `status: certificate_refused`, reason
+`materialized value or reduction partial sum exceeds exact range`) rather than
+being inferred from a missing case; the record's `superseded` block names it as
+an arm the first summary did not carry. The control admits the requested
+configuration (10,976,000 against the 16,777,216 exactness bound).
 
 What the pass did with the pattern:
 
-* The family's own TTGIR contains the pattern before the pass. In the `[4,8]`
-  arm a broadcast result with two consumers feeds a conversion
-  (`tt.broadcast %_sir_x_offsets_5 : tensor<4x1xi32, #blocked1> ->
-  tensor<4x8xi32, #blocked1>`, then `ttg.convert_layout %_sir_x_offsets_6 :
-  #blocked1 -> #blocked`), and the view's own expand feeds a conversion the same
-  way. Six such conversions exist at the boundary in each family arm and four in
-  the control.
+* The family's own TTGIR contains the view before the pass, and the view is not
+  the broadcast first cited here. In the `[4,8]` arm the generated `f32` state
+  view is `%_sir_t2_18 = tt.broadcast %_sir_t2 : tensor<1x8xf32, #blocked> ->
+  tensor<4x8xf32, #blocked>`, and its two consumers are exactly the second
+  reduction (`"tt.reduce"(%_sir_t2_18) <{axis = 1 : i32}>`) and the shallow root
+  join (`%_sir_next_y = arith.addf %_sir_acc_y_13, %_sir_t2_18`); the `[32,16]` × 2
+  arm is the same shape. **No conversion reads that broadcast.** The conversion
+  the pipeline inserts for this path sits one step below it, on the view's
+  operand: `%_sir_t1_17 = tt.expand_dims %_sir_t1_16`, whose only consumer is
+  `%_sir_t2 = ttg.convert_layout %_sir_t1_17 : #blocked4 -> #blocked`. So the
+  candidate the hoist path sees is a conversion on the one-extent expansion, not
+  on the two-consumer broadcast the proposal asked for. The superseded sentence
+  ("a broadcast result with two consumers feeds a conversion", citing
+  `%_sir_x_offsets_6`) counted the `i32` broadcast's own definition as its second
+  consumer; that broadcast has one consumer, the conversion reading it, and it is
+  part of the address chain.
+* Six conversions on an extend or broadcast exist at the boundary in each family
+  arm and four in the control, as before; in the family arms three of the six are
+  in the family's own chains (the two expansions `%_sir_t2`, `%_sir_t4` and the
+  re-broadcast feeding `%_sir_next_x`) and three are the `i32` offset
+  conversions. In the control, the state broadcast (`tt.broadcast %_sir_t3`,
+  1 consumer) has no conversion either.
+
 * `TritonGPURemoveLayoutConversions` removes every one of them in its first
   occurrence (15, 16, and 12 conversions), with a duplicate-expression delta of
   zero and no repeated definition anywhere in the transition. The pass's first
@@ -1491,7 +1527,15 @@ device evidence:
   structural reading finds the recomputation in the second pair (a cloned
   `tt.broadcast` with the same operand, the original losing the conversion and
   its consumer, that consumer reading the copy), so the refusal is the matcher's
-  equivalence and not an absent candidate.
+  equivalence and not an absent candidate. That pair is read with the library
+  the runs imported (`tensor_compiler_observation.py` `fe1cb5ea…`); the record
+  carries a later library's reading of the same pair beside it
+  (`matcher_boundary_probe.rederivation`, `08c4772a…`), where it is
+  `confirmed_only`, 1, because that library compares the two computations
+  modulo the encoding the copy was created to change. The three device arms were
+  re-analysed with that library too and every transition reading is identical to
+  the published one (0 confirmed, 0 structural recomputations), so the matcher
+  change moves the synthetic pair only.
 * Ten hand-written kernels in the family's operation set, compiled on the same
   device with pass dumps, found no configuration in which the pass recomputes
   anything. The two kernels whose load and store anchor different layouts

@@ -8,13 +8,21 @@ guards: a mask wider than its operand broadcasts that operand back across lanes
 the reduction must not count, and the recorded shape pair states that without
 anyone reading the emitted text.
 
+With a physical `layout` the replay stages the logical input at the addresses
+that layout records, hands the kernel the same view of them the device worker
+does, and gathers the logical output back out of the allocation, so a kernel
+that addresses dense row-major storage reads a gap or the wrong element instead
+of agreeing by accident.
+
 Only the standard library is used, so the emitter's unit suite runs wherever the
 exact reference does. Broadcasting follows the region grammar's own numpy-style
 rule, which `test.lib.tensor_exact_f32` already implements.
 """
 
+import struct
 from dataclasses import dataclass
 
+from test.lib import tensor_layout
 from test.lib.tensor_exact_f32 import _broadcast_shape, _broadcast_values
 
 
@@ -135,14 +143,25 @@ def _expand_dims(values, axis):
 
 
 class _Pointer:
-  """A flat logical buffer and the offset the kernel's addressing computes."""
+  """A flat physical buffer, the base the kernel is handed, and its addressing.
 
-  def __init__(self, data, offset=0):
+  `base` is the offset of the view the kernel receives inside the allocation, so
+  a guarded buffer stays one allocation while the kernel's own offsets stay
+  relative to the tensor's storage span.
+  """
+
+  __slots__ = ("data", "base", "offsets")
+
+  def __init__(self, data, *, base=0, offsets=None):
     self.data = data
-    self.offset = offset
+    self.base = base
+    self.offsets = offsets
 
-  def __add__(self, offset):
-    return _Pointer(self.data, offset)
+  def __add__(self, offsets):
+    return _Pointer(self.data, base=self.base, offsets=offsets)
+
+  def addresses(self):
+    return [self.base + value for value in self.offsets.values]
 
 
 class _Surface:
@@ -172,13 +191,12 @@ class _Surface:
     return _Array((end - start,), list(range(start, end)))
 
   def load(self, pointer, mask=None, other=0.0):
-    addresses = pointer.offset.values
+    addresses = pointer.addresses()
+    shape = pointer.offsets.shape
     if mask is None:
-      return _Array(
-        pointer.offset.shape, [pointer.data[address] for address in addresses]
-      )
+      return _Array(shape, [pointer.data[address] for address in addresses])
     return _Array(
-      pointer.offset.shape,
+      shape,
       [
         pointer.data[address] if keep else other
         for address, keep in zip(addresses, mask.values)
@@ -187,7 +205,7 @@ class _Surface:
 
   def store(self, pointer, values, mask=None):
     keeps = mask.values if mask is not None else [True] * len(values.values)
-    for address, value, keep in zip(pointer.offset.values, values.values, keeps):
+    for address, value, keep in zip(pointer.addresses(), values.values, keeps):
       if keep:
         pointer.data[address] = value
 
@@ -229,28 +247,99 @@ class GluonReplay:
   that mask guards, and `sum_calls` pairs each distinct `gl.sum` axis with the
   shape of the summand it reduced; both keep first-use order, so a mask written
   inside the loop body is recorded once however many trips the loop made.
+
+  `physical_output` and `initial_physical_output` are the whole allocation
+  before and after a physically staged replay, in element order, so a caller can
+  compare slot by slot and name a write that left the logical mapping. Both are
+  empty for a dense replay, which has no allocation of its own.
   """
 
   output: tuple
   where_calls: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...]
   sum_calls: tuple[tuple[int, tuple[int, ...]], ...]
+  physical_output: tuple = ()
+  initial_physical_output: tuple = ()
 
   def masks_match_operands(self):
     """True when every mask is exactly as wide as the operand it guards."""
     return all(mask_shape == operand for mask_shape, operand in self.where_calls)
 
 
-def replay_gluon_kernel(generated, values, *, layouts=None):
+def _physical_words(values):
+  """One allocation of f32 elements as the bytes `tensor_layout` stages."""
+  return b"".join(struct.pack("<f", value) for value in values)
+
+
+def _stage_allocation(values, addressing, envelope, padding):
+  """Stage the logical input where the recorded addressing places it."""
+  record = addressing.as_record()
+  sentinel = _physical_words([padding])
+  logical = _physical_words(values)
+  if envelope is None:
+    return tensor_layout.stage_buffer(
+      logical,
+      record,
+      element_size=4,
+      gap_bytes=sentinel,
+      profile=addressing.profile,
+    )
+  return tensor_layout.stage_envelope(
+    logical,
+    record,
+    element_size=4,
+    envelope=envelope,
+    padding=sentinel,
+    profile=addressing.profile,
+  )
+
+
+def _gather_allocation(physical, addressing, envelope):
+  """The logical row-major output of one allocation, in element order."""
+  record = addressing.as_record()
+  if envelope is None:
+    return tensor_layout.gather_buffer(
+      physical, record, element_size=4, profile=addressing.profile
+    )
+  return tensor_layout.gather_envelope(
+    physical,
+    record,
+    element_size=4,
+    envelope=envelope,
+    profile=addressing.profile,
+  )
+
+
+def replay_gluon_kernel(
+  generated, values, *, layouts=None, layout=None, envelope=None, padding=float("nan")
+):
   """Run one emitted kernel on the CPU and report the shapes it observed.
 
-  `values` is the logical row-major input buffer, so it holds one element per
-  logical lane and no padded lane: the kernel's own load mask is what keeps a
+  `values` is the logical row-major input buffer: it holds one element per
+  logical lane and no padded lane, so the kernel's own load mask is what keeps a
   padded address from being dereferenced, exactly as on the device.
+
+  With `layout` the same logical input is staged at the addresses that record
+  declares inside one allocation, the kernel is handed the view `envelope` puts
+  its storage span at, and the stored bytes are gathered back into logical
+  order. A slot outside the recorded addresses holds `padding` throughout
+  instead.
   """
   logical = [float(value) for value in values]
   if len(logical) != _volume(generated.shape):
     raise ValueError("replay input does not cover the logical extent")
-  output = [0.0] * len(logical)
+  addressing = None
+  staged = None
+  slots = len(logical)
+  if layout is not None:
+    addressing = tensor_layout.storage_addressing(layout)
+    if addressing.shape != tuple(generated.shape):
+      raise ValueError("replay layout shape differs from the generated region shape")
+    staged = _stage_allocation(logical, addressing, envelope, padding)
+    slots = len(staged) // 4
+  input_buffer = (
+    list(logical) if staged is None else list(struct.unpack(f"<{slots}f", staged))
+  )
+  output_buffer = [0.0] * len(logical) if addressing is None else [padding] * slots
   where_calls = []
   sum_calls = []
   body = "\n".join(
@@ -265,5 +354,19 @@ def replay_gluon_kernel(generated, values, *, layouts=None):
     if layouts is not None
     else (None,) * len(generated.layout_parameters)
   )
-  namespace["generated_region_kernel"](_Pointer(logical), _Pointer(output), *arguments)
-  return GluonReplay(tuple(output), tuple(where_calls), tuple(sum_calls))
+  base = envelope.prefix if envelope is not None else 0
+  namespace["generated_region_kernel"](
+    _Pointer(input_buffer, base=base),
+    _Pointer(output_buffer, base=base),
+    *arguments,
+  )
+  if addressing is None:
+    return GluonReplay(tuple(output_buffer), tuple(where_calls), tuple(sum_calls))
+  stored = _gather_allocation(_physical_words(output_buffer), addressing, envelope)
+  return GluonReplay(
+    tuple(struct.unpack(f"<{len(stored) // 4}f", stored)),
+    tuple(where_calls),
+    tuple(sum_calls),
+    tuple(output_buffer),
+    tuple([padding] * slots),
+  )

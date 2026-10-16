@@ -144,6 +144,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The rematerialization matcher can see a layout rematerialization: it compares a layout-independent reading of the canonical expression for the equality, the surviving producer, and the consumer correspondence, and requires the copy to hold a layout the original did not, so a same-encoding rename is still refused while a computation re-created in another layout confirms. The synthetic boundary pair that previously read `none` now confirms, with the encoding change recorded on the entry; re-deriving every archived dump leaves all recorded counts unchanged, so no earlier result moves and a future zero is a statement about candidates rather than about the matcher.
 
+- The plan's last open item is delivered: the plan-mode Gluon emitter addresses the layout record a case declares - element strides, element offset, storage span, and axis order, validated once through the same helper the stager uses - so a padded physical allocation runs under an explicit layout plan. On the V100 the counted arm and the plan arm both match the complete reference and leave every guard and gap slot untouched for identity strides with an offset, strided storage, and strided storage with an offset, where the same kernel emitted without the record produced a wrong result and wrote into gap slots. A dense record emits a byte-identical kernel to before, and a record whose strides contradict its span or its axis order is refused.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

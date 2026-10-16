@@ -3,6 +3,7 @@
 import re
 from dataclasses import dataclass
 
+from test.lib import tensor_layout
 from test.lib.tensor_exact_f32 import _generated_region_program
 from test.lib.tensor_gluon import (
   BlockedLayoutPlan,
@@ -107,6 +108,19 @@ def _broadcast_extent(left, right):
   return tuple(max(a, b) for a, b in zip(left, right))
 
 
+def _address_expression(rows, columns, strides, offset):
+  """One tile's physical address per lane, from a recorded layout.
+
+  A stride of one states no multiplication and a zero offset states no addition,
+  so a dense logical row-major record renders the address of a region whose
+  allocation carries no padding.
+  """
+  terms = [str(offset)] if offset else []
+  for name, stride in zip((f"{rows}[:, None]", f"{columns}[None, :]"), strides):
+    terms.append(name if stride == 1 else f"{name} * {stride}")
+  return " + ".join(terms)
+
+
 def _mask_label(layout, emitted, logical, region):
   """The identifier one mask and its index vectors are named after.
 
@@ -121,7 +135,7 @@ def _mask_label(layout, emitted, logical, region):
   return f"{layout}_{logical[0]}x{logical[1]}"
 
 
-def render_gluon_kernel(source, *, plan=None, tile=None):
+def render_gluon_kernel(source, *, plan=None, tile=None, layout=None):
   """Emit one Gluon kernel from the same typed region parsed by the exact proof.
 
   `plan` states the layout of each role and of each consumer's view. A consumer
@@ -137,6 +151,13 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
   store carry the tile's validity predicate, and every value states the shape it
   actually has, so a reduction zeroes exactly its own operand's padded lanes
   before it sums and no padded lane can reach a stored value.
+
+  `layout` is the physical layout record the case declares for the region's
+  buffers: the element strides, element offset, storage span, and axis order
+  that `test.lib.tensor_layout` validates. The load and the store address the
+  elements that record names, so a plan-mode kernel runs against the padded
+  allocation the counted route stages. Without a record the kernel addresses the
+  dense logical row-major buffer, which is what a case without padding has.
   """
   shape, iterations, tensor_types, nodes, updates = _generated_region_program(source)
   if plan is not None and tuple(plan.shape) != tuple(shape):
@@ -151,6 +172,13 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
     tile = shape
   else:
     tile = execution_tile(shape, tile=declared)
+  if layout is None:
+    strides, element_offset = (shape[1], 1), 0
+  else:
+    addressing = tensor_layout.storage_addressing(layout)
+    if addressing.shape != tuple(shape):
+      raise ValueError("declared layout shape differs from the generated region shape")
+    strides, element_offset = addressing.element_strides, addressing.element_offset
 
   if plan is None:
     load_layout, compute_layout = "load_layout", "compute_layout"
@@ -298,9 +326,12 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
     f"load_columns = gl.arange(0, {columns}, "
     f"layout=gl.SliceLayout(0, parent={load_layout}))"
   )
-  # The tile addresses the logical row-major buffer: a padded lane computes an
-  # address it never dereferences, because the load mask excludes it.
-  emit(f"load_offsets = load_rows[:, None] * {shape[1]} + load_columns[None, :]")
+  # The tile addresses the buffer the recorded layout describes: a padded lane
+  # computes an address it never dereferences, because the load mask excludes it.
+  emit(
+    "load_offsets = "
+    + _address_expression("load_rows", "load_columns", strides, element_offset)
+  )
   load_mask = mask_in(
     load_layout,
     indent=4,
@@ -483,7 +514,10 @@ def render_gluon_kernel(source, *, plan=None, tile=None):
     f"store_columns = gl.arange(0, {columns}, "
     f"layout=gl.SliceLayout(0, parent={store_layout}))"
   )
-  emit(f"store_offsets = store_rows[:, None] * {shape[1]} + store_columns[None, :]")
+  emit(
+    "store_offsets = "
+    + _address_expression("store_rows", "store_columns", strides, element_offset)
+  )
   store_mask = mask_in(
     store_layout,
     indent=4,
