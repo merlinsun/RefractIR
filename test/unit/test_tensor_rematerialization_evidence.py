@@ -410,5 +410,66 @@ class TensorRematerializationRecordTests(unittest.TestCase):
     )
 
 
+def _arm(transitions):
+  return {"analysis": {"transitions": transitions}}
+
+
+class TensorRematerializationDriftTests(unittest.TestCase):
+  """The drift check compares transition identities, not list positions."""
+
+  _PREVIOUS = [
+    {"index": index, "pass": f"Pass{index}", "matcher": {"confirmed_count": 0}}
+    for index in range(26)
+  ]
+
+  def test_an_arm_that_lost_every_transition_reports_them_missing(self):
+    # The corrected record holds no transition at all while the recorded one
+    # held 26: comparing overlapping positions alone let the whole arm pass as
+    # unchanged. Every missing identity is named, and the arm stays compared.
+    previous = {"cases": {"broadcast-hoist-32x16-it2": _arm(list(self._PREVIOUS))}}
+    cases = {"broadcast-hoist-32x16-it2": _arm([])}
+
+    drift = tensor_rematerialization_evidence.matcher_drift(previous, cases)
+
+    self.assertEqual(drift["arms_compared"], ["broadcast-hoist-32x16-it2"])
+    self.assertEqual(drift["changed"], [])
+    self.assertEqual(drift["removed_transition_count"], 26)
+    self.assertEqual(drift["added_transition_count"], 0)
+    self.assertEqual(len(drift["removed_transitions"]), 26)
+    self.assertEqual(
+      [entry["index"] for entry in drift["removed_transitions"]], list(range(26))
+    )
+    self.assertEqual(drift["removed_transitions"][0]["pass"], "Pass0")
+
+  def test_a_shortened_list_reports_only_the_identities_that_are_gone(self):
+    # Ten of the 26 recorded transitions survive in the corrected record. The
+    # 16 that are gone are reported one by one, with the pass that produced
+    # each, so a shortened list cannot pass silently.
+    previous = {"cases": {"arm": _arm(list(self._PREVIOUS))}}
+    cases = {"arm": _arm([dict(entry) for entry in self._PREVIOUS[:10]])}
+
+    drift = tensor_rematerialization_evidence.matcher_drift(previous, cases)
+
+    self.assertEqual(drift["changed"], [])
+    self.assertEqual(drift["removed_transition_count"], 16)
+    self.assertEqual(
+      [entry["index"] for entry in drift["removed_transitions"]],
+      list(range(10, 26)),
+    )
+
+  def test_a_reordered_list_is_not_a_removal(self):
+    # The same 26 identities in another order are the same transitions: the
+    # comparison is keyed by identity, so a reordering moves nothing.
+    previous = {"cases": {"arm": _arm(list(self._PREVIOUS))}}
+    cases = {"arm": _arm(list(reversed(self._PREVIOUS)))}
+
+    drift = tensor_rematerialization_evidence.matcher_drift(previous, cases)
+
+    self.assertEqual(drift["arms_compared"], ["arm"])
+    self.assertEqual(drift["removed_transitions"], [])
+    self.assertEqual(drift["added_transitions"], [])
+    self.assertEqual(drift["changed"], [])
+
+
 if __name__ == "__main__":
   unittest.main()

@@ -150,6 +150,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The physical-stride pilot is requalified through the committed routes: the generated runner takes the layout record a case declares - validating it before emission, staging the physical allocation from it, gathering the logical output, and naming every changed slot - so a plan arm can run against a padded allocation without a private adapter, and the three cases ran both arms on the V100 with full provenance (revision, compiler flags, `symirc` digest, Triton version and source revision, package lock, module digests). All six arms pass, 248 of 248 logical slots match the exact reference, no guard or gap slot changes, and every reading shared with the earlier direct-worker run reproduces.
 
+- The matcher resolves each expression against the alias table of the snapshot that printed it, so renaming aliases in the after snapshot no longer reads as a layout change; decides the "new work" criterion per definition and per layout rather than by a module-wide definition count, so a retained producer with an unrelated extra definition is not reported as recomputed; and requires a genuine redirect - a consumer the pass rewired off a definition it removed - before a copy counts as serving one. The drift checker compares a keyed union of transition identities and reports missing and additional records, so a shortened list cannot pass as unchanged. Re-deriving every record and all seventeen archived dumps leaves every count identical; what changes is that two false positives are gone.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

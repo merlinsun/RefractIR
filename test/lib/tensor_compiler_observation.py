@@ -1063,22 +1063,23 @@ def _layout_independent_expression(expression):
   return _layout_text(expression, None, True)
 
 
-def _resolved_layout_expression(expression, before_text, after_text):
+def _resolved_layout_expression(expression, snapshot_text):
   """Reword one canonical expression so each encoding reads as the layout it denotes.
 
   Replacing every printed encoding by the text its definition supplies, expanded
-  through `_resolve_encoding_text` against the definitions of both snapshots,
-  makes a comparison read the layout a definition denotes instead of the alias
-  name a snapshot printed. An alias, an inline parameter list, the generic quoted
-  form, and two names for one parameter set therefore read as the one layout they
-  denote, while two parameter sets that differ anywhere stay unequal. An encoding
-  neither snapshot defines keeps its printed name, which no defined layout
-  equals.
+  through `_resolve_encoding_text` against the definitions of the snapshot that
+  printed the expression, makes a comparison read the layout a definition denotes
+  instead of the alias name a snapshot printed. An alias, an inline parameter
+  list, the generic quoted form, and two names for one parameter set therefore
+  read as the one layout they denote, while two parameter sets that differ
+  anywhere stay unequal. An encoding the snapshot defines nowhere keeps its
+  printed name, which no defined layout equals.
+
+  The alias names are bound by the snapshot that prints them and by no other: a
+  pass renames or re-binds layouts freely, so resolving an expression through
+  another snapshot's table reads a definition its own snapshot never printed.
   """
-  encodings = {
-    **_encoding_definitions(after_text),
-    **_encoding_definitions(before_text),
-  }
+  encodings = _encoding_definitions(snapshot_text)
   return _layout_text(
     expression,
     lambda encoding: _encoding_identity(encoding, encodings) or encoding,
@@ -1096,24 +1097,29 @@ def _encoding_change(
   recomputation moved a layout, and which one, instead of having to reconstruct
   it from two definitions whose equality ignores exactly that difference. Each
   printed encoding is resolved to the layout it denotes through the definitions
-  of both snapshots, so two alias names for one layout read as no change, and an
-  encoding neither snapshot defines is reported as the name that was printed.
+  of the snapshot that printed it, so two alias names for one layout read as no
+  change, and an encoding neither snapshot defines is reported as the name that
+  was printed. Each side is resolved in its own snapshot: the before expression
+  names a layout the before snapshot binds, and the after expression names one
+  the after snapshot binds, which the pass may have renamed in between.
   """
-  encodings = {
-    **_encoding_definitions(after_text),
-    **_encoding_definitions(before_text),
-  }
+  encodings = (
+    _encoding_definitions(before_text),
+    _encoding_definitions(after_text),
+  )
 
-  def resolved(expression):
+  def resolved(expression, snapshot):
     # The encoding is printed on its own here, not inside a tensor type, so it
     # is resolved as the definition it names rather than reworded in place.
     return [
-      None if encoding is None else _encoding_identity(encoding, encodings) or encoding
+      None
+      if encoding is None
+      else _encoding_identity(encoding, encodings[snapshot]) or encoding
       for encoding in _tensor_encodings(expression)
     ]
 
-  original = resolved(original_expression)
-  recomputed = resolved(recomputed_expression)
+  original = resolved(original_expression, 0)
+  recomputed = resolved(recomputed_expression, 1)
   return {
     "changed": original != recomputed,
     "original": original,
@@ -1121,36 +1127,73 @@ def _encoding_change(
   }
 
 
+def _reads_the_original(consumer, before_definitions, after_definitions, new_work):
+  """Report whether this consumer's use of the copy is evidence of a recomputation.
+
+  A copy that is new work serves its consumer with a definition the before
+  snapshot did not hold, whatever that consumer read before. Otherwise the
+  consumer has to show a change of its own, and only one kind of change counts:
+  the pass removed a definition the consumer read and rewired it to the copy. A
+  consumer that reads the computation it already read, from a copy that holds the
+  definition the snapshot already had, had its use relabelled; a consumer the
+  pass gave a different definition to read was not using this original at all.
+  Neither is evidence about this original.
+  """
+  if new_work:
+    return True
+  return _replaced_a_removed_definition(consumer, before_definitions, after_definitions)
+
+
+def _replaced_a_removed_definition(consumer, before_definitions, after_definitions):
+  """Report whether the pass rewired a consumer off a definition it removed.
+
+  The consumer read the original through a value this pass no longer prints - a
+  conversion it eliminated, for instance - and now reads the copy instead. Only
+  the definitions the snapshot actually held are compared, so an argument, which
+  carries no correspondence, never decides it.
+  """
+
+  def operands(definitions):
+    definition = definitions.get(consumer)
+    if definition is None:
+      return None
+    return tuple(name for name in _SSA.findall(definition) if name in definitions)
+
+  before = operands(before_definitions)
+  after = operands(after_definitions)
+  if before is None or after is None or before == after:
+    return False
+  return any(operand not in after_definitions for operand in before)
+
+
 def _redirected_uses(
   original,
   recomputed,
   after_consumers,
-  before_reading,
   after_reading,
+  before_definitions,
+  after_definitions,
   former_consumers,
-  layout_unchanged,
+  new_work,
 ):
   """Return the consumers the pass moved from the original to the copy.
 
   A consumer of the copy is a former consumer of the original when its own
   definition reads as one the original used to serve, so a use the pass rewrote
-  is recognised even after a layout change. When the copy is printed in the
-  layout the original held and the consumer already read that very computation,
-  the copy only took over a use the original had: the pass renumbered a use
-  rather than moving one, so nothing was recomputed for it. A consumer whose
-  reading changed is a use the pass moved, and it can only have read the
-  original through something else, such as a conversion the pass removed.
+  is recognised even after a layout change. `_reads_the_original` then decides
+  whether that consumer's use is evidence at all, with the copy's own definition
+  in hand: a consumer that only relabelled a use reads what it already read, and
+  the pass recomputed nothing for it.
   """
   redirected = []
   for consumer in sorted(set(after_consumers.get(recomputed, []))):
     if consumer == original:
       continue
-    reading = after_reading["independent"].get(consumer)
-    if reading not in former_consumers:
+    if after_reading["independent"].get(consumer) not in former_consumers:
       continue
-    if layout_unchanged and before_reading["independent"].get(consumer) == reading:
-      # The consumer read this very computation before the pass as well, so the
-      # copy only took over a use the original already served.
+    if not _reads_the_original(
+      consumer, before_definitions, after_definitions, new_work
+    ):
       continue
     redirected.append(consumer)
   return redirected
@@ -1165,36 +1208,53 @@ def _layouts_of_one_expression(reading):
   return families
 
 
-def _recomputes_another_layout(expression, original_reading, original_layout, families):
-  """Report whether a recomputation in another layout took over this expression.
+def _has_layout(expression):
+  """Report whether a canonical expression prints a tensor layout to move."""
+  return any(encoding is not None for encoding in _tensor_encodings(expression))
 
-  A layout rematerialization is one computation recomputed in the layout a
-  consumer asked for, so the after snapshot must hold a definition that reads as
-  the original's expression and resolves to a layout the original did not hold.
-  A computation printed without an encoding has no layout to move, and a scalar
-  recomputation is decided by the count of definitions alone, so this reading
-  leaves it to that count.
+
+def _holds_definition(expression, layout, families):
+  """Report whether a snapshot holds this computation in this layout already."""
+  return layout in families.get(expression, ())
+
+
+def _is_new_definition(recomputed, after_reading, before_reading, before_counts):
+  """Report whether the before snapshot already holds the copy's definition.
+
+  A copy is new work only as a specific definition, and never as a fresh name
+  alone: a pass that prints a computation the snapshot already held under another
+  name added no definition of it. What makes a copy new depends on what it
+  prints. One carrying a layout is new when the after snapshot holds that
+  computation in a layout the before snapshot did not, which is the layout a
+  consumer asked for; a copy that keeps a layout the snapshot already held is the
+  same computation printed again. One printed without a layout has none to move,
+  so the count of definitions of it separates a copy from a rename, as it did
+  before the layout reading existed. A definition added elsewhere in the module
+  raises a count without being this copy (see `observe_rematerialization`).
   """
-  encodings = _tensor_encodings(expression)
-  if not any(encoding is not None for encoding in encodings):
-    # A tensor type with no encoding holds no layout a pass could move, and a
-    # scalar type holds none either: the count of definitions decides those.
-    return True
-  return any(
-    layout != original_layout
-    for layout in families.get(original_reading, ())
-    if layout is not None
+  expression = after_reading["independent"].get(recomputed)
+  if expression is None:
+    return False
+  if _has_layout(expression):
+    return not _holds_definition(
+      expression,
+      after_reading["resolved"].get(recomputed),
+      _layouts_of_one_expression(before_reading),
+    )
+  return (
+    _pure_expression_counts(after_reading["independent"])[expression]
+    > before_counts[expression]
   )
 
 
-def _layout_readings(canonical, before_text, after_text):
+def _layout_readings(canonical, snapshot_text):
   """Return both readings of one snapshot's canonical expressions.
 
   `independent` reads a computation without regard to the layout it holds, and
-  `resolved` reads each encoding as the layout it denotes. The matcher needs
-  both: the equality and the consumer correspondence compare computations while
-  the count of definitions separates two layouts of one computation from one
-  computation printed twice.
+  `resolved` reads each encoding as the layout it denotes in the snapshot that
+  printed it. The matcher needs both: the equality and the consumer
+  correspondence compare computations while the resolved layout separates two
+  layouts of one computation from one computation printed twice.
   """
   return {
     "independent": {
@@ -1204,7 +1264,7 @@ def _layout_readings(canonical, before_text, after_text):
     "resolved": {
       name: None
       if expression is None
-      else _resolved_layout_expression(expression, before_text, after_text)
+      else _resolved_layout_expression(expression, snapshot_text)
       for name, expression in canonical.items()
     },
   }
@@ -1229,7 +1289,9 @@ def _pure_expression_counts(canonical):
 
   An impure or unparsed definition canonicalizes to its own name and an
   unresolved one to None, so counting by canonical expression only ever groups
-  equal resolved pure computations.
+  equal resolved pure computations. The total says how much repeated work a
+  snapshot holds; it does not say whether one particular definition is new, for
+  which the definition and the layout it prints decide instead.
   """
   counts = collections.Counter()
   for name, expression in canonical.items():
@@ -1241,12 +1303,23 @@ def _pure_expression_counts(canonical):
 def observe_rematerialization(before_text, after_text, *, source_lines=None):
   """Match recomputed values whose original uses were redirected.
 
-  A candidate needs all of: an equivalent pure definition (a), strictly more
-  pure definitions with that canonical expression after the pass than before it
-  (b), at least one consumer the original lost (c), at least one consumer of the
-  recomputed value that structurally matches a former consumer of the original
-  (d), and the original producer still present after the pass under the same
-  name with the same canonical expression (e).
+  A candidate needs all of: an equivalent pure definition (a), a copy that is a
+  new definition for it (b), at least one consumer the original lost (c), at
+  least one consumer of the recomputed value that structurally matches a former
+  consumer of the original (d), and the original producer still present after
+  the pass under the same name with the same canonical expression (e).
+
+  Requirement (b) is established per definition and per layout, never by a
+  module-wide total. A copy that prints a layout is new work only when the after
+  snapshot holds that computation in a layout the before snapshot held nowhere,
+  which is the layout a consumer asked for; a copy that keeps a layout the
+  snapshot already held is the same computation printed again, whatever name it
+  prints. A computation printed without a layout has none to move, so the count
+  of definitions of it decides, as it did before the layout reading existed. A
+  definition added elsewhere in the module raises a count without being this
+  copy. A consumer of the copy can still show a recomputation in either case, and
+  only one the pass rewired off a definition it removed does (see
+  `_redirected_uses`).
 
   Correspondence is decided by canonical expressions in which every operand is
   replaced by the identity its own definition supplies: the definition text when
@@ -1285,14 +1358,12 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
     after_canonical[name] = _comparable_expression(name, after_definitions)
   # The equality reads a computation without regard to the layout it holds,
   # because a layout rematerialization recomputes the same operation for a
-  # consumer that asked for another layout. Renaming is refused by the count of
-  # definitions under its own layout, not by this reading: a copy in the layout
+  # consumer that asked for another layout. Renaming is refused by the
+  # definition that holds the copy, not by this reading: a copy in the layout
   # its original held is the same computation and adds nothing.
-  before_reading = _layout_readings(before_canonical, before_text, after_text)
-  after_reading = _layout_readings(after_canonical, before_text, after_text)
-  before_expressions = _pure_expression_counts(before_reading["independent"])
-  after_expressions = _pure_expression_counts(after_reading["independent"])
-  after_layouts = _layouts_of_one_expression(after_reading)
+  before_reading = _layout_readings(before_canonical, before_text)
+  after_reading = _layout_readings(after_canonical, after_text)
+  before_counts = _pure_expression_counts(before_reading["independent"])
 
   candidates = collections.defaultdict(lambda: {"recomputed": [], "redirected": []})
   for original, canonical in sorted(before_canonical.items()):
@@ -1301,25 +1372,11 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
       # unparsed one canonicalizes to its own name.
       continue
     original_reading = before_reading["independent"][original]
-    original_layout = before_reading["resolved"][original]
     if _denoted_expression(original, after_reading["independent"]) != original_reading:
       # The producer survived only if the name still denotes the same pure
       # computation: a name rebound to a load, a call, or any different
       # definition is not the original.
       continue
-    if after_expressions[original_reading] <= before_expressions[original_reading]:
-      # No additional computation exists, so this is a rename, not a copy.
-      continue
-    if not _recomputes_another_layout(
-      original_reading, original_reading, original_layout, after_layouts
-    ):
-      # The after snapshot holds this expression only in the layout the original
-      # already held, so no layout moved and the count above saw one computation
-      # printed twice. Only a consumer the pass rewrote to read the copy can
-      # still show a recomputation (see `_redirected_uses`).
-      layout_unchanged = True
-    else:
-      layout_unchanged = False
     before_uses = sorted(set(before_consumers.get(original, [])))
     after_uses = sorted(set(after_consumers.get(original, [])))
     if len(after_uses) >= len(before_uses):
@@ -1338,14 +1395,18 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
       ):
         # The copy must denote the same computation the original does.
         continue
+      new_work = _is_new_definition(
+        recomputed, after_reading, before_reading, before_counts
+      )
       redirected = _redirected_uses(
         original,
         recomputed,
         after_consumers,
-        before_reading,
         after_reading,
+        before_definitions,
+        after_definitions,
         former_consumers,
-        layout_unchanged,
+        new_work,
       )
       if not redirected:
         continue

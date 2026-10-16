@@ -2033,6 +2033,203 @@ class TensorCompilerLayoutRematerializationTests(unittest.TestCase):
     self.assertEqual(report["confirmed"], [])
 
 
+# The review's alias-renaming probe, verbatim. An alias name is a snapshot-local
+# binding: the after snapshot reuses `#blocked` and `#blocked_alt` for the other
+# layout, and defines a third name for the layout `#blocked` used to denote.
+_ALIAS_PROBE_BEFORE = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_a = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+}
+"""
+
+_ALIAS_PROBE_AFTER = """\
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt_a = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked_alt>
+}
+"""
+
+
+class TensorCompilerAliasScopeTests(unittest.TestCase):
+  """An encoding alias is resolved in the snapshot that printed it.
+
+  Every snapshot binds its own alias names, so a comparison that resolves a
+  before expression through the after table (or the reverse) reads a definition
+  the snapshot never printed. The ``_BLOCKED``/``_BLOCKED_ALT`` texts are the
+  two layouts the probes below use.
+  """
+
+  _BLOCKED = (
+    "#ttg.blocked<{sizePerThread=[1,1],threadsPerWarp=[2,16],"
+    "warpsPerCTA=[1,1],order=[1,0]}>"
+  )
+  _BLOCKED_ALT = (
+    "#ttg.blocked<{sizePerThread=[1,4],threadsPerWarp=[8,4],"
+    "warpsPerCTA=[1,1],order=[1,0]}>"
+  )
+
+  def test_reviewer_alias_renaming_probe_confirms_nothing(self):
+    # The pass renamed the aliases in the after snapshot only. Both snapshots
+    # compute the splat in the same layout, so nothing was recomputed: the copy
+    # is printed through the name `#blocked_alt`, which in the after snapshot
+    # denotes the layout the before snapshot called `#blocked`.
+    report = tensor_compiler_observation.observe_rematerialization(
+      _ALIAS_PROBE_BEFORE, _ALIAS_PROBE_AFTER
+    )
+
+    self.assertEqual(report["status"], "unattributed_only")
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["unattributed"][0]["values"], ["%b", "%b2"])
+
+  def test_a_genuine_encoding_change_still_reports_one(self):
+    # The copy moved from `#blocked` to `#blocked_alt` while every alias keeps
+    # its meaning, so the record states the layout the copy holds: the two
+    # layouts are the before snapshot's definitions of those two names.
+    before = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+}
+"""
+    after = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["recomputed_values"], ["%b2"])
+    self.assertEqual(
+      candidate["encoding_change"],
+      {
+        "changed": True,
+        "original": [self._BLOCKED],
+        "recomputed": [self._BLOCKED_ALT],
+      },
+    )
+
+  def test_a_retained_producer_is_not_a_new_recomputation(self):
+    # `%b2` exists before the pass in the layout it holds after it, and `%d` is
+    # merely rewired to it while `%b3` adds an unrelated definition in the
+    # layout `%b` already holds. The extra definition is not a recomputation of
+    # `%b`, because nothing in `%b`'s layout was created: the attribution is per
+    # definition and layout, never a larger module-wide total.
+    before = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+}
+"""
+    after = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %b3 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b4 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %g = arith.divf %b3, %b3 : tensor<32x16xf32, #blocked>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+
+  def test_a_genuinely_new_copy_in_another_layout_confirms(self):
+    # Only one producer of the computation exists before the pass, in `#blocked`.
+    # The pass rewires `%d` to a copy in `#blocked_alt` that no definition held
+    # before it, so that copy is new work for the consumer.
+    before = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+}
+"""
+    after = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #blocked_alt>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %f = arith.mulf %b2, %b2 : tensor<32x16xf32, #blocked_alt>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed_count"], 1)
+    candidate = report["confirmed"][0]
+    self.assertEqual(candidate["original_value"], "%b")
+    self.assertEqual(candidate["recomputed_values"], ["%b2"])
+    self.assertEqual(candidate["redirected_consumers"], ["%d"])
+    self.assertEqual(candidate["encoding_change"]["changed"], True)
+
+  def test_two_snapshots_with_different_alias_names_throughout_agree(self):
+    # The smallest edge case: the after snapshot renamed every alias, and each
+    # name still denotes the parameters its counterpart denoted. No encoding
+    # moved, so the record says so and the duplicate stays unattributed work.
+    before = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#blocked_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #blocked>
+  %d = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #blocked>
+}
+"""
+    after = """\
+#renamed = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [2, 16], warpsPerCTA = [1, 1], order = [1, 0]}>
+#renamed_alt = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [8, 4], warpsPerCTA = [1, 1], order = [1, 0]}>
+module {
+  %b = tt.splat %x : f32 -> tensor<32x16xf32, #renamed>
+  %b2 = tt.splat %x : f32 -> tensor<32x16xf32, #renamed>
+  %d = arith.addf %b2, %b2 : tensor<32x16xf32, #renamed>
+  %e = arith.addf %b, %b : tensor<32x16xf32, #renamed>
+}
+"""
+    report = tensor_compiler_observation.observe_rematerialization(before, after)
+
+    self.assertEqual(report["confirmed"], [])
+    self.assertEqual(report["confirmed_count"], 0)
+    self.assertEqual(report["status"], "unattributed_only")
+    self.assertEqual(report["unattributed"][0]["values"], ["%b", "%b2"])
+
+
 class TensorCompilerNestedSnapshotTests(unittest.TestCase):
   """Nested pipelines dump their own snapshots inside a module-level one."""
 

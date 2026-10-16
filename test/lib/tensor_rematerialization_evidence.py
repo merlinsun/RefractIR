@@ -423,28 +423,84 @@ _MATCHER_FIELDS = (
 )
 
 
+def _transition_identity(transition, position):
+  """The key that identifies one transition across two records of an arm.
+
+  A transition records the module-level pass it follows (`pass`), the pass the
+  transition ends at (`next_snapshot_pass`), and - where the driver kept it - the
+  position it held in the compilation (`index`). Two records of the same arm
+  agree on those, so a shortened or reordered list still pairs the identities it
+  shares. A record that holds none of them falls back to the list position.
+  """
+  recorded = transition.get("index")
+  return (
+    transition.get("pass"),
+    transition.get("next_snapshot_pass"),
+    recorded if recorded is not None else position,
+  )
+
+
+def _identity_order(identity):
+  """Order transition identities by the position they record, then by name."""
+  return (identity[2] if isinstance(identity[2], int) else 0, repr(identity))
+
+
+def _transition_label(transition, identity):
+  """Name one transition the way a reader locates it in the arm's list."""
+  return {
+    "index": transition.get("index"),
+    "pass": identity[0],
+    "next_snapshot_pass": identity[1],
+  }
+
+
 def matcher_drift(previous, cases):
   """What re-reading the device dumps moved, field by field against the record.
 
   A reader has to be able to tell "the device readings are unchanged under the new
   matcher" from "the record was regenerated and nobody compared". Every arm the
-  two records share is named in `arms_compared`, and each matcher-derived field
+  two records hold is named in `arms_compared`, and each matcher-derived field
   either matches or is listed with both values.
+
+  The transitions of an arm are compared as a keyed union, never by list
+  position: a transition the corrected record no longer holds is reported as
+  missing, and one it holds that the recorded arm did not is reported as
+  additional. Comparing only the positions two lists share would report a
+  shortened or reordered arm as unchanged, which is the one reading a drift check
+  must never give.
   """
   compared = []
   changed = []
+  removed = []
+  added = []
   previous_cases = previous.get("cases") or {}
-  for case_id, arm in sorted(cases.items()):
-    transitions = (arm.get("analysis") or {}).get("transitions")
+  for case_id in sorted(set(cases) | set(previous_cases)):
+    arm = cases.get(case_id) or {}
     previous_arm = previous_cases.get(case_id) or {}
+    transitions = (arm.get("analysis") or {}).get("transitions")
     previous_transitions = (previous_arm.get("analysis") or {}).get("transitions")
     if transitions is None or previous_transitions is None:
       continue
     compared.append(case_id)
-    for index, transition in enumerate(transitions):
-      if index >= len(previous_transitions):
-        continue
-      old = previous_transitions[index]
+    recorded = {
+      _transition_identity(transition, position): transition
+      for position, transition in enumerate(previous_transitions)
+    }
+    corrected = {
+      _transition_identity(transition, position): transition
+      for position, transition in enumerate(transitions)
+    }
+    removed.extend(
+      {"case": case_id, **_transition_label(recorded[identity], identity)}
+      for identity in sorted(set(recorded) - set(corrected), key=_identity_order)
+    )
+    added.extend(
+      {"case": case_id, **_transition_label(corrected[identity], identity)}
+      for identity in sorted(set(corrected) - set(recorded), key=_identity_order)
+    )
+    for identity in sorted(set(recorded) & set(corrected), key=_identity_order):
+      old = recorded[identity]
+      transition = corrected[identity]
       for field in _MATCHER_FIELDS:
         if field not in old and field not in transition:
           continue
@@ -458,7 +514,14 @@ def matcher_drift(previous, cases):
               "corrected": transition.get(field),
             }
           )
-  return {"arms_compared": compared, "changed": changed}
+  return {
+    "arms_compared": compared,
+    "changed": changed,
+    "removed_transitions": removed,
+    "removed_transition_count": len(removed),
+    "added_transitions": added,
+    "added_transition_count": len(added),
+  }
 
 
 def _consumer_corrections(case_id, previous_arm, arm):
