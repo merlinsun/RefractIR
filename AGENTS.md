@@ -1,8 +1,8 @@
 # RefractIR: Agent Guideline
 
-+ Knowledge Background: Optimizing Compilers, Program Analysis, Symbolic Execution, SMT (Bit-Vector Theory)
-+ Implementation Language: C++ 20
-+ Primary Source Directory: ./src
+* Knowledge background: Optimizing Compilers, Program Analysis, Symbolic Execution, SMT (Bit-Vector Theory)
+* Implementation language: C++20
+* Primary source directories: `src/` (implementation), `include/` (headers)
 
 
 ## Project Overview
@@ -28,6 +28,8 @@ The key design goals are:
 RefractIR deliberately restricts expressions (flat, left-to-right, no parentheses) and uses **LLVM-style syntax** (`@`, `%`, `br`, basic blocks) while remaining language-agnostic.
 
 The normative specification is **[./docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md)**, which doubles as the release roadmap and marks each feature **[Shipped]** or **[Planned]**. Earlier specs are kept as they shipped; [./README.md](./README.md) indexes them, and [./CHANGELOG.md](./CHANGELOG.md) records what each release added.
+
+Tensor programs use a separate bounded extension. [Tensor capability analysis](./src/analysis/tensor.cpp) defines the accepted profiles, and [tensor case generation](./docs/reify.md#tensor-case-generation) describes the generator. Research proposals and plans are not evidence of implemented features.
 
 ## Language at a Glance
 
@@ -91,7 +93,7 @@ Key characteristics:
 
 Documentation of each tool: [./docs/](./docs).
 
-Remember: The interpreter, solver, and compiler backends are shared foundational for **all** RefractIR tooling. They should be kept **clean, correct, and well-tested**. They should also be kept **independent of any specific downstream tools**, with mentioning none in their implementation.
+Remember: The interpreter, solver, and compiler backends are shared foundational for **all** RefractIR tooling. They should be kept **clean, correct, and well-tested**. They should also be kept **independent of any specific downstream tools**, without naming downstream tools in their implementation.
 
 ## Compilation / Analysis Pipeline
 
@@ -104,12 +106,16 @@ Lexer
   ↓
 Parser → AST
   ↓
-CFG Builder
+Semantic Checker
   ↓
 TypeChecker (BV-aware)
   ↓
-Semantic Checker
+Function analyses (when enabled): reachability, definite initialization, unused names
+  ↓
+Reducibility check (when requested)
 ```
+
+The shared entry points are `parseSource` and `checkProgram` in [src/frontend/pipeline.cpp](./src/frontend/pipeline.cpp). Function analyses build CFGs as needed; CFG construction is not a separate module pass before type checking. Reuse these entry points when adding a tool.
 
 ### Tool-Specific Pipelines
 
@@ -117,7 +123,7 @@ Semantic Checker
 ```
 Checked AST + CFG
   ↓
-Lowering (+ reducibility check & control-tree structuring for Python and C --structured-lowering)
+Lowering (+ reducibility check & control-tree structuring for Python and C/WASM --structured-lowering)
   ↓
 C / WASM / Python Code Generation
 ```
@@ -182,11 +188,11 @@ Ensures program well-formedness beyond typing:
 - No duplicate declarations
 - Assignment only to `let mut` locals
 - Parameters and symbols are immutable
-- Definite initialization:
+- Definite initialization is checked by the separate `DefiniteInitAnalysis` function pass:
   - Parameters are initialized
   - `undef` is uninitialized
   - Reads before initialization are errors
-- CFG consistency checks
+- CFG consistency checks occur when function analyses build the CFG
 
 ### 6. Symbolic Execution / Constraint Generation
 
@@ -210,7 +216,19 @@ Ensures program well-formedness beyond typing:
 
 ## Project Structure
 
-Goto [./README.md](./README.md)
+See [README.md](./README.md#-project-structure) for the directory layout and [docs/AGENTS.md](./docs/AGENTS.md) for where documentation belongs. CLI entry points live in `src/`; shared components live under `src/` and `include/`, and tests under `test/`.
+
+## Build and development setup
+
+Run commands from the repository root. The [Makefile](./Makefile) builds the tools there:
+
+```bash
+make -j4 all
+```
+
+The default solver is Bitwuzla, discovered through `pkg-config`. Use `make -j4 all SOLVER=alivesmt` for the Z3-based backend. Solver dependency checks happen while Make reads the file, including for test targets. See [README.md](./README.md#prerequisites) for installation instructions.
+
+When changing `SOLVER`, clean the objects built with the old configuration before rebuilding; object names do not encode the solver selection. Keep the selected `SOLVER` value consistent for builds and tests.
 
 
 ## Testing – TDD Approach (MANDATORY)
@@ -236,11 +254,11 @@ ALWAYS follow a strict Test-Driven Development discipline.
 
 The test suite is managed via the `Makefile` targets:
 
-- `make test`: Runs the entire test suite sequentially.
+- `make test`: Runs the scalar, backend, solver, and reification aggregate sequentially. Run `make test-tensor` separately for the tensor aggregate.
 - `make test-unit`: Runs unit tests for command-line arguments and reification pipelines.
 - `make test-frontend`: Runs frontend validation tests (lexer, parser, type checker, semantic checker) using `symiri --check`, and CFG reducibility tests (dominator trees, loops, control trees) against `.sir.expected` files.
 - `make test-interp`: Runs reference interpreter execution tests without checking mode.
-- `make test-backends`: Runs compiler backend compilation and execution tests for C (goto and --structured-lowering modes), WASM, and Python targets.
+- `make test-backends`: Runs compiler backend compilation and execution tests for C (goto and structured modes), WASM (dispatch and structured modes), and Python targets.
 - `make cross-validation`: Cross-validates interpreter execution outputs and UB behavior against compiled C binaries, in both goto and structured-lowering emission modes.
 - `make test-solver`: Runs symbolic execution and SMT constraint solver tests.
 - `make test-reify`: Runs differential random generation testing for rysmith and rylink.
@@ -259,12 +277,10 @@ The test suite is managed via the `Makefile` targets:
 - Activate with:
   ```bash
   source venv/bin/activate
-  ````
+  ```
 
-* Dependencies:
-  * `requirements.txt` – runtime
-  * `requirements.dev.txt` – development
-* Always pin exact versions
+* Install development tools with `python -m pip install -r requirements.dev.txt` after activating the virtual environment. [requirements.dev.txt](./requirements.dev.txt) pins the tool versions; [.pre-commit-config.yaml](./.pre-commit-config.yaml) defines formatting and commit hooks.
+* Always pin exact versions when adding Python dependencies.
 
 ## Principles and Best Practices
 
@@ -307,13 +323,13 @@ Before writing `std::stod`, `std::stof`, `std::atof`, `std::to_string(double)`, 
 
 ## Before Starting Work
 
-1. Review recent history:
+1. Inspect `git status --short` and preserve unrelated local changes. Review recent history:
 
    ```bash
    git log [--oneline] [--stat] [--name-only] # Show brief/extended history
    git show [--summary] [--stat] [--name-only] <commit> # Show brief/extended history of a commit
    git diff <commit> <commit> # Compare two different commits
-   git checkout <commit> # Checkout and inspect all the details of a commit
+   git show <commit>:<path> # Inspect a historical file without changing the working tree
    ```
 2. Understand existing design decisions before changing behavior
 3. For large tasks, commit incrementally with clear messages

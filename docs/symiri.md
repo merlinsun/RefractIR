@@ -39,6 +39,12 @@ Undefined behaviour aborts the run with a diagnostic naming the rule and the sou
 
 `--check` stops after the frontend, reporting type and semantic errors without executing. `--dump-trace` prints each executed block and every variable update. `--max-bbl-steps <n>` aborts after entering `n` blocks, which bounds a program that may not terminate. `--dump-call` prints each function calls.
 
+## Typed tensor execution
+
+`--tensor-profile-version v1|v2|v3|v4` selects the bounded tensor profile (default `v1`). `--tensor-describe --entry @kernel` prints the checked entry signature and its little-endian buffer layout. `--entry @kernel --tensor-input inputs.bin --tensor-output output.bin` runs that entry with input buffers in parameter order and writes the complete result buffer. The input and output options must be supplied together. [Tensor capability analysis](../src/analysis/tensor.cpp) enforces the profile; [tensor I/O](../src/interp/tensor_io.cpp) implements the binary format.
+
+Numerical tensor atoms use the Boost.Multiprecision reference when built with `TENSOR_REF=1`, which is the default. `--tensor-reference-bits 128|256` selects its precision, and `--tensor-reference-stability` compares each atom at both precisions and rejects an unstable result. A `TENSOR_REF=0` build retains exact tensor execution and reports numerical reference requests as unavailable.
+
 ## Result reporting
 
 A terminating run prints the entry function's return value on a `Result:` line: a decimal integer, a hex float, `ptr(0x…)`, or `void`. Hex-float form (`printf("%a", …)`) is bit-exact by construction, so cross-validation compares the line against the C backend's output byte for byte ([float.md](./float.md) §11.4).

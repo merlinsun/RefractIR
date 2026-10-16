@@ -155,7 +155,7 @@ After every FP `+`, `-`, `*` and `/`, the encoder conjoins `(not (fp.isInfinite 
 
 A `sym %?x: value f32` encodes as a fresh FP constant of the matching sort. Vector FP symbols are allowed, their lanes independent.
 
-`%` encodes as `fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div[RNE](x, y)), y))`; §11 covers the caveat on the intermediate. Casts encode through `fp.to_fp` and `fp.to_sbv`, with RNE on the conversion and an explicit BV range check for `fN as iM`.
+`%` uses IEEE `fp.rem` as a base and corrects a nonzero remainder whose sign differs from the dividend by adding the dividend-signed `|y|`. This maps the nearest-quotient result to C `fmod` semantics while preserving signed zero. Casts encode through `fp.to_fp` and `fp.to_sbv`, with RNE on the conversion and an explicit BV range check for `fN as iM`.
 
 ## 11. Lowering and the cross-backend contract
 

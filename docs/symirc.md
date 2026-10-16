@@ -1,20 +1,31 @@
 # symirc
 
-`symirc` translates a RefractIR (`.sir`) program into C, WebAssembly text, or Python. It solves nothing: a concrete program lowers to concrete target code, and a symbolic program lowers with each symbol left as an external hook the embedding provides. The three targets are meant to agree on every program that is free of undefined behaviour, and cross-validation against `symiri` is what holds them to it.
+`symirc` translates a RefractIR (`.sir`) program into C, WebAssembly text, Python, or a Triton JIT module for the bounded tensor profile. It solves nothing: a concrete program lowers to concrete target code, and a symbolic program lowers with each symbol left as an external hook the embedding provides. The scalar targets are meant to agree on every program that is free of undefined behaviour, and cross-validation against `symiri` is what holds them to it.
 
 ## Usage
 
 ```bash
-symirc <input.sir> --target <c|wasm|python> [-o output]
+symirc <input.sir> --target <c|wasm|python|triton> [-o output]
 ```
 
-The full option list is `symirc --help`, declared in [src/symirc.cpp](../src/symirc.cpp). The target defaults to `c` and output to stdout.
+The full option list is `symirc --help`, declared in [src/symirc.cpp](../src/symirc.cpp). The target defaults to `c`. C, WebAssembly, and Python output defaults to stdout; Triton output defaults to the input path with a `.py` extension.
 
 ```bash
 symirc prog.sir --target c      -o prog.c
 symirc prog.sir --target wasm   -o prog.wat
 symirc prog.sir --target python -o prog.py
 ```
+
+## Triton tensor target
+
+`--target triton` emits a JIT module under the profile selected by `--tensor-profile-version v1|v2|v3|v4` (default `v1`). The selected entry defaults to `@kernel`; `--tensor-softmax-lowering direct|decomposed` selects one of the two supported softmax implementations.
+
+```bash
+symirc tensor.sir --target triton --entry kernel -o tensor_kernel.py
+symirc tensor.sir --target triton --entry kernel --tensor-softmax-lowering decomposed -o tensor_kernel.py
+```
+
+The target enforces the selected bounded profile and emits one program instance. V3 masks padded lanes according to their logical extents. Buffers are disjoint and ordered by the entry signature. Contiguous row-major storage is the default; `--tensor-layout-manifest case.json` supplies per-buffer positive strides and offsets from a validated case manifest. The [tensor runner](../test/lib/run_triton_tests.py) supplies the launch adapter and independent reference check. C, WebAssembly, and Python emission reject tensor modules before creating or replacing an output file. [Tensor capability analysis](../src/analysis/tensor.cpp) enforces the profile, and [the Triton backend](../src/backend/triton_backend.cpp) defines the operator mappings.
 
 `-I <path>` adds a search path for resolving link-form `decl`s, and may repeat. `--split-by-source` (C only) emits one `<stem>.c` per source file plus a shared `common.h` into the directory given by `-o`.
 

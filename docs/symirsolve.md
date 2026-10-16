@@ -69,9 +69,17 @@ A solve reports SAT, UNSAT (no assignment satisfies the constraints on this path
 
 On SAT, `-o <file>` writes the concrete `.sir` with every symbol replaced by a literal, `--emit-model <file>` writes the symbol assignments as nested JSON, and `--dump-ast` prints the concretized AST. Floating-point values cross all three boundaries through the canonical formatter ([float.md](./float.md) §9).
 
+`--tensor-profile-version v1|v2|v3|v4` selects the tensor profile the program is checked against before it is solved, through the same capability analysis every other consumer uses. An out-of-profile tensor program is a static error, not an UNSAT result.
+
+A tensor **parameter** is a runtime argument the solver chooses, exactly as a symbol is. Its witnesses are exported beside the symbols rather than substituted into the program: `--emit-model` adds one record per tensor parameter, `{"shape": [...], "element": "i32"|"f32", "leaves": [...]}`, to the same per-function object, and `--emit-tensor-params <file>` writes those records on their own. Leaves are row-major logical elements, and an `f32` leaf is the exact widening of its 32-bit pattern, so narrowing it back reproduces the model bit for bit. The record is written only on SAT; its absence means no witness, not an empty one.
+
+`--tensor-param-domain <lo>,<hi>` bounds every integer leaf of every entry parameter, scalar parameters and tensor elements alike, so a consumer can keep a witness inside a domain its reference can execute. It is rejected for a parameter with a non-integer leaf or when `lo > hi`; absent, parameters stay unbounded.
+
 ## Bit-vector encoding
 
 Integer types map to BV sorts, `iN` to `(_ BitVec N)`, with `/` encoded as `bvsdiv` and `%` as `bvsrem` to match the language's truncating division (spec §8). Floating-point uses QF_FP; [float.md](./float.md) §10 states the encoding.
+
+The bounded exact tensor subset is expanded into scalar solver terms, with shape correspondence checked before solving. Tensor f32 arithmetic and reductions, `exp`, `softmax`, and tensor-v4 remainder have no numerical SMT encoding and report `unsupported_theory`. Bit-preserving tensor operations retain their supported encodings. [Tensor capability analysis](../src/analysis/tensor.cpp) checks the profile; [tensor symbolic execution](../src/solver/tensor.cpp) defines the supported encodings.
 
 ## Pointer encoding
 

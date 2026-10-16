@@ -2,6 +2,8 @@
 
 **Status:** Draft — v0.2.3 is **in progress**; this document is the roadmap for the release
 
+The [bounded tensor profiles](../src/analysis/tensor.cpp) support a separate extension for [tensor case generation](./reify.md#tensor-case-generation) and [Triton emission](./symirc.md#triton-tensor-target). They do not alter this release's scalar, vector, pointer, or aggregate contract or its shipped-feature status.
+
 This document is the complete, standalone specification for RefractIR v0.2.3. It supersedes v0.2.2. It is written as a **follow-up of v0.2.2**: every feature the v0.2.2 specification slated for v0.2.3 (§13 there) appears here with its full design, and v0.2.3 is complete when every **[Planned]** item below has shipped. Sections and rules unchanged from earlier versions are included verbatim for self-containedness, keeping their historical markers (**[v0.2.2]**, **[v0.2.1]**); everything specific to this release is marked **[New in v0.2.3]** together with its implementation status:
 
 - **[Shipped]** — implemented and tested on the v0.2.3 line.

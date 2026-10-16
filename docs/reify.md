@@ -236,6 +236,67 @@ rysmith -n 20 --no-fp --max-ptr-depth 2 --max-agg-nest 2 -o out/
 rysmith -n 30 --seed 42 -o out/
 ```
 
+### Tensor case generation
+
+`--profile tensor` selects the separate property-directed tensor generator. Choose a dtype and prescribed property explicitly; `--tensor-synthesis construction|exact` selects the candidate route. The generator validates the property against the independent CPU reference before it accepts a case and writes `program.sir`, typed input and expected buffers, and a `case.json` manifest for the tensor runner.
+
+```sh
+rysmith --profile tensor --tensor-dtype i32 --tensor-property coordinates --tensor-synthesis exact --seed 0 -n 1 -o tensor_cases/
+rysmith --profile tensor --tensor-dtype f32 --tensor-property softmax-dominance --tensor-synthesis construction --seed 0 -n 1 -o tensor_cases/
+```
+
+`--max-retries` bounds candidate attempts. A requested case shortfall is reported with a nonzero exit status. Scalar-only controls such as `--n-examples` are rejected in this profile. The optional `cvc5` route requires a matching recorded feasibility result; a failed feasibility gate leaves that route unavailable. [Tensor capability analysis](../src/analysis/tensor.cpp) enforces the selected profile, and [the generator](../src/reify/tensor_gen.cpp) defines its property families.
+
+`--tensor-generator compositional` selects the typed dependency-graph builder for tensor-v2 and tensor-v3 instead of the per-stratum constructors. It draws a graph from two or three runtime tensor inputs, admits add, sub, mul against a small literal, transpose, expand, broadcast, sum, and whole-value copy, guarantees a shared intermediate and (within the default operator budget) two reductions with different consumers, and prunes every node outside the returned value's backward slice. Operators are placed between the required structures rather than after them, so a reduction can consume a transposed, expanded, or broadcast operand. The operator, shape, and axis records in the manifest come from walking the checked program, not from a second graph description. `--tensor-dtype` and `--tensor-profile-version` keep their meaning; v1 and v4 are rejected rather than partially supported, and `--tensor-input-pattern` is rejected because this route selects values through its input policy instead.
+
+#### Loop regions
+
+The tensor-v2 `loop-reduction` stratum can build a bounded two-state loop region instead of one of its single loop forms. Four options choose that region, and naming any one of them asks for it:
+
+| Option | Values | Domain |
+|---|---|---|
+| `--tensor-region-family` | `fold`, `orthogonal-reductions`, `reduction-arithmetic`, `cross-state`, `mixed-depth`, `broadcast-hoist` | the skeleton connecting the two states to the named results |
+| `--tensor-region-shape rows,columns` | two extents | powers of two of at least two, holding at most the profile's 512 elements |
+| `--tensor-region-iterations N` | one to eight | the counted trips of the region's bounded loop |
+| `--tensor-region-arithmetic` | `additive`, `subtraction`, `multiplication`, `mixed` | the operation the region's root placements use |
+
+```sh
+# a four-trip cross-state region over a 32x16 state, with mixed arithmetic
+rysmith --profile tensor --tensor-dtype f32 --tensor-profile-version v2 \
+  --tensor-region-family cross-state --tensor-region-shape 32,16 \
+  --tensor-region-iterations 4 --tensor-region-arithmetic mixed \
+  --seed 0 -n 4 -o tensor_cases/
+```
+
+`broadcast-hoist` states a connection a layout pass can act on: the state carrying the runtime input is reduced, the one-extent result is broadcast back over the state shape, and that view is consumed twice - by a second reduction on the other axis and by the elementwise path into the other root - so a copy that takes one consumer over would leave the original with the other. It needs two reducible axes, and a state shape with a singleton axis is refused rather than served by repeating one reduction axis.
+
+The region's two states are supplied in a fixed order: the first carries the runtime input and the second starts at zero. The shared producer is additive in every mode, because a product there is zero on every trip and a difference cancels one state out of the update; the arithmetic mode decides the operation each root placement uses. A placement that would multiply the zero-initialized state adds instead, and a multiplicative placement joins the state that carries the input, so neither state's update is annihilated and the mode stays visible in the body.
+
+A case generated from a named request records the values it used under `generator.region` in its manifest, with the shape, the trip count, the family, and the operation mode. Naming no region option keeps the region policy's own 2x2 body, its two trips, and additive arithmetic, and writes no `generator.region`.
+
+A value outside its domain, such as `3,3` or nine trips, is refused with the rule it breaks. A route that cannot build a region - the compositional builder, a profile other than tensor-v2, or a stratum other than `loop-reduction` - is refused rather than emitting a case that ignores the request.
+
+#### Runtime input selection
+
+`--tensor-input-policy` chooses how a compositional case's runtime inputs are proposed for that frozen program, and the program does not depend on the choice:
+
+```sh
+rysmith --profile tensor --tensor-dtype i32 --tensor-profile-version v2 \
+  --tensor-generator compositional --tensor-input-policy boundary --seed 0 -n 4 -o tensor_cases/
+rysmith --profile tensor --tensor-dtype i32 --tensor-profile-version v2 \
+  --tensor-generator compositional --tensor-input-policy exact \
+  --tensor-property-target 18 --seed 0 -n 1 -o tensor_cases/
+rysmith --profile tensor --tensor-dtype i32 --tensor-profile-version v2 \
+  --tensor-generator compositional --tensor-input-policy exact \
+  --tensor-output-element 0,1=-1 --tensor-output-element 1,0=3 --seed 0 -n 1 -o tensor_cases/
+```
+
+`ordinary` draws seeded values from `[1, 2]`. `boundary` draws each element from `{-1, 0, 1, 2}` using a deterministic stream keyed by the seed, parameter name, dtype, and shape. Equal-shaped parameters have separate streams; repeated values remain possible. Boundary cases record `boundary-splitmix64-v1` in `generator.input_sampler_version` and `coverage.input_behavior.sampler_version`, and the loader requires the two fields to agree. `exact` states the property before any input is accepted: `--tensor-property-target` names the scalar return value or the element sum of a rank-one tensor return, the generator builds a property-constrained clone of the same computation, checks it under the selected profile, and solves it for at most 64 symbolic input elements within a five-second budget. The clone is solved inside `[-1, 2]`, the union of what the samplers propose, so a target either sampler can witness is never out of the exact route's domain. The three policies do not use identical value sets: ordinary's `[1, 2]` is narrower than boundary's and exact's `[-1, 2]`, and each case records the interval it used. A clone whose digest differs from the frozen program once query constraints are removed is rejected. Unsupported graphs, an exceeded budget, an unsatisfiable target, and an undecided query are separate outcomes in `generation.json`; none of them is reported as an accepted case.
+
+The value is one complete literal: decimal, or `0x`/`0o`/`0b` prefixed, with an optional sign (`+0x10` is 16, and `1.5`, `1junk`, and `+0x80000000` are rejected rather than read as prefixes). Repeatable `--tensor-output-element <coordinate>,...=<i32>` states one required value per logical output coordinate, for tensor-v2 i32 outputs only, and is mutually exclusive with `--tensor-property-target`. Coordinates must state every output dimension, stay in bounds, and not repeat; the accepted list is sorted row-major so the same request always serializes the same way. A request that names every output coordinate is a complete target and is recorded as such; a shorter one is partial, and the coordinates it does not name take whatever the reference computes from the witness, so the unconstrained output is never taken from the request. Each constraint becomes one `tensor extract` and one scalar `require` in the query clone, and the source keeps the original computation. `property.constraint` in the manifest carries the typed request, and both the generator and the loader check it against the case's own reference output: a permutation with the same element total is rejected because elements are compared, not totals. Solver completion depends on the graph and property. An undecided query reports `input_policy_unknown`; a complete target does not guarantee completion within the budget.
+
+Every accepted case states its selection provenance: the policy that proposed the inputs, the inclusive leaf domain they respect, and the output target they were asked to satisfy, in `generator` and in `coverage.input_behavior`. A case with a target records `exact_smt` evidence, and the target is checked against the case's own reference output both when the case is written and when it is loaded, so a witness that does not satisfy its stated property is rejected rather than admitted. The `coverage.input_behavior.pattern` field names the sampler that ran (`seeded-random`, `boundary-value`, or `smt-selected`), not a value family the route never built.
+
 ### Output format
 
 Each concrete `.sir` holds one function `@funcN` with every variable initialized to a concrete value. The `^exit` block folds every scalar leaf of every local and parameter, recursing through nested arrays, structs and vector lanes, into a running CRC32 state and returns it:
@@ -405,51 +466,3 @@ rytwin out/func_<id>_0.sir --p-twin 1.0 --target c --emit-main -o out/twin.sir
 ## Generation throughput
 
 Three generator choices dominate the cost of a `rysmith` run: no trivially constant `lit op lit` atoms, store statements not counting toward `--n-stmts`, and indirect loads and stores. Each raises the solver work per function, and relaxing any of them would trade output quality for throughput. [.agents/notes/implementation/2026-08-05-rysmith-throughput.md](../.agents/notes/implementation/2026-08-05-rysmith-throughput.md) records what they cost together and what a per-change attribution would take.
-
-## Tensor loop regions
-
-The tensor-v2 `loop-reduction` stratum can build a bounded two-state loop region
-instead of one of its single loop forms. Four options choose that region, and
-naming any one of them asks for it:
-
-| Option | Values | Domain |
-|---|---|---|
-| `--tensor-region-family` | `fold`, `orthogonal-reductions`, `reduction-arithmetic`, `cross-state`, `mixed-depth`, `broadcast-hoist` | the skeleton connecting the two states to the named results |
-| `--tensor-region-shape rows,columns` | two extents | powers of two of at least two, holding at most the profile's 512 elements |
-| `--tensor-region-iterations N` | one to eight | the counted trips of the region's bounded loop |
-| `--tensor-region-arithmetic` | `additive`, `subtraction`, `multiplication`, `mixed` | the operation the region's root placements use |
-
-```sh
-# a four-trip cross-state region over a 32x16 state, with mixed arithmetic
-rysmith --profile tensor --tensor-dtype f32 --tensor-profile-version v2 \
-  --tensor-region-family cross-state --tensor-region-shape 32,16 \
-  --tensor-region-iterations 4 --tensor-region-arithmetic mixed \
-  --seed 0 -n 4 -o tensor_cases/
-```
-
-`broadcast-hoist` states a connection a layout pass can act on: the state carrying
-the runtime input is reduced, the one-extent result is broadcast back over the
-state shape, and that view is consumed twice - by a second reduction on the other
-axis and by the elementwise path into the other root - so a copy that takes one
-consumer over would leave the original with the other. It needs two reducible
-axes, and a state shape with a singleton axis is refused rather than served by
-repeating one reduction axis.
-
-The region's two states are supplied in a fixed order: the first carries the
-runtime input and the second starts at zero. The shared producer is additive in
-every mode, because a product there is zero on every trip and a difference
-cancels one state out of the update; the arithmetic mode decides the operation
-each root placement uses. A placement that would multiply the zero-initialized
-state adds instead, and a multiplicative placement joins the state that carries
-the input, so neither state's update is annihilated and the mode stays visible
-in the body.
-
-A case generated from a named request records the values it used under
-`generator.region` in its manifest, with the shape, the trip count, the family,
-and the operation mode. Naming no region option keeps the region policy's own
-2x2 body, its two trips, and additive arithmetic, and writes no `generator.region`.
-
-A value outside its domain, such as `3,3` or nine trips, is refused with the rule
-it breaks. A route that cannot build a region - the compositional builder, a
-profile other than tensor-v2, or a stratum other than `loop-reduction` - is
-refused rather than emitting a case that ignores the request.

@@ -8,6 +8,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Added
 
+- Independent tensor boundary sampling uses versioned streams keyed by seed, parameter name, dtype, and shape. A frozen input-sensitivity study compares it with the legacy cycle under one program, domain, and comparison contract, retaining proposal, reference, and execution records.
+
 - Tensor campaigns retain per-case compiler summaries and bounded representative artifacts before cleaning passed cases. Pass captures keep separate identities; missing provenance and source mappings remain explicit.
 
 - Bounded tensor execution, numerical references, Triton emission, property-directed generation, and regression tooling.
@@ -30,6 +32,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 - Tracked tensor campaign runner and baseline fixture: `test/tensor/campaigns/run_matched_tensor_evaluation.py` and `v1-baseline.json` are the two files the committed evaluation and coverage tests load, so the tracked tree can run them. `libsymir.a` now carries the tensor interpreter units, and `make test-library` links and runs a small consumer that interprets a scalar, an exact tensor, and a numerical tensor program against the archive.
 - Tensor output-element properties (`rysmith --tensor-output-element <coordinate>,...=<i32>`, repeatable): a tensor-v2 i32 case can require named output elements instead of one scalar target. The request is canonicalized row-major, recorded as a typed `property.constraint` in the case manifest, checked against the case's own reference output when the case is written and again when it is loaded, and rejected when it names a repeated or out-of-bounds coordinate or a complete target that skips a coordinate. Elements are compared individually, so a permutation with the same total fails.
 - Tensor dependency audit (`test/lib/tensor_graph_audit.py`, `make test-tensor-graph-audit`): a deterministic 256-seed-per-profile measurement that separates source bytes, ordered dependency topology, and the operator-labelled graph, and reports dimensions, literals, and axes separately. The compositional builder now opens each graph with bounded operations on two separate runtime inputs that later join, a structure it previously could not reach.
+- The tensor `loop-reduction` stratum includes a typed multi-result region inside its bounded loop; both next-state tensors are computed from the old state before either loop-carried value is assigned.
+- The exact composed f32 pilot proves the authored two-iteration loop through bounded integer constraints and compares every output bit. Separate GPU pilots check fixed-payload FpSan arithmetic and two Gluon blocked layouts against the same logical loop.
 
 - Python compilation target (`symirc --target python`): genuine `while`/`if` control flow, a boxed pointer and aggregate memory model with runtime UB traps, lane-list vectors, and symbol providers through module globals. Accepts reducible CFGs only.
 - CFG structuring analyses: dominator trees, reducibility check, loop forest, control-tree builder, and structured lowering with `while`/`do-while` peepholes and header-test loop rotation ([docs/reducibility.md](./docs/reducibility.md)).
@@ -167,6 +171,7 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Fixed
 
+- The solver's floating `%` encoding uses IEEE `fp.rem` with a sign correction for C `fmod`, preserving low remainder bits and negative zero instead of reconstructing the result through rounded division, multiplication, and subtraction.
 - Tensor initializer lowering: a scalar initializer materializes at the declared tensor shape for every profile before a shape-sensitive operator, and a tensor initializer copies its value. The previous Triton emission either lost the rank or passed a block tensor as `tl.full`'s scalar fill value, which Triton rejects. `docs/SPEC_TENSOR_v0.1.md` §3 states the rule.
 - Linking a library with `-I` merged its declarations by name. An intrinsic overload the primary also declared under a different signature was dropped, so the library body stopped typechecking; a struct the primary declared differently displaced the library's, and when the two agreed on field types but not their order the result still typechecked and read fields at the wrong offsets. Both are keyed by the declaration's identity now, and a struct conflict is rejected.
 - WASM vector call boundary: arguments were passed as a garbage byte-load rather than an address, and vector returns emitted invalid WASM. Both use a defined memory ABI (caller-owned spill slots plus a hidden sret parameter) preserving by-value semantics.
