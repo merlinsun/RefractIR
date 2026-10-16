@@ -146,6 +146,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The plan's last open item is delivered: the plan-mode Gluon emitter addresses the layout record a case declares - element strides, element offset, storage span, and axis order, validated once through the same helper the stager uses - so a padded physical allocation runs under an explicit layout plan. On the V100 the counted arm and the plan arm both match the complete reference and leave every guard and gap slot untouched for identity strides with an offset, strided storage, and strided storage with an offset, where the same kernel emitted without the record produced a wrong result and wrote into gap slots. A dense record emits a byte-identical kernel to before, and a record whose strides contradict its span or its axis order is refused.
 
+- The broadcast-hoist evidence is regenerated from the raw build and run records: every arm carries its execution, qualification, input, reference, and observed digests plus the compiler and Triton provenance; the refused four-trip arm is a first-class record; the consumer count comes from operand uses rather than from whole lines, which withdraws the claim that the two-consumer broadcast fed a conversion; and the probe's reading is the committed matcher's, with the previous values kept in a superseded block and an empty drift list showing that no device reading moved.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

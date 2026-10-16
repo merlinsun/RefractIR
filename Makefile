@@ -297,6 +297,7 @@ test-tensor-gluon-lowering: $(TENSOR_GRAPH_REGION_EXPORT)
 test-tensor-compiler-observation:
 	$(PY) -m unittest test.unit.test_tensor_compiler_observation \
 	  test.unit.test_tensor_evidence_records
+	  test.unit.test_tensor_rematerialization_evidence
 
 test-tensor-fp-contracts:
 	REFRACTIR_TEST_CXX="$(CXX)" $(PY) -m unittest test.unit.test_ast_type_construction test.unit.test_tensor_fp32_reference test.unit.test_tensor_fp32_edge_contract test.unit.test_tensor_ordinary_fp_controls test.unit.test_tensor_route_protocol

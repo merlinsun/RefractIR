@@ -1519,23 +1519,23 @@ What the pass did with the pattern:
 Two control measurements fix what a confirmable event would need, and neither is
 device evidence:
 
-* The matcher's own criterion, read on a synthetic pair: a broadcast that
-  survives for one consumer while a copy takes the converted consumer over is
-  confirmed when the copy prints the original's encoding (`confirmed_only`, 1)
-  and refused when the copy prints the encoding the conversion asked for
-  (`none`, 0), which is the only shape a layout rematerialization has. The
-  structural reading finds the recomputation in the second pair (a cloned
-  `tt.broadcast` with the same operand, the original losing the conversion and
-  its consumer, that consumer reading the copy), so the refusal is the matcher's
-  equivalence and not an absent candidate. That pair is read with the library
-  the runs imported (`tensor_compiler_observation.py` `fe1cb5ea…`); the record
-  carries a later library's reading of the same pair beside it
-  (`matcher_boundary_probe.rederivation`, `08c4772a…`), where it is
-  `confirmed_only`, 1, because that library compares the two computations
-  modulo the encoding the copy was created to change. The three device arms were
-  re-analysed with that library too and every transition reading is identical to
-  the published one (0 confirmed, 0 structural recomputations), so the matcher
-  change moves the synthetic pair only.
+* The matcher's own criterion, read on a synthetic pair with the committed
+  library (`test/lib/tensor_compiler_observation.py` `08c4772a…`): a broadcast
+  that survives for one consumer while a copy takes the converted consumer over
+  is confirmed both when the copy keeps the original's encoding
+  (`same_encoding_copy`, `confirmed_only` 1, `encoding_change.changed` false) and
+  when it carries the encoding the conversion asked for
+  (`layout_rematerialization`, `confirmed_only` 1, `encoding_change.changed`
+  true). The structural reading finds the recomputation in the second pair (a
+  cloned `tt.broadcast` with the same operand, the original losing the conversion
+  and its consumer, that consumer reading the copy), so the layout
+  rematerialization shape is now confirmable and the obstacle that remains is the
+  graph rather than the matcher's equivalence. The first published reading of
+  that pair, taken with the library the runs imported (`fe1cb5ea…`), refused it
+  (`none`, 0); the record keeps both values in its `superseded` block and states
+  in `matcher_rederivation` that the three device arms were re-read with the
+  committed library without one matcher or structural field moving (0 confirmed,
+  0 structural recomputations, 19 candidate transitions per arm, as before).
 * Ten hand-written kernels in the family's operation set, compiled on the same
   device with pass dumps, found no configuration in which the pass recomputes
   anything. The two kernels whose load and store anchor different layouts
