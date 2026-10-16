@@ -8,6 +8,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Added
 
+- Tensor campaigns retain per-case compiler summaries and bounded representative artifacts before cleaning passed cases. Pass captures keep separate identities; missing provenance and source mappings remain explicit.
+
 - Bounded tensor execution, numerical references, Triton emission, property-directed generation, and regression tooling.
 
 - Compositional tensor generation (`rysmith --profile tensor --tensor-generator compositional`): a typed dependency graph built forward from two or three runtime tensor inputs, with operator and shape metadata derived from the checked program rather than a second graph description, guaranteed shared intermediates and reductions with distinct consumers, and only nodes in the returned value's backward slice. Operators are placed between the required structures, so a reduction can consume a reshaped operand. Opt-in beside the existing per-stratum constructors.
