@@ -565,7 +565,8 @@ test-tensor-fixed-study:
 test-tensor-boundary-sensitivity: $(TARGET_INTERP) $(TENSOR_INPUT_POLICY_API)
 	REFRACTIR_TENSOR_INPUT_POLICY_API=$(TENSOR_INPUT_POLICY_API) \
 	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
-	  $(PY) -m unittest test.unit.test_tensor_boundary_sensitivity
+	  $(PY) -m unittest test.unit.test_tensor_boundary_sensitivity \
+	    test.unit.test_tensor_boundary_sensitivity_driver
 
 test-tensor-campaign-summary:
 	$(PY) -m unittest test.unit.test_continuous_tensor_campaign
