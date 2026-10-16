@@ -106,11 +106,11 @@ namespace refractir::reify {
       InputPolicyFailure(
           std::string message, const TensorInputProposal &proposal, std::string selectedPath
       ) :
-          std::runtime_error(std::move(message)),
-          outcome(proposal.outcome), timeoutSource(proposal.timeoutSource),
-          unknownReason(proposal.unknownReason), domain(proposal.domain),
-          symbolicElements(proposal.symbolicElements), candidateDigest(proposal.computationDigest),
-          queryDigest(proposal.queryDigest), path(std::move(selectedPath)) {}
+          std::runtime_error(std::move(message)), outcome(proposal.outcome),
+          timeoutSource(proposal.timeoutSource), unknownReason(proposal.unknownReason),
+          domain(proposal.domain), symbolicElements(proposal.symbolicElements),
+          candidateDigest(proposal.computationDigest), queryDigest(proposal.queryDigest),
+          path(std::move(selectedPath)) {}
 
       std::string outcome;
       std::string timeoutSource;
@@ -170,16 +170,20 @@ namespace refractir::reify {
         "bit-preserving-f32-layout", "exact-f32-reduction",     "loop-reduction",
         "multi-input-composition",   "multi-input-composition", "untargeted-exploration",
         "bit-preserving-f32-layout", "exact-f32-reduction",     "loop-reduction",
-        "multi-input-composition"};
+        "multi-input-composition"
+    };
     constexpr std::array<std::string_view, 5> v2Strata{
         "bit-preserving-f32-layout", "exact-f32-reduction", "loop-reduction",
-        "multi-input-composition", "untargeted-exploration"};
+        "multi-input-composition", "untargeted-exploration"
+    };
     constexpr std::array<std::string_view, 6> v3StratumSchedule{
         "tail-arithmetic", "tail-sum",  "tail-layout",
-        "tail-broadcast",  "tail-loop", "tail-untargeted"};
+        "tail-broadcast",  "tail-loop", "tail-untargeted"
+    };
     constexpr std::array<std::string_view, 6> v3InputPatterns{
         "coordinate-distinct", "mixed-sign",      "cancellation",
-        "repeated-value",      "distinct-groups", "seeded-random"};
+        "repeated-value",      "distinct-groups", "seeded-random"
+    };
     constexpr std::array<std::string_view, 6> v4BoundaryPatterns{"signed-zero",    "small-integer",
                                                                  "power-of-two",   "repeated-value",
                                                                  "exact-multiple", "mixed-sign"};
@@ -592,14 +596,12 @@ namespace refractir::reify {
     /// the caller stated and the region policy's own defaults for the rest.
     /// Generation and the run summary both read one derivation, so the record
     /// cannot state values other than the ones the body was built with.
-    TensorRegionConfiguration effectiveRegionConfiguration(
-        const TensorGenerationOptions &options
-    ) {
+    TensorRegionConfiguration effectiveRegionConfiguration(const TensorGenerationOptions &options) {
       return {
-          options.regionShape.value_or(Shape{2, 2}),
-          options.regionIterations.value_or(2),
+          options.regionShape.value_or(Shape{2, 2}), options.regionIterations.value_or(2),
           options.regionFamily.value_or(TensorRegionFamily::Fold),
-          options.regionArithmetic.value_or(TensorRegionArithmeticMode::Additive)};
+          options.regionArithmetic.value_or(TensorRegionArithmeticMode::Additive)
+      };
     }
 
     std::string sirCoordinates(const Shape &coordinates) { return sirShape(coordinates); }
@@ -960,7 +962,8 @@ namespace refractir::reify {
       candidate.outputElement = TensorElement::I32;
       candidate.operators = {"iota", "mul", "add", "extract"};
       candidate.shapeAxes = {
-          {shape, static_cast<std::int32_t>(rowAxis)}, {shape, static_cast<std::int32_t>(colAxis)}};
+          {shape, static_cast<std::int32_t>(rowAxis)}, {shape, static_cast<std::int32_t>(colAxis)}
+      };
       candidate.propertySource = coordinatesProperty(shape);
       std::int32_t base = 0;
       std::int32_t intercept = 1;
@@ -1463,7 +1466,8 @@ namespace refractir::reify {
       if (policyOptions.property.kind == TensorInputProperty::Kind::ElementsEqual) {
         const auto *returnTensor = TypeUtils::asTensor(entry.retType);
         if (!returnTensor)
-          throw std::runtime_error("property_invalid: an element target needs a tensor return value"
+          throw std::runtime_error(
+              "property_invalid: an element target needs a tensor return value"
           );
         std::string reason;
         if (!checkTensorOutputElements(
@@ -1623,7 +1627,8 @@ namespace refractir::reify {
             {"%next_x", "%next_y"}, configuration.arithmetic, configuration.family
         );
         const std::vector<std::pair<std::string, std::string>> stateUpdates{
-            {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
+            {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}
+        };
         const std::vector<std::string> reservedNames{"%i", "%out"};
         regionDeclarations = region.renderDeclarations(stateUpdates, reservedNames);
         regionInstructions = region.renderBody(stateUpdates, reservedNames);
@@ -2088,7 +2093,8 @@ namespace refractir::reify {
       const auto makeInput = [&](const Shape &shape) {
         auto values = v3PatternValues(shape, options.inputPattern, seed);
         TensorCaseBuffer input{
-            "x", element == "i32" ? TensorElement::I32 : TensorElement::F32, shape, {}};
+            "x", element == "i32" ? TensorElement::I32 : TensorElement::F32, shape, {}
+        };
         if (element == "i32") {
           input.bytes = encodeI32Tensor(values);
         } else {
@@ -2489,7 +2495,8 @@ namespace refractir::reify {
                   "counterfactual_dependency: the supervised dependence evidence names "
                   "inputs out of order"
               );
-            testCase.inputCounterfactualWitnesses.push_back(candidate.selectedDependence[inputIndex]
+            testCase.inputCounterfactualWitnesses.push_back(
+                candidate.selectedDependence[inputIndex]
             );
           }
         } else {

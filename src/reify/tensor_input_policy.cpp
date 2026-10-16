@@ -188,9 +188,7 @@ namespace refractir::reify {
           returnBlock->instrs.push_back(Instr{std::move(assignment)});
 
           RequireInstr requirement;
-          requirement.cond = Cond{
-              localExpr(name), RelOp::EQ, integerExpr(element.value), {}
-          };
+          requirement.cond = Cond{localExpr(name), RelOp::EQ, integerExpr(element.value), {}};
           returnBlock->instrs.push_back(Instr{std::move(requirement)});
         }
         return query;
@@ -223,8 +221,9 @@ namespace refractir::reify {
       }
 
       RequireInstr requirement;
-      requirement.cond =
-          Cond{localExpr(probe.empty() ? returned : probe), RelOp::EQ, integerExpr(property.target), {}};
+      requirement.cond = Cond{
+          localExpr(probe.empty() ? returned : probe), RelOp::EQ, integerExpr(property.target), {}
+      };
       returnBlock->instrs.push_back(Instr{std::move(requirement)});
       return query;
     }
@@ -298,9 +297,8 @@ namespace refractir::reify {
             return std::nullopt;
           }
           if (shape != found->second.shape) {
-            reason =
-                "tensor parameter witness shape disagrees with the declaration of " +
-                param.name.name;
+            reason = "tensor parameter witness shape disagrees with the declaration of " +
+                     param.name.name;
             return std::nullopt;
           }
           leaves = found->second.leaves;
@@ -321,8 +319,9 @@ namespace refractir::reify {
               return std::nullopt;
             }
             appendLittleWord(
-                buffer.bytes,
-                std::bit_cast<std::uint32_t>(static_cast<std::int32_t>(std::get<std::int64_t>(leaf)))
+                buffer.bytes, std::bit_cast<std::uint32_t>(
+                                  static_cast<std::int32_t>(std::get<std::int64_t>(leaf))
+                              )
             );
           } else {
             if (!std::holds_alternative<double>(leaf)) {
@@ -381,13 +380,11 @@ namespace refractir::reify {
     /// silently truncates to 0, which would certify a different coordinate than
     /// the one requested.
     std::uint32_t parseCoordinate(std::string_view text, std::string_view whole) {
-      if (text.empty() ||
-          !std::all_of(text.begin(), text.end(), [](const char character) {
+      if (text.empty() || !std::all_of(text.begin(), text.end(), [](const char character) {
             return character >= '0' && character <= '9';
           }))
         throw std::invalid_argument(
-            "tensor output element coordinate must be a non-negative integer: " +
-            std::string(whole)
+            "tensor output element coordinate must be a non-negative integer: " + std::string(whole)
         );
       std::uint64_t coordinate = 0;
       const auto result = std::from_chars(text.data(), text.data() + text.size(), coordinate);
@@ -407,8 +404,7 @@ namespace refractir::reify {
     /// handling looks only past a leading minus, so `+0x10` would read as 0.
     std::int64_t parseCompleteInteger(std::string_view text, std::string_view whole) {
       const bool negative = !text.empty() && text.front() == '-';
-      std::size_t begin =
-          (!text.empty() && (text.front() == '-' || text.front() == '+')) ? 1 : 0;
+      std::size_t begin = (!text.empty() && (text.front() == '-' || text.front() == '+')) ? 1 : 0;
       unsigned base = 10;
       if (text.size() > begin + 1 && text[begin] == '0') {
         switch (text[begin + 1]) {
@@ -434,8 +430,8 @@ namespace refractir::reify {
       const auto allowed = [base](const char character) {
         if (character >= '0' && character <= '9')
           return character - '0' < static_cast<int>(base);
-        return base == 16 && ((character >= 'a' && character <= 'f') ||
-                              (character >= 'A' && character <= 'F'));
+        return base == 16 &&
+               ((character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F'));
       };
       const auto invalid = [&]() {
         return std::invalid_argument(
@@ -477,10 +473,12 @@ namespace refractir::reify {
     if (!entry)
       return signature;
     for (const auto &param: entry->params) {
-      signature.push_back(TensorInputSignature{
-          bufferName(param.name.name), elementOf(param.type), shapeOf(param.type),
-          elementCountOf(param.type)
-      });
+      signature.push_back(
+          TensorInputSignature{
+              bufferName(param.name.name), elementOf(param.type), shapeOf(param.type),
+              elementCountOf(param.type)
+          }
+      );
     }
     return signature;
   }
@@ -575,9 +573,7 @@ namespace refractir::reify {
 
   std::string computationDigest(const Program &program) {
     Program filtered = cloneProgram(program);
-    const auto isQuery = [](const std::string &name) {
-      return name.rfind(queryPrefix, 0) == 0;
-    };
+    const auto isQuery = [](const std::string &name) { return name.rfind(queryPrefix, 0) == 0; };
     for (auto &function: filtered.funs) {
       for (auto &block: function.blocks) {
         block.instrs.erase(
@@ -635,10 +631,9 @@ namespace refractir::reify {
             return false;
           offset = offset * shape[axis] + required.index[axis];
         }
-        const auto value =
-            static_cast<std::int64_t>(std::bit_cast<std::int32_t>(readLittleWord(
-                output, static_cast<std::size_t>(offset) * 4
-            )));
+        const auto value = static_cast<std::int64_t>(std::bit_cast<std::int32_t>(
+            readLittleWord(output, static_cast<std::size_t>(offset) * 4)
+        ));
         if (value != required.value)
           return false;
       }
@@ -704,18 +699,16 @@ namespace refractir::reify {
     proposal.symbolicElements = symbolicElements;
     if (symbolicElements > options.maxSymbolicElements) {
       proposal.outcome = "budget_exceeded";
-      proposal.reason = "the exact i32 route holds at most " +
-                        std::to_string(options.maxSymbolicElements) +
-                        " symbolic input elements, and this entry has " +
-                        std::to_string(symbolicElements);
+      proposal.reason =
+          "the exact i32 route holds at most " + std::to_string(options.maxSymbolicElements) +
+          " symbolic input elements, and this entry has " + std::to_string(symbolicElements);
       return proposal;
     }
 
     auto query = buildQuery(program, options.property);
     if (!query) {
       proposal.outcome = "unsupported";
-      proposal.reason =
-          "the requested property cannot be expressed on this program's return value";
+      proposal.reason = "the requested property cannot be expressed on this program's return value";
       return proposal;
     }
     proposal.queryDigest = computationDigest(*query);
