@@ -223,7 +223,7 @@ DEPS = $(COMMON_OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(INTERP_OBJS:.o=.d) \
        $(RYLINK_OBJS:.o=.d) $(RYTWIN_OBJS:.o=.d)
 -include $(DEPS)
 
-.PHONY: test-tensor-discovery-batch test-tensor-tail-shapes test-tensor-region-family test-tensor-region-options all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-input-policy test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-campaign-summary test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
+.PHONY: test-tensor-discovery-batch test-tensor-tail-shapes test-tensor-region-family test-tensor-region-options all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify test-tensor-coverage test-tensor-directed test-tensor-layout test-tensor-probe test-tensor-profile test-tensor-v2-profile test-tensor-input-policy test-tensor-v4-generation test-tensor-v4 test-tensor-frontend test-tensor-exact test-tensor-numeric test-tensor-solver test-tensor-emit test-tensor-runner test-tensor-build test-tensor-regressions test-tensor-mutants test-tensor-historical test-tensor-evaluation test-tensor-fixed-study test-tensor-boundary-sensitivity test-tensor-campaign-summary test-tensor-reducer test-tensor-property-pilot test-tensor-graph-audit test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-triton-fp-controls test-triton-fpsan test-triton-gluon test-triton-gluon-study test-triton-exact-loop test-tensor test-triton test-triton-v2 test-library test-solver-outcomes cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -545,7 +545,7 @@ test-tensor-graph-audit:
 
 # Host-only tensor suite. GPU execution is deliberately opt-in via test-triton.
 test-tensor: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TENSOR_EMIT_API)
-	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study test-tensor-campaign-summary test-tensor-discovery-batch test-tensor-layout test-tensor-tail-shapes test-tensor-region-family test-tensor-region-options test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
+	$(MAKE) test-tensor-region test-tensor-graph-region test-tensor-generated-corpus test-tensor-region-generation test-tensor-fpsan-model test-tensor-gluon-layouts test-tensor-gluon-lowering test-tensor-compiler-observation test-tensor-fp-contracts test-tensor-fixed-study test-tensor-boundary-sensitivity test-tensor-campaign-summary test-tensor-discovery-batch test-tensor-layout test-tensor-tail-shapes test-tensor-region-family test-tensor-region-options test-tensor-probe test-tensor-frontend test-tensor-exact test-tensor-numeric \
 	  test-tensor-solver test-tensor-emit test-tensor-regressions \
 	  test-tensor-mutants test-tensor-historical test-tensor-evaluation \
 	  test-tensor-reducer test-tensor-property-pilot
@@ -561,6 +561,11 @@ test-tensor-evaluation:
 
 test-tensor-fixed-study:
 	$(PY) -m unittest test.unit.test_tensor_fixed_study test.unit.test_tensor_fixed_selection test.unit.test_tensor_generated_selection_study
+
+test-tensor-boundary-sensitivity: $(TARGET_INTERP) $(TENSOR_INPUT_POLICY_API)
+	REFRACTIR_TENSOR_INPUT_POLICY_API=$(TENSOR_INPUT_POLICY_API) \
+	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
+	  $(PY) -m unittest test.unit.test_tensor_boundary_sensitivity
 
 test-tensor-campaign-summary:
 	$(PY) -m unittest test.unit.test_continuous_tensor_campaign
