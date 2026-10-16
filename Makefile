@@ -296,7 +296,7 @@ test-tensor-gluon-lowering: $(TENSOR_GRAPH_REGION_EXPORT)
 
 test-tensor-compiler-observation:
 	$(PY) -m unittest test.unit.test_tensor_compiler_observation \
-	  test.unit.test_tensor_evidence_records
+	  test.unit.test_tensor_evidence_records \
 	  test.unit.test_tensor_rematerialization_evidence
 
 test-tensor-fp-contracts:
