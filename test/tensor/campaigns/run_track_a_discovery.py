@@ -571,6 +571,29 @@ def _capped_proposal_record(proposal):
   return record
 
 
+def case_contract(card):
+  """The comparison contract of one validated case record.
+
+  The `certificate` block is the record's own statement of how its reference
+  was produced, so `reference_kind` — the field the byte verdict turns on — is
+  read from it and never from a caller's shorthand: a record without a
+  certificate has nothing stating that its bytes are the reference, and is not
+  certified by a label beside it. The other fields fall back to the record's
+  own copies so a case stays described when the certificate is missing.
+
+  Both the build step and the report step read the contract here: a case that
+  was reused from disk therefore reaches the same verdict as one just built.
+  """
+  certificate = card.get("certificate") or {}
+  return {
+    "admission": certificate.get("admission") or card.get("admission"),
+    "reference_kind": certificate.get("reference_kind"),
+    "expected_sha256": certificate.get("expected_sha256")
+    or card.get("expected_sha256"),
+    "input_bytes_sha256": card.get("input_bytes_sha256"),
+  }
+
+
 def step_build(work, args, state):
   """Derive the four recorded inputs of every admitted proposal and build cases."""
   work = Path(work)
@@ -629,11 +652,15 @@ def step_build(work, args, state):
       for proposal in proposals_list:
         directory = work / "suite" / identifier / proposal.name
         if directory.is_dir() and not args.force:
+          # A reused case keeps the contract of the record it validated, so a
+          # resumed run reads the same comparison the fresh one would have.
+          card = _read_json(directory / "proposal-record.json")
           derived["inputs"].append(
             {
               "name": proposal.name,
               "status": "reused",
               "directory": str(directory),
+              **case_contract(card),
             }
           )
           continue
@@ -664,10 +691,7 @@ def step_build(work, args, state):
             "name": proposal.name,
             "status": "built",
             "directory": str(directory),
-            "admission": card["admission"],
-            "reference_kind": card["reference_kind"],
-            "expected_sha256": card["expected_sha256"],
-            "input_bytes_sha256": card["input_bytes_sha256"],
+            **case_contract(card),
           }
         )
         with (work / "replay-ledger.jsonl").open("a", encoding="utf-8") as stream:
@@ -1121,6 +1145,15 @@ def observation_outcome(entry):
 
 
 CERTIFIED_REFERENCE_KIND = "exact-certificate"
+MISSING_OUTPUT_REASON = (
+  "the execution reports success but left no device output to compare with the "
+  "certified reference"
+)
+
+
+def _with_reason(reason, note):
+  """The runner's reason with one further finding stated beside it."""
+  return f"{reason}; {note}" if reason else note
 
 
 def execution_verdict(result, bit_level_check, *, certified):
@@ -1128,27 +1161,47 @@ def execution_verdict(result, bit_level_check, *, certified):
 
   A certified reference is bit-exact by construction, so the driver-side
   word-for-word comparison is the signed-zero check the zero-tolerance numeric
-  comparator cannot make: it calls `+0.0` and `-0.0` equal. A failed byte
-  check, or a missing actual buffer to compare, is therefore a failure of the
-  execution and of the comparison rather than a note beside two passes. An
-  uncertified reference is a declared replay compared numerically, so its byte
-  reading stays an observation about that comparison and does not displace it.
+  comparator cannot make: it calls `+0.0` and `-0.0` equal. A certified case
+  whose bytes differ from the reference therefore fails both its execution and
+  its comparison.
+
+  A case with no output buffer at all is a different reading. Its comparison is
+  *unavailable*, because there are no bytes to compare, and an execution that
+  already failed keeps its own class (`compile_failure`, `runtime_failure`,
+  `runtime_timeout`) instead of being restated as a comparison failure — the
+  failure categories are part of what this batch measures. Only an execution
+  that reports success without an output is a real failure the byte check
+  rejects, since a successful run must have produced bytes.
+
+  An uncertified reference is a declared replay compared numerically, so its
+  byte reading stays an observation about that comparison and does not displace
+  it.
   """
   report = result.get("report") or {}
+  status = report.get("status")
   byte_status = (bit_level_check or {}).get("status")
-  byte_failed = certified and byte_status != "pass"
   comparison = dict(report.get("comparison") or {})
-  if byte_failed:
-    comparison["status"] = "fail"
-    comparison["byte_check"] = byte_status
   reason = report.get("reason")
-  if byte_failed:
-    byte_reason = (
-      f"the certified output does not match the reference word for word ({byte_status})"
-    )
-    reason = f"{reason}; {byte_reason}" if reason else byte_reason
+  if certified and byte_status != "pass":
+    comparison["byte_check"] = byte_status
+    if byte_status == "unavailable":
+      if status == "pass":
+        status = "fail"
+        comparison["status"] = "fail"
+        reason = _with_reason(reason, MISSING_OUTPUT_REASON)
+      else:
+        comparison["status"] = "unavailable"
+    else:
+      comparison["status"] = "fail"
+      reason = _with_reason(
+        reason,
+        "the certified output does not match the reference word for word "
+        f"({byte_status})",
+      )
+      if status == "pass":
+        status = "fail"
   return {
-    "status": "fail" if byte_failed else report.get("status"),
+    "status": status,
     "comparison": comparison,
     "campaign_valid": report.get("campaign_valid"),
     "exit_code": report.get("exit_code"),
@@ -1477,10 +1530,14 @@ def step_report(work, args, state):
       admitted_inputs += 1
       directory = Path(item["directory"])
       card = _read_json(directory / "proposal-record.json")
+      # The verdict's contract is the validated record's own, not the build
+      # step's shorthand, so a case reused from disk reads the same here.
+      contract = case_contract(card)
+      case.update(contract)
       case["proposal"] = _capped_proposal_record_from_record(card["proposal"])
-      case["certificate"] = card["certificate"]
-      case["replays"] = card["replays"]
-      case["loader"] = card["loader"]
+      case["certificate"] = card.get("certificate")
+      case["replays"] = card.get("replays")
+      case["loader"] = card.get("loader")
       expected = (directory / "expected.bin").read_bytes()
       case["output"] = tensor_input_proposals.constant_output(expected)
       result = run_records.get(f"{identifier}/{item['name']}")
@@ -1491,7 +1548,7 @@ def step_report(work, args, state):
         case["execution"] = execution_verdict(
           result,
           case["bit_level_check"],
-          certified=item.get("reference_kind") == CERTIFIED_REFERENCE_KIND,
+          certified=contract["reference_kind"] == CERTIFIED_REFERENCE_KIND,
         )
         observations = _summarize_observations(directory)
         # The pass record is one record, not two: it is lifted out of the

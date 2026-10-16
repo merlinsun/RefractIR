@@ -817,6 +817,182 @@ and binary digests; the record is
 (export revision `43d9e163…` plus three staged `test/lib` overrides, no device
 build performed in `/host/refractir-targeted-20261011`).
 
+## Track C × Track B, second run: recorded physical strides in the plan-mode addressing
+
+The padded-tail run above left one thing open: the counted arm staged the tail at
+the row stride and element offset its case declared, while the plan arm
+addressed a dense logical row-major buffer, so no plan-mode kernel could run
+against a padded allocation. A review of that run stated the gap as "ordinary
+Triton stride evidence does not cover Gluon addressing". This run records what
+the gap costs on the device and closes it: the emitter takes the layout record
+the case declares, both arms address one physical allocation inside one guard
+envelope, and the two gathered outputs are the same bytes.
+
+### The gap, recorded before any change
+
+The plan-mode kernel of the `strided-offset` case, emitted with its
+`all-same-layout` family and without a layout record, addresses the dense
+logical buffer:
+
+```
+load_offsets = load_rows[:, None] * 31 + load_columns[None, :]
+```
+
+The counted kernel `symirc` emitted for the same case addresses the layout the
+manifest declares, a row stride of 33 at element offset 1:
+
+```
+_sir_x_offsets = 1 + _sir_x_d0 * 33 + _sir_x_d1
+```
+
+Both kernels were launched through `test.lib.triton_case_worker` against the
+same physical allocation (`(3, 5)` guard envelope, storage span 263). The dense
+plan-mode kernel reads padding and writes outside the logical mapping, so the
+worker refuses it:
+
+```
+RuntimeError: kernel wrote outside its logical output mapping: guards and gaps
+differ at ['gap-0', 'gap-32', 'gap-33', 'gap-65', 'gap-66', 'gap-98', ...]
+```
+
+Its gathered output (`1c927edd…`) matches the complete reference
+(`e523c11e…`) on 233 of the 248 logical slots. The other two layouts fail the
+same way, with 8 and 14 changed gap slots and 240 and 234 matching logical
+slots. A wrong result alone would be a numerical finding; the guard and gap
+writes are what make it a refusal, because the allocation states where the
+tensor is.
+
+### Stride-aware addressing
+
+`render_gluon_kernel(source, *, plan=None, tile=None, layout=None)` takes the
+case's layout record: the element strides, element offset, storage span, and
+axis order that `test.lib.tensor_layout` validates and stages. Every address
+comes from `tensor_layout.storage_addressing(layout)`, one entry point that
+validates the record through `logical_addresses` and restates the addressing it
+declares, so the emitter and the stager cannot disagree about what the record
+says. The axis order is checked against the strides there rather than being a
+second addressing input: a record whose order contradicts its strides is
+refused, as is a record whose farthest logical address leaves its storage span.
+
+The same plan family emits the recorded addressing for all three layouts:
+
+| Case | Record | Emitted load addressing |
+|---|---|---|
+| `identity-strides-offset` | strides `[32, 1]`, offset 1, span 256 | `load_offsets = 1 + load_rows[:, None] * 32 + load_columns[None, :]` |
+| `strided-zero-offset` | strides `[33, 1]`, offset 0, span 262 | `load_offsets = load_rows[:, None] * 33 + load_columns[None, :]` |
+| `strided-offset` | strides `[33, 1]`, offset 1, span 263 | `load_offsets = 1 + load_rows[:, None] * 33 + load_columns[None, :]` |
+
+The store states the same addressing as the load. A stride of one states no
+multiplication and a zero offset states no addition, so a record that is already
+the dense logical row-major layout emits exactly the kernel the emitter writes
+without one. The masks are untouched by the record: the load predicate is still
+`(load_rows[:, None] < 8) & (load_columns[None, :] < 31)`, so a padded lane
+still computes an address it never dereferences.
+
+The CPU replay of the emitter's unit suite stages the logical input at the
+recorded addresses through `tensor_layout.stage_buffer` (or `stage_envelope`
+with guards), hands the kernel the same view the device worker hands it, and
+gathers the stored bytes back into logical order, so the tests prove addressing
+by execution rather than by reading the emitted text.
+
+### Device runs
+
+One region (`test/tensor/gluon/programs/padded-tail-8x31-region-v1.sir`, the
+`fold` graph at `[8, 31]`, two trips), one input (the committed proposal
+`sparse-final-lanes`, sha256 `775b2ea6…`), one guard envelope `(3, 5)` with
+padding `3f800001`, and one launch shape (`tensor-v3`, tile `[8, 32]`,
+`num_warps` 4, `enable_fp_fusion` false). Both arms run the same `case.json`
+through the same worker, so the staging, the gathering, and the guard and gap
+checks are one implementation.
+
+| Case | Arm | Exit | Gathered output | Logical slots matching the reference | Guard or gap slots changed |
+|---|---|---|---|---|---|
+| `identity-strides-offset` | counted | 0 | `e523c11e…` | 248 of 248 | 0 |
+| | plan, record `[32, 1]` offset 1 | 0 | `e523c11e…` | 248 of 248 | 0 |
+| | plan, no record (control) | 1 | `1aa5f41b…` | 240 of 248 | 8 |
+| `strided-zero-offset` | counted | 0 | `e523c11e…` | 248 of 248 | 0 |
+| | plan, record `[33, 1]` offset 0 | 0 | `e523c11e…` | 248 of 248 | 0 |
+| | plan, no record (control) | 1 | `4f6940c9…` | 234 of 248 | 14 |
+| `strided-offset` | counted | 0 | `e523c11e…` | 248 of 248 | 0 |
+| | plan, record `[33, 1]` offset 1 | 0 | `e523c11e…` | 248 of 248 | 0 |
+| | plan, no record (control) | 1 | `1c927edd…` | 233 of 248 | 15 |
+
+Readings:
+
+* Each plan arm's gathered logical bytes hash to `e523c11e…`, the same digest
+  as the counted arm's `actual.bin`, the case's `expected.bin`, the exact
+  reference `certify` derives from the same input, and the counted arm of the
+  padded-tail run above. The identity-strides case at element offset 1 is the
+  layout of that earlier counted case, so the record changes nothing that was
+  already right.
+* Every arm wrote all 248 logical slots and no guard or gap slot. The dense
+  controls wrote 8, 14, and 15 gap slots and left 8, 14, and 15 logical slots at
+  the canary, which reproduces the gap record under the change rather than
+  quoting it.
+* The plan arm's compiled artifacts come from the same worker dump as the
+  counted arm's (`compiler-ttir.ir`, `compiler-ttgir.ir`, `compiler-glir.ir`,
+  `compiler-llir.ir`, `compiler-ptx.ir`), so the stride reaches the compiled
+  kernel rather than only the emitted Python.
+
+### Test discipline
+
+Five tests were written first and run one by one; each failed on the missing
+`layout` keyword. After the change each passes on its own.
+
+| Test | First run | After the change |
+|---|---|---|
+| `test_a_non_identity_stride_layout_addresses_the_recorded_elements` | red: `TypeError: render_gluon_kernel() got an unexpected keyword argument 'layout'` | green |
+| `test_a_nonzero_element_offset_is_honoured` | red: same | green |
+| `test_a_padded_allocation_keeps_its_guards_and_gaps` | red: same | green |
+| `test_the_gathered_plan_mode_result_equals_the_counted_runs_bytes` | red: same | green |
+| `test_a_layout_whose_strides_do_not_fit_its_storage_span_is_refused` | red: same | green |
+
+The fourth test binds the host suite to this device record: it replays the
+committed program with the `sparse-final-lanes` witness, the counted case's
+layout record, and its guard envelope, and requires the gathered bytes to hash
+to the counted arm's recorded `e523c11e…`.
+
+The smallest edge case then followed: an identity layout with a zero offset on a
+power-of-two region, which emits the kernel the emitter writes without a record
+and replays to the same logical output.
+
+### What is reached and what is not
+
+Reached: a plan-mode kernel addresses the element strides and element offset its
+case records, runs against the same guarded physical allocation as the counted
+arm, reproduces that arm's complete logical bytes for three layouts (identity
+strides at offset 1, non-identity strides at offset 0, and both together), and
+leaves every guard and internal gap at its canary.
+
+Not reached, with the reason:
+
+* One logical tile shape (`[8, 31]` on `[8, 32]`), one warp count (4), one plan
+  family (`all-same-layout`), and one padding sentinel. Other tail pairs, warp
+  counts, families, and the second padding pattern of the first run are untested
+  here.
+* One record per case rather than one per buffer. Both arms address the input
+  and the output with the layout the case builder states for both.
+* Ranks other than two, and a nonzero `tile_origin`. The region grammar is rank
+  two and the case builder states the origin at `[0, 0]`.
+* The compositional tail cases of Track B under the plan path, and an
+  `exact_smt` selection for a tailed case, both unchanged from the first run.
+* Addressing is proved by the gathered bytes and the canary verdicts, not by
+  disassembling executed addresses: a kernel that read a guard value and dropped
+  it before the sum would still agree.
+
+### Artifacts
+
+`test/tensor/campaigns/results/track-c-physical-strides-evidence.json` holds the
+three cases, the nine arm runs with their digests, the emitted addressing lines,
+and the digest of every imported `test/lib` module and binary. The drivers, the
+emitted plan and control kernels, and the frozen case records are under
+`.planning/2026-10-11-targeted-compiler-behavior/physical-strides/`, with the
+report at [gluon-physical-strides.md](../../../../.planning/2026-10-11-targeted-compiler-behavior/gluon-physical-strides.md).
+The run imported Triton 3.9.0 at `32f06df4…` from `/root/triton-latest/python`,
+used `symiri` `4674cc7d…` and `symirc` `42e951d3…` rebuilt in
+`/host/refractir-strides-20261016`, and performed no build in
+`/host/refractir-targeted-20261011`.
+
 ## Track C discovery batch: 128 fresh proposals across eight frozen configurations
 
 The plan's bounded discovery batch for Track C ran on 2026-10-15, 12:13:26Z to
@@ -1094,6 +1270,17 @@ two `cross-state` configurations observe none. The superseded figure was
 512/512. Where the two numbers differ below, the superseded one is stated as
 such.
 
+**Second correction (2026-10-16, record unchanged).** A review of the same driver
+closed two defects in the byte verdict. The verdict reads each case's comparison
+contract from the case's own certificate rather than from the build step's
+summary of it, so a case an interrupted build reused reaches the same verdict as
+one built fresh. A case with no output buffer keeps its execution failure class
+(`compile_failure`, `runtime_failure`, `runtime_timeout`) with the comparison
+`unavailable`, instead of restating every nonpassing byte check as a comparison
+failure. Neither defect is exercised by this batch: all 512 inputs were built in
+this run, none reused, and all 512 produced an output whose byte check passed, so
+every recorded value stands and the record was not regenerated.
+
 | # | half | family | shape × trips | mode | domain | the evidence it starts from |
 |---|---|---|---|---|---|---|
 | E1 | established | `mixed-depth` | [4, 8] × 3 | `additive` | [0, 2] | first run and named-pass study: bound 3, four warps, exact admission |
@@ -1220,10 +1407,15 @@ compile failures, 0 refusals, and no configuration whose proposals were all
 rejected. The batch extends the established behavior over 128 fresh programs and
 four underexplored legal combinations; it does not add a defect, and it adds no
 evidence to the surviving-conversion, movement, or rematerialization categories.
-The byte-check verdict is now authoritative for these certified inputs: all 512
-cases carry `byte_check_applied` true and `byte_check_status` `pass`, and a
-signed-zero or any other word-level difference would fail the execution and the
-comparison instead of passing them (no such case is present in this batch).
+The byte-check verdict is authoritative for these certified inputs, and is read
+from each case's own certificate: all 512 cases carry `byte_check_applied` true
+and `byte_check_status` `pass`, and a signed-zero or any other word-level
+difference would fail the execution and the comparison instead of passing them
+(no such case is present in this batch). A case that produced no output would be
+read differently: an execution that already failed keeps its class
+(`compile_failure`, `runtime_failure`, `runtime_timeout`) with the comparison
+`unavailable`, and a run that reports success without an output is a failure of
+the comparison; no case of either kind is present in this batch.
 
 ## A broadcast-hoist family: the rematerialization candidate, measured
 

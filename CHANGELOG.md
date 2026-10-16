@@ -140,6 +140,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - The Track A discovery batch's observation rate is corrected: a conversion is attributed to the loop that encloses it rather than to a pass that merely has a loop somewhere before and after, so a run qualifies as target-behavior-observed only when the removal really happened inside a loop. The corrected batch reads **384 of 512** rather than 512 of 512 - both cross-state configurations are 0 of 64 - with the published figures kept per configuration alongside a correction block, and the executions unchanged at 512 passes. A separate byte check now merges into the authoritative verdict, so a signed-zero mismatch cannot be counted as a passing execution or comparison.
 
+- A resumed discovery case keeps the comparison contract of the record it reuses, so a signed-zero byte mismatch still fails the execution instead of being counted as a pass, and a validated case with no certificate is not treated as certified. A missing output no longer erases what happened: a compile failure, runtime failure, or timeout keeps its class with the comparison marked unavailable, while a supposedly successful execution with no output is rejected as a failure.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

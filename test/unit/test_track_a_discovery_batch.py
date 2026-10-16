@@ -17,7 +17,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from test.lib import tensor_input_proposals, tensor_region_generation
 from test.tensor.campaigns import run_track_a_discovery as discovery
+
+# The resumed-build cases run the driver's own build step, which generates its
+# source through the native exporter; without it they are skipped the way the
+# other native-tool tests are.
+EXPORTER_AVAILABLE = tensor_region_generation.EXPORTER.is_file()
 
 
 class ManifestFreezeTests(unittest.TestCase):
@@ -526,6 +532,134 @@ class TrackAVerdictTests(unittest.TestCase):
     self.assertTrue(case["execution"]["byte_check_applied"])
     self.assertEqual(case["execution"]["byte_check_status"], "pass")
 
+  @unittest.skipUnless(EXPORTER_AVAILABLE, "the native region exporter is not built")
+  def test_a_resumed_case_reaches_the_same_verdict_as_a_fresh_one(self):
+    # The interrupted-build path: the case directories exist with their
+    # certificates but no build record does, so the build step reuses them. The
+    # reused entry carries the contract the verdict reads, and `+0.0` against
+    # `-0.0` fails here exactly as it does fresh.
+    cases = _signed_zero_cases(mismatching="independent-small")
+    with tempfile.TemporaryDirectory() as directory:
+      fresh = _discovery_record(Path(directory) / "fresh", cases)
+      resumed = _discovery_record(Path(directory) / "resumed", cases, resume=True)
+
+    fresh_case = _only_input(fresh, "independent-small")
+    case = _only_input(resumed, "independent-small")
+    self.assertEqual(case["status"], "reused")
+    self.assertEqual(case["reference_kind"], discovery.CERTIFIED_REFERENCE_KIND)
+    self.assertEqual(case["bit_level_check"]["status"], "exact_mismatch")
+    self.assertTrue(case["execution"]["byte_check_applied"])
+    self.assertEqual(case["execution"]["byte_check_status"], "exact_mismatch")
+    # The resumed verdict is the fresh verdict, field for field.
+    self.assertEqual(case["execution"], fresh_case["execution"])
+    self.assertEqual(resumed["budget"]["execution_outcomes"], {"fail": 1, "pass": 3})
+    self.assertEqual(resumed["budget"]["comparison_outcomes"], {"fail": 1, "pass": 3})
+    summary = next(
+      entry for entry in resumed["configurations"] if entry["executions_attempted"]
+    )
+    self.assertEqual(summary["executions_passed"], 3)
+
+  @unittest.skipUnless(EXPORTER_AVAILABLE, "the native region exporter is not built")
+  def test_a_resumed_case_with_equal_bytes_passes(self):
+    cases = [{"name": "independent-small", "expected": _ZERO, "actual": _ZERO}]
+    with tempfile.TemporaryDirectory() as directory:
+      record = _discovery_record(directory, cases, resume=True)
+
+    case = _only_input(record, "independent-small")
+    self.assertEqual(case["status"], "reused")
+    self.assertEqual(case["reference_kind"], discovery.CERTIFIED_REFERENCE_KIND)
+    self.assertTrue(case["execution"]["byte_check_applied"])
+    self.assertEqual(case["execution"]["byte_check_status"], "pass")
+    self.assertEqual(case["execution"]["status"], "pass")
+    self.assertEqual(case["execution"]["comparison"]["status"], "pass")
+    self.assertEqual(record["budget"]["execution_outcomes"], {"pass": 1})
+    self.assertEqual(record["budget"]["comparison_outcomes"], {"pass": 1})
+
+  def test_a_compile_failure_keeps_its_class_and_an_unavailable_comparison(self):
+    with tempfile.TemporaryDirectory() as directory:
+      record = _discovery_record(
+        directory,
+        [
+          {
+            "name": "independent-small",
+            "actual": None,
+            "numeric": _COMPILE_FAILURE,
+          }
+        ],
+      )
+
+    case = _only_input(record, "independent-small")
+    self.assertEqual(case["bit_level_check"]["status"], "unavailable")
+    self.assertEqual(case["execution"]["status"], "compile_failure")
+    self.assertEqual(case["execution"]["comparison"]["status"], "unavailable")
+    self.assertEqual(case["execution"]["byte_check_status"], "unavailable")
+    self.assertEqual(record["budget"]["execution_outcomes"], {"compile_failure": 1})
+    self.assertEqual(record["budget"]["comparison_outcomes"], {"unavailable": 1})
+    self.assertEqual(record["configurations"][0]["executions_passed"], 0)
+
+  def test_a_runtime_failure_keeps_its_class_and_an_unavailable_comparison(self):
+    with tempfile.TemporaryDirectory() as directory:
+      record = _discovery_record(
+        directory,
+        [
+          {
+            "name": "independent-small",
+            "actual": None,
+            "numeric": _RUNTIME_FAILURE,
+          }
+        ],
+      )
+
+    case = _only_input(record, "independent-small")
+    self.assertEqual(case["execution"]["status"], "runtime_failure")
+    self.assertEqual(case["execution"]["comparison"]["status"], "unavailable")
+    self.assertEqual(record["budget"]["execution_outcomes"], {"runtime_failure": 1})
+    self.assertEqual(record["budget"]["comparison_outcomes"], {"unavailable": 1})
+
+  def test_a_successful_execution_with_no_output_is_rejected(self):
+    with tempfile.TemporaryDirectory() as directory:
+      record = _discovery_record(
+        directory, [{"name": "independent-small", "actual": None}]
+      )
+
+    case = _only_input(record, "independent-small")
+    self.assertEqual(case["execution"]["byte_check_status"], "unavailable")
+    self.assertEqual(case["execution"]["status"], "fail")
+    # A run that reports success without an output is a failure of the
+    # comparison the byte check had to make, not an unavailable comparison.
+    self.assertEqual(case["execution"]["comparison"]["status"], "fail")
+    self.assertIn("no device output", case["execution"]["reason"])
+    self.assertEqual(record["budget"]["execution_outcomes"], {"fail": 1})
+    self.assertEqual(record["budget"]["comparison_outcomes"], {"fail": 1})
+
+  @unittest.skipUnless(EXPORTER_AVAILABLE, "the native region exporter is not built")
+  def test_a_resumed_case_without_a_certificate_is_not_certified(self):
+    # The smallest edge case: the case record is present but carries no
+    # certificate, so nothing states that its bytes are the reference.
+    with tempfile.TemporaryDirectory() as directory:
+      record = _discovery_record(
+        directory,
+        [
+          {
+            "name": "independent-small",
+            "expected": _ZERO,
+            "actual": struct.pack("<I", 0x80000000),
+            "certificate": False,
+          }
+        ],
+        resume=True,
+      )
+
+    case = _only_input(record, "independent-small")
+    self.assertEqual(case["status"], "reused")
+    self.assertIsNone(case["reference_kind"])
+    self.assertFalse(case["execution"]["byte_check_applied"])
+    self.assertEqual(case["execution"]["byte_check_status"], "exact_mismatch")
+    # Without a certificate the byte reading stays an observation, so the case
+    # is not silently counted as certified.
+    self.assertEqual(case["execution"]["status"], "pass")
+    self.assertEqual(record["budget"]["execution_outcomes"], {"pass": 1})
+
   def test_one_pass_removing_inside_and_outside_a_loop_counts_the_inside(self):
     # The smallest mixed case: one pass removes two identical-shape conversions
     # of which exactly one sits inside the loop it retains.
@@ -676,32 +810,49 @@ def _removal_dump(before, after, *, pass_name="TritonGPURemoveLayoutConversions"
   )
 
 
-def _case_directory(root, name, *, expected=_ZERO, actual=_ZERO, dump=None, ir=None):
-  """One built case directory, with the files the report step reads."""
+def _case_directory(
+  root,
+  name,
+  *,
+  expected=_ZERO,
+  actual=_ZERO,
+  dump=None,
+  ir=None,
+  certificate=True,
+):
+  """One built case directory, with the files the report step reads.
+
+  `actual=None` states an execution that left no output buffer, and
+  `certificate=False` a validated record whose certificate is missing.
+  """
   directory = Path(root) / name
   compiled = directory / "runs" / "compiled"
   compiled.mkdir(parents=True)
   (directory / "expected.bin").write_bytes(expected)
-  (compiled / "actual.bin").write_bytes(actual)
+  if actual is not None:
+    (compiled / "actual.bin").write_bytes(actual)
   if dump is not None:
     (compiled / "compiler-pass-dump.txt").write_text(dump, encoding="utf-8")
   for stage, text in (ir or {}).items():
     (compiled / f"compiler-{stage}.ir").write_text(text, encoding="utf-8")
-  (directory / "proposal-record.json").write_text(
-    json.dumps(
-      {
-        "proposal": {"name": name},
-        "certificate": {
-          "admission": "admitted-exact-certificate",
-          "reference_kind": "exact-certificate",
-          "proof_summary": {},
-        },
-        "replays": [],
-        "loader": {"status": "admitted"},
-      }
-    ),
-    encoding="utf-8",
-  )
+  card = {
+    "name": name,
+    "proposal": {"name": name},
+    "admission": "admitted-exact-certificate",
+    "reference_kind": "exact-certificate",
+    "expected_sha256": "a" * 64,
+    "input_bytes_sha256": "b" * 64,
+    "replays": [],
+    "loader": {"status": "admitted"},
+  }
+  if certificate:
+    card["certificate"] = {
+      "admission": "admitted-exact-certificate",
+      "reference_kind": "exact-certificate",
+      "expected_sha256": "a" * 64,
+      "proof_summary": {},
+    }
+  (directory / "proposal-record.json").write_text(json.dumps(card), encoding="utf-8")
   return directory
 
 
@@ -712,6 +863,20 @@ _NUMERIC_PASS = {
   "exit_code": 0,
   "reason": None,
   "artifact_digests": {},
+}
+
+# Nonpassing runner reports, as `run_triton_tests.run_case` writes them: neither
+# carries a comparison, and neither has an output buffer to compare.
+_COMPILE_FAILURE = {
+  "status": "compile_failure",
+  "exit_code": 1,
+  "reason": "the emitter refused the program",
+}
+
+_RUNTIME_FAILURE = {
+  "status": "runtime_failure",
+  "exit_code": 1,
+  "reason": "worker did not produce actual.bin",
 }
 
 _ENVIRONMENT = {
@@ -728,14 +893,36 @@ _ENVIRONMENT = {
 }
 
 
-def _discovery_record(root, cases, *, supersedes=None):
+def _only_input(record, name):
+  """One named input of the only proposal whose inputs were built."""
+  proposal = next(entry for entry in record["proposals"] if entry["inputs"])
+  return next(case for case in proposal["inputs"] if case["name"] == name)
+
+
+def _signed_zero_cases(*, mismatching):
+  """The four recorded inputs, one of which differs only in a zero's sign."""
+  negative_zero = struct.pack("<I", 0x80000000)
+  return [
+    {
+      "name": name,
+      "expected": _ZERO,
+      "actual": negative_zero if name == mismatching else _ZERO,
+    }
+    for name in tensor_input_proposals.PROPOSAL_NAMES
+  ]
+
+
+def _discovery_record(root, cases, *, supersedes=None, resume=False):
   """Drive the report step over synthetic cases and return its deliverable.
 
   The environment probe is stubbed: it hashes the host's installed packages,
-  which says nothing about the aggregation these cases exercise.
+  which says nothing about the aggregation these cases exercise. With `resume`
+  the case directories exist with their own records but no build record does,
+  so the build step runs first and reuses what it finds: the path an interrupted
+  batch resumes through.
   """
   work = Path(root) / "work"
-  work.mkdir()
+  work.mkdir(parents=True)
   args = _args(work, supersedes=str(supersedes) if supersedes else None)
   discovery.step_freeze(work, args, {})
   manifest = discovery.build_manifest(
@@ -754,6 +941,7 @@ def _discovery_record(root, cases, *, supersedes=None):
       actual=case.get("actual", _ZERO),
       dump=case.get("dump"),
       ir=case.get("ir"),
+      certificate=case.get("certificate", True),
     )
     inputs.append(
       {
@@ -770,29 +958,36 @@ def _discovery_record(root, cases, *, supersedes=None):
       "report": dict(case.get("numeric") or _NUMERIC_PASS),
       "seconds": 1.0,
     }
-  discovery._write_json(
-    work / "proposals.json",
-    {
-      proposal_id: {
-        "configuration_id": entry["id"],
-        "half": entry["half"],
-        "category": entry["category"],
-        "seed": drawn_seed,
-        "region": {},
-        "region_identity": {},
-        "generation": {},
-        "admission": {"status": "admitted"},
-      }
-      for entry in manifest["configurations"]
-      for drawn_seed in entry["seeds"]
-      for proposal_id in (discovery.proposal_id(entry, drawn_seed),)
-    },
-  )
+  records = {
+    proposal_id: {
+      "configuration_id": entry["id"],
+      "half": entry["half"],
+      "category": entry["category"],
+      "seed": drawn_seed,
+      "region": {},
+      "region_identity": {},
+      "generation": {},
+      "admission": {"status": "admitted"},
+    }
+    for entry in manifest["configurations"]
+    for drawn_seed in entry["seeds"]
+    for proposal_id in (discovery.proposal_id(entry, drawn_seed),)
+  }
+  if resume:
+    # Every other proposal is refused so one exporter run covers the batch, and
+    # the interruption left no build record checkpointed.
+    for key, entry in records.items():
+      if key != identifier:
+        entry["admission"] = {"status": "refused", "reason": "outside this test"}
+    args.exporter = str(tensor_region_generation.EXPORTER)
+  discovery._write_json(work / "proposals.json", records)
+  discovery._write_json(work / "run-records.json", runs)
   discovery._write_json(
     work / "build-records.json",
-    {identifier: {"status": "built", "inputs": inputs}},
+    {} if resume else {identifier: {"status": "built", "inputs": inputs}},
   )
-  discovery._write_json(work / "run-records.json", runs)
+  if resume:
+    discovery.step_build(work, args, {})
   with mock.patch.object(
     discovery.probe_triton_env, "collect_environment", return_value=_ENVIRONMENT
   ):
