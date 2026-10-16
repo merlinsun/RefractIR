@@ -9451,8 +9451,8 @@
   "schema": "refractir.tensor-region-family-invariance.v1",
   "unchanged": true
  },
- "interpretation_limit": "the structural reading is not the plan's confirmation criterion; it is recorded so a refusal can be attributed to the matcher's equivalence rather than to an absent candidate",
- "matcher": "observe_pass_dumps(..., rematerialization=True): a confirmed recomputation needs an equivalent surviving producer, a definition the before snapshot did not already hold, a lost consumer, a redirected consumer, and the original still present; a copy whose definition the before snapshot already printed is elimination, which this reading does not name",
+ "interpretation_limit": "the structural reading is not the plan's confirmation criterion; it is recorded so a refusal can be attributed to the matcher's equivalence rather than to an absent candidate, and the confirmation criterion asks only whether a computation was newly introduced, not whether a repeat of an existing one was redundant",
+ "matcher": "observe_pass_dumps(..., rematerialization=True): a confirmed recomputation needs an equivalent surviving producer, a definition the before snapshot did not already hold, a lost consumer, a redirected consumer, and the original still present; a copy that duplicates a definition the before snapshot already printed is outside the confirmation criterion, and this reading does not name it either as elimination or as a redundant repeat, because the record cannot tell the two apart",
  "matcher_boundary_probe": {
   "layout_rematerialization": {
    "confirmed": [

@@ -1987,11 +1987,13 @@ class TensorCompilerLayoutRematerializationTests(unittest.TestCase):
     self.assertEqual(report["status"], "unattributed_only")
 
   def test_a_same_encoding_copy_that_replaces_a_conversion_still_confirms(self):
-    # CORRECTED: this test previously asserted one confirmation here. The copy is
-    # printed exactly as the original was, so the before snapshot already held
-    # that definition; the pass only eliminated the conversion and rewired its
-    # consumer onto a definition the snapshot had. That is elimination, and the
-    # matcher no longer reports it as a recomputation (review finding 1).
+    # CORRECTED: this test previously asserted one confirmation here. The copy
+    # duplicates a computation the before snapshot already held in the same
+    # layout, so it is outside the confirmation criterion, which asks whether a
+    # computation was newly introduced (review finding 1). The record cannot tell
+    # a redundant repeat of that computation from elimination - the pass removed
+    # the conversion and rewired its consumer, and either reading would look the
+    # same here - so it reports neither.
     before = self._snapshot("""\
   %b = tt.broadcast %x : tensor<1x16xf32, #blocked> -> tensor<32x16xf32, #blocked>
   %c = ttg.convert_layout %b : tensor<32x16xf32, #blocked> -> tensor<32x16xf32, #blocked_alt>
