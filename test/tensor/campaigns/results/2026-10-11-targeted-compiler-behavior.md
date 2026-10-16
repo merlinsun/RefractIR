@@ -980,18 +980,49 @@ Not reached, with the reason:
   disassembling executed addresses: a kernel that read a guard value and dropped
   it before the sum would still agree.
 
+### Requalified through the committed routes
+
+The record's primary readings are a qualified re-run of the same three cases
+through the two routes the campaign uses: `test.lib.run_triton_tests` in compiled
+mode for the counted arm, and `test.tensor.gluon.run_generated_region` with the
+case's layout record for the plan arm. The committed runner threads that record
+into its emission calls, stages the recorded allocation, gathers the logical
+output, and records the RefractIR revision, the compiler flags and digest, the
+Triton version and source revision, the package lock, the device, and a per-case
+qualification.
+
+| Case | Counted | Plan | Guard or gap slots changed |
+|---|---|---|---|
+| `identity-strides-offset` | pass, `e523c11e…` | pass, `e523c11e…` | none |
+| `strided-zero-offset` | pass, `e523c11e…` | pass, `e523c11e…` | none |
+| `strided-offset` | pass, `e523c11e…` | pass, `e523c11e…` | none |
+
+Both arms of every case are campaign-qualified, and every reading the qualified
+run shares with the earlier direct-worker run reproduces: the counted kernel
+digests, the emitted plan-kernel digests, the gathered bytes, and the guard and
+gap verdicts. The direct-worker run stays in the record as `direct_worker_run`,
+which is where the dense control arm's refusal lives. The driver is
+`.planning/2026-10-11-targeted-compiler-behavior/physical-strides/drivers/requalify_stride_arms.py`,
+the raw per-case records are under
+`.planning/2026-10-16-review-c84a830/requalified/`, and the report is
+[fix-stride-qualification.md](../../../../.planning/2026-10-16-review-c84a830/fix-stride-qualification.md).
+
+The qualified re-run imported Triton 3.9.0 at `32f06df4…` from
+`/root/triton-latest/python`, used `symirc` `42e951d3…` and `symiri` `4674cc7d…`
+rebuilt in `/host/refractir-requalify-20261016`, and performed no build in
+`/host/refractir-targeted-20261011`.
+
 ### Artifacts
 
 `test/tensor/campaigns/results/track-c-physical-strides-evidence.json` holds the
-three cases, the nine arm runs with their digests, the emitted addressing lines,
-and the digest of every imported `test/lib` module and binary. The drivers, the
-emitted plan and control kernels, and the frozen case records are under
+qualified run's six arm readings with their digests, the emitted addressing
+lines, the digest of every imported `test/lib` module and binary, and, nested
+under `direct_worker_run`, the earlier direct-worker run's three cases and nine
+arm runs. The drivers, the emitted plan and control kernels, and the frozen case
+records are under
 `.planning/2026-10-11-targeted-compiler-behavior/physical-strides/`, with the
-report at [gluon-physical-strides.md](../../../../.planning/2026-10-11-targeted-compiler-behavior/gluon-physical-strides.md).
-The run imported Triton 3.9.0 at `32f06df4…` from `/root/triton-latest/python`,
-used `symiri` `4674cc7d…` and `symirc` `42e951d3…` rebuilt in
-`/host/refractir-strides-20261016`, and performed no build in
-`/host/refractir-targeted-20261011`.
+report at
+[gluon-physical-strides.md](../../../../.planning/2026-10-11-targeted-compiler-behavior/gluon-physical-strides.md).
 
 ## Track C discovery batch: 128 fresh proposals across eight frozen configurations
 
