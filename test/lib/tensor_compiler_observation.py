@@ -1142,9 +1142,11 @@ def _redirected_uses(
   is recognised even after a layout change. That correspondence is necessary and
   never sufficient: `new_work` carries the independent evidence, read off the
   definitions alone, that the copy is a computation this pass introduced. A
-  consumer the pass rewired onto a definition the before snapshot already held
-  was served by an elimination, so it is not counted here however its own
-  definition changed.
+  consumer the pass rewired onto a definition the before snapshot already held is
+  outside the confirmation criterion: the pass eliminated a conversion and reused
+  an existing computation, or duplicated one, and this reading cannot tell the two
+  apart, so neither is counted here however the consumer's own definition
+  changed.
   """
   if not new_work:
     return []
@@ -1272,9 +1274,10 @@ def observe_rematerialization(before_text, after_text, *, source_lines=None):
 
   Requirements (c) and (d) are necessary conditions on the consumer, never a
   substitute for (b): a consumer the pass rewired onto a definition the before
-  snapshot already held was served by an elimination. Removing a conversion and
-  reading a value the snapshot already had is therefore not reported as a
-  recomputation, and the transition stays unconfirmed. The record has no key for
+  snapshot already held is outside the criterion, whether the pass eliminated a
+  conversion and reused an existing computation or duplicated one. Removing a
+  conversion and reading a value the snapshot already had is therefore not
+  reported as a recomputation, and the transition stays unconfirmed. The record has no key for
   elimination; the conversion removal itself is measured per transition by
   `_pass_snapshot_observation` outside this matcher, so this reading is left to
   say "no recomputation" rather than to claim a classification the keys cannot

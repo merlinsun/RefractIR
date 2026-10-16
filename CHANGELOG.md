@@ -156,6 +156,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 - Rematerialization now requires a newly introduced computation, not merely a rewired consumer: a layout-bearing copy counts only when no earlier definition already held that computation in that same layout, so removing a conversion and reusing an existing value reads as elimination rather than as recomputation, and the reviewer's transition returns to its pre-series reading. A pre-existing test that asserted the defective reading is corrected in place with the finding named.
 
+- The correction ledger compares a previous consumer reading with a current one as counts: a previous record that listed consumer names is read as the number it listed, so a record compared with itself reports no corrections instead of one per opportunity, while a genuine change (a count that moved because the scan stopped counting a definition as its own consumer) is still listed with both readings and, where the previous record held names, the names beside the count.
+
 ### Changed
 
 - `rysmith --n-inits` renamed to `--n-concretes`; the old flag no longer parses.

@@ -324,6 +324,24 @@ def arm_record(case_id, build_entry, run_entry=None, case_dir=None, import_root=
   return record
 
 
+def _previous_consumer_count(opportunity):
+  """The consumer reading a previous record holds, in whichever shape it used.
+
+  The count and the list of names are two spellings of the same reading, so the
+  ledger compares counts: a previous record that listed its consumers reports how
+  many it listed. Comparing a list against a count would report a correction for
+  every opportunity the two records share, which is the one reading a correction
+  ledger must never give.
+  """
+  count = opportunity.get("source_consumer_count")
+  if count is not None:
+    return count
+  consumers = opportunity.get("source_consumers")
+  if isinstance(consumers, list):
+    return len(consumers)
+  return consumers
+
+
 def superseded_readings(previous, cases, provenance, matcher_boundary_probe=None):
   """Every value the previous record stated that this regeneration changes.
 
@@ -588,7 +606,7 @@ def _consumer_corrections(case_id, previous_arm, arm):
     }
     for entry in transition.get("opportunities_before") or []:
       old = previous_by_conversion.get(entry.get("conversion"))
-      if old is None or old.get("source_consumers") == entry.get(
+      if old is None or _previous_consumer_count(old) == entry.get(
         "source_consumer_count"
       ):
         continue
@@ -598,7 +616,12 @@ def _consumer_corrections(case_id, previous_arm, arm):
             f"cases[{case_id}].analysis.transitions[{transition.get('index')}]"
             f".opportunities_before[{entry.get('conversion')}].source_consumers"
           ),
-          "previous": old.get("source_consumers"),
+          "previous": _previous_consumer_count(old),
+          "previous_consumers": (
+            old.get("source_consumers")
+            if isinstance(old.get("source_consumers"), list)
+            else None
+          ),
           "corrected": entry.get("source_consumer_count"),
           "reason": (
             "the previous count scanned every SSA name on the line, so a value's "

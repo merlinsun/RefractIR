@@ -414,6 +414,20 @@ def _arm(transitions):
   return {"analysis": {"transitions": transitions}}
 
 
+def _ledger_record(count, consumers):
+  """One case with one transition and one opportunity, in either reading shape."""
+  opportunity = {"conversion": "ttg.convert_layout %c"}
+  if count is not None:
+    opportunity["source_consumer_count"] = count
+  if consumers is not None:
+    opportunity["source_consumers"] = consumers
+  transition = {"index": 0, "pass": "Pass0", "opportunities_before": [opportunity]}
+  return {
+    "cases": {"arm": {"analysis": {"transitions": [transition]}}},
+    "provenance": {},
+  }
+
+
 class TensorRematerializationDriftTests(unittest.TestCase):
   """The drift check compares transition identities, not list positions."""
 
@@ -539,3 +553,68 @@ class TensorRematerializationDriftTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class TensorCorrectionLedgerTests(unittest.TestCase):
+  """The correction ledger compares like with like, or not at all.
+
+  The ledger exists so a regeneration cannot silently rewrite a reading: every
+  value this record changes is listed with the value the previous one held. That
+  promise breaks if the two sides are different kinds of thing - a previous
+  record that listed consumer *names* compared against a current count of
+  consumers reports a correction for every opportunity it touches, even when the
+  record is compared with itself.
+  """
+
+  def test_a_record_compared_with_itself_reports_no_corrections(self):
+    # The whole point of the ledger: nothing changed, so nothing is listed.
+    record = _ledger_record(count=1, consumers=None)
+    corrections = tensor_rematerialization_evidence.superseded_readings(
+      record, record["cases"], record["provenance"]
+    )
+    self.assertEqual(corrections, [])
+
+  def test_a_legacy_consumer_list_is_compared_by_its_count(self):
+    # A previous record that listed the consumers agrees with a current record
+    # that counts them when the counts match; the legacy shape is read as what it
+    # is, a list of that many consumers.
+    previous = _ledger_record(count=None, consumers=["%_sir_x_offsets"])
+    current = _ledger_record(count=1, consumers=None)
+    corrections = tensor_rematerialization_evidence.superseded_readings(
+      previous, current["cases"], current["provenance"]
+    )
+    self.assertEqual(corrections, [])
+
+  def test_a_legacy_consumer_list_of_another_length_is_a_correction(self):
+    # Two names against a count of one is a real change, reported with both
+    # readings so a reader sees what moved.
+    previous = _ledger_record(count=None, consumers=["%a", "%b"])
+    current = _ledger_record(count=1, consumers=None)
+    corrections = tensor_rematerialization_evidence.superseded_readings(
+      previous, current["cases"], current["provenance"]
+    )
+    self.assertEqual(len(corrections), 1)
+    # The comparison is by count, so the reading is a count; the names the
+    # previous record listed are kept beside it rather than thrown away.
+    self.assertEqual(corrections[0]["previous"], 2)
+    self.assertEqual(corrections[0]["previous_consumers"], ["%a", "%b"])
+    self.assertEqual(corrections[0]["corrected"], 1)
+
+  def test_a_count_change_is_a_correction(self):
+    previous = _ledger_record(count=2, consumers=None)
+    current = _ledger_record(count=1, consumers=None)
+    corrections = tensor_rematerialization_evidence.superseded_readings(
+      previous, current["cases"], current["provenance"]
+    )
+    self.assertEqual(len(corrections), 1)
+    self.assertEqual(corrections[0]["previous"], 2)
+    self.assertEqual(corrections[0]["corrected"], 1)
+
+  def test_an_opportunity_neither_side_counted_is_not_a_correction(self):
+    # Neither side carries a reading: unknown on both sides is not a change.
+    previous = _ledger_record(count=None, consumers=None)
+    current = _ledger_record(count=None, consumers=None)
+    corrections = tensor_rematerialization_evidence.superseded_readings(
+      previous, current["cases"], current["provenance"]
+    )
+    self.assertEqual(corrections, [])
