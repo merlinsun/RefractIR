@@ -75,6 +75,22 @@ class FreeFormContractTests(unittest.TestCase):
   def test_selection_scores_bias_without_excluding_actions(self):
     self.run_contract("selection-bounds")
 
+  def test_unguided_can_select_outside_a_biased_rank(self):
+    self.run_contract("policy-unguided-ignores-rank")
+
+  def test_a_depth_bias_changes_the_selected_action(self):
+    self.run_contract("policy-depth-changes-choice")
+
+  def test_a_sharing_bias_selects_a_second_consumer(self):
+    self.run_contract("policy-sharing-selects-a-consumer")
+
+  def test_a_reduction_bias_selects_a_reduction(self):
+    self.run_contract("policy-reduction-selects-a-reduction")
+
+  def test_replay_is_separate_from_the_distribution(self):
+    self.run_contract("replay-vs-distribution")
+
+
 
 @unittest.skipUnless(SYMIRI.is_file(), "native tensor tools unavailable")
 class FreeFormFrontendTests(unittest.TestCase):

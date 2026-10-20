@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -500,6 +501,138 @@ namespace {
     requireInvalid(
         [&] { (void) freeFormSelectWeighted(flat, 3.0); }, "outside the weight total"
     );
+    // Every policy must leave every action with a positive weight, including a
+    // heavily reused value under the balanced policy.
+    for (const auto policy: {FreeFormPolicy::Unguided, FreeFormPolicy::Balanced,
+                             FreeFormPolicy::Deep, FreeFormPolicy::Wide,
+                             FreeFormPolicy::Shared, FreeFormPolicy::ReductionHeavy,
+                             FreeFormPolicy::CrossState}) {
+      for (const auto reused: {0U, 5U}) {
+        for (const auto unused: {0U, 2U}) {
+          for (const auto depth: {0U, 12U}) {
+            FreeFormActionTraits traits;
+            traits.op = TensorOp::Add;
+            traits.depth = depth;
+            traits.reusedConsumers = reused;
+            traits.unusedOperands = unused;
+            traits.inputs = 1;
+            require(
+                freeFormActionWeight(policy, traits) > 0.0,
+                "a policy must never exclude an action by weight"
+            );
+            traits.shapeChange = true;
+            require(
+                freeFormActionWeight(policy, traits) > 0.0,
+                "a shape-changing action must keep a positive weight"
+            );
+          }
+        }
+      }
+    }
+  }
+
+  FreeFormActionTraits candidate(
+      TensorOp op, std::uint32_t depth, std::uint32_t reused, std::uint32_t unused
+  ) {
+    FreeFormActionTraits traits;
+    traits.op = op;
+    traits.depth = depth;
+    traits.reusedConsumers = reused;
+    traits.unusedOperands = unused;
+    traits.inputs = 1;
+    return traits;
+  }
+
+  std::vector<double> weightsFor(FreeFormPolicy policy, const std::vector<FreeFormActionTraits> &traits) {
+    std::vector<double> weights;
+    for (const auto &candidate: traits)
+      weights.push_back(freeFormActionWeight(policy, candidate));
+    return weights;
+  }
+
+  void unguidedIgnoresTheRank() {
+    const std::vector<FreeFormActionTraits> traits{
+        candidate(TensorOp::Add, 6, 0, 0), candidate(TensorOp::Add, 0, 0, 2)
+    };
+    const auto deep = weightsFor(FreeFormPolicy::Deep, traits);
+    require(deep[0] > deep[1], "the depth bias must rank the deep action top");
+    require(
+        freeFormSelectWeighted(weightsFor(FreeFormPolicy::Unguided, traits), 1.5) == 1,
+        "an unguided draw may select the action a biased policy ranks last"
+    );
+    require(
+        freeFormSelectWeighted(deep, 1.5) == 0,
+        "the same draw under the depth bias selects the action it ranks top"
+    );
+  }
+
+  void depthBiasChangesTheChoice() {
+    const std::vector<FreeFormActionTraits> traits{
+        candidate(TensorOp::Add, 6, 0, 0), candidate(TensorOp::Add, 0, 0, 2)
+    };
+    require(
+        freeFormSelectWeighted(weightsFor(FreeFormPolicy::Deep, traits), 1.5) == 0,
+        "the depth bias selects the deep action for this draw"
+    );
+    require(
+        freeFormSelectWeighted(weightsFor(FreeFormPolicy::Wide, traits), 1.5) == 1,
+        "the width bias selects the fresh-operand action for the same draw"
+    );
+  }
+
+  void sharingBiasSelectsASecondConsumer() {
+    const std::vector<FreeFormActionTraits> traits{
+        candidate(TensorOp::Add, 1, 1, 0), candidate(TensorOp::Add, 1, 0, 2)
+    };
+    const auto shared = weightsFor(FreeFormPolicy::Shared, traits);
+    require(shared[0] > shared[1], "the sharing bias must prefer a second consumer");
+    require(
+        freeFormSelectWeighted(weightsFor(FreeFormPolicy::Unguided, traits), 1.5) == 1,
+        "an unguided draw selects the fresh action for this draw"
+    );
+    require(
+        freeFormSelectWeighted(shared, 1.5) == 0,
+        "the sharing bias selects the action that adds a second consumer"
+    );
+  }
+
+  void reductionBiasSelectsAReduction() {
+    const std::vector<FreeFormActionTraits> traits{
+        candidate(TensorOp::Sum, 1, 0, 1), candidate(TensorOp::Add, 1, 0, 1)
+    };
+    require(
+        freeFormSelectWeighted(weightsFor(FreeFormPolicy::ReductionHeavy, traits), 1.5) == 0,
+        "the reduction bias selects the reduction for this draw"
+    );
+    require(
+        freeFormSelectWeighted(weightsFor(FreeFormPolicy::Unguided, traits), 1.5) == 1,
+        "an unguided draw selects the action after the reduction"
+    );
+  }
+
+  void replayIsSeparateFromDistribution() {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {2, 2}, "%x"), zeroState("%acc_y", {2, 2})};
+    request.results = {{"%next_x", type({2, 2})}, {"%next_y", type({2, 2})}};
+    request.policy = FreeFormPolicy::Shared;
+    request.seed = 42;
+    const auto first = buildFreeFormRegion(request);
+    const auto second = buildFreeFormRegion(request);
+    require(
+        render(first.region) == render(second.region) &&
+            sameStructure(first.structure, second.structure),
+        "one seed must replay its body and its record"
+    );
+    std::vector<std::string> bodies;
+    for (std::uint32_t seed = 1; seed <= 12; ++seed) {
+      FreeFormRequest varied = request;
+      varied.seed = seed;
+      bodies.push_back(render(buildFreeFormRegion(varied).region));
+    }
+    require(
+        std::adjacent_find(bodies.begin(), bodies.end(), std::not_equal_to<>()) != bodies.end(),
+        "different seeds must not all produce the same body"
+    );
   }
 
   std::string threeStateSource() {
@@ -539,6 +672,16 @@ int main(int argc, char **argv) {
       policyNames();
     else if (name == "selection-bounds")
       selectionBounds();
+    else if (name == "policy-unguided-ignores-rank")
+      unguidedIgnoresTheRank();
+    else if (name == "policy-depth-changes-choice")
+      depthBiasChangesTheChoice();
+    else if (name == "policy-sharing-selects-a-consumer")
+      sharingBiasSelectsASecondConsumer();
+    else if (name == "policy-reduction-selects-a-reduction")
+      reductionBiasSelectsAReduction();
+    else if (name == "replay-vs-distribution")
+      replayIsSeparateFromDistribution();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;

@@ -512,9 +512,10 @@ namespace refractir::reify {
       case FreeFormPolicy::Unguided:
         return 1.0;
       case FreeFormPolicy::Balanced:
-        // A mild mix: a fresh operand and a shape change carry the score, a
-        // second consumer of one value costs some, so no single motif wins.
-        return 1.0 + unused + shapeChange - 0.5 * reused;
+        // A mild mix: a fresh operand and a shape change carry the score, and
+        // repeated reuse of one value decays towards the flat weight. The
+        // reciprocal keeps every weight positive, so no action is excluded.
+        return 1.0 + unused + shapeChange + 1.0 / (1.0 + reused);
       case FreeFormPolicy::Deep:
         return 1.0 + 3.0 * depth;
       case FreeFormPolicy::Wide:
