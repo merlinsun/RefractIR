@@ -635,6 +635,85 @@ namespace {
     );
   }
 
+  void featuresOffKeepTheCore() {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {2, 2}, "%x"), zeroState("%acc_y", {2, 2})};
+    request.results = {{"%next_x", type({2, 2})}, {"%next_y", type({2, 2})}};
+    request.policy = FreeFormPolicy::Shared;
+    for (std::uint32_t seed = 1; seed <= 12; ++seed) {
+      request.seed = seed;
+      const auto built = buildFreeFormRegion(request);
+      for (const auto &count: built.structure.operatorCounts) {
+        require(
+            count.first != "transpose" && count.first != "expand",
+            "a request without the feature must not build the operation"
+        );
+      }
+    }
+  }
+
+  void featuresEnableTransposeAndExpand() {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {2, 2}, "%x"), state("%acc_y", {2, 2}, "%y")};
+    request.results = {{"%next_x", type({2, 2})}, {"%next_y", type({2, 2})}};
+    request.policy = FreeFormPolicy::Unguided;
+    request.features = FreeFormFeatures{true, true};
+    request.limits.maxRank = 3;
+    bool sawTranspose = false;
+    bool sawExpand = false;
+    for (std::uint32_t seed = 1; seed <= 16; ++seed) {
+      request.seed = seed;
+      const auto built = buildFreeFormRegion(request);
+      for (const auto &count: built.structure.operatorCounts) {
+        sawTranspose = sawTranspose || count.first == "transpose";
+        sawExpand = sawExpand || count.first == "expand";
+      }
+    }
+    require(sawTranspose, "a transposable value must be selected at some seed");
+    require(sawExpand, "an expandable value must be selected at some seed");
+  }
+
+  void featuresRespectTheRankLimit() {
+    FreeFormRequest request;
+    request.inputs = {state("%only", {2}, "%x")};
+    request.results = {{"%next", type({2})}};
+    request.features = FreeFormFeatures{true, true};
+    request.limits.maxRank = 1;
+    for (std::uint32_t seed = 1; seed <= 12; ++seed) {
+      request.seed = seed;
+      const auto built = buildFreeFormRegion(request);
+      for (const auto &count: built.structure.operatorCounts) {
+        require(
+            count.first != "transpose" && count.first != "expand",
+            "the rank limit must refuse an operation that raises the rank"
+        );
+      }
+    }
+  }
+
+  void featuresReplayExactly() {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {2, 2}, "%x"), zeroState("%acc_y", {2, 2})};
+    request.results = {{"%next_x", type({2, 2})}, {"%next_y", type({2, 2})}};
+    request.policy = FreeFormPolicy::Wide;
+    request.features = FreeFormFeatures{true, true};
+    request.seed = 21;
+    const auto first = buildFreeFormRegion(request);
+    const auto second = buildFreeFormRegion(request);
+    require(
+        render(first.region) == render(second.region),
+        "the same seed and features must build the same body"
+    );
+    require(
+        sameStructure(first.structure, second.structure),
+        "the same seed and features must record the same structure"
+    );
+    require(
+        first.structure.shapeChanges >= 1,
+        "a transpose or expand that changes the shape must be counted"
+    );
+  }
+
   std::string threeStateSource() {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
@@ -682,6 +761,14 @@ int main(int argc, char **argv) {
       reductionBiasSelectsAReduction();
     else if (name == "replay-vs-distribution")
       replayIsSeparateFromDistribution();
+    else if (name == "features-off-keep-the-core")
+      featuresOffKeepTheCore();
+    else if (name == "features-enable-transpose-and-expand")
+      featuresEnableTransposeAndExpand();
+    else if (name == "features-respect-the-rank-limit")
+      featuresRespectTheRankLimit();
+    else if (name == "features-replay-exactly")
+      featuresReplayExactly();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;

@@ -62,6 +62,8 @@ namespace {
     std::uint32_t stateCount = 2;
     std::uint32_t maxNodes = 12;
     std::uint32_t numWarps = 4;
+    FreeFormFeatures features;
+    std::uint32_t maxRank = 2;
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
     std::uint32_t returnState = 0;
@@ -111,6 +113,26 @@ namespace {
         options.stateCount = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--max-nodes") {
         options.maxNodes = static_cast<std::uint32_t>(std::stoul(value()));
+      } else if (flag == "--max-rank") {
+        options.maxRank = static_cast<std::uint32_t>(std::stoul(value()));
+      } else if (flag == "--features") {
+        const std::string text = value();
+        if (text.empty() || text == "none")
+          continue;
+        std::size_t begin = 0;
+        while (begin <= text.size()) {
+          const auto end = text.find(',', begin);
+          const std::string item = text.substr(begin, end == std::string::npos ? end : end - begin);
+          if (item == "transpose")
+            options.features.transpose = true;
+          else if (item == "expand")
+            options.features.expand = true;
+          else
+            throw std::invalid_argument("unknown free-form feature: " + item);
+          if (end == std::string::npos)
+            break;
+          begin = end + 1;
+        }
       } else if (flag == "--num-warps") {
         options.numWarps = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--return") {
@@ -133,6 +155,8 @@ namespace {
     }
     if (options.output.empty())
       throw std::invalid_argument("free-form export needs --out");
+    if (options.maxRank == 0 || options.maxRank > 3)
+      throw std::invalid_argument("free-form export max rank must be in [1, 3]");
     if (options.stateCount < 2 || options.stateCount > 4)
       throw std::invalid_argument("free-form export admits two to four states");
     if (options.tripCount == 0 || options.tripCount > 64)
@@ -229,8 +253,10 @@ namespace {
     request.inputs = inputs;
     request.results = results;
     request.policy = options.policy;
+    request.features = options.features;
     request.seed = options.seed;
     request.limits.maxNodes = options.maxNodes;
+    request.limits.maxRank = options.maxRank;
     const auto built = buildFreeFormRegion(request);
 
     FreeFormLoop loop;
@@ -268,7 +294,11 @@ namespace {
            << ",\"seed\":" << options.seed << ",\"shape\":" << shapeJson(options.shape)
            << ",\"trip_count\":" << options.tripCount << ",\"state_count\":"
            << options.stateCount << ",\"max_nodes\":" << options.maxNodes
+           << ",\"max_rank\":" << options.maxRank
            << ",\"num_warps\":" << options.numWarps << ",\"route\":\"target-only\","
+           << "\"features\":{\"transpose\":"
+           << (options.features.transpose ? "true" : "false")
+           << ",\"expand\":" << (options.features.expand ? "true" : "false") << "},"
            << "\"canonical\":{"
            << "\"accepted\":" << (canonical.source.empty() ? "false" : "true")
            << ",\"refusal\":" << jsonString(canonical.refusal) << "},\"parameters\":[";

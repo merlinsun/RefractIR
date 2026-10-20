@@ -90,6 +90,18 @@ class FreeFormContractTests(unittest.TestCase):
   def test_replay_is_separate_from_the_distribution(self):
     self.run_contract("replay-vs-distribution")
 
+  def test_features_stay_off_unless_the_request_enables_them(self):
+    self.run_contract("features-off-keep-the-core")
+
+  def test_enabled_features_appear_in_generated_bodies(self):
+    self.run_contract("features-enable-transpose-and-expand")
+
+  def test_features_respect_the_rank_limit(self):
+    self.run_contract("features-respect-the-rank-limit")
+
+  def test_a_feature_request_replays_exactly(self):
+    self.run_contract("features-replay-exactly")
+
 
 
 @unittest.skipUnless(SYMIRI.is_file(), "native tensor tools unavailable")
@@ -171,6 +183,64 @@ class FreeFormExportTests(unittest.TestCase):
       self.assertNotIn("program_sha256", record, "the bundle writer computes the digests")
       checked = check_source(source, tensor_profile="v2")
       self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+
+  def test_a_feature_request_records_its_features(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "wide", "--seed", "3", "--shape", "2,2", "--max-rank", "3",
+        "--features", "transpose,expand", "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["features"], {"transpose": True, "expand": True})
+      self.assertEqual(record["max_rank"], 3)
+      checked = check_source(
+        (Path(directory) / "program.sir").read_text(encoding="utf-8"),
+        tensor_profile="v2",
+      )
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_features_are_off_unless_asked_for(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "unguided", "--seed", "7", "--shape", "2,2", "--out", directory
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["features"], {"transpose": False, "expand": False})
+      self.assertNotIn("tensor transpose", (Path(directory) / "program.sir").read_text(encoding="utf-8"))
+      self.assertNotIn("tensor expand", (Path(directory) / "program.sir").read_text(encoding="utf-8"))
+
+  def test_a_feature_body_uses_the_operation_it_was_given(self):
+    seen = {"transpose": False, "expand": False}
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        if all(seen.values()):
+          break
+        output = Path(directory) / f"seed-{seed}"
+        result = self.export(
+          "--policy", "unguided", "--seed", str(seed), "--shape", "2,2",
+          "--max-rank", "3", "--features", "transpose,expand", "--out", str(output),
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+        source = (output / "program.sir").read_text(encoding="utf-8")
+        for operation in ("transpose", "expand"):
+          if operation in record["structure"]["operator_counts"]:
+            self.assertIn(f"tensor {operation} ", source)
+            seen[operation] = True
+      self.assertTrue(seen["transpose"], "a transposable body must appear within 20 seeds")
+      self.assertTrue(seen["expand"], "an expandable body must appear within 20 seeds")
+
+  def test_an_unsupported_feature_is_refused(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export("--features", "rotate", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("unknown free-form feature", result.stderr)
+      result = self.export("--max-rank", "4", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("max rank", result.stderr)
 
   def test_exporter_refuses_an_impossible_configuration(self):
     with tempfile.TemporaryDirectory() as directory:

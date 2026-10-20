@@ -60,6 +60,14 @@ namespace refractir::reify {
     TensorTypeInfo type;
   };
 
+  /// Operations beyond the additive, reduction, and broadcast core. Both are
+  /// off by default: the frozen corpus was built without them, and enabling a
+  /// feature changes which action a seed selects.
+  struct FreeFormFeatures {
+    bool transpose = false;
+    bool expand = false;
+  };
+
   /// Bounds the builder honours. `maxNodes` counts emitted tensor operations;
   /// `maxAttempts` bounds how many seeds one request may try before refusing.
   struct FreeFormLimits {
@@ -77,6 +85,7 @@ namespace refractir::reify {
     std::vector<FreeFormInput> inputs;
     std::vector<FreeFormResult> results;
     FreeFormPolicy policy = FreeFormPolicy::Unguided;
+    FreeFormFeatures features;
     FreeFormLimits limits;
     std::uint32_t seed = 0;
   };

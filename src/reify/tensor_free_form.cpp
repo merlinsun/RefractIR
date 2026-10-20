@@ -116,6 +116,30 @@ namespace refractir::reify {
       return key.str();
     }
 
+    /// The bounded set of permutations one value of this rank offers. Rank two
+    /// has one, rank three the five non-identity permutations, and a deeper
+    /// value only the reversal, so the action list stays small.
+    std::vector<Shape> transposePermutations(std::size_t rank) {
+      std::vector<Shape> permutations;
+      if (rank < 2)
+        return permutations;
+      if (rank == 2) {
+        permutations.push_back(Shape{1, 0});
+      } else if (rank == 3) {
+        permutations.push_back(Shape{1, 0, 2});
+        permutations.push_back(Shape{0, 2, 1});
+        permutations.push_back(Shape{2, 1, 0});
+        permutations.push_back(Shape{2, 0, 1});
+        permutations.push_back(Shape{1, 2, 0});
+      } else {
+        Shape reversed(rank);
+        for (std::size_t axis = 0; axis < rank; ++axis)
+          reversed[axis] = static_cast<std::uint32_t>(rank - 1 - axis);
+        permutations.push_back(std::move(reversed));
+      }
+      return permutations;
+    }
+
     struct PoolValue {
       std::string name;
       TensorTypeInfo type;
@@ -159,8 +183,9 @@ namespace refractir::reify {
     class Growth {
     public:
       Growth(const FreeFormRequest &request, std::uint32_t growthNodes) :
-          limits_(request.limits), element_(request.inputs.front().value.type.element),
-          growthNodes_(growthNodes), random_(splitMix64(request.seed ^ 0x667265652d666f72ULL)) {
+          limits_(request.limits), features_(request.features),
+          element_(request.inputs.front().value.type.element), growthNodes_(growthNodes),
+          random_(splitMix64(request.seed ^ 0x667265652d666f72ULL)) {
         for (std::size_t index = 0; index < request.inputs.size(); ++index) {
           PoolValue value;
           value.name = request.inputs[index].value.name;
@@ -182,8 +207,17 @@ namespace refractir::reify {
             break;
           std::vector<double> weights;
           weights.reserve(actions.size());
-          for (const auto &action: actions)
-            weights.push_back(freeFormActionWeight(policy_, action.traits));
+          for (const auto &action: actions) {
+            double weight = freeFormActionWeight(policy_, action.traits);
+            // An enabled feature is an experimental choice rather than a
+            // policy trait, so its actions carry a fixed multiplier. Without
+            // it a seeded body would rarely reach the operation the request
+            // asked to exercise.
+            if ((action.op == TensorOp::Transpose && features_.transpose) ||
+                (action.op == TensorOp::Expand && features_.expand))
+              weight *= 3.0;
+            weights.push_back(weight);
+          }
           const auto draw =
               (static_cast<double>(random_()) + 0.5) / 4294967296.0 * totalWeight(weights);
           apply(actions[freeFormSelectWeighted(weights, draw)]);
@@ -287,7 +321,9 @@ namespace refractir::reify {
           // A sum or a broadcast is the only action that changes its operand's
           // shape; a binary action's result is the broadcast of both operands.
           traits.shapeChange =
-              (isReduction(op) || op == TensorOp::Broadcast) && type.shape != left.type.shape;
+              (isReduction(op) || op == TensorOp::Broadcast || op == TensorOp::Transpose ||
+               op == TensorOp::Expand) &&
+              type.shape != left.type.shape;
           return traits;
         };
 
@@ -361,6 +397,49 @@ namespace refractir::reify {
           }
         }
 
+        if (features_.transpose) {
+          for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
+            const auto &value = pool_[static_cast<std::size_t>(index)];
+            const auto rank = value.type.shape.size();
+            for (const auto &permutation: transposePermutations(rank)) {
+              Shape shape(rank);
+              for (std::size_t axis = 0; axis < rank; ++axis)
+                shape[axis] = value.type.shape[permutation[axis]];
+              if (!withinLimits(shape, limits_))
+                continue;
+              Action action{};
+              action.op = TensorOp::Transpose;
+              action.lhs = index;
+              action.attribute = permutation;
+              action.type = TensorTypeInfo{shape, element};
+              action.traits = traitsOf(TensorOp::Transpose, index, -1, action.type);
+              push(action);
+            }
+          }
+        }
+
+        if (features_.expand) {
+          for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
+            const auto &value = pool_[static_cast<std::size_t>(index)];
+            const auto rank = value.type.shape.size();
+            if (rank == 0 || rank + 1 > limits_.maxRank)
+              continue;
+            for (std::size_t axis = 0; axis <= rank; ++axis) {
+              Shape shape = value.type.shape;
+              shape.insert(shape.begin() + static_cast<std::ptrdiff_t>(axis), 1);
+              if (!withinLimits(shape, limits_))
+                continue;
+              Action action{};
+              action.op = TensorOp::Expand;
+              action.lhs = index;
+              action.axis = static_cast<std::int64_t>(axis);
+              action.type = TensorTypeInfo{shape, element};
+              action.traits = traitsOf(TensorOp::Expand, index, -1, action.type);
+              push(action);
+            }
+          }
+        }
+
         for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
           const auto &value = pool_[static_cast<std::size_t>(index)];
           std::vector<Shape> targets;
@@ -408,6 +487,7 @@ namespace refractir::reify {
       }
 
       FreeFormLimits limits_;
+      FreeFormFeatures features_;
       TensorElement element_ = TensorElement::I32;
       std::uint32_t growthNodes_ = 0;
       FreeFormPolicy policy_ = FreeFormPolicy::Unguided;
@@ -621,7 +701,8 @@ namespace refractir::reify {
         const auto op = graph.nodeOps[node];
         if (isReduction(op))
           ++reductions;
-        if ((isReduction(op) || op == TensorOp::Broadcast) &&
+        if ((isReduction(op) || op == TensorOp::Broadcast || op == TensorOp::Transpose ||
+             op == TensorOp::Expand) &&
             !graph.nodeOperands[node].empty() &&
             graph.valueTypes[value].shape !=
                 graph.valueTypes[static_cast<std::size_t>(graph.nodeOperands[node].front())].shape)
