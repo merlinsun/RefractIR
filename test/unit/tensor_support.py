@@ -120,12 +120,16 @@ def run_typed(
     return result, output
 
 
-def describe_entry(source, entry="kernel", compiler=SYMIRI):
+def describe_entry(source, entry="kernel", compiler=SYMIRI, tensor_profile=None):
   with tempfile.TemporaryDirectory() as directory:
     source_path = Path(directory) / "case.sir"
     source_path.write_text(source, encoding="utf-8")
+    command = [str(compiler), "--entry", entry, "--tensor-describe"]
+    if tensor_profile is not None:
+      command.extend(["--tensor-profile-version", tensor_profile])
+    command.append(str(source_path))
     result = subprocess.run(
-      [str(compiler), "--entry", entry, "--tensor-describe", str(source_path)],
+      command,
       capture_output=True,
       text=True,
       check=False,
