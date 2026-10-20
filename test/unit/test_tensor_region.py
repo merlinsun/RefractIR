@@ -59,6 +59,15 @@ class TensorRegionTests(unittest.TestCase):
   def test_snapshot_names_skip_enclosing_function_locals(self):
     self.run_contract("snapshot-reserved-name")
 
+  def test_transpose_permutes_and_expand_inserts_an_axis(self):
+    self.run_contract("transpose-and-expand")
+
+  def test_three_axis_permutations_and_trailing_expand(self):
+    self.run_contract("rank-three-transpose")
+
+  def test_invalid_permutations_and_expand_axes_are_rejected(self):
+    self.run_contract("invalid-transpose-and-expand")
+
 
 if __name__ == "__main__":
   unittest.main()

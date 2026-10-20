@@ -29,6 +29,20 @@ namespace {
     throw std::runtime_error("expected an invalid tensor region to be rejected");
   }
 
+  template<typename Action>
+  void requireInvalidNamed(Action action, const std::string &needle) {
+    try {
+      action();
+    } catch (const std::invalid_argument &error) {
+      require(
+          std::string(error.what()).find(needle) != std::string::npos,
+          "refusal did not name '" + needle + "': " + error.what()
+      );
+      return;
+    }
+    throw std::runtime_error("expected an invalid tensor region to be rejected");
+  }
+
   void multiResults() {
     TensorRegion region({{"%a", type({2, 2})}, {"%b", type({2, 2})}});
     region.add("%v", TensorOp::Add, {"%a", "%b"});
@@ -225,6 +239,85 @@ namespace {
     );
   }
 
+  void transposeAndExpand() {
+    TensorRegion region({{"%a", type({2, 3})}});
+    region.add("%t", TensorOp::Transpose, {"%a"}, 0, false, {1, 0});
+    region.add("%e", TensorOp::Expand, {"%a"}, 1, false, {});
+    region.add("%t2", TensorOp::Broadcast, {"%t"}, 0, false, {2, 3, 2});
+    region.setResults({"%t2", "%e"});
+    require(region.typeOf("%t").shape == Shape({3, 2}), "transpose must permute the shape");
+    require(
+        region.typeOf("%e").shape == Shape({2, 1, 3}),
+        "expand must insert a singleton axis at the stated position"
+    );
+    const auto instructions = region.renderInstructions();
+    require(instructions.size() == 3, "every live operation must be emitted");
+    require(
+        instructions[0] == "  %t = tensor transpose %a, [1, 0];",
+        "transpose must render its permutation: " + instructions[0]
+    );
+    require(
+        instructions[1] == "  %e = tensor expand %a, 1;",
+        "expand must render its axis: " + instructions[1]
+    );
+    require(
+        region.typeOf("%t2").shape == Shape({2, 3, 2}),
+        "a broadcast may consume a transposed value"
+    );
+  }
+
+  void rankThreeTranspose() {
+    TensorRegion region({{"%a", type({2, 3, 4})}});
+    region.add("%p", TensorOp::Transpose, {"%a"}, 0, false, {2, 0, 1});
+    region.add("%rev", TensorOp::Transpose, {"%a"}, 0, false, {2, 1, 0});
+    region.add("%last", TensorOp::Expand, {"%a"}, 3, false, {});
+    region.setResults({"%p", "%rev", "%last"});
+    require(region.typeOf("%p").shape == Shape({4, 2, 3}), "a three-axis permutation must apply");
+    require(region.typeOf("%rev").shape == Shape({4, 3, 2}), "a reversed permutation must apply");
+    require(
+        region.typeOf("%last").shape == Shape({2, 3, 4, 1}),
+        "expanding at the rank must append a singleton axis"
+    );
+  }
+
+  void invalidTransposeAndExpand() {
+    requireInvalidNamed(
+        [] {
+          TensorRegion region({{"%a", type({2, 3})}});
+          region.add("%t", TensorOp::Transpose, {"%a"}, 0, false, {1});
+        },
+        "permutation rank"
+    );
+    requireInvalidNamed(
+        [] {
+          TensorRegion region({{"%a", type({2, 3})}});
+          region.add("%t", TensorOp::Transpose, {"%a"}, 0, false, {0, 0});
+        },
+        "permutation"
+    );
+    requireInvalidNamed(
+        [] {
+          TensorRegion region({{"%a", type({2, 3})}});
+          region.add("%t", TensorOp::Transpose, {"%a"}, 0, false, {2, 0});
+        },
+        "permutation"
+    );
+    requireInvalidNamed(
+        [] {
+          TensorRegion region({{"%a", type({2, 3})}});
+          region.add("%e", TensorOp::Expand, {"%a"}, 3, false, {});
+        },
+        "expand axis"
+    );
+    requireInvalidNamed(
+        [] {
+          TensorRegion region({{"%a", type({2, 3})}});
+          region.add("%e", TensorOp::Expand, {"%a"}, 0, false, {2, 3, 4});
+        },
+        "expand"
+    );
+  }
+
   std::string renderSwapSource() {
     TensorRegion region({{"%a", type({2})}, {"%b", type({2})}});
     region.setResults({"%b", "%a"});
@@ -292,6 +385,12 @@ int main(int argc, char **argv) {
       repeatedPassThroughSourcesKeepTheirOldValue();
     else if (name == "snapshot-reserved-name")
       snapshotNamesAvoidReservedFunctionLocals();
+    else if (name == "transpose-and-expand")
+      transposeAndExpand();
+    else if (name == "rank-three-transpose")
+      rankThreeTranspose();
+    else if (name == "invalid-transpose-and-expand")
+      invalidTransposeAndExpand();
     else if (name == "render-swap-source") {
       std::cout << renderSwapSource();
       return 0;

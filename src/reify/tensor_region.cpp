@@ -91,8 +91,12 @@ namespace refractir::reify {
     const bool binary = op == TensorOp::Add || op == TensorOp::Sub || op == TensorOp::Mul;
     const bool reduction = op == TensorOp::Sum;
     const bool broadcast = op == TensorOp::Broadcast;
-    if (!binary && !reduction && !broadcast)
-      throw std::invalid_argument("tensor region supports add, sub, mul, sum and broadcast");
+    const bool transpose = op == TensorOp::Transpose;
+    const bool expand = op == TensorOp::Expand;
+    if (!binary && !reduction && !broadcast && !transpose && !expand)
+      throw std::invalid_argument(
+          "tensor region supports add, sub, mul, sum, broadcast, transpose and expand"
+      );
     const std::size_t expectedOperands = binary ? 2 : 1;
     if (operandNames.size() != expectedOperands)
       throw std::invalid_argument("tensor region operation has the wrong operand count");
@@ -123,6 +127,37 @@ namespace refractir::reify {
         resultType.shape[static_cast<std::size_t>(axis)] = 1;
       else
         resultType.shape.erase(resultType.shape.begin() + axis);
+    } else if (transpose) {
+      if (attribute.size() != firstType.shape.size())
+        throw std::invalid_argument("tensor region transpose needs a permutation rank match");
+      std::vector<char> seen(firstType.shape.size(), 0);
+      Shape output(firstType.shape.size());
+      for (std::size_t index = 0; index < attribute.size(); ++index) {
+        const auto sourceAxis = attribute[index];
+        if (sourceAxis >= firstType.shape.size() || seen[sourceAxis])
+          throw std::invalid_argument(
+              "tensor region transpose axes must form a permutation"
+          );
+        seen[sourceAxis] = 1;
+        output[index] = firstType.shape[sourceAxis];
+      }
+      if (keepDims)
+        throw std::invalid_argument("tensor region transpose does not keep dimensions");
+      resultType.shape = std::move(output);
+    } else if (expand) {
+      if (!attribute.empty())
+        throw std::invalid_argument("tensor region expand does not accept a shape attribute");
+      const auto outputRank = static_cast<std::int64_t>(firstType.shape.size()) + 1;
+      if (axis < -outputRank || axis >= outputRank)
+        throw std::invalid_argument("tensor region expand axis is outside the output rank");
+      if (axis < 0)
+        axis += outputRank;
+      if (keepDims)
+        throw std::invalid_argument("tensor region expand does not keep dimensions");
+      resultType.shape = firstType.shape;
+      resultType.shape.insert(
+          resultType.shape.begin() + static_cast<std::ptrdiff_t>(axis), 1
+      );
     } else {
       if (attribute.empty() ||
           std::any_of(attribute.begin(), attribute.end(), [](std::uint32_t size) {
@@ -169,6 +204,10 @@ namespace refractir::reify {
       out << ", " << values_[static_cast<std::size_t>(node.operands[1])].name;
     } else if (node.op == TensorOp::Sum) {
       out << ", " << node.axis << ", " << (node.keepDims ? "keep" : "drop");
+    } else if (node.op == TensorOp::Transpose) {
+      out << ", " << shapeText(node.attribute);
+    } else if (node.op == TensorOp::Expand) {
+      out << ", " << node.axis;
     } else {
       out << ", " << shapeText(node.attribute);
     }
