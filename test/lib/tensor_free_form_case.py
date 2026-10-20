@@ -1,0 +1,119 @@
+"""Turn one exported free-form region into a target-only bundle.
+
+The C++ exporter states the SIR and the region record; this module states the
+bundle around them: dense physical layouts, the guard envelope, and the input
+bytes the record's parameters describe. Nothing here reads a certificate or an
+expected output, so a body the canonical grammar cannot express still becomes a
+bundle.
+"""
+
+from test.lib import tensor_free_form_inputs, tensor_target_case
+
+DEFAULT_ENVELOPE = {"prefix": 1, "suffix": 1}
+GAP_SENTINEL = {"f32": "3f000001", "i32": "55555555"}
+OUTPUT_CANARY = {"f32": "3f000002", "i32": "aaaaaaaa"}
+PADDING = {"f32": "3f000003", "i32": "55555556"}
+
+
+def element_count(shape):
+  count = 1
+  for extent in shape:
+    count *= extent
+  return count
+
+
+def dense_layout(shape):
+  """The row-major layout of one dense tensor, with axes fastest first."""
+  if not shape or any(type(extent) is not int or extent <= 0 for extent in shape):
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_LAYOUT, f"a dense layout needs a positive shape, got {shape!r}"
+    )
+  strides = [1] * len(shape)
+  for axis in range(len(shape) - 2, -1, -1):
+    strides[axis] = strides[axis + 1] * shape[axis + 1]
+  return {
+    "shape": list(shape),
+    "element_strides": strides,
+    "element_offset": 0,
+    "storage_span": element_count(shape),
+    "axis_order": sorted(range(len(shape)), key=lambda axis: (strides[axis], axis)),
+  }
+
+
+def execution_record(*, num_warps, envelope=None):
+  """The staging record the shared worker reads for one bundle."""
+  guards = dict(DEFAULT_ENVELOPE if envelope is None else envelope)
+  return {
+    "guard_envelope": guards,
+    "gap_sentinel_by_dtype": dict(GAP_SENTINEL),
+    "output_canary_by_dtype": dict(OUTPUT_CANARY),
+    "padding_by_dtype": dict(PADDING),
+    "warp_probe": {"status": "not_probed", "num_warps": num_warps},
+  }
+
+
+def input_records(region, proposal):
+  """One record per runtime parameter, each carrying its own bytes.
+
+  `proposal` packs the parameters in the order the region record lists them,
+  so each record takes the next element-count slice. A mismatch between the
+  proposal and the record is refused rather than padded.
+  """
+  parameters = tensor_free_form_inputs.parameters(region)
+  if tuple(proposal.names) != tuple(parameter["name"] for parameter in parameters):
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_CASE,
+      "the proposal does not name the region's runtime parameters",
+    )
+  records = []
+  offset = 0
+  for parameter in parameters:
+    length = element_count(parameter["shape"]) * 4
+    data = proposal.data[offset : offset + length]
+    if len(data) != length:
+      raise tensor_target_case.TargetCaseError(
+        tensor_target_case.INVALID_CASE,
+        f"the proposal is shorter than parameter {parameter['name']} needs",
+      )
+    records.append(
+      {
+        "name": parameter["name"],
+        "dtype": parameter["dtype"],
+        **dense_layout(parameter["shape"]),
+        "data": data,
+      }
+    )
+    offset += length
+  if offset != len(proposal.data):
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_CASE,
+      "the proposal carries bytes the region's parameters do not describe",
+    )
+  return records
+
+
+def build_bundle(bundle_dir, *, region, source, proposal, envelope=None):
+  """Write the bundle for one region record and return the loaded case."""
+  num_warps = region.get("num_warps")
+  if type(num_warps) is not int or num_warps <= 0:
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_CASE, "the region record must state num_warps"
+    )
+  output = {
+    "name": "return",
+    "dtype": region["dtype"],
+    **dense_layout(region["shape"]),
+  }
+  return tensor_target_case.write(
+    bundle_dir,
+    source=source,
+    inputs=input_records(region, proposal),
+    output=output,
+    launch={
+      "num_warps": num_warps,
+      "num_stages": 1,
+      "enable_fp_fusion": False,
+    },
+    execution=execution_record(num_warps=num_warps, envelope=envelope),
+    profile=region["profile"],
+  )

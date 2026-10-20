@@ -291,7 +291,8 @@ test-tensor-free-form: $(TARGET_INTERP) $(TENSOR_FREE_FORM_API) $(TENSOR_FREE_FO
 	  REFRACTIR_TENSOR_FREE_FORM_EXPORT=$(TENSOR_FREE_FORM_EXPORT) \
 	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
 	  $(PY) -m unittest test.unit.test_tensor_free_form \
-	    test.unit.test_tensor_free_form_inputs
+	    test.unit.test_tensor_free_form_inputs test.unit.test_tensor_free_form_case \
+	    test.unit.test_tensor_target_case test.unit.test_tensor_target_run
 
 TENSOR_GRAPH_REGION_API = $(BIN_DIR)/tensor_graph_region_api
 TENSOR_GRAPH_REGION_EXPORT = $(BIN_DIR)/tensor_graph_region_export
@@ -564,7 +565,7 @@ test-tensor-emit: $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 test-tensor-runner: $(TARGET_INTERP) $(TARGET_COMPILER)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  $(PY) -m unittest test.unit.test_tensor_runner \
-	    test.unit.test_triton_worker_timing
+	    test.unit.test_tensor_execution test.unit.test_triton_worker_timing
 
 test-tensor-build:
 	REFRACTIR_TEST_SOLVER='$(SOLVER)' $(PY) -m unittest test.unit.test_tensor_build
