@@ -18,8 +18,9 @@ trips, seed 9, additive arithmetic, and input domain `[0, 8]`. This driver:
    passes from the archived IR and the pass dump.
 
 Nothing here relaxes a comparator, widens a domain, or supplies a witness: a
-proposal the exact reference refuses is recorded as a refusal and falls back to
-the interpreter replay the plan names.
+proposal the exact certificate admits compares its complete output bit for bit,
+and one the certificate refuses keeps the interpreter replay as a labelled
+numerical fallback.
 """
 
 from __future__ import annotations
@@ -255,10 +256,12 @@ def _proposal_manifest(
   proposal,
   input_bytes,
   expected,
+  proof,
   certificate,
   counted_manifest,
   provenance,
 ):
+  exact = proof is not None
   shape = list(tensor_exact_f32._generated_region_program(source)[0])
   files = {
     name: (Path(certificate["directory"]) / name).read_bytes() for name in CASE_FILES
@@ -294,28 +297,32 @@ def _proposal_manifest(
       ),
     },
     "evidence": {
-      "kind": "numerical_reference",
-      "status": "numerical_reference_checked",
+      "kind": "construction" if exact else "numerical_reference",
+      "status": "construction_checked" if exact else "numerical_reference_checked",
       "artifacts": sorted(files),
     },
-    # The exact comparator needs solver selection evidence whose model is the
-    # runtime input, and a proposal is chosen by a rule rather than by the
-    # solver. The reference is therefore the certificate's own bytes, compared
-    # with zero tolerance here and checked word-for-word in the driver.
-    "comparison": {"mode": "numeric", "atol": [0, 1], "rtol": [0, 1]},
+    # An exact case compares the complete output bit for bit, which is what the
+    # certificate proves. A refused certificate leaves the reference a numeric
+    # replay and is counted separately from the exact cases.
+    "comparison": {
+      "mode": "exact" if exact else "numeric",
+      "atol": [0, 1],
+      "rtol": [0, 1],
+    },
     "reference": {
       "defined": True,
       "stable": True,
-      "precisions": list(REFERENCE_PRECISIONS),
-      "exactness": None,
-      "source": certificate["reference_kind"],
+      "precisions": [] if exact else list(REFERENCE_PRECISIONS),
+      "exactness": proof if exact else None,
+      "kind": certificate["reference_kind"],
       "note": (
-        "Expected bytes are the exact f32 certificate's complete output where "
-        "the reference admits the proposal, otherwise a native RefractIR replay; "
-        "the replays at both reference precisions have to reproduce the expected "
-        "bytes for the case to be admitted. An exact comparator would need "
-        "solver-selection evidence for this input, which a rule-chosen proposal "
-        "cannot have."
+        "Expected bytes are the exact f32 certificate's complete output, and the "
+        "certificate is the whole-output proof the loader revalidates against the "
+        "source, the runtime input bytes, the expected bytes, and the domain."
+        if exact
+        else "The exact f32 certificate refused this proposal, so the expected "
+        "bytes are a native RefractIR replay at both reference precisions. This "
+        "case is a numerical fallback and is not counted as exact."
       ),
     },
     "execution": dict(counted_manifest["execution"]),
@@ -465,9 +472,10 @@ def build_proposal_case(
     "replays": certificate["replays"],
     "replay_matches_certificate": proof is not None,
     "why_not_exact_comparator": (
-      "an exact comparator requires the case loader's solver-selection evidence, "
-      "whose model must equal the runtime input bytes; this proposal is chosen by "
-      "a rule, so its reference is compared with zero tolerance instead"
+      None
+      if proof is not None
+      else "the exact certificate refused this proposal: "
+      + str(certificate.get("refusal_reason"))
     ),
   }
   # The certificate is written once, before the manifest digests it: the loader
@@ -479,6 +487,7 @@ def build_proposal_case(
     proposal=proposal,
     input_bytes=input_bytes,
     expected=expected,
+    proof=proof,
     certificate=certificate,
     counted_manifest=counted_manifest,
     provenance=provenance,
@@ -498,6 +507,7 @@ def build_proposal_case(
       "certificate": certificate["record"],
       "admission": certificate["admission"],
       "reference_kind": certificate["reference_kind"],
+      "comparison_mode": manifest["comparison"]["mode"],
       "expected_sha256": certificate["expected_sha256"],
       "input_bytes_sha256": hashlib.sha256(input_bytes).hexdigest(),
       "input_bytes": len(input_bytes),
@@ -574,6 +584,7 @@ def step_build(work, args, state):
             "directory": str(directory),
             "admission": proposal_record["admission"],
             "reference_kind": proposal_record["reference_kind"],
+            "comparison_mode": proposal_record.get("comparison_mode"),
             "expected_sha256": proposal_record["expected_sha256"],
             "input_bytes_sha256": proposal_record["input_bytes_sha256"],
             "loader": proposal_record["loader"],
@@ -605,6 +616,7 @@ def step_build(work, args, state):
         "directory": str(directory),
         "admission": proposal_record["admission"],
         "reference_kind": proposal_record["reference_kind"],
+        "comparison_mode": proposal_record["comparison_mode"],
         "expected_sha256": proposal_record["expected_sha256"],
         "input_bytes_sha256": proposal_record["input_bytes_sha256"],
         "loader": proposal_record["loader"],
@@ -1283,10 +1295,20 @@ def _summary(report):
   """A scannable index of outcomes, refusals, duplicates, and constants."""
   rows = []
   refusals = []
+  certificate_refusals = []
   duplicates = []
   constants = []
   not_run = []
   kernel_refusals = []
+  routes = {
+    "exact-certificate": {"cases": 0, "executed": 0, "passed": 0, "proposals": []},
+    "native-refractir-replay": {
+      "cases": 0,
+      "executed": 0,
+      "passed": 0,
+      "proposals": [],
+    },
+  }
   for kernel in report["kernels"]:
     if kernel["admission"]["status"] != "admitted":
       kernel_refusals.append(
@@ -1305,6 +1327,7 @@ def _summary(report):
         "proposal": entry["name"],
         "admission": entry.get("admission"),
         "reference_kind": (entry.get("reference") or {}).get("kind"),
+        "comparison_mode": (entry.get("comparison") or {}).get("mode"),
         "execution_status": execution.get("status"),
         "comparison_status": comparison.get("status"),
         "campaign_valid": execution.get("campaign_valid"),
@@ -1312,7 +1335,17 @@ def _summary(report):
         "output_constant": (entry.get("output") or {}).get("constant"),
       }
       rows.append(row)
-      if row["admission"] not in {None, "admitted-exact-certificate"}:
+      if row["reference_kind"] in routes:
+        counts = routes[row["reference_kind"]]
+        counts["cases"] += 1
+        counts["proposals"].append(f"{kernel['family']}/{entry['name']}")
+        if execution.get("status") not in {None, "not_run"}:
+          counts["executed"] += 1
+        if execution.get("status") == "pass":
+          counts["passed"] += 1
+      if row["admission"] == "refused-exact-certificate":
+        certificate_refusals.append(row)
+      elif row["admission"] not in {None, "admitted-exact-certificate"}:
         refusals.append({**row, "reason": entry.get("reason")})
       if execution.get("status") != "pass":
         not_run.append(row)
@@ -1336,10 +1369,17 @@ def _summary(report):
     "rows": rows,
     "kernel_refusals": kernel_refusals,
     "proposal_refusals": refusals,
+    "certificate_refusals": certificate_refusals,
     "not_pass": not_run,
     "duplicate_inputs": duplicates,
     "cross_kernel_duplicate_inputs": _cross_kernel_inputs(report),
     "constant_outputs": constants,
+    "reference_routes": routes,
+    "reference_route_note": (
+      "exact-certificate cases compare bit for bit; native-refractir-replay "
+      "cases are the numerical fallback for a refused certificate and are not "
+      "counted as exact"
+    ),
     "counted_control": (report.get("counted_control") or {}).get("execution"),
   }
 

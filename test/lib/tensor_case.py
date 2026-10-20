@@ -753,10 +753,30 @@ def _validate_exact_f32_output_proof(
       manifest.get("operator_coverage") == expected_operators,
       "composed exactness proof disagrees with source operations",
     )
+    selection = proof.get("selection")
     _require(
-      isinstance(proof.get("selection"), dict),
-      "composed exactness proof requires checked solver selection evidence",
+      selection is None or isinstance(selection, dict),
+      "composed exactness proof has malformed solver selection evidence",
     )
+    if selection is None:
+      # A rule-chosen input has no solver witness. The generated-region
+      # certificate is self-contained: it recertifies from the source and the
+      # recorded domain, and the complete expected bytes are recomputed. The
+      # authored composed loop keeps its selection, which is its only statement
+      # of how the runtime input was chosen.
+      _require(
+        proof.get("kind") == tensor_exact_f32.REGION_KIND,
+        "composed exactness proof requires checked solver selection evidence",
+      )
+      recorded_domain = (
+        manifest.get("coverage", {}).get("input_behavior", {}).get("input_domain")
+      )
+      _require(
+        recorded_domain is None
+        or proof.get("input_domain")
+        == [recorded_domain.get("lo"), recorded_domain.get("hi")],
+        "exactness proof domain disagrees with the recorded input domain",
+      )
     input_record = described_inputs[0]
     input_bytes = artifacts[input_record["file"]][
       input_record["byte_offset"] : input_record["byte_offset"]
