@@ -276,12 +276,19 @@ TENSOR_FREE_FORM_SRCS = src/reify/tensor_free_form.cpp src/reify/tensor_region.c
                         src/analysis/dominators.cpp src/analysis/loop_info.cpp \
                         src/frontend/diagnostics.cpp
 
+TENSOR_FREE_FORM_EXPORT = $(BIN_DIR)/tensor_free_form_export
+
 $(TENSOR_FREE_FORM_API): test/unit/tensor_free_form_api.cpp $(TENSOR_FREE_FORM_SRCS) include/reify/tensor_free_form.hpp include/reify/tensor_region.hpp
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_free_form_api.cpp $(TENSOR_FREE_FORM_SRCS)
 
-test-tensor-free-form: $(TARGET_INTERP) $(TENSOR_FREE_FORM_API)
+$(TENSOR_FREE_FORM_EXPORT): test/unit/tensor_free_form_export.cpp $(TENSOR_FREE_FORM_SRCS) include/reify/tensor_free_form.hpp include/reify/tensor_region.hpp
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_free_form_export.cpp $(TENSOR_FREE_FORM_SRCS)
+
+test-tensor-free-form: $(TARGET_INTERP) $(TENSOR_FREE_FORM_API) $(TENSOR_FREE_FORM_EXPORT)
 	REFRACTIR_TENSOR_FREE_FORM_API=$(TENSOR_FREE_FORM_API) \
+	  REFRACTIR_TENSOR_FREE_FORM_EXPORT=$(TENSOR_FREE_FORM_EXPORT) \
 	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
 	  $(PY) -m unittest test.unit.test_tensor_free_form
 

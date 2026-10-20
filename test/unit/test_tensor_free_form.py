@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from test.unit.tensor_support import SYMIRI, check_source, describe_entry
 
 FREE_FORM_API = Path(
   os.environ.get("REFRACTIR_TENSOR_FREE_FORM_API", "build/bin/tensor_free_form_api")
+)
+FREE_FORM_EXPORT = Path(
+  os.environ.get("REFRACTIR_TENSOR_FREE_FORM_EXPORT", "build/bin/tensor_free_form_export")
 )
 
 
@@ -110,6 +114,54 @@ class FreeFormFrontendTests(unittest.TestCase):
     _, description = describe_entry(source, tensor_profile="v2")
     self.assertEqual([parameter["name"] for parameter in description["inputs"]], ["x"])
 
+
+
+@unittest.skipUnless(SYMIRI.is_file(), "native tensor tools unavailable")
+class FreeFormExportTests(unittest.TestCase):
+  """The exporter writes one case directory whose record states what it built."""
+
+  def export(self, *arguments):
+    self.assertTrue(
+      FREE_FORM_EXPORT.is_file(), f"free-form export binary not found: {FREE_FORM_EXPORT}"
+    )
+    return subprocess.run(
+      [str(FREE_FORM_EXPORT), *arguments],
+      text=True,
+      capture_output=True,
+      check=False,
+      timeout=30,
+    )
+
+  def test_exporter_writes_a_program_and_its_structure_record(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "deep", "--seed", "11", "--shape", "2,2",
+        "--trip-count", "2", "--states", "3", "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      source = (Path(directory) / "program.sir").read_text(encoding="utf-8")
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["schema"], "refractir.free-form-region.v1")
+      self.assertEqual(record["policy"], "deep")
+      self.assertEqual(record["seed"], 11)
+      self.assertEqual(record["state_count"], 3)
+      self.assertEqual(record["trip_count"], 2)
+      self.assertEqual(record["route"], "target-only")
+      self.assertEqual([parameter["name"] for parameter in record["parameters"]], ["%x", "%y"])
+      self.assertEqual(record["results"], ["%next_x", "%next_y", "%next_z"])
+      self.assertGreater(record["structure"]["nodes"], 0)
+      self.assertEqual(record["structure"]["policy"], "deep")
+      self.assertEqual(len(record["structure"]["result_dependencies"]), 3)
+      self.assertNotIn("program_sha256", record, "the bundle writer computes the digests")
+      checked = check_source(source, tensor_profile="v2")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_exporter_refuses_an_impossible_configuration(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export("--states", "5", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("two to four states", result.stderr)
+      self.assertFalse((Path(directory) / "program.sir").exists())
 
 if __name__ == "__main__":
   unittest.main()
