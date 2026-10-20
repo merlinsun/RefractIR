@@ -307,7 +307,8 @@ test-tensor-gluon-lowering: $(TENSOR_GRAPH_REGION_EXPORT)
 	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
 	  $(PY) -m unittest test.unit.test_tensor_gluon_lowering test.unit.test_tensor_gluon_plan \
 	    test.unit.test_tensor_gluon_generated_region \
-	    test.unit.test_tensor_generated_region_runner
+	    test.unit.test_tensor_generated_region_runner \
+	    test.unit.test_tensor_emission
 
 test-tensor-compiler-observation:
 	$(PY) -m unittest test.unit.test_tensor_compiler_observation \

@@ -21,6 +21,7 @@ import triton
 from test.lib import (
   probe_triton_env,
   tensor_case,
+  tensor_emission,
   tensor_exact_f32,
   tensor_layout,
   tensor_route_protocol,
@@ -47,6 +48,12 @@ from test.lib.tensor_gluon_lowering import (
 WARMUP_LAUNCHES = tensor_route_protocol.WARMUP_LAUNCHES
 MEASURED_LAUNCHES = tensor_route_protocol.MEASURED_LAUNCHES
 ROOT = Path(__file__).resolve().parents[3]
+
+# The generated-region corpus is emitted from the tensor-v2 generation route,
+# and its signature fixes the kernel entry. A program run has no case manifest,
+# so the profile defaults to that route and the entry to the fixed signature.
+GENERATED_REGION_PROFILE = tensor_case.PROFILE_V2
+GENERATED_REGION_ENTRY = "kernel"
 
 # The modules that decide what a plan-mode run emits and how its addresses are
 # validated. A run states their digests beside the toolchain fields, so an
@@ -396,6 +403,7 @@ def _with_generated_pass_observations(function):
           os.environ[name] = value
 
     source_lines = result.pop("_conversion_source_lines")
+    emission_record = result.pop("_emission_record", None)
     pass_observation = observe_pass_dumps(
       pass_dump_path.read_text(encoding="utf-8"), source_lines=source_lines
     )
@@ -424,6 +432,9 @@ def _with_generated_pass_observations(function):
     Path(output_path).write_text(
       json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    if emission_record is not None:
+      # The record is an in-process handle; the report states its digests.
+      result["_emission_record"] = emission_record
     return result
 
   return wrapped
@@ -647,6 +658,20 @@ def _program_staging(layout, guard_envelope, padding, canary, shape):
   return _staging(addressing, guard_envelope, padding, canary)
 
 
+def _program_profile(shape, tile, staging):
+  """The tensor profile a generated-region program run states for itself.
+
+  The source corpus is generated on the tensor-v2 route. A declared execution
+  tile wider than the logical shape, or a physical record the layout module
+  infers as padded, is the tensor-v3 route.
+  """
+  if staging is not None:
+    return f"tensor-{staging.addressing.profile}"
+  if tile is not None and tuple(tile) != tuple(shape):
+    return tensor_case.PROFILE_V3
+  return GENERATED_REGION_PROFILE
+
+
 @_with_generated_pass_observations
 def run_program(
   program_path,
@@ -666,6 +691,7 @@ def run_program(
   guard_envelope=None,
   padding=None,
   canary=None,
+  record=None,
 ):
   """Compare sampled Gluon layouts on one admitted generated-region source.
 
@@ -690,6 +716,11 @@ def run_program(
   reported as the slots it changed, and a write into any slot of the input
   allocation - guard, gap, or logical element - is refused with the slots it
   changed before the output is judged.
+
+  `record` is one shared emission. When it is supplied the run verifies it
+  against this source, layout, profile, entry, and launch, then loads the
+  recorded kernel without rendering again; otherwise the run renders once and
+  records the emission it used.
   """
   probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
@@ -801,11 +832,49 @@ def run_program(
     count=layout_count,
     tile=tile,
   )
-  emission = {} if staging is None else {"layout": staging.record()}
+  render_options = {} if staging is None else {"layout": staging.record()}
+  family_plan = None
+  if plan_family is not None:
+    family_plan = select_plan_family(
+      plan_family,
+      shape,
+      num_warps=num_warps,
+      layouts=plans,
+      consumers=region_consumers(source),
+      tile=tile,
+    )
+  layout_payload = {
+    "storage": render_options.get("layout"),
+    "plans": [plan.to_dict() for plan in plans],
+    "reduction": reduction_layout.to_dict(),
+    "plan": None if family_plan is None else family_plan.as_record(),
+  }
+  if family_plan is None:
+    emitter_options = {"tile": tile, **render_options}
+  else:
+    emitter_options = {"plan": family_plan.as_record(), **render_options}
+
+  def render():
+    if family_plan is None:
+      return render_gluon_kernel(source, tile=tile, **render_options)
+    return render_gluon_kernel(source, plan=family_plan, **render_options)
+
+  expected_emission = {
+    "sir": source,
+    "layout": layout_payload,
+    "profile": _program_profile(shape, tile, staging),
+    "entry": GENERATED_REGION_ENTRY,
+    "launch": {"grid": (1,), "num_warps": num_warps, "enable_fp_fusion": False},
+    "options": emitter_options,
+  }
+  if record is None:
+    record = tensor_emission.build(render=render, **expected_emission)
+    generated = record.kernel
+  else:
+    generated = tensor_emission.reuse(record, **expected_emission)
+  kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
   cases = {}
   if plan_family is None:
-    generated = render_gluon_kernel(source, tile=tile, **emission)
-    kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
     for plan in plans:
       plan.validate(shape, num_warps=num_warps, tile=tile)
       pointers, output_buffer, allocation = case_pointers()
@@ -844,16 +913,6 @@ def run_program(
     )
     plan_record = None
   else:
-    family_plan = select_plan_family(
-      plan_family,
-      shape,
-      num_warps=num_warps,
-      layouts=plans,
-      consumers=region_consumers(source),
-      tile=tile,
-    )
-    generated = render_gluon_kernel(source, plan=family_plan, **emission)
-    kernel = _load_kernel(generated, ir_directory / "generated-region-kernel.py")
     pointers, output_buffer, allocation = case_pointers()
     arguments = region_launch_arguments(generated, plans, *pointers)
     cases[plan_family] = _region_case_record(
@@ -987,8 +1046,9 @@ def run_program(
     "cases": cases,
     "physical_layout": None if staging is None else _staging_record(staging),
     "emission": {
-      "sha256": hashlib.sha256(generated.source.encode()).hexdigest(),
+      "sha256": record.kernel_sha256,
       "addressing": _addressing_lines(generated.source),
+      "record": record.as_record(),
     },
     "_conversion_source_lines": generated.conversion_source_lines,
   }
@@ -998,6 +1058,9 @@ def run_program(
   Path(output_path).write_text(
     json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
   )
+  # The record object is handed to an in-process consumer; the report states
+  # its digests instead of its rendered kernel.
+  result["_emission_record"] = record
   return result
 
 
@@ -1040,7 +1103,13 @@ def _case_staging(manifest, shape):
   )
 
 
-def run(case_directory, output_path, ir_directory, *, symiri=None):
+def run(case_directory, output_path, ir_directory, *, symiri=None, record=None):
+  """Run one certified generated-region case through the cross-lane Gluon route.
+
+  `record` is one shared emission: when supplied the case is verified against it
+  and the recorded kernel is loaded without rendering; otherwise the case emits
+  once and the run records that emission.
+  """
   probe_triton_env.require_qualified_triton()
   if not torch.cuda.is_available():
     raise RuntimeError("CUDA device is unavailable")
@@ -1096,8 +1165,29 @@ def run(case_directory, output_path, ir_directory, *, symiri=None):
   )
   for plan in (compute_layout, reduction_layout):
     plan.validate(input_shape, num_warps=1)
-  emission = {} if staging is None else {"layout": staging.record()}
-  generated = render_gluon_kernel(source, **emission)
+  render_options = {} if staging is None else {"layout": staging.record()}
+  layout_payload = {
+    "storage": render_options.get("layout"),
+    "plans": [compute_layout.to_dict(), reduction_layout.to_dict()],
+    "plan": None,
+  }
+
+  def render():
+    return render_gluon_kernel(source, **render_options)
+
+  expected_emission = {
+    "sir": source,
+    "layout": layout_payload,
+    "profile": case.manifest["profile"],
+    "entry": case.manifest["entry"],
+    "launch": {"grid": (1,), "num_warps": 1, "enable_fp_fusion": False},
+    "options": dict(render_options),
+  }
+  if record is None:
+    record = tensor_emission.build(render=render, **expected_emission)
+    generated = record.kernel
+  else:
+    generated = tensor_emission.reuse(record, **expected_emission)
   ir_directory = Path(ir_directory).resolve()
   ir_directory.mkdir(parents=True, exist_ok=True)
   qualification = _qualification_record(
@@ -1234,8 +1324,9 @@ def run(case_directory, output_path, ir_directory, *, symiri=None):
     "guard_verdict": guard_verdict,
     "qualification": qualification,
     "emission": {
-      "sha256": hashlib.sha256(generated.source.encode()).hexdigest(),
+      "sha256": record.kernel_sha256,
       "addressing": _addressing_lines(generated.source),
+      "record": record.as_record(),
     },
     "compiler_observation": compiler_observation,
     "cross_lane_evidence": {
@@ -1258,6 +1349,8 @@ def run(case_directory, output_path, ir_directory, *, symiri=None):
   Path(output_path).write_text(
     json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
   )
+  # The record is an in-process handle; the report states its digests.
+  report["_emission_record"] = record
   return report
 
 
@@ -1377,7 +1470,9 @@ def main():
     report = run(args.case_dir, args.output, args.ir_dir, symiri=args.symiri)
   else:
     parser.error("one of --case-dir or --program is required")
-  print(json.dumps(report, sort_keys=True))
+  # Private keys are in-process handles, not report fields.
+  public = {name: value for name, value in report.items() if not name.startswith("_")}
+  print(json.dumps(public, sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -1524,6 +1524,7 @@ def _run_generated_region_program(
   guard_envelope=None,
   padding=None,
   canary=None,
+  record=None,
   revision=None,
   compiler_flags=None,
   symirc=None,
@@ -1539,7 +1540,9 @@ def _run_generated_region_program(
   `layout` is the physical layout record a case declares. The runner then
   stages that allocation, and the fake device leaves the exact reference at the
   addresses the record names, so the bytes the runner gathers are the bytes a
-  real launch of the emitted kernel would leave behind. `environment`,
+  real launch of the emitted kernel would leave behind. `record` is a shared
+  emission the run consumes instead of emitting; it is passed only when stated,
+  so a run without one exercises the same call shape as before. `environment`,
   `revision`, `compiler_flags`, and `symirc` state the toolchain identity the
   run records instead of whatever host happens to run the test.
   """
@@ -1652,21 +1655,23 @@ def _run_generated_region_program(
         ),
       ):
         try:
+          arguments = {
+            "input_values": input_values,
+            "domain": (0, 8),
+            "layout_seed": PLAN_LAYOUT_SEED,
+            "num_warps": 1,
+            "layout_count": layout_count,
+            "plan_family": plan_family,
+            "tile": tile,
+            "layout": layout,
+            "guard_envelope": guard_envelope,
+            "padding": padding,
+            "canary": canary,
+          }
+          if record is not None:
+            arguments["record"] = record
           result = runner.run_program(
-            source_path,
-            output_path,
-            ir_directory,
-            input_values=input_values,
-            domain=(0, 8),
-            layout_seed=PLAN_LAYOUT_SEED,
-            num_warps=1,
-            layout_count=layout_count,
-            plan_family=plan_family,
-            tile=tile,
-            layout=layout,
-            guard_envelope=guard_envelope,
-            padding=padding,
-            canary=canary,
+            source_path, output_path, ir_directory, **arguments
           )
           refusal = None
         except Exception as failure:  # noqa: BLE001 - the refusal is the record
@@ -1870,6 +1875,8 @@ class GeneratedRegionPlanRunnerTests(unittest.TestCase):
     self.assertEqual(observation["render"].call_args.kwargs, {"tile": (2, 4)})
     self.assertEqual(result["shape"], [2, 3])
     self.assertEqual(result["execution_tile"], [2, 4])
+    self.assertEqual(result["emission"]["record"]["profile"], "tensor-v3")
+    self.assertEqual(result["emission"]["record"]["entry"], "kernel")
     self.assertEqual(list(result["cases"]), [plan.name for plan in pool])
     for case in result["cases"].values():
       self.assertEqual(case["status"], "pass")
@@ -2023,6 +2030,7 @@ def _run_case_directory_runner(
   guard_envelope=(3, 5),
   padding="3f800001",
   canary="3f000002",
+  emission_record=None,
 ):
   """Run the case-directory route against a recorded manifest and fake device.
 
@@ -2030,7 +2038,9 @@ def _run_case_directory_runner(
   case builder writes when both buffers are staged in one layout, and the fake
   device leaves the exact reference at the addresses that record names. The
   cross-lane route places the whole warp on one reduction axis, so the region it
-  runs is the power-of-two shape that route is built for.
+  runs is the power-of-two shape that route is built for. `emission_record` is a
+  shared emission the run consumes instead of emitting; it is passed only when
+  stated.
   """
   from test.lib import tensor_exact_f32, tensor_layout
 
@@ -2072,6 +2082,7 @@ def _run_case_directory_runner(
   case = SimpleNamespace(
     manifest={
       "profile": "tensor-v3",
+      "entry": "kernel",
       "inputs": [{**layout_fields, "name": "x", "dtype": "f32"}],
       "output": {**layout_fields, "name": "out", "dtype": "f32"},
       "execution": execution,
@@ -2125,11 +2136,11 @@ def _run_case_directory_runner(
         ),
       ):
         try:
+          arguments = {"symiri": "symiri"}
+          if emission_record is not None:
+            arguments["record"] = emission_record
           report = runner.run(
-            root / "case",
-            root / "report.json",
-            root / "ir",
-            symiri="symiri",
+            root / "case", root / "report.json", root / "ir", **arguments
           )
           refusal = None
         except Exception as failure:  # noqa: BLE001 - the refusal is the record
