@@ -120,6 +120,7 @@ def run(
   worker_command=None,
   gpu_probe=None,
   artifact_dir=None,
+  cache_dir=None,
 ):
   """Emit once, run both modes, and record what each produced.
 
@@ -209,6 +210,7 @@ def run(
       timeout_s=timeout_s,
       worker_command=worker_command,
       device_id=device_id,
+      cache_dir=cache_dir,
     )
 
   status, mismatches = _classify(interpreter, compiled)
@@ -242,6 +244,7 @@ def _run_mode(
   timeout_s,
   worker_command,
   device_id=None,
+  cache_dir=None,
 ):
   """Stage the recorded kernel and run one mode in a fresh process."""
   mode_dir = artifacts / mode
@@ -276,7 +279,9 @@ def _run_mode(
       mode,
       timeout_s,
       device_id=device_id,
-      cache_dir=(mode_dir / "triton-cache") if mode == "compiled" else None,
+      cache_dir=(
+        Path(cache_dir) / "compiled" if mode == "compiled" and cache_dir is not None else None
+      ),
     )
   except subprocess.TimeoutExpired as error:
     stderr = _text(error.stderr)

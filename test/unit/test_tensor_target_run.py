@@ -269,6 +269,32 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(record["agreement"]["mismatches"][0]["index"], 3)
     self.assertTrue(record["candidate"])
 
+  def test_a_stated_cache_directory_reaches_the_compiled_worker(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    self.worker.write_text(
+      f"#!{sys.executable}\n"
+      + STUB_WORKER.replace(
+        'raise SystemExit(config.get("exit", 0))',
+        'json.dump({"cache": os.environ.get("TRITON_CACHE_DIR"), "interpret": os.environ.get("TRITON_INTERPRET")}, open(arguments.config + "." + arguments.mode, "w"))\n'
+        'raise SystemExit(config.get("exit", 0))',
+      ),
+      encoding="utf-8",
+    )
+    cache = Path(self.directory.name) / "shared-cache"
+    run = self.run_target(cache_dir=cache)
+    self.assertEqual(run.status, tensor_target_run.TARGET_AGREEMENT)
+    compiled = json.loads(Path(f"{self.config}.compiled").read_text(encoding="utf-8"))
+    interpreted = json.loads(Path(f"{self.config}.interpret").read_text(encoding="utf-8"))
+    self.assertTrue(compiled["cache"].startswith(str(cache.resolve())))
+    self.assertIsNone(interpreted["cache"])
+    self.assertEqual(interpreted["interpret"], "1")
+
   def test_an_unavailable_device_is_not_a_pass(self):
     self.write_bundle()
     self.configure({"interpret": {"phase": "runtime", "actual": AGREE_HEX}, "compiled": {}})
