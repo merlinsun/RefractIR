@@ -416,6 +416,81 @@ fun @kernel(%x: tensor [17] i32) : tensor [17, 1] i32 {
     )
     self.assertIn("mask=_sir_out_valid", output)
 
+
+  def test_rank_increasing_broadcast_aligns_the_operand_rank(self):
+    source = """\
+fun @kernel(%x: tensor [2] f32) : tensor [2, 2] f32 {
+  let mut %out: tensor [2, 2] f32 = undef;
+^entry:
+  %out = tensor broadcast %x, [2, 2];
+  ret %out;
+}
+"""
+
+    result, output = emit_cli(source)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("tl.reshape(", output)
+    self.assertIn("(1, 2)", output)
+    self.assertLess(output.index("tl.reshape("), output.index("tl.broadcast_to("))
+
+  def test_rank_zero_operand_broadcast_splats_a_full_block(self):
+    source = """\
+fun @kernel(%x: tensor [2] f32) : tensor [2, 2] f32 {
+  let mut %total: f32 = undef;
+  let mut %out: tensor [2, 2] f32 = undef;
+^entry:
+  %total = tensor sum %x, 0, drop;
+  %out = tensor broadcast %total, [2, 2];
+  ret %out;
+}
+"""
+
+    result, output = emit_cli(source)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("tl.full((1, 1)", output)
+    self.assertLess(output.index("tl.full("), output.index("tl.broadcast_to("))
+
+  def test_equal_rank_broadcast_still_calls_broadcast_directly(self):
+    source = """\
+fun @kernel(%x: tensor [2, 1] f32) : tensor [2, 2] f32 {
+  let mut %out: tensor [2, 2] f32 = undef;
+^entry:
+  %out = tensor broadcast %x, [2, 2];
+  ret %out;
+}
+"""
+
+    result, output = emit_cli(source)
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertNotIn("tl.reshape(", output)
+    self.assertIn("tl.broadcast_to(", output)
+
+  def test_v3_rank_increasing_broadcast_keeps_target_validity(self):
+    source = """\
+fun @kernel(%x: tensor [16] i32) : tensor [17, 16] i32 {
+  let mut %out: tensor [17, 16] i32 = undef;
+^entry:
+  %out = tensor broadcast %x, [17, 16];
+  ret %out;
+}
+"""
+
+    result, output = emit_cli(source, ("--tensor-profile-version", "v3"))
+
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("(1, 16)", output)
+    self.assertLess(output.index("tl.reshape("), output.index("tl.broadcast_to("))
+    self.assertRegex(
+      output, r"_sir_out_valid = \(_sir_out_d0 < 17\) & \(_sir_out_d1 < 16\)"
+    )
+
   def test_v3_broadcast_uses_target_shape_validity(self):
     source = """\
 fun @kernel(%x: tensor [1, 16] i32) : tensor [17, 16] i32 {
@@ -785,6 +860,100 @@ fun @kernel(%s: f32) : tensor [2, 4] f32 {
       and node.func.attr in ("sum", "min", "max")
       and node.args
     ]
+
+
+def _triton_interpreter_available():
+  try:
+    import torch  # noqa: F401
+    import triton  # noqa: F401
+  except Exception:
+    return False
+  return True
+
+
+@unittest.skipUnless(_triton_interpreter_available(), "Triton interpreter unavailable")
+class TensorBroadcastExecutionTests(unittest.TestCase):
+  """The aligned broadcast computes the right-aligned values the SIR states."""
+
+  def run_kernel(self, source, arguments):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      source_path = root / "case.sir"
+      kernel_path = root / "kernel.py"
+      source_path.write_text(source, encoding="utf-8")
+      emitted = subprocess.run(
+        [
+          str(SYMIRC),
+          "--target",
+          "triton",
+          "--entry",
+          "kernel",
+          "-o",
+          str(kernel_path),
+          str(source_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+      )
+      self.assertEqual(emitted.returncode, 0, emitted.stdout + emitted.stderr)
+      runner = root / "runner.py"
+      runner.write_text(
+        """\
+import importlib.util
+import sys
+
+import torch
+
+spec = importlib.util.spec_from_file_location("kernel", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+args = [torch.tensor(value, dtype=torch.float32) for value in eval(sys.argv[2])]
+out = torch.full((2, 2), float("nan"), dtype=torch.float32)
+module.kernel[(1, 1, 1)](*args, out)
+print(out.tolist())
+""",
+        encoding="utf-8",
+      )
+      environment = dict(**__import__("os").environ)
+      environment["TRITON_INTERPRET"] = "1"
+      completed = subprocess.run(
+        [__import__("sys").executable, str(runner), str(kernel_path), repr(arguments)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+        env=environment,
+      )
+      self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+      return completed.stdout.strip()
+
+  def test_rank_one_operand_broadcasts_across_the_new_leading_axis(self):
+    source = """\
+fun @kernel(%x: tensor [2] f32) : tensor [2, 2] f32 {
+  let mut %out: tensor [2, 2] f32 = undef;
+^entry:
+  %out = tensor broadcast %x, [2, 2];
+  ret %out;
+}
+"""
+
+    self.assertEqual(self.run_kernel(source, ([1.0, 2.0],)), "[[1.0, 2.0], [1.0, 2.0]]")
+
+  def test_rank_zero_operand_broadcasts_its_sum_to_every_element(self):
+    source = """\
+fun @kernel(%x: tensor [2] f32) : tensor [2, 2] f32 {
+  let mut %total: f32 = undef;
+  let mut %out: tensor [2, 2] f32 = undef;
+^entry:
+  %total = tensor sum %x, 0, drop;
+  %out = tensor broadcast %total, [2, 2];
+  ret %out;
+}
+"""
+
+    self.assertEqual(self.run_kernel(source, ([1.5, 2.5],)), "[[4.0, 4.0], [4.0, 4.0]]")
 
 
 if __name__ == "__main__":

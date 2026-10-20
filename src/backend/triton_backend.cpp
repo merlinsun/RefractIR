@@ -623,8 +623,31 @@ namespace refractir {
     }
     if (atom.op == TensorOp::Broadcast) {
       const Shape shape(atom.attribute.begin(), atom.attribute.end());
-      return "tl.broadcast_to(" + operands.front() + ", " +
-             pythonShape(tensorExecutionTileShape(shape, profile_)) + ")";
+      const auto targetTileShape = tensorExecutionTileShape(shape, profile_);
+      const auto sourceType = valueType(atom.operands.front());
+      const auto sourceShape = valueShape(sourceType);
+      std::string operand = operands.front();
+      if (sourceShape.size() < shape.size()) {
+        // The Triton primitive takes one rank on both sides, so a source of
+        // lower rank gains leading singleton axes before the call. The SIR rule
+        // is the right-aligned broadcast these axes state. A rank-zero value is
+        // a Triton scalar, which has no block rank to reshape, so a full block
+        // of that value supplies the rank instead.
+        Shape aligned(shape.size() - sourceShape.size(), 1);
+        const auto reshaped = nextTemporary("broadcast_rank");
+        if (sourceShape.empty()) {
+          addLine(
+              reshaped + " = tl.full(" + pythonShape(aligned) + ", " + operand + ", " +
+              (isInteger ? "tl.int32" : "tl.float32") + ")"
+          );
+        } else {
+          const auto sourceTileShape = tensorExecutionTileShape(sourceShape, profile_);
+          aligned.insert(aligned.end(), sourceTileShape.begin(), sourceTileShape.end());
+          addLine(reshaped + " = tl.reshape(" + operand + ", " + pythonShape(aligned) + ")");
+        }
+        operand = reshaped;
+      }
+      return "tl.broadcast_to(" + operand + ", " + pythonShape(targetTileShape) + ")";
     }
     if (atom.op == TensorOp::Transpose)
       return "tl.permute(" + operands.front() + ", " + tupleText(atom.attribute) + ")";
