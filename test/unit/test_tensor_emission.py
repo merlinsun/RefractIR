@@ -1,8 +1,11 @@
-"""One recorded Gluon emission is the kernel both execution paths consume."""
+"""One recorded emission, Gluon or ordinary, is what both execution paths consume."""
 
 import hashlib
+import json
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 from unittest import mock
 
 from test.lib.build_tensor_exact_region_case import physical_layout
@@ -19,6 +22,20 @@ ENTRY = "kernel"
 LAUNCH = {"grid": (1,), "num_warps": 1, "enable_fp_fusion": False}
 LAYOUT = {"shape": [2, 2], **physical_layout((2, 2))}
 OTHER_LAYOUT = {"shape": [2, 2], **physical_layout((2, 2), row_padding=1)}
+STUB_BYTES = b"#!/bin/sh\nexit 0\n"
+ORDINARY_KERNEL = "def kernel(*args, **kwargs):\n  return args\n"
+LAYOUT_MANIFEST = {
+  "buffers": [
+    {
+      "name": "x",
+      "role": "input",
+      "element_strides": [2, 1],
+      "element_offset": 0,
+      "storage_span": 4,
+      "axis_order": [1, 0],
+    }
+  ]
+}
 
 
 def _emission():
@@ -232,6 +249,197 @@ class SharedEmissionTests(unittest.TestCase):
     )
     self.assertEqual(observation["kernels"]["generated-region-kernel"], emitted.source)
     self.assertNotIn("_emission_record", observation["report"])
+
+
+def _digest_bytes(data):
+  return hashlib.sha256(data).hexdigest()
+
+
+def _value_digest(value):
+  payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+  return _digest(payload)
+
+
+def _stub(directory, *, name="symirc", body=STUB_BYTES):
+  path = Path(directory) / name
+  path.write_bytes(body)
+  return path
+
+
+def _gluon_identity_arguments():
+  return {
+    "sir": NATIVE_SEED_7_SOURCE,
+    "layout": LAYOUT,
+    "profile": PROFILE,
+    "entry": ENTRY,
+    "launch": LAUNCH,
+    "options": {"tile": None},
+  }
+
+
+def _ordinary_identity_arguments(*, options=None, **overrides):
+  arguments = {
+    "sir": NATIVE_SEED_7_SOURCE,
+    "layout": LAYOUT,
+    "layout_manifest": LAYOUT_MANIFEST,
+    "profile": PROFILE,
+    "entry": ENTRY,
+    "launch": LAUNCH,
+    "softmax_lowering": "direct",
+    "options": {"tensor_profile_version": "v2"} if options is None else options,
+  }
+  arguments.update(overrides)
+  return arguments
+
+
+def _ordinary_record(executable, *, kernel=ORDINARY_KERNEL, **overrides):
+  return _emission().build_ordinary(
+    executable=executable,
+    kernel=kernel,
+    **_ordinary_identity_arguments(**overrides),
+  )
+
+
+class OrdinaryEmissionTests(unittest.TestCase):
+  """An ordinary symirc emission is identified by its binary and options."""
+
+  def test_an_ordinary_record_states_its_emission_identity(self):
+    emission = _emission()
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      record = _ordinary_record(executable)
+
+      self.assertEqual(record.emitter.kind, "symirc")
+      self.assertEqual(record.emitter.executable, str(executable))
+      self.assertEqual(record.emitter.binary_sha256, _digest_bytes(STUB_BYTES))
+      self.assertEqual(record.target, "triton")
+      self.assertEqual(record.entry, ENTRY)
+      self.assertEqual(record.profile, PROFILE)
+      self.assertEqual(record.layout_manifest_sha256, _value_digest(LAYOUT_MANIFEST))
+      self.assertEqual(record.softmax_lowering, "direct")
+      self.assertEqual(record.emitter.options, (("tensor_profile_version", "v2"),))
+      self.assertEqual(record.kernel_sha256, _digest(ORDINARY_KERNEL))
+      self.assertEqual(record.kernel.source, ORDINARY_KERNEL)
+      self.assertEqual(record.sir_sha256, _digest(NATIVE_SEED_7_SOURCE))
+      self.assertEqual(record.layout_sha256, _value_digest(LAYOUT))
+
+      stated = record.as_record()
+      self.assertEqual(stated["schema"], emission.SCHEMA)
+      self.assertEqual(stated["kind"], "symirc")
+      self.assertEqual(stated["target"], "triton")
+      self.assertEqual(stated["layout_manifest_sha256"], _value_digest(LAYOUT_MANIFEST))
+      self.assertEqual(stated["softmax_lowering"], "direct")
+      self.assertEqual(stated["emitter"]["executable"], str(executable))
+      self.assertEqual(stated["emitter"]["binary_sha256"], _digest_bytes(STUB_BYTES))
+      self.assertEqual(stated["emitter"]["options"], {"tensor_profile_version": "v2"})
+
+      kernel = emission.reuse(
+        record, executable=executable, **_ordinary_identity_arguments()
+      )
+      self.assertEqual(kernel.source, ORDINARY_KERNEL)
+
+  def test_changing_an_emitter_option_is_refused(self):
+    emission = _emission()
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      first = _ordinary_record(executable)
+      second = _ordinary_record(executable, options={"tensor_profile_version": "v3"})
+
+      self.assertNotEqual(first.emitter.digest, second.emitter.digest)
+      with self.assertRaisesRegex(emission.EmissionRefused, "option"):
+        emission.reuse(
+          first,
+          executable=executable,
+          **_ordinary_identity_arguments(options={"tensor_profile_version": "v3"}),
+        )
+
+  def test_an_ordinary_record_from_another_sir_case_is_refused(self):
+    emission = _emission()
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      record = _ordinary_record(executable)
+
+      with self.assertRaisesRegex(emission.EmissionRefused, "SIR"):
+        emission.reuse(
+          record,
+          executable=executable,
+          **_ordinary_identity_arguments(sir=ORTHOGONAL_REGION_SOURCE),
+        )
+
+  def test_a_changed_layout_digest_is_refused(self):
+    emission = _emission()
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      record = _ordinary_record(executable)
+
+      with self.assertRaisesRegex(emission.EmissionRefused, "layout"):
+        emission.reuse(
+          record,
+          executable=executable,
+          **_ordinary_identity_arguments(layout=OTHER_LAYOUT),
+        )
+
+  def test_a_changed_kernel_byte_is_refused(self):
+    emission = _emission()
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      record = _ordinary_record(executable)
+      tampered = replace(
+        record,
+        kernel=emission.EmittedKernel(source=record.kernel.source + "# tampered\n"),
+      )
+
+      with self.assertRaisesRegex(emission.EmissionRefused, "kernel"):
+        emission.reuse(
+          tampered,
+          executable=executable,
+          **_ordinary_identity_arguments(),
+        )
+
+  def test_changing_the_symirc_executable_is_an_emitter_change(self):
+    emission = _emission()
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      other = _stub(directory, name="other-symirc", body=b"#!/bin/sh\nexit 1\n")
+      record = _ordinary_record(executable)
+
+      with self.assertRaisesRegex(emission.EmissionRefused, "emitter executable"):
+        emission.reuse(record, executable=other, **_ordinary_identity_arguments())
+
+  def test_build_states_the_ordinary_kind_directly(self):
+    emission = _emission()
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      record = emission.build(
+        render=lambda: ORDINARY_KERNEL,
+        kind="symirc",
+        executable=executable,
+        **_ordinary_identity_arguments(),
+      )
+
+      self.assertEqual(record.emitter.kind, "symirc")
+      self.assertEqual(record.kernel.source, ORDINARY_KERNEL)
+      self.assertEqual(
+        emission.reuse(
+          record, executable=executable, **_ordinary_identity_arguments()
+        ).source,
+        ORDINARY_KERNEL,
+      )
+
+  def test_gluon_and_symirc_records_cannot_be_reused_across_kinds(self):
+    emission = _emission()
+    gluon = _record(emission)
+    with tempfile.TemporaryDirectory() as directory:
+      executable = _stub(directory)
+      ordinary = _ordinary_record(executable)
+
+      self.assertEqual(gluon.sir_sha256, ordinary.sir_sha256)
+      self.assertEqual(gluon.emitter.kind, "gluon")
+      self.assertNotEqual(gluon.emitter.kind, ordinary.emitter.kind)
+      with self.assertRaisesRegex(emission.EmissionRefused, "kind"):
+        emission.reuse(gluon, executable=executable, **_ordinary_identity_arguments())
+      with self.assertRaisesRegex(emission.EmissionRefused, "kind"):
+        emission.reuse(ordinary, **_gluon_identity_arguments())
 
 
 if __name__ == "__main__":
