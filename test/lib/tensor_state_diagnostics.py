@@ -85,7 +85,7 @@ def diagnose(state_count, run_program):
     "state_count": state_count,
     "trip_counts": list(TRIP_COUNTS),
     "input_count": INPUT_COUNT,
-    "runs": runs,
+    "runs": [run.as_record() for run in runs],
     "candidates": [run.as_record() for run in runs if run.status != COMPLETED],
     "labels": collapse_labels(runs, state_count=state_count),
     "note": (
