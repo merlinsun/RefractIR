@@ -314,7 +314,8 @@ test-tensor-three-path: $(TARGET_INTERP) $(TENSOR_GRAPH_REGION_EXPORT)
 	REFRACTIR_TENSOR_GRAPH_EXPORT=$(TENSOR_GRAPH_REGION_EXPORT) \
 	  $(PY) -m unittest test.unit.test_tensor_emission test.unit.test_tensor_reference \
 	    test.unit.test_tensor_three_way test.unit.test_tensor_tranche \
-	    test.unit.test_tensor_input_proposals_i32 test.unit.test_tensor_fp_diagnostics
+	    test.unit.test_tensor_input_proposals_i32 test.unit.test_tensor_fp_diagnostics \
+	    test.unit.test_tensor_target_evidence
 
 test-tensor-compiler-observation:
 	$(PY) -m unittest test.unit.test_tensor_compiler_observation \
