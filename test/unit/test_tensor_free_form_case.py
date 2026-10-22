@@ -206,6 +206,34 @@ class FreeFormCaseTests(unittest.TestCase):
     with self.assertRaises(tensor_target_case.TargetCaseError):
       tensor_free_form_case.strided_output([2, 2], row_padding=0, element_offset=-1)
 
+
+  def test_padded_rank_three_layout_has_no_overlap(self):
+    layout = tensor_free_form_case.strided_output([2, 2, 2], row_padding=1)
+    self.assertEqual(layout["element_strides"], [6, 3, 1])
+    self.assertEqual(layout["storage_span"], 11)
+    self.assertEqual(layout["axis_order"], [2, 1, 0])
+    addresses = [
+      a * 6 + b * 3 + c
+      for a in range(2)
+      for b in range(2)
+      for c in range(2)
+    ]
+    self.assertEqual(len(set(addresses)), 8)
+    tensor_target_case._validate_layout(layout, "output")
+
+  def test_padded_rank_four_layout_has_no_overlap(self):
+    layout = tensor_free_form_case.strided_output([2, 2, 2, 2], row_padding=1)
+    self.assertEqual(layout["element_strides"], [12, 6, 3, 1])
+    self.assertEqual(layout["storage_span"], 23)
+    addresses = [
+      a * 12 + b * 6 + c * 3 + d
+      for a in range(2)
+      for b in range(2)
+      for c in range(2)
+      for d in range(2)
+    ]
+    self.assertEqual(len(set(addresses)), 16)
+    tensor_target_case._validate_layout(layout, "output")
   def test_a_proposal_that_does_not_name_the_parameters_is_refused(self):
     proposal = tensor_free_form_inputs.proposal(REGION, pattern="distinct-integer", seed=0)
     renamed = tensor_free_form_inputs.proposal(

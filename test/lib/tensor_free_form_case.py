@@ -68,6 +68,11 @@ def strided_output(shape, row_padding=0, element_offset=0):
   strides = list(layout["element_strides"])
   if row_padding:
     strides[-2] += row_padding
+    # Padding widens the row stride, so every outer stride must be widened too
+    # or the addresses of different outer coordinates would interleave. Each
+    # outer stride covers one full padded inner extent.
+    for axis in range(len(shape) - 3, -1, -1):
+      strides[axis] = max(strides[axis], shape[axis + 1] * strides[axis + 1])
   span = element_offset + sum(
     (extent - 1) * stride for extent, stride in zip(shape, strides)
   ) + 1
