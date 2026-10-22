@@ -38,7 +38,7 @@ STORAGE_MARKERS = (
   "modified output canary slots",
   "modified input allocation or gap canary",
 )
-UNSUPPORTED_MARKER = "unsupported"
+UNSUPPORTED_MARKERS = ("unsupported", "not supported")
 MAX_REPORTED_MISMATCHES = 16
 
 
@@ -53,6 +53,7 @@ class ModeRun:
   actual: bytes | None
   stderr: str
   log: str
+  reason: str = ""
 
   def as_record(self):
     return {
@@ -65,6 +66,7 @@ class ModeRun:
       ),
       "actual_byte_length": len(self.actual) if self.actual is not None else None,
       "log": self.log,
+      "reason": self.reason,
     }
 
 
@@ -82,12 +84,18 @@ class TargetRun:
 
   @property
   def candidate(self):
-    """Whether the run is evidence that needs diagnosis."""
+    """Whether the run is evidence that needs diagnosis.
+
+    A timeout is an incomplete observation rather than a proved defect, but a
+    completed campaign must not lose it: the run did not establish agreement
+    and the reason it stopped needs an answer.
+    """
     return self.status in {
       TARGET_DISAGREEMENT,
       COMPILE_FAILURE,
       RUNTIME_FAILURE,
       STORAGE_VIOLATION,
+      TIMED_OUT,
     }
 
   def as_record(self):
@@ -105,6 +113,26 @@ class TargetRun:
           {"index": index, "interpreter_bits": first, "compiled_bits": second}
           for index, first, second in self.mismatches
         ],
+      },
+      "legality": {
+        # Three separate facts. The frontend and the input/layout checks were
+        # established before the first process started; concrete legality is
+        # what the run itself established, and a missing comparison leaves it
+        # unresolved rather than accepted.
+        "frontend": {
+          "status": "accepted",
+          "entry": self.case.record["entry"] if self.case is not None else None,
+          "signature": self.case.signature if self.case is not None else None,
+        },
+        "input_and_layout": {
+          "status": "valid",
+          "guard_envelope": (
+            self.case.record["execution"]["guard_envelope"]
+            if self.case is not None
+            else None
+          ),
+        },
+        "concrete_execution": {"status": _concrete_legality(self.status)},
       },
       "reference": {"kind": "none"},
     }
@@ -180,6 +208,7 @@ def run(
     kernel=kernel_path,
   )
 
+  expected_output_bytes = case.record["output"]["byte_length"]
   interpreter = _run_mode(
     case,
     "interpret",
@@ -188,6 +217,7 @@ def run(
     emission=emission,
     timeout_s=timeout_s,
     worker_command=worker_command,
+    expected_output_bytes=expected_output_bytes,
   )
   visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
   if not visible:
@@ -211,6 +241,7 @@ def run(
       worker_command=worker_command,
       device_id=device_id,
       cache_dir=cache_dir,
+      expected_output_bytes=expected_output_bytes,
     )
 
   status, mismatches = _classify(interpreter, compiled)
@@ -245,6 +276,7 @@ def _run_mode(
   worker_command,
   device_id=None,
   cache_dir=None,
+  expected_output_bytes=None,
 ):
   """Stage the recorded kernel and run one mode in a fresh process."""
   mode_dir = artifacts / mode
@@ -294,6 +326,7 @@ def _run_mode(
       actual=_actual(mode_dir),
       stderr=stderr,
       log=_relative(log_path, artifacts),
+      reason="the worker exceeded its time budget",
     )
   except OSError as error:
     raise tensor_emission.EmissionRefused(f"cannot start the {mode} worker: {error}") from error
@@ -301,16 +334,23 @@ def _run_mode(
   log_path.write_text(stderr, encoding="utf-8")
   phase = _phase(mode_dir)
   actual = _actual(mode_dir)
+  status, reason = _mode_status(
+    mode,
+    exit_code=completed.returncode,
+    phase=phase,
+    stderr=stderr,
+    actual=actual,
+    expected_output_bytes=expected_output_bytes,
+  )
   return ModeRun(
     mode=mode,
-    status=_mode_status(
-      mode, exit_code=completed.returncode, phase=phase, stderr=stderr, actual=actual
-    ),
+    status=status,
     exit_code=completed.returncode,
     phase=phase,
     actual=actual,
     stderr=stderr,
     log=_relative(log_path, artifacts),
+    reason=reason,
   )
 
 
@@ -336,17 +376,25 @@ def _actual(mode_dir):
     return None
 
 
-def _mode_status(mode, *, exit_code, phase, stderr, actual):
+def _mode_status(mode, *, exit_code, phase, stderr, actual, expected_output_bytes=None):
+  """One mode's status and, for a refusal, why it has that status."""
   lowered = stderr.lower()
   if any(marker in lowered for marker in STORAGE_MARKERS):
-    return STORAGE_VIOLATION
+    return STORAGE_VIOLATION, ""
   if exit_code == 0:
-    return COMPLETED if actual is not None else RUNTIME_FAILURE
-  if mode == "interpret" and UNSUPPORTED_MARKER in lowered:
-    return INTERPRETER_UNSUPPORTED
+    if actual is None:
+      return RUNTIME_FAILURE, "the run left no output"
+    if expected_output_bytes is not None and len(actual) != expected_output_bytes:
+      return (
+        RUNTIME_FAILURE,
+        f"output is {len(actual)} bytes, expected {expected_output_bytes}",
+      )
+    return COMPLETED, ""
+  if mode == "interpret" and any(marker in lowered for marker in UNSUPPORTED_MARKERS):
+    return INTERPRETER_UNSUPPORTED, ""
   if phase == "compilation":
-    return COMPILE_FAILURE
-  return RUNTIME_FAILURE
+    return COMPILE_FAILURE, ""
+  return RUNTIME_FAILURE, ""
 
 
 def _classify(interpreter, compiled):
@@ -370,19 +418,40 @@ def _classify(interpreter, compiled):
 
 
 def _differences(left, right):
-  """The first differing words of two output buffers, as raw bits."""
+  """The first differing words of two output buffers, as raw bits.
+
+  Every byte of the buffer is compared, including a trailing partial word, so
+  two buffers of one length cannot agree on bytes the word loop never read.
+  """
   if len(left) != len(right):
     return ((0, f"length={len(left)}", f"length={len(right)}"),)
   differences = []
-  for index in range(0, min(len(left), len(right)) - 3, 4):
-    if left[index : index + 4] == right[index : index + 4]:
+  for index in range(0, len(left), 4):
+    first_bytes = left[index : index + 4]
+    second_bytes = right[index : index + 4]
+    if first_bytes == second_bytes:
       continue
-    first = int.from_bytes(left[index : index + 4], "little")
-    second = int.from_bytes(right[index : index + 4], "little")
+    first = int.from_bytes(first_bytes.ljust(4, b"\0"), "little")
+    second = int.from_bytes(second_bytes.ljust(4, b"\0"), "little")
     differences.append((index // 4, f"0x{first:08x}", f"0x{second:08x}"))
     if len(differences) == MAX_REPORTED_MISMATCHES:
       break
   return tuple(differences)
+
+
+def _concrete_legality(status):
+  """What the run established about concrete execution.
+
+  Agreement and disagreement both came from completed executions, so either is
+  an established concrete result. A storage violation is a violated one. Every
+  incomplete path leaves it unresolved; frontend acceptance alone never
+  establishes it.
+  """
+  if status in (TARGET_AGREEMENT, TARGET_DISAGREEMENT):
+    return "established"
+  if status == STORAGE_VIOLATION:
+    return "violated"
+  return "unresolved"
 
 
 def _agreement_kind(interpreter, compiled):

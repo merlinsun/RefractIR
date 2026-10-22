@@ -47,6 +47,7 @@ INPUT_DATA = (1.0, 2.0, 3.0, 4.0)
 INPUT_BYTES = struct.pack("<4f", *INPUT_DATA)
 # Each parameter is one dense [2, 2] f32 tensor.
 INPUT_RECORD = {"name": "%x", "dtype": "f32", **LAYOUT, "data": INPUT_BYTES}
+SECOND_INPUT_RECORD = {"name": "%y", "dtype": "f32", **LAYOUT, "data": INPUT_BYTES}
 OUTPUT_RECORD = {"name": "return", "dtype": "f32", **LAYOUT}
 LAUNCH = {"num_warps": 4, "num_stages": 1, "enable_fp_fusion": False}
 EXECUTION = {
@@ -59,9 +60,22 @@ EXECUTION = {
 AGREE = (1.0, 6.0, 3.0, 12.0)
 AGREE_HEX = struct.pack("<4f", *AGREE).hex()
 
-STUB_SYMIRI = """\
+STUB_SYMBOLS = """\
+import json
 import sys
-raise SystemExit(0)
+
+print(
+    json.dumps(
+        {
+            "entry": "kernel",
+            "inputs": [
+                {"name": "x", "dtype": "f32", "shape": [2, 2], "byte_length": 16},
+                {"name": "y", "dtype": "f32", "shape": [2, 2], "byte_length": 16},
+            ],
+            "output": {"name": "return", "dtype": "f32", "shape": [2, 2], "byte_length": 16},
+        }
+    )
+)
 """
 
 STUB_SYMIRC = """\
@@ -111,7 +125,7 @@ class TargetRunTests(unittest.TestCase):
     self.directory = tempfile.TemporaryDirectory()
     self.addCleanup(self.directory.cleanup)
     root = Path(self.directory.name)
-    self.symiri = _write_script(root / "symiri", STUB_SYMIRI)
+    self.symiri = _write_script(root / "symiri", STUB_SYMBOLS)
     self.symirc = _write_script(root / "symirc", STUB_SYMIRC)
     self.worker = _write_script(root / "worker.py", STUB_WORKER)
     self.config = root / "worker.json"
@@ -124,7 +138,7 @@ class TargetRunTests(unittest.TestCase):
   def write_bundle(self, **fields):
     arguments = {
       "source": SOURCE,
-      "inputs": [INPUT_RECORD],
+      "inputs": [INPUT_RECORD, SECOND_INPUT_RECORD],
       "output": OUTPUT_RECORD,
       "launch": LAUNCH,
       "execution": EXECUTION,
@@ -212,7 +226,13 @@ class TargetRunTests(unittest.TestCase):
         "compiled": {"phase": "runtime", "sleep": 2, "actual": AGREE_HEX},
       }
     )
-    self.assertEqual(self.run_target(timeout_s=0.2).status, tensor_target_run.TIMED_OUT)
+    timed_out = self.run_target(timeout_s=0.2)
+    self.assertEqual(timed_out.status, tensor_target_run.TIMED_OUT)
+    self.assertTrue(
+      timed_out.candidate,
+      "a timeout is an incomplete observation that needs diagnosis",
+    )
+    self.assertTrue(timed_out.as_record()["candidate"])
 
   def test_a_storage_violation_is_classified_before_a_runtime_failure(self):
     self.write_bundle()
@@ -243,6 +263,24 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(run.interpreter.status, tensor_target_run.INTERPRETER_UNSUPPORTED)
     self.assertFalse(run.candidate)
     self.assertEqual(run.as_record()["agreement"]["kind"], "unavailable")
+
+
+  def test_an_interpreter_that_reports_not_supported_is_not_runtime_failure(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {
+          "phase": "runtime",
+          "stderr": "InterpreterError: NotImplementedError('inline_asm not supported in interpreter mode')",
+          "exit": 1,
+        },
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    run = self.run_target()
+    self.assertEqual(run.interpreter.status, tensor_target_run.INTERPRETER_UNSUPPORTED)
+    self.assertEqual(run.status, tensor_target_run.COMPARISON_UNAVAILABLE)
+    self.assertFalse(run.candidate)
 
   def test_a_target_disagreement_is_preserved_as_a_candidate(self):
     self.write_bundle()
@@ -302,6 +340,87 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(run.status, tensor_target_run.ENVIRONMENT_UNAVAILABLE)
     self.assertEqual(run.compiled.status, tensor_target_run.ENVIRONMENT_UNAVAILABLE)
     self.assertFalse(run.candidate)
+
+
+  def test_a_short_output_is_a_runtime_failure_not_an_agreement(self):
+    self.write_bundle()
+    short = struct.pack("<f", 1.0).hex()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": short},
+        "compiled": {"phase": "runtime", "actual": short},
+      }
+    )
+    run = self.run_target()
+    self.assertEqual(run.status, tensor_target_run.RUNTIME_FAILURE)
+    self.assertTrue(run.candidate)
+    self.assertEqual(run.interpreter.status, tensor_target_run.RUNTIME_FAILURE)
+    self.assertEqual(run.interpreter.reason, "output is 4 bytes, expected 16")
+    record = run.as_record()
+    self.assertEqual(record["compiled"]["reason"], "output is 4 bytes, expected 16")
+    self.assertNotEqual(record["agreement"]["kind"], "identical-bytes")
+
+  def test_two_different_short_outputs_are_not_reported_as_agreement(self):
+    self.write_bundle()
+    first = struct.pack("<f", 1.0).hex()
+    second = struct.pack("<f", 2.0).hex()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": first},
+        "compiled": {"phase": "runtime", "actual": second},
+      }
+    )
+    run = self.run_target()
+    self.assertEqual(run.status, tensor_target_run.RUNTIME_FAILURE)
+    self.assertNotEqual(run.as_record()["agreement"]["kind"], "identical-bytes")
+
+  def test_every_byte_of_a_word_is_compared(self):
+    first = b"\x01\x02\x03\x04\x05\x06"
+    second = b"\x01\x02\x03\x04\x05\x07"
+    differences = tensor_target_run._differences(first, second)
+    self.assertEqual(len(differences), 1)
+    self.assertEqual(differences[0][0], 1)
+    self.assertEqual(differences[0][1], "0x00000605")
+    self.assertEqual(differences[0][2], "0x00000705")
+
+
+  def test_the_record_separates_frontend_input_and_concrete_legality(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    agreement = self.run_target().as_record()["legality"]
+    self.assertEqual(agreement["frontend"]["status"], "accepted")
+    self.assertEqual(agreement["frontend"]["signature"]["entry"], "kernel")
+    self.assertEqual(agreement["input_and_layout"]["status"], "valid")
+    self.assertEqual(agreement["concrete_execution"]["status"], "established")
+
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {
+          "phase": "runtime",
+          "stderr": "RuntimeError: kernel wrote outside its logical output mapping: [3]",
+          "exit": 1,
+        },
+      }
+    )
+    violated = self.run_target().as_record()["legality"]
+    self.assertEqual(violated["frontend"]["status"], "accepted")
+    self.assertEqual(violated["concrete_execution"]["status"], "violated")
+
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "stderr": "RuntimeError: unsupported op", "exit": 1},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    unresolved = self.run_target().as_record()["legality"]
+    self.assertEqual(unresolved["frontend"]["status"], "accepted")
+    self.assertEqual(unresolved["concrete_execution"]["status"], "unresolved")
 
   def test_a_bundle_with_a_reference_is_refused_before_any_run(self):
     self.write_bundle()

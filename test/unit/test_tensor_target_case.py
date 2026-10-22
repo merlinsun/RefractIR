@@ -84,15 +84,33 @@ EXECUTION = {
 
 _STUB_DIRECTORY = None
 
+# What the native frontend describes for VALID_SOURCE.
+SIGNATURE = {
+  "entry": "kernel",
+  "inputs": [{"name": "x", "dtype": "f32", "shape": [2, 2], "byte_length": 16}],
+  "output": {"name": "return", "dtype": "f32", "shape": [2, 2], "byte_length": 16},
+}
+
+
+def _frontend_script(directory, signature):
+  """A stub frontend that describes one stated signature."""
+  executable = Path(directory) / "symiri"
+  executable.write_text(
+    "#!/usr/bin/env python3\n"
+    "import json\n"
+    f"print(json.dumps({signature!r}))\n",
+    encoding="utf-8",
+  )
+  executable.chmod(0o755)
+  return executable
+
 
 def _stub_frontend():
   """A frontend that accepts every source, for tests about the bundle format."""
   global _STUB_DIRECTORY
   if _STUB_DIRECTORY is None:
     _STUB_DIRECTORY = tempfile.TemporaryDirectory()
-    executable = Path(_STUB_DIRECTORY.name) / "symiri"
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(0o755)
+    _frontend_script(_STUB_DIRECTORY.name, SIGNATURE)
   return Path(_STUB_DIRECTORY.name) / "symiri"
 
 
@@ -209,7 +227,15 @@ class TargetOnlyBundleTests(unittest.TestCase):
       profile="tensor-v3",
     )
 
-    case = self._load()
+    v3_signature = {
+      "entry": "kernel",
+      "inputs": [{"name": "x", "dtype": "f32", "shape": [3], "byte_length": 12}],
+      "output": {"name": "return", "dtype": "f32", "shape": [3], "byte_length": 12},
+    }
+    frontend = (
+      SYMIRI if SYMIRI.is_file() else _frontend_script(self.directory.name, v3_signature)
+    )
+    case = self._load(symiri=frontend)
 
     self.assertEqual(case.record, written.record)
     self.assertEqual(case.record["profile"], "tensor-v3")
@@ -240,6 +266,56 @@ class TargetOnlyBundleTests(unittest.TestCase):
 
     self.assertEqual(raised.exception.status, "digest_mismatch")
     self.assertIn("inputs.bin", str(raised.exception))
+
+
+  def test_the_loader_records_the_described_signature(self):
+    _bundle(self.root)
+    case = self._load(symiri=_frontend_script(self.directory.name, SIGNATURE))
+    self.assertEqual(case.signature, SIGNATURE)
+
+  def test_a_signature_with_another_input_count_is_refused(self):
+    _bundle(self.root)
+    signature = dict(SIGNATURE)
+    signature["inputs"] = SIGNATURE["inputs"] + [
+      {"name": "y", "dtype": "f32", "shape": [2, 2], "byte_length": 16}
+    ]
+    with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+      self._load(symiri=_frontend_script(self.directory.name, signature))
+    self.assertEqual(raised.exception.status, "signature_mismatch")
+    self.assertIn("parameters", str(raised.exception))
+
+  def test_a_signature_with_another_parameter_type_is_refused(self):
+    _bundle(self.root)
+    for field, value in (
+      ("dtype", "i32"),
+      ("shape", [3]),
+      ("name", "y"),
+    ):
+      with self.subTest(field=field):
+        signature = copy.deepcopy(SIGNATURE)
+        signature["inputs"][0][field] = value
+        with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+          self._load(symiri=_frontend_script(self.directory.name, signature))
+        self.assertEqual(raised.exception.status, "signature_mismatch")
+
+  def test_a_signature_with_another_return_shape_is_refused(self):
+    signature = copy.deepcopy(SIGNATURE)
+    signature["output"]["shape"] = [4]
+    _bundle(self.root)
+    with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+      self._load(symiri=_frontend_script(self.directory.name, signature))
+    self.assertEqual(raised.exception.status, "signature_mismatch")
+    self.assertIn("return shape", str(raised.exception))
+
+  def test_a_frontend_that_describes_nothing_is_refused(self):
+    _bundle(self.root)
+    executable = Path(self.directory.name) / "silent-symiri"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+      self._load(symiri=executable)
+    self.assertEqual(raised.exception.status, "invalid_source")
+    self.assertIn("did not describe", str(raised.exception))
 
   def test_an_input_byte_length_that_disagrees_with_its_signature_is_refused(self):
     _bundle(self.root)

@@ -42,6 +42,7 @@ UNSUPPORTED_GRID = "unsupported_grid"
 INVALID_SOURCE = "invalid_source"
 FRONTEND_UNAVAILABLE = "frontend_unavailable"
 REFERENCE_NOT_ALLOWED = "reference_not_allowed"
+SIGNATURE_MISMATCH = "signature_mismatch"
 
 _HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _HEX_8 = re.compile(r"[0-9a-fA-F]{8}\Z")
@@ -79,6 +80,7 @@ class TargetCase:
   record: dict
   source: str
   inputs: bytes
+  signature: dict | None = None
 
   @property
   def manifest(self):
@@ -127,8 +129,15 @@ def load(bundle_dir, *, symiri=None):
     raise TargetCaseError(
       INVALID_SOURCE, f"program.sir is not UTF-8 text: {error}"
     ) from error
-  _check_frontend(manifest["profile"], root=root, symiri=symiri)
-  return TargetCase(path=root, record=manifest, source=source, inputs=inputs_bytes)
+  signature = _check_frontend(manifest["profile"], root=root, symiri=symiri)
+  _validate_signature(manifest, signature)
+  return TargetCase(
+    path=root,
+    record=manifest,
+    source=source,
+    inputs=inputs_bytes,
+    signature=signature,
+  )
 
 
 def write(
@@ -553,7 +562,13 @@ def _validate_execution(execution, *, launch):
 
 
 def _check_frontend(profile, *, root, symiri):
-  """Check program.sir with the native frontend for the bundle's profile."""
+  """Check program.sir and return the signature the frontend describes.
+
+  One `--tensor-describe` call both validates the source and states the
+  parameter and return types, so the manifest can be compared with what the
+  source actually declares rather than with a record that happens to be
+  internally consistent.
+  """
   executable = _frontend_path(symiri).resolve()
   _require(
     executable.is_file(),
@@ -564,7 +579,9 @@ def _check_frontend(profile, *, root, symiri):
     completed = subprocess.run(
       [
         str(executable),
-        "--check",
+        "--entry",
+        ENTRY,
+        "--tensor-describe",
         "--tensor-profile-version",
         PROFILES[profile],
         PROGRAM_FILE,
@@ -580,14 +597,91 @@ def _check_frontend(profile, *, root, symiri):
     raise TargetCaseError(
       FRONTEND_UNAVAILABLE, f"cannot run the native frontend: {error}"
     ) from error
-  if completed.returncode == 0:
-    return
-  diagnostic = completed.stderr.strip() or completed.stdout.strip()
-  if not diagnostic:
-    diagnostic = f"exit status {completed.returncode}"
-  raise TargetCaseError(
-    INVALID_SOURCE, f"the native frontend rejected program.sir: {diagnostic}"
+  if completed.returncode != 0:
+    diagnostic = completed.stderr.strip() or completed.stdout.strip()
+    if not diagnostic:
+      diagnostic = f"exit status {completed.returncode}"
+    raise TargetCaseError(
+      INVALID_SOURCE, f"the native frontend rejected program.sir: {diagnostic}"
+    )
+  try:
+    signature = json.loads(completed.stdout)
+  except json.JSONDecodeError as error:
+    raise TargetCaseError(
+      INVALID_SOURCE, f"the native frontend did not describe program.sir: {error}"
+    ) from error
+  if (
+    not isinstance(signature, dict)
+    or not isinstance(signature.get("inputs"), list)
+    or not isinstance(signature.get("output"), dict)
+  ):
+    raise TargetCaseError(
+      INVALID_SOURCE, "the native frontend described no input and output signature"
+    )
+  return signature
+
+
+def _validate_signature(manifest, signature):
+  """Require the manifest to state the signature the source declares."""
+  _require(
+    signature.get("entry") == manifest["entry"],
+    SIGNATURE_MISMATCH,
+    f"source entry {signature.get('entry')!r} differs from the manifest entry "
+    f"{manifest['entry']!r}",
   )
+  described = signature["inputs"]
+  records = manifest["inputs"]
+  _require(
+    len(described) == len(records),
+    SIGNATURE_MISMATCH,
+    f"source declares {len(described)} parameters, the manifest states {len(records)} inputs",
+  )
+  for index, (parameter, record) in enumerate(zip(described, records)):
+    _object(parameter, f"described parameter {index}")
+    _require(
+      _plain_name(parameter.get("name")) == _plain_name(record["name"]),
+      SIGNATURE_MISMATCH,
+      f"parameter {index} is named {parameter.get('name')!r} in the source and "
+      f"{record['name']!r} in the manifest",
+    )
+    _require(
+      parameter.get("dtype") == record["dtype"],
+      SIGNATURE_MISMATCH,
+      f"parameter {index} dtype {parameter.get('dtype')!r} differs from the manifest "
+      f"{record['dtype']!r}",
+    )
+    _require(
+      list(parameter.get("shape") or []) == list(record["shape"]),
+      SIGNATURE_MISMATCH,
+      f"parameter {index} shape {parameter.get('shape')!r} differs from the manifest "
+      f"{record['shape']!r}",
+    )
+  output = signature["output"]
+  _object(output, "described output")
+  _require(
+    output.get("name") == "return",
+    SIGNATURE_MISMATCH,
+    f"source return is named {output.get('name')!r}",
+  )
+  _require(
+    output.get("dtype") == manifest["output"]["dtype"],
+    SIGNATURE_MISMATCH,
+    f"return dtype {output.get('dtype')!r} differs from the manifest "
+    f"{manifest['output']['dtype']!r}",
+  )
+  _require(
+    list(output.get("shape") or []) == list(manifest["output"]["shape"]),
+    SIGNATURE_MISMATCH,
+    f"return shape {output.get('shape')!r} differs from the manifest "
+    f"{manifest['output']['shape']!r}",
+  )
+
+
+def _plain_name(name):
+  """A local name without its sigil, as the described signature spells it."""
+  if not isinstance(name, str):
+    return name
+  return name[1:] if name.startswith(("%", "@", "^")) else name
 
 
 def _frontend_path(symiri):
