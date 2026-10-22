@@ -1,12 +1,13 @@
 """Contract tests for the tensor window operation's surface syntax."""
 
 import os
+import struct
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from test.unit.tensor_support import SYMIRI, check_source
+from test.unit.tensor_support import SYMIRI, check_source, run_typed
 
 ROOT = Path(__file__).resolve().parents[2]
 WINDOW_API = Path(
@@ -157,6 +158,93 @@ fun @kernel(%src: tensor [8, 2] f32, %i: i32) : tensor [8, 2] f32 {
 """
     result = self.check(source)
     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+WINDOW_INTERP_SOURCE = """\
+fun @kernel(%src: tensor [8] f32, %i: i32) : tensor [4] f32 {
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, %i, 0.0, [4, 1, 8];
+  ret %w;
+}
+"""
+
+WINDOW_FILL_SOURCE = """\
+fun @kernel(%src: tensor [8] f32, %i: i32) : tensor [4] f32 {
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, %i, -1.0, [4, 1, 2];
+  ret %w;
+}
+"""
+
+WINDOW_STRIDE_SOURCE = """\
+fun @kernel(%src: tensor [8] f32, %i: i32) : tensor [4] f32 {
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, %i, 0.0, [4, 2, 8];
+  ret %w;
+}
+"""
+
+WINDOW_TILE_SOURCE = """\
+fun @kernel(%src: tensor [8, 2] f32, %i: i32) : tensor [8, 2] f32 {
+  let mut %tile: tensor [1, 2] f32 = undef;
+  let mut %state: tensor [8, 2] f32 = undef;
+^entry:
+  %tile = tensor window %src, %i, 0.0, [1, 1, 8];
+  %state = tensor broadcast %tile, [8, 2];
+  ret %state;
+}
+"""
+
+SOURCE_VALUES = (10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0)
+
+
+def window_inputs(index, values=SOURCE_VALUES):
+  return struct.pack(f"<{len(values)}f", *values) + struct.pack("<i", index)
+
+
+@unittest.skipUnless(SYMIRI.is_file(), "symiri executable not found")
+class TensorWindowInterpreterTests(unittest.TestCase):
+  def run_window(self, source, index):
+    result, output = run_typed(source, window_inputs(index), tensor_profile="v2")
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    return struct.unpack(f"<{len(output) // 4}f", output)
+
+  def test_window_reads_the_active_rows(self):
+    self.assertEqual(self.run_window(WINDOW_INTERP_SOURCE, 0), (10.0, 20.0, 30.0, 40.0))
+    self.assertEqual(self.run_window(WINDOW_INTERP_SOURCE, 1), (20.0, 30.0, 40.0, 50.0))
+
+  def test_window_fills_inactive_rows(self):
+    self.assertEqual(self.run_window(WINDOW_FILL_SOURCE, 0), (10.0, 20.0, -1.0, -1.0))
+
+  def test_window_stride_selects_rows(self):
+    # The stride advances the block start: index 1 with stride 2 begins at row 2.
+    self.assertEqual(self.run_window(WINDOW_STRIDE_SOURCE, 1), (30.0, 40.0, 50.0, 60.0))
+
+  def test_window_negative_index_is_ub(self):
+    result, _ = run_typed(WINDOW_INTERP_SOURCE, window_inputs(-1), tensor_profile="v2")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("UB", result.stderr)
+
+  def test_window_large_index_masks_to_fill_without_access(self):
+    values = struct.unpack("<4f", struct.pack("<4f", -1.0, -1.0, -1.0, -1.0))
+    result, output = run_typed(
+      WINDOW_FILL_SOURCE.replace("[4, 1, 2]", "[4, 4, 8]"),
+      window_inputs(2**31 - 1),
+      tensor_profile="v2",
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertEqual(struct.unpack("<4f", output), values)
+
+  def test_window_row_tile_broadcasts_to_the_state(self):
+    values = [float(value) for value in range(1, 17)]
+    input_bytes = struct.pack("<16f", *values) + struct.pack("<i", 3)
+    result, output = run_typed(WINDOW_TILE_SOURCE, input_bytes, tensor_profile="v2")
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    row = (7.0, 8.0)
+    self.assertEqual(struct.unpack("<16f", output), row * 8)
 
 
 if __name__ == "__main__":

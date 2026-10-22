@@ -184,7 +184,8 @@ namespace refractir {
     const auto resultType = tensorTypeInfo(arg.resolvedType);
     const bool numerical = resultType.element == TensorElement::F32 && arg.op != TensorOp::Iota &&
                            arg.op != TensorOp::Extract && arg.op != TensorOp::Expand &&
-                           arg.op != TensorOp::Broadcast && arg.op != TensorOp::Transpose;
+                           arg.op != TensorOp::Broadcast && arg.op != TensorOp::Transpose &&
+                           arg.op != TensorOp::Window;
     auto result = numerical ? evalTensorNumeric(arg, operands, resultType, tensorReferenceBits())
                             : evalTensorExact(arg, operands, resultType);
     traceTensorValue(arg.span, result);

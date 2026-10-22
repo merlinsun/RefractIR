@@ -310,6 +310,58 @@ namespace refractir {
       return tensorOrScalar(resultType.shape, std::move(output));
     }
 
+
+    if (atom.op == TensorOp::Window) {
+      if (operands.size() != 2)
+        throw std::runtime_error("tensor window expects an index operand");
+      const auto &source = operands[0];
+      const auto &index = operands[1];
+      if (source.kind != RuntimeValue::Kind::Tensor)
+        throw std::runtime_error("tensor window source is not a tensor");
+      if (index.kind != RuntimeValue::Kind::Int || index.bits != 32)
+        throw std::runtime_error("tensor window index is not i32");
+      if (index.intVal < 0)
+        throw UndefinedBehaviorError("UB: negative tensor window index");
+      if (!atom.fill)
+        throw std::runtime_error("tensor window has no fill literal");
+      RuntimeValue fill;
+      if (const auto *literal = std::get_if<IntLit>(&*atom.fill)) {
+        fill.kind = RuntimeValue::Kind::Int;
+        fill.bits = 32;
+        fill.intVal = literal->value;
+      } else if (const auto *literal = std::get_if<FloatLit>(&*atom.fill)) {
+        fill.kind = RuntimeValue::Kind::Float;
+        fill.bits = 32;
+        fill.floatVal = literal->value;
+      } else {
+        throw std::runtime_error("tensor window fill is not a literal");
+      }
+      fill = normalizeScalar(std::move(fill), resultType.element);
+      const auto rows = atom.attribute.size() == 3 ? atom.attribute[0] : 0;
+      const auto stride = atom.attribute.size() == 3 ? atom.attribute[1] : 0;
+      const auto active = atom.attribute.size() == 3 ? atom.attribute[2] : 0;
+      if (resultType.shape.empty() || resultType.shape.front() != rows)
+        throw std::runtime_error("tensor window result shape does not match its rows");
+      const auto base = static_cast<std::uint64_t>(index.intVal) *
+                        static_cast<std::uint64_t>(stride);
+      std::vector<RuntimeValue> output;
+      output.reserve(tensorElementCount(resultType.shape));
+      for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
+        const auto coords = coordinates(i, resultType.shape);
+        const auto address = base + coords.front();
+        if (address < active) {
+          Coords sourceCoords = coords;
+          sourceCoords.front() = static_cast<std::uint32_t>(address);
+          output.push_back(
+              normalizeScalar(scalarAt(source, sourceCoords, source.tensorShape), resultType.element)
+          );
+        } else {
+          output.push_back(fill);
+        }
+      }
+      return tensorOrScalar(resultType.shape, std::move(output));
+    }
+
     if (atom.op == TensorOp::Add || atom.op == TensorOp::Sub || atom.op == TensorOp::Mul ||
         atom.op == TensorOp::Min || atom.op == TensorOp::Max || atom.op == TensorOp::And ||
         atom.op == TensorOp::Or || atom.op == TensorOp::Xor) {
