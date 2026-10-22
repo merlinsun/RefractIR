@@ -303,7 +303,7 @@ test-tensor-free-form: $(TARGET_INTERP) $(TENSOR_FREE_FORM_API) $(TENSOR_FREE_FO
 	  $(PY) -m unittest test.unit.test_tensor_free_form \
 	    test.unit.test_tensor_free_form_inputs test.unit.test_tensor_free_form_case \
 	    test.unit.test_tensor_target_case test.unit.test_tensor_target_run \
-	    test.unit.test_tensor_state_diagnostics
+	    test.unit.test_tensor_target_reference test.unit.test_tensor_state_diagnostics
 
 TENSOR_GRAPH_REGION_API = $(BIN_DIR)/tensor_graph_region_api
 TENSOR_GRAPH_REGION_EXPORT = $(BIN_DIR)/tensor_graph_region_export
