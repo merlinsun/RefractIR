@@ -42,7 +42,11 @@ namespace refractir::reify {
   enum class FreeFormRole : std::uint8_t { State, Invariant };
 
   /// What initializes an enclosing local before the loop starts.
-  enum class FreeFormInit : std::uint8_t { RuntimeInput, Zero };
+  enum class FreeFormInit : std::uint8_t { RuntimeInput, Zero, Window };
+
+  /// The literal kind a window fill uses. The element type decides which one
+  /// is admissible.
+  enum class FreeFormFillKind : std::uint8_t { Integer, Float };
 
   /// One typed region input together with its loop role and initialization.
   struct FreeFormInput {
@@ -224,6 +228,20 @@ namespace refractir::reify {
   [[nodiscard]] FreeFormRegion buildFreeFormRegion(const FreeFormRequest &request);
 
   /// One counted loop assembled from a region.
+  /// One window production: the invariant it writes each trip, the runtime
+  /// parameter it reads, the induction variable, and the literal fill.
+  struct FreeFormWindow {
+    std::string result;
+    std::string source;
+    std::string index = "%i";
+    FreeFormFillKind fillKind = FreeFormFillKind::Float;
+    std::int64_t fillInteger = 0;
+    double fillFloat = 0.0;
+    std::uint32_t rows = 0;
+    std::uint32_t stride = 0;
+    std::uint32_t active = 0;
+  };
+
   struct FreeFormLoop {
     std::string entry = "kernel";
     /// The region's inputs, with the role and initialization each one has.
@@ -240,7 +258,17 @@ namespace refractir::reify {
     /// Locals the enclosing function already owns, so region temporaries and
     /// snapshots do not reuse them.
     std::vector<std::string> reservedNames{"%i", "%out"};
+    /// Window productions, one per window-initialized invariant.
+    std::vector<FreeFormWindow> windows;
   };
+
+  /// Check the windows a loop states before any text is emitted. Throws
+  /// std::invalid_argument when a window-initialized invariant lacks a window
+  /// or has more than one, when the source is not a runtime parameter, when
+  /// the index is not the induction variable, when an update targets the
+  /// window result, when the rows, stride, or active bound leave the source,
+  /// or when the fill kind and result type disagree.
+  void validateFreeFormWindows(const FreeFormLoop &loop);
 
   /// Assemble the region into one counted loop. Throws std::invalid_argument
   /// when an update targets an invariant or a state twice, when a result is

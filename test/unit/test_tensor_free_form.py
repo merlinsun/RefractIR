@@ -157,6 +157,25 @@ class FreeFormContractTests(unittest.TestCase):
   def test_assembly_never_reports_a_compiled_mask(self):
     self.run_contract("window-facts-mask-not-observed")
 
+  def test_a_window_needs_a_window_initialized_invariant(self):
+    self.run_contract("window-init-requires-declared-invariant")
+
+  def test_a_window_source_must_be_a_runtime_parameter(self):
+    self.run_contract("window-source-must-be-a-parameter")
+
+  def test_a_window_index_must_be_the_induction_variable(self):
+    self.run_contract("window-index-must-be-the-induction-variable")
+
+  def test_an_update_cannot_target_a_window_result(self):
+    self.run_contract("window-cannot-be-a-state-destination")
+
+  def test_a_window_range_must_fit_the_source(self):
+    self.run_contract("window-range-must-fit-the-source")
+
+  def test_two_windows_may_share_one_source(self):
+    self.run_contract("two-windows-share-one-source")
+
+
 
 
 

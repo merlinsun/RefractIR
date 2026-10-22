@@ -980,6 +980,75 @@ namespace {
       );
   }
 
+  FreeFormLoop windowLoop() {
+    FreeFormLoop loop;
+    loop.inputs = {
+        state("%acc_x", {2, 2}, "%x"),
+        zeroState("%acc_y", {2, 2}),
+        FreeFormInput{
+            TensorRegionInput{"%source", type({4, 2})}, FreeFormRole::Invariant,
+            FreeFormInit::RuntimeInput, "%src"},
+        FreeFormInput{
+            TensorRegionInput{"%tile", type({2, 2})}, FreeFormRole::Invariant,
+            FreeFormInit::Window, ""},
+    };
+    loop.results = {"%next_x", "%next_y"};
+    loop.updates = {{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
+    loop.finalTerms = {"%acc_x", "%acc_y"};
+    FreeFormWindow window;
+    window.result = "%tile";
+    window.source = "%src";
+    window.fillKind = FreeFormFillKind::Float;
+    window.fillFloat = 0.0;
+    window.rows = 2;
+    window.stride = 1;
+    window.active = 4;
+    loop.windows = {window};
+    return loop;
+  }
+
+  void windowInitRequiresDeclaredInvariant() {
+    auto loop = windowLoop();
+    loop.windows.front().result = "%missing";
+    requireInvalid([&] { validateFreeFormWindows(loop); }, "window-initialized input");
+  }
+
+  void windowSourceMustBeAParameter() {
+    auto loop = windowLoop();
+    loop.windows.front().source = "%source";
+    requireInvalid([&] { validateFreeFormWindows(loop); }, "runtime parameter");
+  }
+
+  void windowIndexMustBeTheInductionVariable() {
+    auto loop = windowLoop();
+    loop.windows.front().index = "%k";
+    requireInvalid([&] { validateFreeFormWindows(loop); }, "induction variable");
+  }
+
+  void windowCannotBeAStateDestination() {
+    auto loop = windowLoop();
+    loop.updates = {{"%tile", "%next_x"}, {"%acc_y", "%next_y"}};
+    requireInvalid([&] { validateFreeFormWindows(loop); }, "cannot target");
+  }
+
+  void windowRangeMustFitTheSource() {
+    auto loop = windowLoop();
+    loop.windows.front().rows = 4;
+    loop.windows.front().stride = 2;
+    requireInvalid([&] { validateFreeFormWindows(loop); }, "fit the source extent");
+  }
+
+  void twoWindowsShareOneSource() {
+    auto loop = windowLoop();
+    loop.inputs.push_back(FreeFormInput{
+        TensorRegionInput{"%tile_b", type({2, 2})}, FreeFormRole::Invariant,
+        FreeFormInit::Window, ""});
+    auto second = loop.windows.front();
+    second.result = "%tile_b";
+    loop.windows.push_back(second);
+    validateFreeFormWindows(loop);
+  }
+
   std::string threeStateSource() {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
@@ -1071,6 +1140,18 @@ int main(int argc, char **argv) {
       windowFactsPaddedV3();
     else if (name == "window-facts-mask-not-observed")
       windowFactsMaskNotObserved();
+    else if (name == "window-init-requires-declared-invariant")
+      windowInitRequiresDeclaredInvariant();
+    else if (name == "window-source-must-be-a-parameter")
+      windowSourceMustBeAParameter();
+    else if (name == "window-index-must-be-the-induction-variable")
+      windowIndexMustBeTheInductionVariable();
+    else if (name == "window-cannot-be-a-state-destination")
+      windowCannotBeAStateDestination();
+    else if (name == "window-range-must-fit-the-source")
+      windowRangeMustFitTheSource();
+    else if (name == "two-windows-share-one-source")
+      twoWindowsShareOneSource();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;

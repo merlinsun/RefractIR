@@ -1045,6 +1045,76 @@ namespace refractir::reify {
 
   } // namespace
 
+  void validateFreeFormWindows(const FreeFormLoop &loop) {
+    std::unordered_map<std::string, std::size_t> parameters;
+    std::unordered_map<std::string, std::size_t> windowInputs;
+    for (std::size_t index = 0; index < loop.inputs.size(); ++index) {
+      const auto &input = loop.inputs[index];
+      if (input.init == FreeFormInit::RuntimeInput)
+        parameters.emplace(parameterName(input, index), index);
+      else if (input.init == FreeFormInit::Window)
+        windowInputs.emplace(input.value.name, index);
+    }
+    std::unordered_set<std::string> declared;
+    for (const auto &window: loop.windows) {
+      const auto target = windowInputs.find(window.result);
+      if (target == windowInputs.end())
+        throw std::invalid_argument(
+            "free-form window: result must name a window-initialized input"
+        );
+      if (!declared.insert(window.result).second)
+        throw std::invalid_argument(
+            "free-form window: a window-initialized input has more than one window"
+        );
+      const auto source = parameters.find(window.source);
+      if (source == parameters.end())
+        throw std::invalid_argument("free-form window: source must be a runtime parameter");
+      if (window.index != "%i")
+        throw std::invalid_argument(
+            "free-form window: index must be the induction variable"
+        );
+      for (const auto &[state, result]: loop.updates)
+        if (state == window.result)
+          throw std::invalid_argument(
+              "free-form window: an update cannot target the window result"
+          );
+      const auto &sourceType = loop.inputs[source->second].value.type;
+      const auto &targetType = loop.inputs[target->second].value.type;
+      if (sourceType.shape.empty())
+        throw std::invalid_argument("free-form window: source must be a tensor");
+      const auto extent = sourceType.shape.front();
+      if (window.rows == 0 || window.active == 0 || window.rows > extent ||
+          window.active > extent)
+        throw std::invalid_argument(
+            "free-form window: rows, stride, and active must fit the source extent"
+        );
+      const auto maximum =
+          static_cast<std::uint64_t>(window.stride) *
+              static_cast<std::uint64_t>(loop.tripCount - 1) +
+          window.rows;
+      if (maximum > extent)
+        throw std::invalid_argument(
+            "free-form window: rows, stride, and active must fit the source extent"
+        );
+      Shape expected = sourceType.shape;
+      expected.front() = window.rows;
+      if (targetType.shape != expected || targetType.element != sourceType.element)
+        throw std::invalid_argument(
+            "free-form window: result shape must match rows and the source's trailing extents"
+        );
+      const bool floatElement = targetType.element == TensorElement::F32;
+      if (floatElement != (window.fillKind == FreeFormFillKind::Float))
+        throw std::invalid_argument(
+            "free-form window: fill kind must match the result element"
+        );
+    }
+    for (const auto &[name, index]: windowInputs)
+      if (!declared.contains(name))
+        throw std::invalid_argument(
+            "free-form window: every window-initialized input needs a window"
+        );
+  }
+
   std::string assembleCountedLoop(const TensorRegion &region, const FreeFormLoop &loop) {
     if (loop.entry.empty())
       throw std::invalid_argument("counted loop needs an entry name");
@@ -1090,6 +1160,8 @@ namespace refractir::reify {
       if (!parameters.insert(name).second)
         throw std::invalid_argument("counted loop parameter is declared more than once");
     }
+
+    validateFreeFormWindows(loop);
 
     if (loop.updates.size() != stateNames.size())
       throw std::invalid_argument("counted loop needs one update per state");
