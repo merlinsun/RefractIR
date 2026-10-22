@@ -40,6 +40,46 @@ def dense_layout(shape):
   }
 
 
+def strided_output(shape, row_padding=0, element_offset=0):
+  """A row-major layout with padding between rows and a leading offset.
+
+  `row_padding` adds that many unused elements to every row stride, which only
+  a matrix has; a rank-one tensor takes the offset alone. The span is the
+  highest addressed element plus one, so a padded or shifted output still
+  states exactly the storage it needs.
+  """
+  if not shape or any(type(extent) is not int or extent <= 0 for extent in shape):
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_LAYOUT, f"a layout needs a positive shape, got {shape!r}"
+    )
+  if type(row_padding) is not int or row_padding < 0:
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_LAYOUT, "row padding must be a nonnegative integer"
+    )
+  if type(element_offset) is not int or element_offset < 0:
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_LAYOUT, "element offset must be a nonnegative integer"
+    )
+  if row_padding and len(shape) < 2:
+    raise tensor_target_case.TargetCaseError(
+      tensor_target_case.INVALID_LAYOUT, "row padding needs a matrix shape"
+    )
+  layout = dense_layout(shape)
+  strides = list(layout["element_strides"])
+  if row_padding:
+    strides[-2] += row_padding
+  span = element_offset + sum(
+    (extent - 1) * stride for extent, stride in zip(shape, strides)
+  ) + 1
+  return {
+    "shape": list(shape),
+    "element_strides": strides,
+    "element_offset": element_offset,
+    "storage_span": span,
+    "axis_order": sorted(range(len(shape)), key=lambda axis: (strides[axis], axis)),
+  }
+
+
 def execution_record(*, num_warps, envelope=None):
   """The staging record the shared worker reads for one bundle."""
   guards = dict(DEFAULT_ENVELOPE if envelope is None else envelope)
@@ -92,7 +132,16 @@ def input_records(region, proposal):
   return records
 
 
-def build_bundle(bundle_dir, *, region, source, proposal, envelope=None):
+def build_bundle(
+  bundle_dir,
+  *,
+  region,
+  source,
+  proposal,
+  envelope=None,
+  output_row_padding=0,
+  output_offset=0,
+):
   """Write the bundle for one region record and return the loaded case."""
   num_warps = region.get("num_warps")
   if type(num_warps) is not int or num_warps <= 0:
@@ -102,7 +151,11 @@ def build_bundle(bundle_dir, *, region, source, proposal, envelope=None):
   output = {
     "name": "return",
     "dtype": region["dtype"],
-    **dense_layout(region["shape"]),
+    **strided_output(
+      region["shape"],
+      row_padding=output_row_padding,
+      element_offset=output_offset,
+    ),
   }
   return tensor_target_case.write(
     bundle_dir,

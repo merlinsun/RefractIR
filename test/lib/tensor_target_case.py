@@ -12,6 +12,7 @@ source.
 
 import copy
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -473,6 +474,15 @@ def _validate_layout(record, where):
     _is_integer(span) and span == required,
     INVALID_LAYOUT,
     f"{where} storage_span must be {required} for its strides, got {span!r}",
+  )
+  addresses = [
+    offset + sum(coordinate * stride for coordinate, stride in zip(index, strides))
+    for index in itertools.product(*(range(dimension) for dimension in shape))
+  ]
+  _require(
+    len(set(addresses)) == len(addresses),
+    INVALID_LAYOUT,
+    f"{where} element strides overlap: two logical coordinates share an address",
   )
   return span
 

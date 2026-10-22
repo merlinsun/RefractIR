@@ -399,6 +399,23 @@ class TargetOnlyBundleTests(unittest.TestCase):
     self.assertEqual(raised.exception.status, "invalid_source")
     self.assertIn("tensor-type", str(raised.exception))
 
+
+  def test_overlapping_output_strides_are_invalid_layout(self):
+    _bundle(self.root)
+
+    def overlap(manifest):
+      manifest["output"]["element_strides"] = [1, 1]
+      manifest["output"]["storage_span"] = 3
+      manifest["output"]["axis_order"] = [0, 1]
+
+    _edit_manifest(self.root, overlap)
+
+    with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+      self._load()
+
+    self.assertEqual(raised.exception.status, "invalid_layout")
+    self.assertIn("overlap", str(raised.exception))
+
   def test_an_output_storage_span_that_disagrees_with_its_strides_is_refused(self):
     _bundle(self.root)
     _edit_manifest(
