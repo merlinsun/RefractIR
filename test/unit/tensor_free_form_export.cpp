@@ -127,6 +127,8 @@ namespace {
             options.features.transpose = true;
           else if (item == "expand")
             options.features.expand = true;
+          else if (item == "extrema")
+            options.features.extrema = true;
           else
             throw std::invalid_argument("unknown free-form feature: " + item);
           if (end == std::string::npos)
@@ -298,7 +300,8 @@ namespace {
            << ",\"num_warps\":" << options.numWarps << ",\"route\":\"target-only\","
            << "\"features\":{\"transpose\":"
            << (options.features.transpose ? "true" : "false")
-           << ",\"expand\":" << (options.features.expand ? "true" : "false") << "},"
+           << ",\"expand\":" << (options.features.expand ? "true" : "false")
+           << ",\"extrema\":" << (options.features.extrema ? "true" : "false") << "},"
            << "\"canonical\":{"
            << "\"accepted\":" << (canonical.source.empty() ? "false" : "true")
            << ",\"refusal\":" << jsonString(canonical.refusal) << "},\"parameters\":[";

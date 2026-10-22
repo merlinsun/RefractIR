@@ -53,7 +53,14 @@ namespace refractir::reify {
       return op == TensorOp::Add || op == TensorOp::Sub || op == TensorOp::Mul;
     }
 
-    bool isReduction(TensorOp op) { return op == TensorOp::Sum; }
+    bool isReduction(TensorOp op) {
+      return op == TensorOp::Sum || op == TensorOp::ReduceMin || op == TensorOp::ReduceMax;
+    }
+
+    bool isExtrema(TensorOp op) {
+      return op == TensorOp::Min || op == TensorOp::Max || op == TensorOp::ReduceMin ||
+             op == TensorOp::ReduceMax;
+    }
 
     bool sameType(const TensorTypeInfo &left, const TensorTypeInfo &right) {
       return left.shape == right.shape && left.element == right.element;
@@ -214,7 +221,8 @@ namespace refractir::reify {
             // it a seeded body would rarely reach the operation the request
             // asked to exercise.
             if ((action.op == TensorOp::Transpose && features_.transpose) ||
-                (action.op == TensorOp::Expand && features_.expand))
+                (action.op == TensorOp::Expand && features_.expand) ||
+                (isExtrema(action.op) && features_.extrema))
               weight *= 3.0;
             weights.push_back(weight);
           }
@@ -361,6 +369,22 @@ namespace refractir::reify {
               reversed.traits = traitsOf(TensorOp::Sub, rhs, lhs, type);
               push(reversed);
             }
+            if (features_.extrema) {
+              Action minimum{};
+              minimum.op = TensorOp::Min;
+              minimum.lhs = lhs;
+              minimum.rhs = rhs;
+              minimum.type = type;
+              minimum.traits = traitsOf(TensorOp::Min, lhs, rhs, type);
+              push(minimum);
+              Action maximum{};
+              maximum.op = TensorOp::Max;
+              maximum.lhs = lhs;
+              maximum.rhs = rhs;
+              maximum.type = type;
+              maximum.traits = traitsOf(TensorOp::Max, lhs, rhs, type);
+              push(maximum);
+            }
             // Multiplication is admitted for f32 only: repeated products of
             // integer leaves would leave the i32 domain before a case is run.
             if (element == TensorElement::F32 && multiplications_ < limits_.maxMultiplications) {
@@ -393,6 +417,18 @@ namespace refractir::reify {
               sum.type = TensorTypeInfo{shape, element};
               sum.traits = traitsOf(TensorOp::Sum, index, -1, sum.type);
               push(sum);
+              if (features_.extrema) {
+                for (const auto op: {TensorOp::ReduceMin, TensorOp::ReduceMax}) {
+                  Action extrema{};
+                  extrema.op = op;
+                  extrema.lhs = index;
+                  extrema.axis = axis;
+                  extrema.keepDims = keep;
+                  extrema.type = TensorTypeInfo{shape, element};
+                  extrema.traits = traitsOf(op, index, -1, extrema.type);
+                  push(extrema);
+                }
+              }
             }
           }
         }

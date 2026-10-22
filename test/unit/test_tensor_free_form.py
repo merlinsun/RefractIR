@@ -120,6 +120,25 @@ class FreeFormContractTests(unittest.TestCase):
   def test_a_rank_one_kept_reduction_stays_rank_one(self):
     self.run_contract("extrema-rank-one-keep-is-rank-one")
 
+  def test_extrema_actions_are_enumerated(self):
+    self.run_contract("extrema-action-enumerated")
+
+  def test_extrema_reductions_carry_the_reduction_bias(self):
+    self.run_contract("extrema-action-weighted")
+
+  def test_extrema_nodes_count_as_reductions(self):
+    self.run_contract("extrema-counted-as-reduction")
+
+  def test_extrema_do_not_consume_the_multiplication_budget(self):
+    self.run_contract("extrema-multiplication-budget-untouched")
+
+  def test_an_extrema_body_replays_deterministically(self):
+    self.run_contract("extrema-replay-deterministic")
+
+  def test_a_rank_one_dropped_extrema_is_a_scalar(self):
+    self.run_contract("extrema-rank-one-drop-is-scalar")
+
+
 
 
 
@@ -212,7 +231,9 @@ class FreeFormExportTests(unittest.TestCase):
       )
       self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
       record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
-      self.assertEqual(record["features"], {"transpose": True, "expand": True})
+      self.assertEqual(
+        record["features"], {"transpose": True, "expand": True, "extrema": False}
+      )
       self.assertEqual(record["max_rank"], 3)
       checked = check_source(
         (Path(directory) / "program.sir").read_text(encoding="utf-8"),
@@ -227,7 +248,9 @@ class FreeFormExportTests(unittest.TestCase):
       )
       self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
       record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
-      self.assertEqual(record["features"], {"transpose": False, "expand": False})
+      self.assertEqual(
+        record["features"], {"transpose": False, "expand": False, "extrema": False}
+      )
       self.assertNotIn("tensor transpose", (Path(directory) / "program.sir").read_text(encoding="utf-8"))
       self.assertNotIn("tensor expand", (Path(directory) / "program.sir").read_text(encoding="utf-8"))
 

@@ -66,6 +66,7 @@ namespace refractir::reify {
   struct FreeFormFeatures {
     bool transpose = false;
     bool expand = false;
+    bool extrema = false;
   };
 
   /// Bounds the builder honours. `maxNodes` counts emitted tensor operations;

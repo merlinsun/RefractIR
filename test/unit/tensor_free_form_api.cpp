@@ -810,6 +810,118 @@ namespace {
     require(region.typeOf("%lo").shape == Shape({1}), "a rank-one keep must yield [1]");
   }
 
+  bool isExtremaOp(const std::string &name) {
+    return name == "min" || name == "max" || name == "rmin" || name == "rmax";
+  }
+
+  void extremaActionEnumerated() {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {2, 2}, "%x"), zeroState("%acc_y", {2, 2})};
+    request.results = {{"%next_x", type({2, 2})}, {"%next_y", type({2, 2})}};
+    request.policy = FreeFormPolicy::Unguided;
+    request.features.extrema = true;
+    std::vector<std::string> seen;
+    for (std::uint32_t seed = 1; seed <= 24; ++seed) {
+      request.seed = seed;
+      const auto built = buildFreeFormRegion(request);
+      for (const auto &count: built.structure.operatorCounts)
+        if (isExtremaOp(count.first) &&
+            std::find(seen.begin(), seen.end(), count.first) == seen.end())
+          seen.push_back(count.first);
+    }
+    for (const auto &expected: {"min", "max", "rmin", "rmax"})
+      require(
+          std::find(seen.begin(), seen.end(), expected) != seen.end(),
+          std::string("the builder must enumerate extrema action ") + expected
+      );
+  }
+
+  void extremaActionWeighted() {
+    const auto traits = [](TensorOp op) {
+      FreeFormActionTraits value;
+      value.op = op;
+      value.inputs = 1;
+      return value;
+    };
+    const auto rminWeight = freeFormActionWeight(FreeFormPolicy::ReductionHeavy, traits(TensorOp::ReduceMin));
+    const auto sumWeight = freeFormActionWeight(FreeFormPolicy::ReductionHeavy, traits(TensorOp::Sum));
+    const auto addWeight = freeFormActionWeight(FreeFormPolicy::ReductionHeavy, traits(TensorOp::Add));
+    require(rminWeight == sumWeight, "a reduction-heavy policy must score rmin like sum");
+    require(rminWeight > addWeight, "a reduction-heavy policy must prefer rmin to an add");
+    require(
+        freeFormActionWeight(FreeFormPolicy::Unguided, traits(TensorOp::ReduceMin)) ==
+            freeFormActionWeight(FreeFormPolicy::Unguided, traits(TensorOp::Add)),
+        "an unguided policy must not prefer extrema to an add"
+    );
+  }
+
+  void extremaCountedAsReduction() {
+    FreeFormGraphView view;
+    view.valueNames = {"%a", "%lo"};
+    view.valueTypes = {type({2, 2}), type({2})};
+    view.inputCount = 1;
+    view.nodeOps = {TensorOp::ReduceMin};
+    view.nodeOperands = {{0}};
+    view.roots = {1};
+    const auto structure = summarizeFreeFormGraph(view, FreeFormPolicy::ReductionHeavy);
+    require(structure.reductions == 1, "an rmin node must count as a reduction");
+    require(structure.operatorCounts.size() == 1, "only the rmin operator is live");
+    require(structure.operatorCounts.front().first == "rmin", "the operator count must name rmin");
+    require(structure.shapeChanges == 1, "a dropped rmin changes the shape");
+  }
+
+  void extremaMultiplicationBudgetUntouched() {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {2, 2}, "%x"), zeroState("%acc_y", {2, 2})};
+    request.results = {{"%next_x", type({2, 2})}, {"%next_y", type({2, 2})}};
+    request.limits.maxMultiplications = 0;
+    request.features.extrema = true;
+    bool sawExtrema = false;
+    for (std::uint32_t seed = 1; seed <= 16; ++seed) {
+      request.seed = seed;
+      const auto built = buildFreeFormRegion(request);
+      for (const auto &count: built.structure.operatorCounts) {
+        require(count.first != "mul", "an exhausted multiplication budget must still refuse mul");
+        sawExtrema = sawExtrema || isExtremaOp(count.first);
+      }
+    }
+    require(sawExtrema, "extrema must not consume the multiplication budget");
+  }
+
+  void extremaReplayDeterministic() {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {2, 2}, "%x"), zeroState("%acc_y", {2, 2})};
+    request.results = {{"%next_x", type({2, 2})}, {"%next_y", type({2, 2})}};
+    request.policy = FreeFormPolicy::Wide;
+    request.features.extrema = true;
+    request.features.transpose = true;
+    request.features.expand = true;
+    request.limits.maxRank = 3;
+    request.seed = 33;
+    const auto first = buildFreeFormRegion(request);
+    const auto second = buildFreeFormRegion(request);
+    bool sawExtrema = false;
+    for (const auto &count: first.structure.operatorCounts)
+      sawExtrema = sawExtrema || isExtremaOp(count.first);
+    require(sawExtrema, "the replayed body must use an extrema operation");
+    require(
+        render(first.region) == render(second.region),
+        "the same seed and features must build the same extrema body"
+    );
+    require(sameStructure(first.structure, second.structure), "the same record must replay");
+  }
+
+  void extremaRankOneDropIsScalar() {
+    TensorRegion region({{"%a", type({2})}});
+    region.add("%lo", TensorOp::ReduceMin, {"%a"}, 0, false);
+    region.setResults({"%lo"});
+    require(region.typeOf("%lo").shape.empty(), "a rank-one dropped rmin must be a scalar");
+    require(
+        region.renderInstructions().front() == "  %lo = tensor rmin %a, 0, drop;",
+        "a scalar extrema reduction must render drop"
+    );
+  }
+
   std::string threeStateSource() {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
@@ -877,6 +989,18 @@ int main(int argc, char **argv) {
       extremaRenderRoundTrip();
     else if (name == "extrema-rank-one-keep-is-rank-one")
       extremaRankOneKeep();
+    else if (name == "extrema-action-enumerated")
+      extremaActionEnumerated();
+    else if (name == "extrema-action-weighted")
+      extremaActionWeighted();
+    else if (name == "extrema-counted-as-reduction")
+      extremaCountedAsReduction();
+    else if (name == "extrema-multiplication-budget-untouched")
+      extremaMultiplicationBudgetUntouched();
+    else if (name == "extrema-replay-deterministic")
+      extremaReplayDeterministic();
+    else if (name == "extrema-rank-one-drop-is-scalar")
+      extremaRankOneDropIsScalar();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;
