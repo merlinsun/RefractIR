@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test.unit.tensor_support import SYMIRI, check_source, run_typed
+from test.unit.tensor_support import SYMIRI, check_source, run_typed, solve_source
 
 ROOT = Path(__file__).resolve().parents[2]
 WINDOW_API = Path(
@@ -245,6 +245,54 @@ class TensorWindowInterpreterTests(unittest.TestCase):
     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
     row = (7.0, 8.0)
     self.assertEqual(struct.unpack("<16f", output), row * 8)
+
+
+SOLVER_WINDOW_SOURCE = """\
+fun @kernel(%src: tensor [8] f32, %i: i32) : i32 {
+  let mut %w: tensor [4] f32 = undef;
+  let mut %cell: f32 = undef;
+^entry:
+  %w = tensor window %src, %i, 0.0, [4, 1, 8];
+  %cell = tensor extract %w, [0];
+  require %cell > 0.0;
+  ret 0;
+}
+"""
+
+
+@unittest.skipUnless(SYMIRI.is_file(), "symiri executable not found")
+class TensorWindowProfileTests(unittest.TestCase):
+  def check(self, profile):
+    return check_source(WINDOW_SOURCE, tensor_profile=profile)
+
+  def test_v2_admits_a_window(self):
+    result = self.check("v2")
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+  def test_v3_admits_a_window(self):
+    result = self.check("v3")
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+  def test_v1_rejects_a_window(self):
+    result = self.check("v1")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("window", result.stderr)
+
+  def test_v4_rejects_a_window(self):
+    result = self.check("v4")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("window", result.stderr)
+
+  def test_exact_solver_names_window_as_unsupported(self):
+    result, _, _ = solve_source(SOLVER_WINDOW_SOURCE, tensor_profile="v2")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("unsupported_theory", result.stderr)
+
+  def test_window_in_a_straight_line_v1_function(self):
+    result = self.check("v1")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("tensor window requires", result.stderr)
+    self.assertNotIn("one basic block", result.stderr)
 
 
 if __name__ == "__main__":

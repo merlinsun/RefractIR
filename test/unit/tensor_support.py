@@ -142,7 +142,7 @@ def describe_entry(source, entry="kernel", compiler=SYMIRI, tensor_profile=None)
     return result, description
 
 
-def solve_source(source, *, entry="kernel", solver=SYMIR_SOLVE):
+def solve_source(source, *, entry="kernel", solver=SYMIR_SOLVE, tensor_profile=None):
   """Solve one complete straight-line tensor function and return its artifacts."""
   with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
@@ -150,9 +150,12 @@ def solve_source(source, *, entry="kernel", solver=SYMIR_SOLVE):
     output_path = root / "solved.sir"
     model_path = root / "model.json"
     source_path.write_text(source, encoding="utf-8")
+    command = [str(solver)]
+    if tensor_profile is not None:
+      command.extend(["--tensor-profile-version", tensor_profile])
     result = subprocess.run(
-      [
-        str(solver),
+      command
+      + [
         "--main",
         f"@{entry}" if not entry.startswith("@") else entry,
         "--path",

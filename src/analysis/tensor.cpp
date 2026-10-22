@@ -368,6 +368,7 @@ namespace refractir {
         case TensorOp::Sum:
         case TensorOp::ReduceMin:
         case TensorOp::ReduceMax:
+        case TensorOp::Window:
           return true;
         default:
           return false;
@@ -855,6 +856,11 @@ namespace refractir {
         diags.error(
             "tensor-profile: unsupported tensor operation in tensor-v3 profile",
             function.span
+        );
+      if (profile.id != TensorProfileId::V2 && profile.id != TensorProfileId::V3 &&
+          functionHasTensorOperation(function, TensorOp::Window))
+        diags.error(
+            "tensor-profile: tensor window requires tensor-v2 or tensor-v3", function.span
         );
       if (profile.id == TensorProfileId::V1) {
         if (function.blocks.size() != 1 ||
