@@ -1165,6 +1165,10 @@ namespace refractir {
         diags.error("tensor-window: fill literal type must match the source element", atom.span);
         return Ty{std::monostate{}};
       }
+      // The fill goes through the ordinary literal typing path so the signed
+      // range rules apply: an i32 fill outside [INT32_MIN, INT32_MAX] is a
+      // static error here, not a runtime type error in the interpreter.
+      (void) typeOfCoef(*atom.fill, vars, syms, diags, std::uint32_t{32});
       if (atom.attribute.size() != 3) {
         diags.error("tensor-window: expected [rows, stride, active]", atom.span);
         return Ty{std::monostate{}};

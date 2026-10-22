@@ -295,5 +295,38 @@ class TensorWindowProfileTests(unittest.TestCase):
     self.assertNotIn("one basic block", result.stderr)
 
 
+I32_WINDOW_SOURCE = """\
+fun @kernel(%src: tensor [2] i32, %i: i32) : tensor [1] i32 {
+  let mut %w: tensor [1] i32 = undef;
+^entry:
+  %w = tensor window %src, %i, <fill>, [1, 0, 2];
+  ret %w;
+}
+"""
+
+
+def i32_window(fill):
+  return I32_WINDOW_SOURCE.replace("<fill>", fill)
+
+
+@unittest.skipUnless(SYMIRI.is_file(), "symiri executable not found")
+class TensorWindowFillRangeTests(unittest.TestCase):
+  def test_an_i32_fill_above_the_signed_range_is_refused(self):
+    result = check_source(i32_window("2147483648"), tensor_profile="v2")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("out of range", result.stderr)
+
+  def test_an_i32_fill_below_the_signed_range_is_refused(self):
+    result = check_source(i32_window("-2147483649"), tensor_profile="v2")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("out of range", result.stderr)
+
+  def test_the_i32_signed_boundaries_are_admitted(self):
+    for fill in ("2147483647", "-2147483648"):
+      with self.subTest(fill=fill):
+        result = check_source(i32_window(fill), tensor_profile="v2")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
   unittest.main()
