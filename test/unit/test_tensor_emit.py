@@ -958,6 +958,50 @@ fun @kernel(%x: tensor [2] f32) : tensor [2, 2] f32 {
     self.assertEqual(self.run_kernel(source, ([1.5, 2.5],)), "[[4.0, 4.0], [4.0, 4.0]]")
 
 
+def emit_with_layout(source, buffers, profile):
+  """Emit one case with an explicit per-buffer layout manifest."""
+  with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    source_path = root / "case.sir"
+    output_path = root / "kernel.py"
+    layout_path = root / "tensor-layout.json"
+    source_path.write_text(source, encoding="utf-8")
+    layout_path.write_text(json.dumps({"buffers": buffers}), encoding="utf-8")
+    result = subprocess.run(
+      [
+        str(SYMIRC),
+        "--target",
+        "triton",
+        "--entry",
+        "kernel",
+        "--tensor-profile-version",
+        profile,
+        "--tensor-layout-manifest",
+        str(layout_path),
+        "-o",
+        str(output_path),
+        str(source_path),
+      ],
+      capture_output=True,
+      text=True,
+      check=False,
+      timeout=10,
+    )
+    output = output_path.read_text(encoding="utf-8") if output_path.exists() else None
+    return result, output
+
+
+def source_layout(name, shape, strides, offset, span, order):
+  return {
+    "name": name,
+    "role": "input",
+    "element_strides": strides,
+    "element_offset": offset,
+    "storage_span": span,
+    "axis_order": order,
+  }
+
+
 WINDOW_V2_SOURCE = """\
 fun @kernel(%src: tensor [8] f32, %i: i32) : tensor [4] f32 {
   let mut %w: tensor [4] f32 = undef;
@@ -1036,6 +1080,107 @@ class WindowEmissionTests(unittest.TestCase):
     result, output = emit_cli(WINDOW_V3_REDUCTION_SOURCE, ("--tensor-profile-version", "v3"))
     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
     self.assertIn("tl.where(", output)
+
+
+WINDOW_STRIDED_SOURCE = """\
+fun @kernel(%src: tensor [8] f32) : tensor [4] f32 {
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, 0, 0.0, [4, 1, 8];
+  ret %w;
+}
+"""
+
+WINDOW_STRIDED_V3_SOURCE = """\
+fun @kernel(%src: tensor [5] f32) : tensor [3] f32 {
+  let mut %w: tensor [3] f32 = undef;
+^entry:
+  %w = tensor window %src, 0, 0.0, [3, 1, 5];
+  ret %w;
+}
+"""
+
+WINDOW_STRIDED_RANK_TWO_SOURCE = """\
+fun @kernel(%src: tensor [4, 3] f32) : tensor [2, 3] f32 {
+  let mut %w: tensor [2, 3] f32 = undef;
+^entry:
+  %w = tensor window %src, 0, 0.0, [2, 4, 4];
+  ret %w;
+}
+"""
+
+
+@unittest.skipUnless(SYMIRC.is_file(), "symirc executable not found")
+class WindowStridedSourceTests(unittest.TestCase):
+  def test_strided_source_stride_in_address(self):
+    result, output = emit_with_layout(
+      WINDOW_STRIDED_SOURCE,
+      [source_layout("src", [8], [2], 0, 15, [0])],
+      "v2",
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertRegex(output, r"src_ptr \+ _sir_window_lin_tmp\d+ \* 2")
+
+  def test_strided_source_element_offset(self):
+    result, output = emit_with_layout(
+      WINDOW_STRIDED_SOURCE,
+      [source_layout("src", [8], [2], 3, 18, [0])],
+      "v2",
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertRegex(output, r"src_ptr \+ 3 \+ _sir_window_lin_tmp\d+ \* 2")
+
+  def test_strided_source_logical_extent_in_mask(self):
+    result, output = emit_with_layout(
+      WINDOW_STRIDED_V3_SOURCE,
+      [source_layout("src", [5], [3], 0, 13, [0])],
+      "v3",
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("_sir_src_d0 < 5", output)
+    self.assertRegex(
+      output,
+      r"_sir_window_mask_tmp\d+ = \(_sir_window_row_tmp\d+ < 3\) "
+      r"& \(_sir_window_lin_tmp\d+ < 5\)",
+    )
+
+  def test_strided_source_widened_arithmetic(self):
+    result, output = emit_with_layout(
+      WINDOW_STRIDED_SOURCE,
+      [source_layout("src", [8], [3], 0, 22, [0])],
+      "v2",
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertRegex(
+      output,
+      r"_sir_window_lin_tmp\d+ = _sir_window_index64_tmp\d+ \* 1 "
+      r"\+ _sir_window_row_tmp\d+\.to\(tl\.int64\)",
+    )
+    self.assertRegex(output, r"src_ptr \+ _sir_window_lin_tmp\d+ \* 3")
+
+  def test_axis_order_mismatch_refused(self):
+    result, output = emit_with_layout(
+      WINDOW_STRIDED_RANK_TWO_SOURCE,
+      [source_layout("src", [4, 3], [3, 1], 0, 12, [0, 1])],
+      "v3",
+    )
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("axis order", result.stderr)
+
+  def test_rank_two_strided_source_trailing_axis(self):
+    result, output = emit_with_layout(
+      WINDOW_STRIDED_RANK_TWO_SOURCE,
+      [source_layout("src", [4, 3], [5, 1], 2, 20, [1, 0])],
+      "v3",
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertRegex(
+      output,
+      r"src_ptr \+ 2 \+ _sir_window_lin_tmp\d+ \* 5 "
+      r"\+ _sir_window_d1_tmp\d+ \* 1",
+    )
+    self.assertRegex(output, r"_sir_window_d1_tmp\d+ < 3")
 
 
 WINDOW_PLAIN_SOURCE = """\
