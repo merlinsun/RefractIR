@@ -191,6 +191,8 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(record["reference"]["kind"], "diagnostic")
     self.assertEqual(record["reference"]["path"], "refractir_interpreter")
     self.assertEqual(record["reference"]["status"], "completed")
+    self.assertEqual(record["diagnosis"]["diagnosis"], "agreement")
+    self.assertEqual(record["diagnosis"]["p0_availability"], "completed")
     bundle = json.loads((self.bundle / "case.json").read_text(encoding="utf-8"))
     self.assertEqual(bundle["reference"], {"kind": "none"})
 
@@ -529,6 +531,119 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(raised.exception.status, tensor_target_case.REFERENCE_NOT_ALLOWED)
     self.assertFalse((self.bundle / "target-runs").exists())
 
+
+class OptionalReferenceDiagnosisTests(unittest.TestCase):
+  """A diagnostic P0 must not be mistaken for an accepted reference."""
+
+  def observation(self, status, output=None):
+    return tensor_target_reference.ReferenceObservation(status, output=output)
+
+  def mode(self, status, actual=None):
+    return tensor_target_run.ModeRun(
+      mode="compiled",
+      status=status,
+      exit_code=0,
+      phase="runtime",
+      actual=actual,
+      stderr="",
+      log="",
+    )
+
+  def diagnose(self, reference, interpreter, compiled):
+    return tensor_target_run.diagnose_with_optional_reference(
+      reference=reference, interpreter=interpreter, compiled=compiled
+    )
+
+  def test_p0_ub_is_invalid_execution_and_stays_in_the_denominator(self):
+    result = self.diagnose(
+      self.observation(tensor_target_reference.UB),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(AGREE_HEX)),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(AGREE_HEX)),
+    )
+    self.assertEqual(result["diagnosis"], tensor_target_run.INVALID_EXECUTION)
+    self.assertEqual(result["p0_availability"], "ub")
+
+  def test_p0_unavailable_with_only_an_interpreter_failure_is_interpreter_candidate(self):
+    result = self.diagnose(
+      self.observation(tensor_target_reference.UNAVAILABLE),
+      self.mode(tensor_target_run.RUNTIME_FAILURE),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(AGREE_HEX)),
+    )
+    self.assertEqual(result["diagnosis"], tensor_target_run.INTERPRETER_CANDIDATE)
+    self.assertEqual([candidate["path"] for candidate in result["candidates"]], ["P1"])
+
+  def test_p0_unavailable_with_only_a_gpu_compile_failure_stays_compile_failure(self):
+    result = self.diagnose(
+      self.observation(tensor_target_reference.UNAVAILABLE),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(AGREE_HEX)),
+      self.mode(tensor_target_run.COMPILE_FAILURE),
+    )
+    self.assertEqual(result["diagnosis"], tensor_target_run.COMPILED_PATH_CANDIDATE)
+    self.assertEqual(result["candidates"][0]["kind"], "compile_failure")
+    self.assertEqual(result["candidates"][0]["path"], "P2")
+
+  def test_p0_unavailable_with_both_paths_failing_is_both_paths_failed(self):
+    result = self.diagnose(
+      self.observation(tensor_target_reference.UNAVAILABLE),
+      self.mode(tensor_target_run.RUNTIME_FAILURE),
+      self.mode(tensor_target_run.COMPILE_FAILURE),
+    )
+    self.assertEqual(result["diagnosis"], tensor_target_run.BOTH_PATHS_FAILED)
+    self.assertEqual(
+      {candidate["path"] for candidate in result["candidates"]}, {"P1", "P2"}
+    )
+
+  def test_p0_completed_with_only_an_interpreter_failure_is_interpreter_candidate(self):
+    result = self.diagnose(
+      self.observation(tensor_target_reference.COMPLETED, bytes.fromhex(AGREE_HEX)),
+      self.mode(tensor_target_run.RUNTIME_FAILURE),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(AGREE_HEX)),
+    )
+    self.assertEqual(result["diagnosis"], tensor_target_run.INTERPRETER_CANDIDATE)
+
+  def test_p0_unavailable_with_t_and_g_disagreeing_is_reference_unavailable(self):
+    result = self.diagnose(
+      self.observation(tensor_target_reference.UNAVAILABLE),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(AGREE_HEX)),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(PARTIAL_HEX)),
+    )
+    self.assertEqual(result["diagnosis"], tensor_target_run.REFERENCE_UNAVAILABLE)
+    self.assertEqual(result["p0_availability"], "unavailable")
+
+  def test_targets_agreeing_on_a_wrong_value_are_emission_suspect(self):
+    reference = bytes.fromhex(AGREE_HEX)
+    wrong = bytes.fromhex(PARTIAL_HEX)
+    result = self.diagnose(
+      self.observation(tensor_target_reference.COMPLETED, reference),
+      self.mode(tensor_target_run.COMPLETED, wrong),
+      self.mode(tensor_target_run.COMPLETED, wrong),
+    )
+    self.assertEqual(result["diagnosis"], "emission suspect")
+
+  def test_candidate_diagnosis_still_records_p0_availability(self):
+    result = self.diagnose(
+      self.observation(tensor_target_reference.UNAVAILABLE),
+      self.mode(tensor_target_run.COMPLETED, bytes.fromhex(AGREE_HEX)),
+      self.mode(tensor_target_run.COMPILE_FAILURE),
+    )
+    self.assertEqual(result["diagnosis"], tensor_target_run.COMPILED_PATH_CANDIDATE)
+    self.assertEqual(result["p0_availability"], "unavailable")
+
+  def test_a_bundle_with_expected_bin_is_still_refused(self):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      tensor_target_case.write(
+        root / "case",
+        source=SOURCE,
+        inputs=[INPUT_RECORD, SECOND_INPUT_RECORD],
+        output=OUTPUT_RECORD,
+        launch=LAUNCH,
+        execution=EXECUTION,
+      )
+      (root / "case" / "expected.bin").write_bytes(struct.pack("<4f", *AGREE))
+      with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+        tensor_target_case.load(root / "case", symiri=root / "symiri")
+      self.assertEqual(raised.exception.status, "reference_not_allowed")
 
 
 if __name__ == "__main__":

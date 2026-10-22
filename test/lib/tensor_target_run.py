@@ -21,6 +21,7 @@ from test.lib import (
   tensor_execution,
   tensor_target_case,
   tensor_target_reference,
+  tensor_three_way,
 )
 
 SCHEMA = "refractir.tensor-target-run.v1"
@@ -37,6 +38,15 @@ ENVIRONMENT_UNAVAILABLE = "environment_unavailable"
 TARGET_AGREEMENT = "target_agreement"
 TARGET_DISAGREEMENT = "target_disagreement"
 COMPARISON_UNAVAILABLE = "comparison_unavailable"
+
+# Diagnoses for a run that also has a diagnostic SIR observation. A target
+# failure is more specific than an unavailable reference, so it is decided
+# first; the reference's own availability is recorded beside the diagnosis.
+INVALID_EXECUTION = "invalid_execution"
+REFERENCE_UNAVAILABLE = "reference_unavailable"
+BOTH_PATHS_FAILED = "both_paths_failed"
+COMPILED_PATH_CANDIDATE = "compiled_path_candidate"
+INTERPRETER_CANDIDATE = "interpreter_candidate"
 
 STORAGE_MARKERS = (
   "wrote outside its logical output mapping",
@@ -93,6 +103,7 @@ class TargetRun:
   reference: tensor_target_reference.ReferenceObservation | None = field(
     default=None, compare=False
   )
+  diagnosis: dict | None = field(default=None, compare=False)
 
   @property
   def candidate(self):
@@ -149,6 +160,7 @@ class TargetRun:
       "reference": (
         self.reference.as_record() if self.reference is not None else {"kind": "none"}
       ),
+      "diagnosis": self.diagnosis,
     }
 
 
@@ -263,6 +275,13 @@ def run(
     )
 
   status, mismatches = _classify(interpreter, compiled)
+  diagnosis = (
+    diagnose_with_optional_reference(
+      reference=reference, interpreter=interpreter, compiled=compiled
+    )
+    if reference is not None
+    else None
+  )
   target = TargetRun(
     bundle=root,
     status=status,
@@ -272,9 +291,106 @@ def run(
     mismatches=mismatches,
     case=case,
     reference=reference,
+    diagnosis=diagnosis,
   )
   _save(artifacts, target)
   return target
+
+
+_FAILURE_KINDS = {
+  COMPILE_FAILURE: "compile_failure",
+  RUNTIME_FAILURE: "runtime_failure",
+  STORAGE_VIOLATION: "storage_violation",
+  TIMED_OUT: "timeout",
+}
+
+
+def _path_candidates(interpreter, compiled):
+  """Target failures with the path that produced each one."""
+  found = []
+  for path, run in (("P1", interpreter), ("P2", compiled)):
+    if run is None:
+      continue
+    kind = _FAILURE_KINDS.get(run.status)
+    if kind is not None:
+      found.append({"path": path, "kind": kind, "status": run.status})
+  return found
+
+
+def _comparison(first, second):
+  if first is None or second is None:
+    return "unavailable"
+  return "equal" if first == second else "different"
+
+
+def diagnose_with_optional_reference(*, reference, interpreter, compiled):
+  """Diagnose a run against an optional diagnostic SIR observation.
+
+  Precedence: undefined behaviour first; then any target failure with its
+  path; then an unavailable/failed/timed-out observation; only a completed
+  observation delegates to the shared three-way comparison. The reference's
+  availability is always recorded beside the diagnosis so a candidate verdict
+  never hides an unavailable reference.
+  """
+  p0_availability = reference.status if reference is not None else "absent"
+  candidates = _path_candidates(interpreter, compiled)
+  if reference is not None and reference.status == tensor_target_reference.UB:
+    return {
+      "diagnosis": INVALID_EXECUTION,
+      "p0_availability": p0_availability,
+      "candidates": candidates,
+      "observations": {},
+    }
+  if candidates:
+    paths = {candidate["path"] for candidate in candidates}
+    if paths == {"P2"}:
+      diagnosis = COMPILED_PATH_CANDIDATE
+    elif paths == {"P1"}:
+      diagnosis = INTERPRETER_CANDIDATE
+    else:
+      diagnosis = BOTH_PATHS_FAILED
+    return {
+      "diagnosis": diagnosis,
+      "p0_availability": p0_availability,
+      "candidates": candidates,
+      "observations": {},
+    }
+  if reference is None or reference.status in {
+    tensor_target_reference.UNAVAILABLE,
+    tensor_target_reference.FAILED,
+    tensor_target_reference.TIMED_OUT,
+  }:
+    return {
+      "diagnosis": REFERENCE_UNAVAILABLE,
+      "p0_availability": p0_availability,
+      "candidates": candidates,
+      "observations": {},
+    }
+  observations = {
+    "R-T": _comparison(reference.output, interpreter.actual),
+    "R-G": _comparison(reference.output, compiled.actual),
+    "T-G": _comparison(interpreter.actual, compiled.actual),
+  }
+  contract = {
+    "R-T": "accepted" if observations["R-T"] == "equal" else "rejected",
+    "R-G": "accepted" if observations["R-G"] == "equal" else "rejected",
+    "T-G": "not_applicable",
+  }
+  diagnosis, _ = tensor_three_way._diagnose(
+    reference_ok=True,
+    execution={"P1": interpreter.status, "P2": compiled.status},
+    observations=observations,
+    contract=contract,
+    candidates=(),
+    exact=False,
+    declared_contract=None,
+  )
+  return {
+    "diagnosis": diagnosis,
+    "p0_availability": p0_availability,
+    "candidates": candidates,
+    "observations": observations,
+  }
 
 
 def _save(artifacts, target):
