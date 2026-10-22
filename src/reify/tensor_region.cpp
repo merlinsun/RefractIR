@@ -88,14 +88,17 @@ namespace refractir::reify {
           return value.name == name;
         }))
       throw std::invalid_argument("tensor region value is declared more than once");
-    const bool binary = op == TensorOp::Add || op == TensorOp::Sub || op == TensorOp::Mul;
-    const bool reduction = op == TensorOp::Sum;
+    const bool binary = op == TensorOp::Add || op == TensorOp::Sub || op == TensorOp::Mul ||
+                        op == TensorOp::Min || op == TensorOp::Max;
+    const bool reduction = op == TensorOp::Sum || op == TensorOp::ReduceMin ||
+                           op == TensorOp::ReduceMax;
     const bool broadcast = op == TensorOp::Broadcast;
     const bool transpose = op == TensorOp::Transpose;
     const bool expand = op == TensorOp::Expand;
     if (!binary && !reduction && !broadcast && !transpose && !expand)
       throw std::invalid_argument(
-          "tensor region supports add, sub, mul, sum, broadcast, transpose and expand"
+          "tensor region supports add, sub, mul, min, max, sum, rmin, rmax, broadcast, "
+          "transpose and expand"
       );
     const std::size_t expectedOperands = binary ? 2 : 1;
     if (operandNames.size() != expectedOperands)
@@ -116,10 +119,10 @@ namespace refractir::reify {
         throw std::invalid_argument("tensor region binary operation does not accept attributes");
     } else if (reduction) {
       if (!attribute.empty())
-        throw std::invalid_argument("tensor region sum does not accept a shape attribute");
+        throw std::invalid_argument("tensor region reduction does not accept a shape attribute");
       if (axis < -static_cast<std::int64_t>(firstType.shape.size()) ||
           axis >= static_cast<std::int64_t>(firstType.shape.size()))
-        throw std::invalid_argument("tensor region sum axis is outside its input rank");
+        throw std::invalid_argument("tensor region reduction axis is outside its input rank");
       if (axis < 0)
         axis += static_cast<std::int64_t>(firstType.shape.size());
       resultType.shape = firstType.shape;
@@ -200,9 +203,13 @@ namespace refractir::reify {
     const auto &result = values_[static_cast<std::size_t>(node.result)];
     out << "  " << result.name << " = tensor " << tensorOpName(node.op) << ' '
         << values_[static_cast<std::size_t>(node.operands.front())].name;
-    if (node.op == TensorOp::Add || node.op == TensorOp::Sub || node.op == TensorOp::Mul) {
+    if (node.op == TensorOp::Add || node.op == TensorOp::Sub || node.op == TensorOp::Mul ||
+        node.op == TensorOp::Min || node.op == TensorOp::Max) {
       out << ", " << values_[static_cast<std::size_t>(node.operands[1])].name;
-    } else if (node.op == TensorOp::Sum) {
+    } else if (
+        node.op == TensorOp::Sum || node.op == TensorOp::ReduceMin ||
+        node.op == TensorOp::ReduceMax
+    ) {
       out << ", " << node.axis << ", " << (node.keepDims ? "keep" : "drop");
     } else if (node.op == TensorOp::Transpose) {
       out << ", " << shapeText(node.attribute);

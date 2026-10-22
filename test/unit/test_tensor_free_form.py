@@ -102,6 +102,25 @@ class FreeFormContractTests(unittest.TestCase):
   def test_a_feature_request_replays_exactly(self):
     self.run_contract("features-replay-exactly")
 
+  def test_extrema_binary_operations_broadcast(self):
+    self.run_contract("extrema-binary-types")
+
+  def test_extrema_reductions_drop_their_axis(self):
+    self.run_contract("extrema-reduce-drop-shape")
+
+  def test_extrema_reductions_keep_their_axis(self):
+    self.run_contract("extrema-reduce-keep-shape")
+
+  def test_extrema_reject_an_axis_outside_the_rank(self):
+    self.run_contract("extrema-reject-axis")
+
+  def test_every_extrema_form_renders_its_sir_spelling(self):
+    self.run_contract("extrema-render-round-trip")
+
+  def test_a_rank_one_kept_reduction_stays_rank_one(self):
+    self.run_contract("extrema-rank-one-keep-is-rank-one")
+
+
 
 
 @unittest.skipUnless(SYMIRI.is_file(), "native tensor tools unavailable")

@@ -714,6 +714,102 @@ namespace {
     );
   }
 
+  void extremaBinaryTypes() {
+    TensorRegion region({{"%a", type({2, 2})}, {"%b", type({2, 2})}});
+    region.add("%lo", TensorOp::Min, {"%a", "%b"});
+    region.add("%hi", TensorOp::Max, {"%a", "%b"});
+    region.setResults({"%lo", "%hi"});
+    require(region.typeOf("%lo").shape == Shape({2, 2}), "min must broadcast its operands");
+    require(region.typeOf("%hi").shape == Shape({2, 2}), "max must broadcast its operands");
+    const auto instructions = region.renderInstructions();
+    require(
+        instructions[0] == "  %lo = tensor min %a, %b;",
+        "min must render two operands: " + instructions[0]
+    );
+    require(
+        instructions[1] == "  %hi = tensor max %a, %b;",
+        "max must render two operands: " + instructions[1]
+    );
+  }
+
+  void extremaReduceDropShape() {
+    TensorRegion region({{"%a", type({2, 3})}});
+    region.add("%lo", TensorOp::ReduceMin, {"%a"}, 1, false);
+    region.setResults({"%lo"});
+    require(region.typeOf("%lo").shape == Shape({2}), "a dropped rmin must lose its axis");
+    require(
+        region.renderInstructions().front() == "  %lo = tensor rmin %a, 1, drop;",
+        "rmin must render its axis and keep mode"
+    );
+  }
+
+  void extremaReduceKeepShape() {
+    TensorRegion region({{"%a", type({2, 3})}});
+    region.add("%hi", TensorOp::ReduceMax, {"%a"}, 1, true);
+    region.add("%neg", TensorOp::ReduceMin, {"%a"}, -1, true);
+    region.setResults({"%hi", "%neg"});
+    require(region.typeOf("%hi").shape == Shape({2, 1}), "a kept rmax must set its axis to one");
+    require(region.typeOf("%neg").shape == Shape({2, 1}), "a negative axis must normalize");
+    const auto instructions = region.renderInstructions();
+    require(
+        instructions[0] == "  %hi = tensor rmax %a, 1, keep;",
+        "rmax must render keep: " + instructions[0]
+    );
+    require(
+        instructions[1] == "  %neg = tensor rmin %a, 1, keep;",
+        "rmin must render its normalized axis: " + instructions[1]
+    );
+  }
+
+  void extremaRejectAxis() {
+    requireInvalid(
+        [] {
+          TensorRegion region({{"%a", type({2, 3})}});
+          region.add("%lo", TensorOp::ReduceMin, {"%a"}, 2, false);
+        },
+        "axis"
+    );
+    requireInvalid(
+        [] {
+          TensorRegion region({{"%a", type({2, 3})}});
+          region.add("%hi", TensorOp::ReduceMax, {"%a"}, -3, false);
+        },
+        "axis"
+    );
+  }
+
+  void extremaRenderRoundTrip() {
+    TensorRegion region({{"%a", type({2, 2})}});
+    region.add("%lo", TensorOp::Min, {"%a", "%a"});
+    region.add("%hi", TensorOp::Max, {"%a", "%a"});
+    region.add("%rlo", TensorOp::ReduceMin, {"%a"}, 0, false);
+    region.add("%rhi", TensorOp::ReduceMax, {"%a"}, 1, true);
+    region.setResults({"%lo", "%hi", "%rlo", "%rhi"});
+    const auto instructions = region.renderInstructions();
+    const std::vector<std::string> expected{
+        "  %lo = tensor min %a, %a;",
+        "  %hi = tensor max %a, %a;",
+        "  %rlo = tensor rmin %a, 0, drop;",
+        "  %rhi = tensor rmax %a, 1, keep;",
+    };
+    require(instructions == expected, "every extrema form must render its SIR spelling");
+    require(
+        region.typeOf("%rlo").shape == Shape({2}),
+        "a rank-two dropped rmin keeps one axis"
+    );
+    require(
+        region.typeOf("%rhi").shape == Shape({2, 1}),
+        "a rank-two kept rmax keeps the rank"
+    );
+  }
+
+  void extremaRankOneKeep() {
+    TensorRegion region({{"%a", type({2})}});
+    region.add("%lo", TensorOp::ReduceMin, {"%a"}, 0, true);
+    region.setResults({"%lo"});
+    require(region.typeOf("%lo").shape == Shape({1}), "a rank-one keep must yield [1]");
+  }
+
   std::string threeStateSource() {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
@@ -769,6 +865,18 @@ int main(int argc, char **argv) {
       featuresRespectTheRankLimit();
     else if (name == "features-replay-exactly")
       featuresReplayExactly();
+    else if (name == "extrema-binary-types")
+      extremaBinaryTypes();
+    else if (name == "extrema-reduce-drop-shape")
+      extremaReduceDropShape();
+    else if (name == "extrema-reduce-keep-shape")
+      extremaReduceKeepShape();
+    else if (name == "extrema-reject-axis")
+      extremaRejectAxis();
+    else if (name == "extrema-render-round-trip")
+      extremaRenderRoundTrip();
+    else if (name == "extrema-rank-one-keep-is-rank-one")
+      extremaRankOneKeep();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;
