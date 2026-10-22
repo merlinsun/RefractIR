@@ -27,6 +27,10 @@ symirc tensor.sir --target triton --entry kernel --tensor-softmax-lowering decom
 
 The target enforces the selected bounded profile and emits one program instance. V3 masks padded lanes according to their logical extents. Buffers are disjoint and ordered by the entry signature. Contiguous row-major storage is the default; `--tensor-layout-manifest case.json` supplies per-buffer positive strides and offsets from a validated case manifest. The [tensor runner](../test/lib/run_triton_tests.py) supplies the launch adapter and independent reference check. C, WebAssembly, and Python emission reject tensor modules before creating or replacing an output file. [Tensor capability analysis](../src/analysis/tensor.cpp) enforces the profile, and [the Triton backend](../src/backend/triton_backend.cpp) defines the operator mappings.
 
+### Tensor window
+
+`tensor window %source, %index, <fill>, [rows, stride, active]` reads a tile of `rows` rows starting at `index * stride` from a tensor parameter and produces `[rows, d1 … dn]` with the source's element type. The emitter computes the base in 64-bit arithmetic and masks each lane with the conjunction of the result's shape validity and `base < active`, so an inactive logical position and an execution-tile pad both read the literal `fill` through `other=`. The fill is a defined value that participates in every consumer. Windows are admitted under the v2 and v3 profiles only; a negative index is undefined behaviour.
+
 `-I <path>` adds a search path for resolving link-form `decl`s, and may repeat. `--split-by-source` (C only) emits one `<stem>.c` per source file plus a shared `common.h` into the directory given by `-o`.
 
 ## Name mangling
