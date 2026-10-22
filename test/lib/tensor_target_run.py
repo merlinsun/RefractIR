@@ -393,6 +393,118 @@ def diagnose_with_optional_reference(*, reference, interpreter, compiled):
   }
 
 
+def run_native(
+  bundle_dir,
+  *,
+  kernel,
+  launch,
+  triton,
+  symiri=None,
+  timeout_s=tensor_execution.DEFAULT_TIMEOUT_S,
+  device_id=0,
+  worker_command=None,
+  gpu_probe=None,
+  artifact_dir=None,
+  cache_dir=None,
+  record=None,
+  reference=None,
+):
+  """Run one frozen Triton kernel through both modes, without an emitter.
+
+  The bundle supplies the signature, inputs, and output layout; the kernel is
+  frozen text, so `symirc` is never called. Both modes stage the same bytes and
+  the record states the native path, its kernel digest, the launch, and the
+  Triton identity. `record` reuses a verified record instead of building one.
+  """
+  case = tensor_target_case.load(bundle_dir, symiri=symiri)
+  root = case.path
+  artifacts = Path(artifact_dir) if artifact_dir is not None else root / "native-runs"
+  emission_dir = artifacts / "emission"
+  _reset_dir(emission_dir)
+  staged_layout = tensor_execution.layout_manifest(case)
+  (emission_dir / "tensor-layout.json").write_text(
+    tensor_execution.canonical_json(staged_layout) + "\n", encoding="utf-8"
+  )
+  actual_launch = {
+    key: case.record["launch"][key]
+    for key in ("num_warps", "num_stages", "enable_fp_fusion")
+  }
+  if dict(launch) != actual_launch:
+    raise tensor_emission.EmissionRefused(
+      "the native launch must match the bundle's launch"
+    )
+  if record is None:
+    emission = tensor_emission.build_native(
+      sir=case.source,
+      kernel=kernel,
+      layout=staged_layout,
+      profile=case.record["profile"],
+      entry=case.record["entry"],
+      launch=launch,
+      triton=triton,
+    )
+  else:
+    emission = tensor_emission.verify(
+      record,
+      sir=case.source,
+      layout=staged_layout,
+      profile=case.record["profile"],
+      entry=case.record["entry"],
+      launch=launch,
+      options=dict(record.emitter.options),
+      native=True,
+      triton=triton,
+    )
+  expected_output_bytes = case.record["output"]["byte_length"]
+  interpreter = _run_mode(
+    case,
+    "interpret",
+    artifacts=artifacts,
+    emission_dir=emission_dir,
+    emission=emission,
+    timeout_s=timeout_s,
+    worker_command=worker_command,
+    expected_output_bytes=expected_output_bytes,
+  )
+  visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
+  if not visible:
+    compiled = ModeRun(
+      mode="compiled",
+      status=ENVIRONMENT_UNAVAILABLE,
+      exit_code=None,
+      phase="unavailable",
+      actual=None,
+      stderr=f"CUDA device {device_id} unavailable",
+      log="",
+    )
+  else:
+    compiled = _run_mode(
+      case,
+      "compiled",
+      artifacts=artifacts,
+      emission_dir=emission_dir,
+      emission=emission,
+      timeout_s=timeout_s,
+      worker_command=worker_command,
+      device_id=device_id,
+      cache_dir=cache_dir,
+      expected_output_bytes=expected_output_bytes,
+    )
+  status, mismatches = _classify(interpreter, compiled)
+  target = TargetRun(
+    bundle=root,
+    status=status,
+    emission=emission,
+    interpreter=interpreter,
+    compiled=compiled,
+    mismatches=mismatches,
+    case=case,
+    reference=reference,
+  )
+  _save(artifacts, target)
+  return target
+
+
 def _save(artifacts, target):
   tensor_execution.write_atomic(
     artifacts / "target-run.json",

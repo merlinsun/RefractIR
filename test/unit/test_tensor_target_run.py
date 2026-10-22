@@ -5,6 +5,7 @@ import json
 import os
 import stat
 import struct
+from dataclasses import replace
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from test.lib import (
+  tensor_emission,
   tensor_target_case,
   tensor_target_reference,
   tensor_target_run,
@@ -62,6 +64,21 @@ EXECUTION = {
   "warp_probe": {"status": "not_probed", "num_warps": 4},
 }
 AGREE = (1.0, 6.0, 3.0, 12.0)
+TRITON_IDENTITY = {
+  "version": "3.9.0+git32f06df4",
+  "revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+  "torch": "2.5.1+cu121",
+  "device": "Tesla V100-SXM2-32GB",
+  "cache_mode": "default",
+}
+NATIVE_KERNEL = """\
+import triton
+import triton.language as tl
+
+@triton.jit
+def kernel(x_ptr, y_ptr, out_ptr):
+    pass
+"""
 CANARY = bytes.fromhex(EXECUTION["output_canary_by_dtype"]["f32"])
 PARTIAL_HEX = (CANARY + struct.pack("<3f", 2.0, 3.0, 4.0)).hex()
 AGREE_HEX = struct.pack("<4f", *AGREE).hex()
@@ -224,6 +241,110 @@ class TargetRunTests(unittest.TestCase):
         record["interpreter" if mode == "interpret" else "compiled"]["actual_sha256"],
         hashlib.sha256(bytes.fromhex(AGREE_HEX)).hexdigest(),
       )
+
+  def run_native(self, **overrides):
+    arguments = {
+      "kernel": NATIVE_KERNEL,
+      "launch": LAUNCH,
+      "triton": TRITON_IDENTITY,
+      "symiri": self.symiri,
+      "worker_command": self.worker_command,
+      "gpu_probe": lambda: True,
+      "timeout_s": 5,
+    }
+    arguments.update(overrides)
+    return tensor_target_run.run_native(self.bundle, **arguments)
+
+  def test_a_frozen_native_kernel_runs_both_modes_without_symirc(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    run = self.run_native()
+    self.assertEqual(run.status, tensor_target_run.TARGET_AGREEMENT)
+    self.assertEqual(run.interpreter.status, tensor_target_run.COMPLETED)
+    self.assertEqual(run.compiled.status, tensor_target_run.COMPLETED)
+    staged = self.bundle / "native-runs" / "interpret" / "kernel.py"
+    self.assertEqual(staged.read_text(encoding="utf-8"), NATIVE_KERNEL)
+    record = run.as_record()
+    emitter = record["emission"]["emitter"]
+    self.assertEqual(record["emission"]["path"], "native")
+    self.assertEqual(emitter["kind"], "native")
+    self.assertEqual(emitter["sir_role"], "signature-only")
+    self.assertNotIn("executable", emitter)
+    self.assertNotIn("binary_sha256", emitter)
+    self.assertEqual(emitter["triton"], TRITON_IDENTITY)
+
+  def test_native_both_modes_use_the_same_kernel_digest(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    run = self.run_native()
+    record = run.as_record()
+    for mode in ("interpret", "compiled"):
+      staged = self.bundle / "native-runs" / mode / "kernel.py"
+      self.assertEqual(
+        record["emission"]["kernel_sha256"],
+        hashlib.sha256(staged.read_bytes()).hexdigest(),
+      )
+
+  def test_native_run_reports_agreement_or_disagreement(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    self.assertEqual(self.run_native().status, tensor_target_run.TARGET_AGREEMENT)
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": PARTIAL_HEX},
+      }
+    )
+    self.assertEqual(self.run_native().status, tensor_target_run.TARGET_DISAGREEMENT)
+
+  def test_native_missing_kernel_refused(self):
+    self.write_bundle()
+    with self.assertRaises(tensor_emission.EmissionRefused):
+      self.run_native(kernel="")
+
+  def test_native_record_states_the_native_path(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    record = self.run_native().as_record()
+    self.assertEqual(record["emission"]["path"], "native")
+    self.assertIn("native_digest", record["emission"])
+    self.assertEqual(record["emission"]["emitter"]["triton"], TRITON_IDENTITY)
+
+  def test_a_tampered_native_record_is_refused(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    record = self.run_native().emission
+    tampered = replace(
+      record,
+      kernel=tensor_emission.EmittedKernel(source="def kernel():\n  pass\n"),
+    )
+    with self.assertRaisesRegex(tensor_emission.EmissionRefused, "tampered"):
+      self.run_native(record=tampered)
 
   def test_a_compile_failure_is_classified_separately(self):
     self.write_bundle()

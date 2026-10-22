@@ -91,6 +91,33 @@ def gpu_available(device_id=0):
     return False
 
 
+def layout_manifest(case):
+  """The per-buffer layout manifest a v2/v3 worker stages for this case.
+
+  Both the ordinary emitter and a frozen native kernel use the same staging, so
+  both build the manifest here; the two calls agree byte for byte for one case.
+  """
+  buffers = []
+  for role, records in (
+    ("input", case.manifest["inputs"]),
+    ("output", (case.manifest["output"],)),
+  ):
+    for record in records:
+      if not record["shape"]:
+        continue
+      buffers.append(
+        {
+          "name": record["name"],
+          "role": role,
+          "element_strides": record["element_strides"],
+          "element_offset": record["element_offset"],
+          "storage_span": record["storage_span"],
+          "axis_order": record["axis_order"],
+        }
+      )
+  return {"buffers": buffers}
+
+
 def emit_kernel(case, symirc, artifact_dir):
   """Emit one ordinary Triton kernel and return its path with both logs.
 
@@ -122,28 +149,10 @@ def emit_kernel(case, symirc, artifact_dir):
     str(case.path / "program.sir"),
   ]
   if case.manifest["profile"] in {"tensor-v2", "tensor-v3"}:
-    buffers = []
-    for role, records in (
-      ("input", case.manifest["inputs"]),
-      ("output", (case.manifest["output"],)),
-    ):
-      for record in records:
-        if not record["shape"]:
-          continue
-        buffers.append(
-          {
-            "name": record["name"],
-            "role": role,
-            "element_strides": record["element_strides"],
-            "element_offset": record["element_offset"],
-            "storage_span": record["storage_span"],
-            "axis_order": record["axis_order"],
-          }
-        )
-    layout_manifest = {"buffers": buffers}
+    staged_layout = layout_manifest(case)
     layout_path = artifact_dir / "tensor-layout.json"
     layout_path.write_text(
-      canonical_json(layout_manifest) + "\n",
+      canonical_json(staged_layout) + "\n",
       encoding="utf-8",
     )
     version = "v2" if case.manifest["profile"] == "tensor-v2" else "v3"
