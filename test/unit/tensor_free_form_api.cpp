@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -1049,6 +1050,129 @@ namespace {
     validateFreeFormWindows(loop);
   }
 
+  TensorRegion windowRegion() {
+    TensorRegion region(
+        {{"%acc_x", type({2, 2})}, {"%acc_y", type({2, 2})},
+         {"%source", type({4, 2})}, {"%tile", type({2, 2})}}
+    );
+    region.add("%next_x", TensorOp::Add, {"%acc_x", "%tile"});
+    region.add("%next_y", TensorOp::Add, {"%acc_y", "%acc_y"});
+    region.setResults({"%next_x", "%next_y"});
+    return region;
+  }
+
+  TensorRegion windowThreeStateRegion() {
+    TensorRegion region(
+        {{"%acc_x", type({2, 2})}, {"%acc_y", type({2, 2})}, {"%acc_z", type({2, 2})},
+         {"%source", type({4, 2})}, {"%tile", type({2, 2})}}
+    );
+    region.add("%s01", TensorOp::Add, {"%acc_x", "%tile"});
+    region.add("%next_x", TensorOp::Add, {"%s01", "%acc_x"});
+    region.add("%next_y", TensorOp::Add, {"%s01", "%acc_y"});
+    region.add("%s23", TensorOp::Add, {"%s01", "%acc_z"});
+    region.add("%next_z", TensorOp::Add, {"%s23", "%acc_z"});
+    region.setResults({"%next_x", "%next_y", "%next_z"});
+    return region;
+  }
+
+  FreeFormLoop windowThreeStateLoop() {
+    FreeFormLoop loop;
+    loop.inputs = {
+        state("%acc_x", {2, 2}, "%x"),
+        state("%acc_y", {2, 2}, "%y"),
+        zeroState("%acc_z", {2, 2}),
+        input("%source", type({4, 2}), FreeFormRole::Invariant, FreeFormInit::RuntimeInput,
+              "%src"),
+        input("%tile", type({2, 2}), FreeFormRole::Invariant, FreeFormInit::Window),
+    };
+    loop.results = {"%next_x", "%next_y", "%next_z"};
+    loop.updates = {
+        {"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}, {"%acc_z", "%next_z"}};
+    loop.finalTerms = {"%acc_x", "%acc_y", "%acc_z"};
+    FreeFormWindow window;
+    window.result = "%tile";
+    window.source = "%src";
+    window.fillKind = FreeFormFillKind::Float;
+    window.fillFloat = 0.0;
+    window.rows = 2;
+    window.stride = 1;
+    window.active = 4;
+    loop.windows = {window};
+    return loop;
+  }
+
+  std::string assembledWindowSource() {
+    const auto source = assembleCountedLoop(windowRegion(), windowLoop());
+    require(
+        source.find("tensor window %src, %i, 0.0, [2, 1, 4];") != std::string::npos,
+        "the assembled source must produce the window each trip:\n" + source
+    );
+    return source;
+  }
+
+  void windowProducedBeforeRegionBody() {
+    const auto source = assembledWindowSource();
+    const auto window = source.find("  %tile = tensor window");
+    const auto firstResult = source.find("  %next_x = tensor");
+    require(
+        window != std::string::npos && firstResult != std::string::npos && window < firstResult,
+        "the window must be produced before the region body:\n" + source
+    );
+  }
+
+  void windowRecomputedEachTrip() {
+    const auto source = assembledWindowSource();
+    const auto body = source.find("^body:\n");
+    const auto window = source.find("  %tile = tensor window");
+    const auto increment = source.find("  %i = %i + 1;");
+    require(
+        body != std::string::npos && window != std::string::npos && increment != std::string::npos &&
+            body < window && window < increment,
+        "the window must be recomputed inside the loop body:\n" + source
+    );
+    require(
+        source.find("tensor window") > body,
+        "no window production may appear before the loop body:\n" + source
+    );
+  }
+
+  void windowDoesNotDisturbSnapshots() {
+    auto plain = windowLoop();
+    plain.windows.clear();
+    plain.inputs[3].init = FreeFormInit::Zero;
+    const auto withWindow = assembleCountedLoop(windowRegion(), windowLoop());
+    const auto withoutWindow = assembleCountedLoop(windowRegion(), plain);
+    auto bodyOf = [](const std::string &source) {
+      const auto start = source.find("^body:\n");
+      const auto end = source.find("  %i = %i + 1;");
+      require(start != std::string::npos && end != std::string::npos, "a body must exist");
+      return source.substr(start, end - start);
+    };
+    auto stripWindow = [](std::string body) {
+      std::string kept;
+      std::istringstream stream(body);
+      std::string line;
+      while (std::getline(stream, line)) {
+        if (line.find("tensor window") == std::string::npos)
+          kept += line + "\n";
+      }
+      return kept;
+    };
+    require(
+        stripWindow(bodyOf(withWindow)) == bodyOf(withoutWindow),
+        "the window must not change the body's update order"
+    );
+  }
+
+  void windowThreeStateSource() {
+    const auto source = assembleCountedLoop(windowThreeStateRegion(), windowThreeStateLoop());
+    require(
+        source.find("tensor window %src, %i, 0.0, [2, 1, 4];") != std::string::npos,
+        "the three-state window must be produced each trip:\n" + source
+    );
+    std::cout << source;
+  }
+
   std::string threeStateSource() {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
@@ -1152,6 +1276,16 @@ int main(int argc, char **argv) {
       windowRangeMustFitTheSource();
     else if (name == "two-windows-share-one-source")
       twoWindowsShareOneSource();
+    else if (name == "window-produced-before-region-body")
+      windowProducedBeforeRegionBody();
+    else if (name == "window-recomputed-each-trip")
+      windowRecomputedEachTrip();
+    else if (name == "window-does-not-disturb-snapshots")
+      windowDoesNotDisturbSnapshots();
+    else if (name == "window-assembled-source") {
+      std::cout << assembledWindowSource();
+    } else if (name == "window-three-state-assembled-source")
+      windowThreeStateSource();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;

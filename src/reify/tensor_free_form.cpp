@@ -1115,6 +1115,15 @@ namespace refractir::reify {
         );
   }
 
+  std::string windowFillText(const FreeFormWindow &window) {
+    if (window.fillKind == FreeFormFillKind::Integer)
+      return std::to_string(window.fillInteger);
+    auto text = formatDouble(window.fillFloat);
+    if (text.find_first_of(".eE") == std::string::npos)
+      text += ".0";
+    return text;
+  }
+
   std::string assembleCountedLoop(const TensorRegion &region, const FreeFormLoop &loop) {
     if (loop.entry.empty())
       throw std::invalid_argument("counted loop needs an entry name");
@@ -1238,6 +1247,11 @@ namespace refractir::reify {
            << "^header:\n"
            << "  br %i < " << loop.tripCount << ", ^body, ^exit;\n"
            << "^body:\n";
+    for (const auto &window: loop.windows) {
+      source << "  " << window.result << " = tensor window " << window.source << ", "
+             << window.index << ", " << windowFillText(window) << ", [" << window.rows << ", "
+             << window.stride << ", " << window.active << "];\n";
+    }
     for (const auto &instruction: body)
       source << instruction << '\n';
     source << "  %i = %i + 1;\n"

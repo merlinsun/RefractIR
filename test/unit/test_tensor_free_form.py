@@ -175,6 +175,41 @@ class FreeFormContractTests(unittest.TestCase):
   def test_two_windows_may_share_one_source(self):
     self.run_contract("two-windows-share-one-source")
 
+  def test_a_window_is_produced_before_the_region_body(self):
+    self.run_contract("window-produced-before-region-body")
+
+  def test_a_window_is_recomputed_each_trip(self):
+    self.run_contract("window-recomputed-each-trip")
+
+  def test_a_window_does_not_change_the_update_order(self):
+    self.run_contract("window-does-not-disturb-snapshots")
+
+  @unittest.skipUnless(SYMIRI.is_file(), "symiri executable not found")
+  def test_the_assembled_window_source_passes_check(self):
+    source = self.render("window-assembled-source")
+    checked = check_source(source, tensor_profile="v2")
+    self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  @unittest.skipUnless(SYMIRI.is_file(), "symiri executable not found")
+  def test_the_assembled_window_source_passes_describe(self):
+    source = self.render("window-assembled-source")
+    result, description = describe_entry(source, tensor_profile="v2")
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIsNotNone(description, result.stdout)
+    self.assertEqual(
+      [parameter["name"] for parameter in description["inputs"]],
+      ["x", "src"],
+    )
+    self.assertEqual(description["output"]["shape"], [2, 2])
+
+  @unittest.skipUnless(SYMIRI.is_file(), "symiri executable not found")
+  def test_a_three_state_loop_with_a_window_passes_check(self):
+    source = self.render("window-three-state-assembled-source")
+    checked = check_source(source, tensor_profile="v2")
+    self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+    self.assertIn("tensor window %src, %i, 0.0, [2, 1, 4];", source)
+
+
 
 
 
