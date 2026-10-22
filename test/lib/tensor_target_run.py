@@ -48,6 +48,20 @@ BOTH_PATHS_FAILED = "both_paths_failed"
 COMPILED_PATH_CANDIDATE = "compiled_path_candidate"
 INTERPRETER_CANDIDATE = "interpreter_candidate"
 
+# Diagnoses that name triage-worthy evidence even when the two target paths
+# happened to agree with each other.
+_TRIAGE_DIAGNOSES = frozenset(
+  {
+    INVALID_EXECUTION,
+    BOTH_PATHS_FAILED,
+    COMPILED_PATH_CANDIDATE,
+    INTERPRETER_CANDIDATE,
+    "emission suspect",
+    "unresolved numerical difference",
+    "reference drift",
+  }
+)
+
 STORAGE_MARKERS = (
   "wrote outside its logical output mapping",
   "modified output canary slots",
@@ -104,6 +118,7 @@ class TargetRun:
     default=None, compare=False
   )
   diagnosis: dict | None = field(default=None, compare=False)
+  compiler_identity: dict | None = field(default=None, compare=False)
 
   @property
   def candidate(self):
@@ -111,15 +126,20 @@ class TargetRun:
 
     A timeout is an incomplete observation rather than a proved defect, but a
     completed campaign must not lose it: the run did not establish agreement
-    and the reason it stopped needs an answer.
+    and the reason it stopped needs an answer. A diagnosis can also require
+    triage when both target paths agreed, for example undefined behaviour in
+    the SIR observation or an emission-suspect difference.
     """
-    return self.status in {
+    if self.status in {
       TARGET_DISAGREEMENT,
       COMPILE_FAILURE,
       RUNTIME_FAILURE,
       STORAGE_VIOLATION,
       TIMED_OUT,
-    }
+    }:
+      return True
+    diagnosis = (self.diagnosis or {}).get("diagnosis")
+    return diagnosis in _TRIAGE_DIAGNOSES
 
   def as_record(self):
     return {
@@ -155,12 +175,15 @@ class TargetRun:
             else None
           ),
         },
-        "concrete_execution": {"status": _concrete_legality(self.status)},
+        "concrete_execution": {
+          "status": _concrete_legality(self.status, self.reference)
+        },
       },
       "reference": (
         self.reference.as_record() if self.reference is not None else {"kind": "none"}
       ),
       "diagnosis": self.diagnosis,
+      "compiler_identity": self.compiler_identity,
     }
 
 
@@ -176,6 +199,7 @@ def run(
   artifact_dir=None,
   cache_dir=None,
   reference=None,
+  compiler_identity=None,
 ):
   """Emit once, run both modes, and record what each produced.
 
@@ -214,6 +238,7 @@ def run(
       compiled=mode,
       case=case,
       reference=reference,
+      compiler_identity=compiler_identity,
     )
     _save(artifacts, target)
     return target
@@ -292,6 +317,7 @@ def run(
     case=case,
     reference=reference,
     diagnosis=diagnosis,
+    compiler_identity=compiler_identity,
   )
   _save(artifacts, target)
   return target
@@ -408,6 +434,7 @@ def run_native(
   cache_dir=None,
   record=None,
   reference=None,
+  compiler_identity=None,
 ):
   """Run one frozen Triton kernel through both modes, without an emitter.
 
@@ -500,6 +527,7 @@ def run_native(
     mismatches=mismatches,
     case=case,
     reference=reference,
+    compiler_identity=compiler_identity,
   )
   _save(artifacts, target)
   return target
@@ -719,14 +747,18 @@ def _differences(left, right):
   return tuple(differences)
 
 
-def _concrete_legality(status):
+def _concrete_legality(status, reference=None):
   """What the run established about concrete execution.
 
   Agreement and disagreement both came from completed executions, so either is
-  an established concrete result. A storage violation is a violated one. Every
-  incomplete path leaves it unresolved; frontend acceptance alone never
-  establishes it.
+  an established concrete result unless the SIR observation reports undefined
+  behaviour: target agreement remains a factual observation, but it cannot
+  establish legality for a program whose execution is undefined. A storage
+  violation is a violated one. Every incomplete path leaves it unresolved;
+  frontend acceptance alone never establishes it.
   """
+  if reference is not None and reference.status == tensor_target_reference.UB:
+    return "invalid_execution"
   if status in (TARGET_AGREEMENT, TARGET_DISAGREEMENT):
     return "established"
   if status == STORAGE_VIOLATION:

@@ -346,6 +346,64 @@ class TargetRunTests(unittest.TestCase):
     with self.assertRaisesRegex(tensor_emission.EmissionRefused, "tampered"):
       self.run_native(record=tampered)
 
+  def test_p0_ub_marks_concrete_execution_invalid_in_the_saved_record(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    reference = tensor_target_reference.ReferenceObservation(tensor_target_reference.UB)
+    run = self.run_target(reference=reference)
+    self.assertEqual(run.status, tensor_target_run.TARGET_AGREEMENT)
+    self.assertEqual(
+      run.as_record()["legality"]["concrete_execution"]["status"], "invalid_execution"
+    )
+    self.assertTrue(run.candidate)
+    saved = json.loads(
+      (self.bundle / "target-runs" / "target-run.json").read_text(encoding="utf-8")
+    )
+    self.assertEqual(
+      saved["legality"]["concrete_execution"]["status"], "invalid_execution"
+    )
+    self.assertEqual(saved["diagnosis"]["diagnosis"], tensor_target_run.INVALID_EXECUTION)
+    self.assertTrue(saved["candidate"])
+
+  def test_an_emission_suspect_diagnosis_is_a_candidate(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.COMPLETED, output=bytes.fromhex(PARTIAL_HEX)
+    )
+    run = self.run_target(reference=reference)
+    self.assertEqual(run.status, tensor_target_run.TARGET_AGREEMENT)
+    self.assertEqual(run.as_record()["diagnosis"]["diagnosis"], "emission suspect")
+    self.assertTrue(run.candidate)
+    self.assertTrue(run.as_record()["candidate"])
+
+  def test_a_reference_unavailable_run_is_not_a_candidate(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.UNAVAILABLE
+    )
+    run = self.run_target(reference=reference)
+    self.assertEqual(
+      run.as_record()["diagnosis"]["diagnosis"], tensor_target_run.REFERENCE_UNAVAILABLE
+    )
+    self.assertFalse(run.candidate)
+
   def test_a_compile_failure_is_classified_separately(self):
     self.write_bundle()
     self.configure(
