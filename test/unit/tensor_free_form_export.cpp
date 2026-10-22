@@ -67,6 +67,9 @@ namespace {
     std::string profile = "tensor-v2";
     TensorElement element = TensorElement::F32;
     std::string dtype = "f32";
+    bool windowEnabled = false;
+    FreeFormWindow window;
+    std::string windowSource;
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
     std::uint32_t returnState = 0;
@@ -158,6 +161,27 @@ namespace {
             break;
           begin = end + 1;
         }
+      } else if (flag == "--window") {
+        const std::string text = value();
+        std::vector<std::uint32_t> fields;
+        std::istringstream stream(text);
+        std::string item;
+        while (std::getline(stream, item, ',')) {
+          const auto extent = std::stoul(item);
+          if (extent > 4096)
+            throw std::invalid_argument("free-form export window field is too large");
+          fields.push_back(static_cast<std::uint32_t>(extent));
+        }
+        if (fields.size() != 3 || fields[0] == 0 || fields[2] == 0)
+          throw std::invalid_argument("free-form export window needs rows,stride,active");
+        options.windowEnabled = true;
+        options.window.rows = fields[0];
+        options.window.stride = fields[1];
+        options.window.active = fields[2];
+        options.window.result = "%tile";
+        options.window.index = "%i";
+      } else if (flag == "--window-source") {
+        options.windowSource = value();
       } else if (flag == "--num-warps") {
         options.numWarps = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--return") {
@@ -191,6 +215,28 @@ namespace {
       throw std::invalid_argument("free-form export num_warps must be 1, 2, 4, or 8");
     if (options.shape.size() != 2)
       throw std::invalid_argument("free-form export needs a two-dimensional shape");
+    if (options.windowEnabled != !options.windowSource.empty())
+      throw std::invalid_argument("free-form export needs both --window and --window-source");
+    if (options.windowEnabled) {
+      bool known = false;
+      for (std::uint32_t index = 0; index < std::min<std::uint32_t>(options.stateCount, 2);
+           ++index)
+        known = known || options.windowSource == parameterNames[index];
+      if (!known)
+        throw std::invalid_argument("free-form export window source is not a runtime parameter");
+      if (options.window.rows > options.shape[0] || options.window.active > options.shape[0])
+        throw std::invalid_argument(
+            "free-form export window rows and active must fit the source extent"
+        );
+      options.window.source = options.windowSource;
+      if (options.element == TensorElement::F32) {
+        options.window.fillKind = FreeFormFillKind::Float;
+        options.window.fillFloat = 0.0;
+      } else {
+        options.window.fillKind = FreeFormFillKind::Integer;
+        options.window.fillInteger = 0;
+      }
+    }
     return options;
   }
 
@@ -271,6 +317,14 @@ namespace {
       }
       inputs.push_back(std::move(input));
     }
+    if (options.windowEnabled) {
+      FreeFormInput tile;
+      tile.value = TensorRegionInput{
+          "%tile", TensorTypeInfo{{options.window.rows, options.shape[1]}, options.element}};
+      tile.role = FreeFormRole::Invariant;
+      tile.init = FreeFormInit::Window;
+      inputs.push_back(std::move(tile));
+    }
     std::vector<FreeFormResult> results;
     for (std::uint32_t index = 0; index < options.stateCount; ++index)
       results.push_back(FreeFormResult{std::string(resultNames[index]), stateType});
@@ -283,6 +337,16 @@ namespace {
     request.limits.maxNodes = options.maxNodes;
     request.limits.maxRank = options.maxRank;
     const auto built = buildFreeFormRegion(request);
+    if (options.windowEnabled) {
+      const auto tileIndex = static_cast<std::size_t>(inputs.size() - 1);
+      bool consumed = false;
+      for (const auto mask: built.structure.resultDependencies)
+        consumed = consumed || ((mask >> tileIndex) & 1ULL) != 0;
+      if (!consumed)
+        throw std::invalid_argument(
+            "free-form export: the body must consume the window input"
+        );
+    }
 
     FreeFormLoop loop;
     loop.inputs = inputs;
@@ -292,6 +356,8 @@ namespace {
           std::string(stateNames[index]), built.inputSpec.results[index]
       );
     loop.tripCount = options.tripCount;
+    if (options.windowEnabled)
+      loop.windows = {options.window};
     if (options.returnCombined) {
       for (std::uint32_t index = 0; index < options.stateCount; ++index)
         loop.finalTerms.emplace_back(stateNames[index]);
@@ -306,9 +372,13 @@ namespace {
     // travels the target-only route, so whether the bytes also fit the
     // canonical configuration is evidence about the body, not a second program.
     const auto canonical =
-        options.stateCount == 2
+        options.stateCount == 2 && !options.windowEnabled
             ? assembleCanonicalLoop(built.region, options.tripCount)
-            : FreeFormAssembly{"", "a canonical loop needs exactly two states"};
+            : FreeFormAssembly{
+                  "", options.windowEnabled
+                          ? "a canonical loop cannot carry a window"
+                          : "a canonical loop needs exactly two states"
+              };
 
     std::filesystem::create_directories(options.output);
     writeFile(options.output / "program.sir", source);
@@ -326,7 +396,49 @@ namespace {
            << (options.features.transpose ? "true" : "false")
            << ",\"expand\":" << (options.features.expand ? "true" : "false")
            << ",\"extrema\":" << (options.features.extrema ? "true" : "false") << "},"
-           << "\"canonical\":{"
+           << "\"window\":";
+    if (options.windowEnabled) {
+      const auto witness = witnessWindow(options.window, options.tripCount, options.shape[0]);
+      const bool v3 = options.profile == "tensor-v3";
+      const auto isPowerOfTwo = [](std::uint32_t value) {
+        return value != 0 && (value & (value - 1)) == 0;
+      };
+      const bool padded =
+          v3 && (!isPowerOfTwo(options.window.rows) || !isPowerOfTwo(options.shape[1]));
+      const auto facts = classifyWindow(
+          options.window.rows, options.window.stride, options.window.active,
+          options.tripCount, v3, padded
+      );
+      record << "{\"result\":" << jsonString(options.window.result)
+             << ",\"source\":" << jsonString(options.window.source)
+             << ",\"rows\":" << options.window.rows << ",\"stride\":" << options.window.stride
+             << ",\"active\":" << options.window.active << ",\"fill\":"
+             << (options.window.fillKind == FreeFormFillKind::Float
+                     ? "0.0"
+                     : "0")
+             << ",\"witness\":{\"computed_max\":" << witness.computedMax
+             << ",\"per_trip_active\":[";
+      for (std::size_t trip = 0; trip < witness.perTripActive.size(); ++trip) {
+        if (trip)
+          record << ',';
+        record << '[';
+        for (std::size_t row = 0; row < witness.perTripActive[trip].size(); ++row) {
+          if (row)
+            record << ',';
+          record << (witness.perTripActive[trip][row] ? "true" : "false");
+        }
+        record << ']';
+      }
+      record << "],\"all_active\":" << (witness.allActive ? "true" : "false") << "},"
+             << "\"facts\":{\"regime\":" << jsonString(std::string(facts.regime))
+             << ",\"shape_validity\":" << jsonString(std::string(facts.shapeValidity))
+             << ",\"active_predicate\":" << jsonString(std::string(facts.activePredicate))
+             << ",\"mask_after_compilation\":"
+             << jsonString(std::string(facts.maskAfterCompilation)) << "}}";
+    } else {
+      record << "null";
+    }
+    record << ",\"canonical\":{"
            << "\"accepted\":" << (canonical.source.empty() ? "false" : "true")
            << ",\"refusal\":" << jsonString(canonical.refusal) << "},\"parameters\":[";
     bool first = true;
@@ -347,7 +459,12 @@ namespace {
       const auto &input = inputs[index];
       record << "{\"value\":" << jsonString(input.value.name)
              << ",\"role\":" << jsonString(input.role == FreeFormRole::State ? "state" : "invariant")
-             << ",\"init\":" << jsonString(input.init == FreeFormInit::Zero ? "zero" : "runtime")
+             << ",\"init\":"
+             << jsonString(
+                    input.init == FreeFormInit::Zero     ? "zero"
+                    : input.init == FreeFormInit::Window ? "window"
+                                                         : "runtime"
+                )
              << ",\"parameter\":" << jsonString(input.parameter)
              << ",\"shape\":" << shapeJson(input.value.type.shape)
              << ",\"dtype\":" << jsonString(scalarElement(input.value.type)) << '}';

@@ -489,6 +489,102 @@ class FreeFormExportTests(unittest.TestCase):
       self.assertEqual(v2_region["profile"], "tensor-v2")
       self.assertEqual(v3_region["profile"], "tensor-v3")
 
+
+  def window_export(self, directory, *extra):
+    return self.export(
+      "--policy", "unguided", "--seed", "2", "--states", "2", "--shape", "4,2",
+      "--window", "2,1,4", "--window-source", "%x", *extra, "--out", directory,
+    )
+
+  def test_window_record_round_trips(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.window_export(directory)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      window = record["window"]
+      self.assertEqual(window["result"], "%tile")
+      self.assertEqual(window["source"], "%x")
+      self.assertEqual((window["rows"], window["stride"], window["active"]), (2, 1, 4))
+      self.assertEqual(window["fill"], 0.0)
+      self.assertEqual(window["witness"]["computed_max"], 2)
+      self.assertEqual(
+        window["witness"]["per_trip_active"], [[True, True], [True, True]]
+      )
+      self.assertTrue(window["witness"]["all_active"])
+      self.assertEqual(
+        window["facts"],
+        {
+          "regime": "interior",
+          "shape_validity": "absent",
+          "active_predicate": "all_true",
+          "mask_after_compilation": "not_observed",
+        },
+      )
+      self.assertFalse(record["canonical"]["accepted"])
+      self.assertIn("cannot carry a window", record["canonical"]["refusal"])
+      source = (Path(directory) / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("tensor window %x, %i, 0.0, [2, 1, 4];", source)
+
+  def test_window_dependency_is_recorded(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.window_export(directory)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      masks = record["structure"]["result_dependencies"]
+      self.assertTrue(masks)
+      for mask in masks:
+        self.assertTrue(mask & (1 << 2), f"the tile must feed every result: {mask}")
+
+  def test_the_exporter_refuses_a_body_that_ignores_the_window(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "unguided", "--seed", "1", "--states", "2", "--shape", "4,2",
+        "--window", "2,1,4", "--window-source", "%x", "--out", directory,
+      )
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("must consume the window input", result.stderr)
+
+  def test_window_shape_reaches_inputs(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.window_export(directory)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      tile = [entry for entry in record["inputs"] if entry["value"] == "%tile"]
+      self.assertEqual(len(tile), 1)
+      self.assertEqual(tile[0]["init"], "window")
+      self.assertEqual(tile[0]["shape"], [2, 2])
+      self.assertEqual(tile[0]["role"], "invariant")
+      source_parameter = record["parameters"][0]
+      self.assertEqual((source_parameter["name"], source_parameter["shape"]), ("%x", [4, 2]))
+
+  def test_window_replay_is_deterministic(self):
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first"
+      second = Path(directory) / "second"
+      for target in (first, second):
+        result = self.window_export(target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      self.assertEqual(
+        (first / "program.sir").read_text(encoding="utf-8"),
+        (second / "program.sir").read_text(encoding="utf-8"),
+      )
+      self.assertEqual(
+        (first / "region.json").read_text(encoding="utf-8"),
+        (second / "region.json").read_text(encoding="utf-8"),
+      )
+
+  def test_a_window_with_two_states_and_a_reduction(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "reduction-heavy", "--seed", "3", "--states", "2", "--shape", "4,2",
+        "--window", "2,1,4", "--window-source", "%x", "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      source = (Path(directory) / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("tensor window %x, %i, 0.0, [2, 1, 4];", source)
+      self.assertIn("tensor sum", source)
+      checked = check_source(source, tensor_profile="v2")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
   def test_exporter_refuses_an_impossible_configuration(self):
     with tempfile.TemporaryDirectory() as directory:
       result = self.export("--states", "5", "--out", directory)
