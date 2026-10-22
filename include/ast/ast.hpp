@@ -445,6 +445,9 @@ namespace refractir {
     std::vector<std::uint32_t> attribute;
     std::int64_t axis = 0;
     bool keepDims = false;
+    /// Literal fill of a window. The parser keeps the literal's kind; the type
+    /// checker requires it to match the source element type.
+    std::optional<Coef> fill;
     SourceSpan span;
     // Filled by the type checker so evaluators can consume an already-checked
     // tensor expression without repeating shape inference.

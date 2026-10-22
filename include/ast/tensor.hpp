@@ -38,6 +38,7 @@ namespace refractir {
     ReduceMin,
     ReduceMax,
     Softmax,
+    Window,
   };
 
   inline std::string_view tensorOpName(TensorOp op) noexcept {
@@ -82,6 +83,8 @@ namespace refractir {
         return "rmax";
       case TensorOp::Softmax:
         return "softmax";
+      case TensorOp::Window:
+        return "window";
     }
     return "?";
   }

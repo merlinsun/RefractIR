@@ -361,8 +361,16 @@ namespace refractir {
                   out_ << ", ";
                 dumpCoef(arg.operands[i]);
               }
-              if (arg.op == TensorOp::Extract || arg.op == TensorOp::Broadcast ||
-                  arg.op == TensorOp::Transpose) {
+              if (arg.op == TensorOp::Window) {
+                out_ << ", ";
+                if (arg.fill)
+                  dumpCoef(*arg.fill);
+                else
+                  out_ << "0";
+                out_ << ", ";
+                dumpList(arg.attribute);
+              } else if (arg.op == TensorOp::Extract || arg.op == TensorOp::Broadcast ||
+                         arg.op == TensorOp::Transpose) {
                 out_ << ", ";
                 dumpList(arg.attribute);
               } else if (arg.op == TensorOp::Expand || arg.op == TensorOp::Softmax ||

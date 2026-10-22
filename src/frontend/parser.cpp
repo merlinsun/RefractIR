@@ -266,6 +266,19 @@ namespace refractir {
       if (mode.lexeme != "keep" && mode.lexeme != "drop")
         throw ParseError("tensor-shape: expected 'keep' or 'drop'", mode.span);
       atom.keepDims = mode.lexeme == "keep";
+    } else if (operatorToken.lexeme == "window") {
+      atom.op = TensorOp::Window;
+      parseOperand();
+      comma();
+      parseOperand();
+      comma();
+      atom.fill = parseCoef();
+      comma();
+      atom.attribute = parseTensorList("window extent");
+      if (atom.attribute.size() != 3)
+        throw ParseError(
+            "tensor-window: expected [rows, stride, active]", operatorToken.span
+        );
     } else if (operatorToken.lexeme == "softmax") {
       atom.op = TensorOp::Softmax;
       parseOperand();
