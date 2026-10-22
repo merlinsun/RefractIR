@@ -958,6 +958,269 @@ fun @kernel(%x: tensor [2] f32) : tensor [2, 2] f32 {
     self.assertEqual(self.run_kernel(source, ([1.5, 2.5],)), "[[4.0, 4.0], [4.0, 4.0]]")
 
 
+WINDOW_V2_SOURCE = """\
+fun @kernel(%src: tensor [8] f32, %i: i32) : tensor [4] f32 {
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, %i, 0.0, [4, 1, 8];
+  ret %w;
+}
+"""
+
+WINDOW_LITERAL_SOURCE = """\
+fun @kernel(%src: tensor [8] f32) : tensor [4] f32 {
+  let mut %k: i32 = 3;
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, %k, 0.5, [4, 1, 8];
+  ret %w;
+}
+"""
+
+WINDOW_V3_REDUCTION_SOURCE = """\
+fun @kernel(%src: tensor [8] f32, %i: i32) : f32 {
+  let mut %w: tensor [3] f32 = undef;
+  let mut %total: f32 = undef;
+^entry:
+  %w = tensor window %src, %i, 0.0, [3, 1, 8];
+  %total = tensor sum %w, 0, drop;
+  ret %total;
+}
+"""
+
+
+@unittest.skipUnless(SYMIRC.is_file(), "symirc executable not found")
+class WindowEmissionTests(unittest.TestCase):
+  def test_window_emits_a_masked_load_with_fill(self):
+    result, output = emit_cli(WINDOW_V2_SOURCE, ("--tensor-profile-version", "v2"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("tl.load(", output)
+    self.assertRegex(output, r"tl\.load\([^\n]*mask=[^\n]*other=0\.0?\)")
+
+  def test_window_normalizes_a_literal_index(self):
+    result, output = emit_cli(WINDOW_LITERAL_SOURCE, ("--tensor-profile-version", "v2"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("+ tl.full((), 0, tl.int32)", output)
+    self.assertIn(".to(tl.int64)", output)
+
+  def test_window_address_widens_before_multiplying(self):
+    result, output = emit_cli(WINDOW_LITERAL_SOURCE, ("--tensor-profile-version", "v2"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertRegex(
+      output,
+      r"_sir_window_index64_tmp\d+ = _sir_window_index_tmp\d+\.to\(tl\.int64\)",
+    )
+    self.assertRegex(
+      output,
+      r"_sir_window_lin_tmp\d+ = _sir_window_index64_tmp\d+ \* 1 "
+      r"\+ _sir_window_row_tmp\d+\.to\(tl\.int64\)",
+    )
+
+  def test_window_mask_conjoins_shape_validity_and_active(self):
+    result, output = emit_cli(WINDOW_V3_REDUCTION_SOURCE, ("--tensor-profile-version", "v3"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertRegex(
+      output,
+      r"_sir_window_mask_tmp\d+ = \(_sir_window_row_tmp\d+ < 3\) "
+      r"& \(_sir_window_lin_tmp\d+ < 8\)",
+    )
+
+  def test_window_v3_reduction_counts_only_logical_rows(self):
+    result, output = emit_cli(WINDOW_V3_REDUCTION_SOURCE, ("--tensor-profile-version", "v3"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("tl.sum(", output)
+
+  def test_window_result_carries_the_shape_validity(self):
+    result, output = emit_cli(WINDOW_V3_REDUCTION_SOURCE, ("--tensor-profile-version", "v3"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    self.assertIn("tl.where(", output)
+
+
+WINDOW_PLAIN_SOURCE = """\
+fun @kernel(%src: tensor [8] f32) : tensor [4] f32 {
+  let mut %k: i32 = 1;
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, %k, 0.0, [4, 1, 8];
+  ret %w;
+}
+"""
+
+WINDOW_LOOP_SOURCE = """\
+fun @kernel(%src: tensor [8] f32) : tensor [4] f32 {
+  let mut %i: i32 = undef;
+  let mut %w: tensor [4] f32 = undef;
+^entry:
+  %w = tensor window %src, 0, -1.0, [4, 1, 8];
+  %i = 2147483640;
+  br ^header;
+^header:
+  br %i < 2147483641, ^body, ^exit;
+^body:
+  %w = tensor window %src, %i, -1.0, [4, 4, 8];
+  %i = %i + 1;
+  br ^header;
+^exit:
+  ret %w;
+}
+"""
+
+WINDOW_RANK_TWO_SOURCE = """\
+fun @kernel(%src: tensor [4, 3] f32) : tensor [2] f32 {
+  let mut %w: tensor [2, 3] f32 = undef;
+  let mut %total: tensor [2] f32 = undef;
+^entry:
+  %w = tensor window %src, 0, 0.0, [2, 4, 4];
+  %total = tensor sum %w, 1, drop;
+  ret %total;
+}
+"""
+
+
+def _window_gpu_available():
+  try:
+    import torch
+  except Exception:
+    return False
+  return torch.cuda.is_available()
+
+
+def _window_triton_available():
+  try:
+    import torch  # noqa: F401
+    import triton  # noqa: F401
+  except Exception:
+    return False
+  return True
+
+
+@unittest.skipUnless(
+  SYMIRC.is_file() and _window_triton_available(), "symirc or Triton unavailable"
+)
+class WindowExecutionTests(unittest.TestCase):
+  """The emitted window load runs on both the interpreter and the GPU."""
+
+  def run_kernel(self, source, values, shape, output_length, profile, mode):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      source_path = root / "case.sir"
+      kernel_path = root / "kernel.py"
+      source_path.write_text(source, encoding="utf-8")
+      emitted = subprocess.run(
+        [
+          str(SYMIRC),
+          "--target",
+          "triton",
+          "--entry",
+          "kernel",
+          "--tensor-profile-version",
+          profile,
+          "-o",
+          str(kernel_path),
+          str(source_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+      )
+      self.assertEqual(emitted.returncode, 0, emitted.stdout + emitted.stderr)
+      runner = root / "runner.py"
+      runner.write_text(
+        """\
+import importlib.util
+import sys
+
+import torch
+
+spec = importlib.util.spec_from_file_location("kernel", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+values = [float(value) for value in sys.argv[2].split(",")]
+shape = [int(value) for value in sys.argv[3].split(",")]
+output_length = int(sys.argv[4])
+mode = sys.argv[5]
+device = "cuda" if mode == "compiled" else "cpu"
+dtype = torch.float32
+x = torch.tensor(values, dtype=dtype, device=device).reshape(*shape)
+out = torch.zeros(output_length, dtype=dtype, device=device)
+module.kernel[(1, 1, 1)](x, out, num_warps=1, num_stages=1, enable_fp_fusion=False)
+if mode == "compiled":
+    torch.cuda.synchronize()
+print(out.tolist())
+""",
+        encoding="utf-8",
+      )
+      environment = dict(os.environ)
+      if mode == "interpret":
+        environment["TRITON_INTERPRET"] = "1"
+      else:
+        environment.pop("TRITON_INTERPRET", None)
+      completed = subprocess.run(
+        [
+          sys.executable,
+          str(runner),
+          str(kernel_path),
+          ",".join(str(value) for value in values),
+          ",".join(str(extent) for extent in shape),
+          str(output_length),
+          mode,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=600,
+        env=environment,
+      )
+      self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+      return completed.stdout.strip()
+
+  def both_arms(self, source, values, shape, output_length, profile, expected):
+    self.assertEqual(
+      self.run_kernel(source, values, shape, output_length, profile, "interpret"),
+      expected,
+    )
+    with self.subTest(arm="gpu"):
+      if not _window_gpu_available():
+        self.skipTest("gpu_arm: skipped (no CUDA device)")
+      self.assertEqual(
+        self.run_kernel(source, values, shape, output_length, profile, "compiled"),
+        expected,
+      )
+
+  def test_window_literal_index_executes_in_both_modes(self):
+    self.both_arms(
+      WINDOW_PLAIN_SOURCE,
+      [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+      [8],
+      4,
+      "v2",
+      "[20.0, 30.0, 40.0, 50.0]",
+    )
+
+  def test_window_large_loop_index_emits_only_fill(self):
+    self.both_arms(
+      WINDOW_LOOP_SOURCE,
+      [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+      [8],
+      4,
+      "v2",
+      "[-1.0, -1.0, -1.0, -1.0]",
+    )
+
+  def test_window_rank_two_trailing_axis_is_masked(self):
+    self.both_arms(
+      WINDOW_RANK_TWO_SOURCE,
+      [1.0] * 12,
+      [4, 3],
+      2,
+      "v3",
+      "[3.0, 3.0]",
+    )
+
+
 V3_RMIN_SOURCE = """\
 fun @kernel(%x: tensor [3] f32) : tensor [1] f32 {
   let mut %out: tensor [1] f32 = undef;

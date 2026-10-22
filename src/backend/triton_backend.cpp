@@ -562,6 +562,99 @@ namespace refractir {
   std::string TritonBackend::lowerTensorAtom(const TensorAtom &atom) {
     if (!atom.resolvedType)
       throw std::runtime_error("tensor-profile: tensor atom is missing checked type metadata");
+    if (atom.op == TensorOp::Window) {
+      const auto *named = std::get_if<LocalOrSymId>(&atom.operands[0]);
+      const auto *local = named ? std::get_if<LocalId>(named) : nullptr;
+      if (local == nullptr)
+        throw std::runtime_error("tensor-window: source is not a parameter");
+      const auto sourceName = localId(*named);
+      const auto pointer = parameterPointers_.find(sourceName);
+      const auto sourceType = types_.find(sourceName);
+      if (pointer == parameterPointers_.end() || sourceType == types_.end())
+        throw std::runtime_error("tensor-window: source is not a tensor parameter");
+      const auto sourceShape = valueShape(sourceType->second);
+      if (sourceShape.empty())
+        throw std::runtime_error("tensor-window: source has no leading extent");
+      const auto *layout = findLayout(sourceName, TritonBufferRole::Input);
+      if (atom.attribute.size() != 3)
+        throw std::runtime_error("tensor-window: expected [rows, stride, active]");
+      const auto rows = atom.attribute[0];
+      const auto stride = atom.attribute[1];
+      const auto active = atom.attribute[2];
+      Shape resultShape = sourceShape;
+      resultShape.front() = rows;
+      const auto resultTile = tensorExecutionTileShape(resultShape, profile_);
+      const auto rawIndex = nextTemporary("window_index");
+      addLine(rawIndex + " = " + lowerCoef(atom.operands[1]) + " + tl.full((), 0, tl.int32)");
+      const auto index64 = nextTemporary("window_index64");
+      addLine(index64 + " = " + rawIndex + ".to(tl.int64)");
+
+      std::string rowRange = "tl.arange(0, " + std::to_string(resultTile[0]) + ")";
+      if (resultShape.size() > 1) {
+        rowRange += "[";
+        for (std::size_t dim = 0; dim < resultShape.size(); ++dim) {
+          if (dim)
+            rowRange += ", ";
+          rowRange += dim == 0 ? ":" : "None";
+        }
+        rowRange += "]";
+      }
+      const auto rowName = nextTemporary("window_row");
+      addLine(rowName + " = " + rowRange);
+      const auto linear = nextTemporary("window_lin");
+      addLine(
+          linear + " = " + index64 + " * " + std::to_string(stride) + " + " + rowName +
+          ".to(tl.int64)"
+      );
+
+      std::vector<std::string> maskTerms;
+      if (profile_.id == TensorProfileId::V3)
+        maskTerms.push_back("(" + rowName + " < " + std::to_string(rows) + ")");
+      maskTerms.push_back("(" + linear + " < " + std::to_string(active) + ")");
+
+      const auto stride0 = layout ? layout->elementStrides[0] : productAfter(sourceShape, 0);
+      std::string address = linear + " * " + std::to_string(stride0);
+      for (std::size_t axis = 1; axis < sourceShape.size(); ++axis) {
+        std::string range = "tl.arange(0, " + std::to_string(resultTile[axis]) + ")";
+        range += "[";
+        for (std::size_t dim = 0; dim < sourceShape.size(); ++dim) {
+          if (dim)
+            range += ", ";
+          range += dim == axis ? ":" : "None";
+        }
+        range += "]";
+        const auto coordName = nextTemporary("window_d" + std::to_string(axis));
+        addLine(coordName + " = " + range);
+        if (profile_.id == TensorProfileId::V3)
+          maskTerms.push_back(
+              "(" + coordName + " < " + std::to_string(sourceShape[axis]) + ")"
+          );
+        const auto axisStride =
+            layout ? layout->elementStrides[axis] : productAfter(sourceShape, axis);
+        address += " + " + coordName + " * " + std::to_string(axisStride);
+      }
+      if (layout && layout->elementOffset != 0)
+        address = std::to_string(layout->elementOffset) + " + " + address;
+      std::string mask = maskTerms.front();
+      for (std::size_t i = 1; i < maskTerms.size(); ++i)
+        mask += " & " + maskTerms[i];
+      const auto maskName = nextTemporary("window_mask");
+      addLine(maskName + " = " + mask);
+      std::string fill;
+      if (atom.fill && std::holds_alternative<FloatLit>(*atom.fill))
+        fill = printFloat(std::get<FloatLit>(*atom.fill).value);
+      else if (atom.fill && std::holds_alternative<IntLit>(*atom.fill))
+        fill = std::to_string(std::get<IntLit>(*atom.fill).value);
+      else
+        throw std::runtime_error("tensor-window: fill is not a literal");
+      const auto value = nextTemporary("window");
+      addLine(
+          value + " = tl.load(" + pointer->second + " + " + address + ", mask=" + maskName +
+          ", other=" + fill + ")"
+      );
+      return value;
+    }
+
     std::vector<std::string> operands;
     operands.reserve(atom.operands.size());
     for (const auto &operand: atom.operands)
