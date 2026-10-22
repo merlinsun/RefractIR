@@ -162,6 +162,94 @@ class TensorExactTests(unittest.TestCase):
       },
     )
 
+  def test_reduce_min_prefers_negative_zero_over_positive_zero(self):
+    source = sir(
+      "%x: tensor [2] f32",
+      "f32",
+      "  let mut %out: f32 = undef;",
+      "  %out = tensor rmin %x, 0, drop;",
+      result="%out",
+    )
+
+    result, output = run_typed(source, struct.pack("<2f", 0.0, -0.0), tensor_profile="v2")
+
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual(struct.unpack("<I", output)[0], 0x80000000)
+
+  def test_reduce_max_prefers_positive_zero_over_negative_zero(self):
+    source = sir(
+      "%x: tensor [2] f32",
+      "f32",
+      "  let mut %out: f32 = undef;",
+      "  %out = tensor rmax %x, 0, drop;",
+      result="%out",
+    )
+
+    result, output = run_typed(source, struct.pack("<2f", -0.0, 0.0), tensor_profile="v2")
+
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual(struct.unpack("<I", output)[0], 0x00000000)
+
+  def test_elementwise_min_prefers_negative_zero(self):
+    source = sir(
+      "%x: tensor [1] f32, %y: tensor [1] f32",
+      "tensor [1] f32",
+      "  let mut %out: tensor [1] f32 = undef;",
+      "  %out = tensor min %x, %y;",
+      result="%out",
+    )
+
+    result, output = run_typed(
+      source, struct.pack("<f", 0.0) + struct.pack("<f", -0.0), tensor_profile="v2"
+    )
+
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual(struct.unpack("<I", output)[0], 0x80000000)
+
+  def test_elementwise_max_prefers_positive_zero(self):
+    source = sir(
+      "%x: tensor [1] f32, %y: tensor [1] f32",
+      "tensor [1] f32",
+      "  let mut %out: tensor [1] f32 = undef;",
+      "  %out = tensor max %x, %y;",
+      result="%out",
+    )
+
+    result, output = run_typed(
+      source, struct.pack("<f", -0.0) + struct.pack("<f", 0.0), tensor_profile="v2"
+    )
+
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual(struct.unpack("<I", output)[0], 0x00000000)
+
+  def test_reduce_min_keeps_the_tie_break_independent_of_order(self):
+    source = sir(
+      "%x: tensor [2] f32",
+      "f32",
+      "  let mut %out: f32 = undef;",
+      "  %out = tensor rmin %x, 0, drop;",
+      result="%out",
+    )
+
+    result, output = run_typed(source, struct.pack("<2f", -0.0, 0.0), tensor_profile="v2")
+
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual(struct.unpack("<I", output)[0], 0x80000000)
+
+  def test_reduce_min_prefers_negative_zero_among_other_values(self):
+    source = sir(
+      "%x: tensor [4] f32",
+      "f32",
+      "  let mut %out: f32 = undef;",
+      "  %out = tensor rmin %x, 0, drop;",
+      result="%out",
+    )
+
+    result, output = run_typed(source, struct.pack("<4f", 2.0, 0.0, -0.0, 3.0), tensor_profile="v2")
+
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual(struct.unpack("<I", output)[0], 0x80000000)
+
 
 if __name__ == "__main__":
   unittest.main()

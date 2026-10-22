@@ -125,6 +125,41 @@ namespace refractir {
     }
 
     template<unsigned Bits>
+    bool isNegativeZero(const RefFloat<Bits> &value) {
+      return value == 0 && std::signbit(value.template convert_to<double>());
+    }
+
+    /// IEEE 754 minNum/maxNum, the tie-break the scalar intrinsics and the
+    /// specification require: a -0.0 operand forces a -0.0 minimum and a +0.0
+    /// operand forces a +0.0 maximum, so the result does not depend on the
+    /// fold order.
+    template<unsigned Bits>
+    RefFloat<Bits> minNum(const RefFloat<Bits> &left, const RefFloat<Bits> &right) {
+      if (left < right)
+        return left;
+      if (right < left)
+        return right;
+      if (left == 0)
+        return (isNegativeZero(left) || isNegativeZero(right))
+                   ? RefFloat<Bits>(std::copysign(0.0, -1.0))
+                   : RefFloat<Bits>(0.0);
+      return left;
+    }
+
+    template<unsigned Bits>
+    RefFloat<Bits> maxNum(const RefFloat<Bits> &left, const RefFloat<Bits> &right) {
+      if (left > right)
+        return left;
+      if (right > left)
+        return right;
+      if (left == 0)
+        return (isNegativeZero(left) && isNegativeZero(right))
+                   ? RefFloat<Bits>(std::copysign(0.0, -1.0))
+                   : RefFloat<Bits>(0.0);
+      return left;
+    }
+
+    template<unsigned Bits>
     RuntimeValue binaryResult(TensorOp op, const RuntimeValue &left, const RuntimeValue &right) {
       if (op == TensorOp::Rem) {
         if (left.kind != RuntimeValue::Kind::Float || right.kind != RuntimeValue::Kind::Float ||
@@ -150,9 +185,9 @@ namespace refractir {
       if (op == TensorOp::Div && b == 0)
         throw UndefinedBehaviorError("UB: tensor f32 division by zero");
       if (op == TensorOp::Min)
-        return roundToF32<Bits>(a <= b ? a : b);
+        return roundToF32<Bits>(minNum<Bits>(a, b));
       if (op == TensorOp::Max)
-        return roundToF32<Bits>(a >= b ? a : b);
+        return roundToF32<Bits>(maxNum<Bits>(a, b));
       switch (op) {
         case TensorOp::Add:
           return roundToF32<Bits>(a + b);
@@ -179,9 +214,8 @@ namespace refractir {
       } else if (op == TensorOp::ReduceMin || op == TensorOp::ReduceMax) {
         for (std::size_t i = 1; i < group.size(); ++i) {
           const auto value = readFloat<Bits>(group[i]);
-          if ((op == TensorOp::ReduceMin && value < accum) ||
-              (op == TensorOp::ReduceMax && value > accum))
-            accum = value;
+          accum = op == TensorOp::ReduceMin ? minNum<Bits>(accum, value)
+                                            : maxNum<Bits>(accum, value);
         }
       } else {
         throw std::runtime_error("unsupported numerical tensor reduction operator");
