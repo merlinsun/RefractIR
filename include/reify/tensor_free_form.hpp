@@ -262,6 +262,21 @@ namespace refractir::reify {
     std::vector<FreeFormWindow> windows;
   };
 
+  /// The address facts of one window: the highest address any trip and row
+  /// can form, which positions are active on each trip, and whether every
+  /// position is active on every trip.
+  struct FreeFormWindowWitness {
+    std::uint64_t computedMax = 0;
+    std::vector<std::vector<bool>> perTripActive;
+    bool allActive = false;
+  };
+
+  /// Compute the witness, refusing a spec whose rows or active bound leave the
+  /// source or whose maximum address reaches the source extent.
+  FreeFormWindowWitness witnessWindow(
+      const FreeFormWindow &window, std::uint32_t tripCount, std::uint32_t sourceExtent
+  );
+
   /// Check the windows a loop states before any text is emitted. Throws
   /// std::invalid_argument when a window-initialized invariant lacks a window
   /// or has more than one, when the source is not a runtime parameter, when

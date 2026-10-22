@@ -1045,6 +1045,35 @@ namespace refractir::reify {
 
   } // namespace
 
+  FreeFormWindowWitness witnessWindow(
+      const FreeFormWindow &window, std::uint32_t tripCount, std::uint32_t sourceExtent
+  ) {
+    if (window.rows == 0 || window.active == 0 || window.rows > sourceExtent ||
+        window.active > sourceExtent)
+      throw std::invalid_argument(
+          "free-form window witness: rows and active must fit the source extent"
+      );
+    FreeFormWindowWitness witness;
+    witness.allActive = true;
+    witness.perTripActive.resize(tripCount);
+    for (std::uint32_t trip = 0; trip < tripCount; ++trip) {
+      witness.perTripActive[trip].resize(window.rows);
+      for (std::uint32_t row = 0; row < window.rows; ++row) {
+        const auto address =
+            static_cast<std::uint64_t>(trip) * window.stride + static_cast<std::uint64_t>(row);
+        const bool active = address < window.active;
+        witness.perTripActive[trip][row] = active;
+        witness.allActive = witness.allActive && active;
+        witness.computedMax = std::max(witness.computedMax, address);
+      }
+    }
+    if (witness.computedMax >= sourceExtent)
+      throw std::invalid_argument(
+          "free-form window witness: maximum address reaches the source extent"
+      );
+    return witness;
+  }
+
   void validateFreeFormWindows(const FreeFormLoop &loop) {
     std::unordered_map<std::string, std::size_t> parameters;
     std::unordered_map<std::string, std::size_t> windowInputs;

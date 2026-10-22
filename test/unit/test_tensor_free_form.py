@@ -1,6 +1,7 @@
 """Executable contract tests for free-form regions and their counted-loop assembly."""
 
 import json
+import re
 import os
 import subprocess
 import tempfile
@@ -201,6 +202,37 @@ class FreeFormContractTests(unittest.TestCase):
       ["x", "src"],
     )
     self.assertEqual(description["output"]["shape"], [2, 2])
+
+  def test_the_witness_enumerates_computed_addresses(self):
+    self.run_contract("window-witness-enumerates-computed-addresses")
+
+  def test_the_witness_reports_the_active_set_per_trip(self):
+    self.run_contract("window-witness-reports-active-set-per-trip")
+
+  def test_the_witness_refuses_active_beyond_the_source(self):
+    self.run_contract("window-witness-refuses-active-beyond-source")
+
+  def test_the_witness_keeps_the_max_address_inside_the_source(self):
+    self.run_contract("window-witness-max-address-inside-source")
+
+  def test_stride_two_rows_two_active_three_is_a_tail(self):
+    self.run_contract("window-witness-stride-two-rows-two-active-three-is-tail")
+
+  def test_the_witness_agrees_with_the_assembled_window(self):
+    source = self.render("window-assembled-source")
+    match = re.search(r"tensor window %src, %i, [-0-9.eE+]+, \[(\d+), (\d+), (\d+)\];", source)
+    self.assertIsNotNone(match, source)
+    rows, stride, active = (int(value) for value in match.groups())
+    trips = int(re.search(r"br %i < (\d+), \^body, \^exit;", source).group(1))
+    extent = int(re.search(r"%src: tensor \[(\d+),", source).group(1))
+    witness = json.loads(self.render("window-witness-json"))
+    self.assertEqual(witness["computed_max"], (trips - 1) * stride + rows - 1)
+    self.assertEqual(
+      witness["per_trip_active"],
+      [[trip * stride + row < active for row in range(rows)] for trip in range(trips)],
+    )
+    self.assertEqual(witness["all_active"], all(all(row) for row in witness["per_trip_active"]))
+    self.assertLess(witness["computed_max"], extent)
 
   @unittest.skipUnless(SYMIRI.is_file(), "symiri executable not found")
   def test_a_three_state_loop_with_a_window_passes_check(self):

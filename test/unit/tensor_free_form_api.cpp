@@ -1173,6 +1173,70 @@ namespace {
     std::cout << source;
   }
 
+  FreeFormWindow witnessSpec(std::uint32_t rows, std::uint32_t stride, std::uint32_t active) {
+    FreeFormWindow window;
+    window.result = "%tile";
+    window.source = "%src";
+    window.rows = rows;
+    window.stride = stride;
+    window.active = active;
+    return window;
+  }
+
+  void windowWitnessEnumeratesComputedAddresses() {
+    const auto witness = witnessWindow(witnessSpec(2, 1, 4), 2, 4);
+    require(witness.computedMax == 2, "the highest address is (trips-1)*stride + rows-1");
+    require(witness.perTripActive.size() == 2, "one active set per trip");
+    require(witness.allActive, "every row of this window is active on every trip");
+  }
+
+  void windowWitnessReportsTheActiveSetPerTrip() {
+    const auto witness = witnessWindow(witnessSpec(2, 2, 3), 2, 4);
+    require(witness.perTripActive[0][0] && witness.perTripActive[0][1], "trip zero is active");
+    require(witness.perTripActive[1][0] && !witness.perTripActive[1][1], "trip one stays active");
+    require(!witness.allActive, "the window is a tail");
+  }
+
+  void windowWitnessRefusesActiveBeyondTheSource() {
+    requireInvalid(
+        [] { (void) witnessWindow(witnessSpec(2, 1, 5), 2, 4); }, "fit the source extent"
+    );
+  }
+
+  void windowWitnessMaxAddressIsInsideTheSource() {
+    require(
+        witnessWindow(witnessSpec(2, 2, 4), 2, 4).computedMax == 3,
+        "the maximum address is the last row of the last trip"
+    );
+    requireInvalid(
+        [] { (void) witnessWindow(witnessSpec(2, 2, 4), 3, 4); },
+        "maximum address reaches the source extent"
+    );
+  }
+
+  void windowWitnessStrideTwoRowsTwoActiveThreeIsTail() {
+    const auto witness = witnessWindow(witnessSpec(2, 2, 3), 2, 4);
+    require(!witness.allActive, "stride two rows two active three is a tail");
+  }
+
+  void windowWitnessJson() {
+    const auto witness = witnessWindow(witnessSpec(2, 1, 4), 2, 4);
+    std::cout << "{\"computed_max\":" << witness.computedMax << ",\"all_active\":"
+              << (witness.allActive ? "true" : "false") << ",\"per_trip_active\":[";
+    for (std::size_t trip = 0; trip < witness.perTripActive.size(); ++trip) {
+      if (trip)
+        std::cout << ',';
+      std::cout << '[';
+      for (std::size_t row = 0; row < witness.perTripActive[trip].size(); ++row) {
+        if (row)
+          std::cout << ',';
+        std::cout << (witness.perTripActive[trip][row] ? "true" : "false");
+      }
+      std::cout << ']';
+    }
+    std::cout << "]}\n";
+  }
+
   std::string threeStateSource() {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
@@ -1286,6 +1350,18 @@ int main(int argc, char **argv) {
       std::cout << assembledWindowSource();
     } else if (name == "window-three-state-assembled-source")
       windowThreeStateSource();
+    else if (name == "window-witness-enumerates-computed-addresses")
+      windowWitnessEnumeratesComputedAddresses();
+    else if (name == "window-witness-reports-active-set-per-trip")
+      windowWitnessReportsTheActiveSetPerTrip();
+    else if (name == "window-witness-refuses-active-beyond-source")
+      windowWitnessRefusesActiveBeyondTheSource();
+    else if (name == "window-witness-max-address-inside-source")
+      windowWitnessMaxAddressIsInsideTheSource();
+    else if (name == "window-witness-stride-two-rows-two-active-three-is-tail")
+      windowWitnessStrideTwoRowsTwoActiveThreeIsTail();
+    else if (name == "window-witness-json")
+      windowWitnessJson();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;
