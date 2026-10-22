@@ -11,7 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test.lib import tensor_target_case, tensor_target_run
+from test.lib import (
+  tensor_target_case,
+  tensor_target_reference,
+  tensor_target_run,
+)
 
 SOURCE = """\
 fun @kernel(%x: tensor [2, 2] f32, %y: tensor [2, 2] f32) : tensor [2, 2] f32 {
@@ -170,6 +174,25 @@ class TargetRunTests(unittest.TestCase):
       timeout_s=timeout_s,
       **kwargs,
     )
+
+  def test_a_reference_observation_is_recorded_as_diagnostic(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.COMPLETED, output=bytes.fromhex(AGREE_HEX)
+    )
+    run = self.run_target(reference=reference)
+    record = run.as_record()
+    self.assertEqual(record["reference"]["kind"], "diagnostic")
+    self.assertEqual(record["reference"]["path"], "refractir_interpreter")
+    self.assertEqual(record["reference"]["status"], "completed")
+    bundle = json.loads((self.bundle / "case.json").read_text(encoding="utf-8"))
+    self.assertEqual(bundle["reference"], {"kind": "none"})
 
   def test_both_modes_consume_one_emission_and_agree(self):
     self.write_bundle()
@@ -505,6 +528,7 @@ class TargetRunTests(unittest.TestCase):
       self.run_target()
     self.assertEqual(raised.exception.status, tensor_target_case.REFERENCE_NOT_ALLOWED)
     self.assertFalse((self.bundle / "target-runs").exists())
+
 
 
 if __name__ == "__main__":

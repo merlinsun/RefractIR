@@ -16,7 +16,12 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from test.lib import tensor_emission, tensor_execution, tensor_target_case
+from test.lib import (
+  tensor_emission,
+  tensor_execution,
+  tensor_target_case,
+  tensor_target_reference,
+)
 
 SCHEMA = "refractir.tensor-target-run.v1"
 
@@ -85,6 +90,9 @@ class TargetRun:
   compiled: ModeRun
   mismatches: tuple = ()
   case: tensor_target_case.TargetCase | None = field(default=None, compare=False)
+  reference: tensor_target_reference.ReferenceObservation | None = field(
+    default=None, compare=False
+  )
 
   @property
   def candidate(self):
@@ -138,7 +146,9 @@ class TargetRun:
         },
         "concrete_execution": {"status": _concrete_legality(self.status)},
       },
-      "reference": {"kind": "none"},
+      "reference": (
+        self.reference.as_record() if self.reference is not None else {"kind": "none"}
+      ),
     }
 
 
@@ -153,12 +163,15 @@ def run(
   gpu_probe=None,
   artifact_dir=None,
   cache_dir=None,
+  reference=None,
 ):
   """Emit once, run both modes, and record what each produced.
 
   Raises `tensor_target_case.TargetCaseError` when the bundle itself is not
   executable, before any process starts. A GPU that is not visible yields
-  `environment_unavailable`, not a comparison result.
+  `environment_unavailable`, not a comparison result. `reference` is an
+  optional diagnostic SIR observation; when given, the record carries it and a
+  path-specific diagnosis, but the bundle's own reference claim stays `none`.
   """
   case = tensor_target_case.load(bundle_dir, symiri=symiri)
   root = case.path
@@ -188,6 +201,7 @@ def run(
       interpreter=mode,
       compiled=mode,
       case=case,
+      reference=reference,
     )
     _save(artifacts, target)
     return target
@@ -257,6 +271,7 @@ def run(
     compiled=compiled,
     mismatches=mismatches,
     case=case,
+    reference=reference,
   )
   _save(artifacts, target)
   return target
