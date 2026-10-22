@@ -25,6 +25,11 @@ EMITTER_MODULE = "test.lib.tensor_gluon_lowering"
 EMITTER_SOURCE = Path(__file__).with_name("tensor_gluon_lowering.py")
 GLUON = "gluon"
 SYMIRC = "symirc"
+NATIVE = "native"
+SIR_PATH = "sir"
+NATIVE_PATH = "native"
+SIR_ROLE_SIGNATURE_ONLY = "signature-only"
+TRITON_IDENTITY_FIELDS = ("version", "revision", "torch", "device", "cache_mode")
 TARGET = "triton"
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 
@@ -57,6 +62,8 @@ class EmitterIdentity:
   source_sha256: str | None = None
   executable: str | None = None
   binary_sha256: str | None = None
+  triton: tuple[tuple[str, Any], ...] | None = None
+  sir_role: str | None = None
 
   @property
   def digest(self):
@@ -64,6 +71,9 @@ class EmitterIdentity:
     material = {"kind": self.kind, "options": dict(self.options)}
     if self.kind == SYMIRC:
       material["binary_sha256"] = self.binary_sha256
+    elif self.kind == NATIVE:
+      material["triton"] = dict(self.triton or ())
+      material["sir_role"] = self.sir_role
     else:
       material["source_sha256"] = self.source_sha256
     return _digest_value(material)
@@ -74,6 +84,9 @@ class EmitterIdentity:
     if self.kind == SYMIRC:
       record["executable"] = self.executable
       record["binary_sha256"] = self.binary_sha256
+    elif self.kind == NATIVE:
+      record["triton"] = dict(self.triton or ())
+      record["sir_role"] = self.sir_role
     else:
       record["module"] = self.module
       record["source_sha256"] = self.source_sha256
@@ -103,9 +116,32 @@ class EmissionRecord:
   layout_manifest_sha256: str | None = None
   softmax_lowering: str | None = None
 
+  @property
+  def path(self):
+    """The denominator this record belongs to: the SIR route or the native arm."""
+    return NATIVE_PATH if self.emitter.kind == NATIVE else SIR_PATH
+
+  @property
+  def native_digest(self):
+    """The native record's identity: kernel bytes, launch, and Triton identity.
+
+    A launch setting that reaches the kernel must not share this digest with the
+    same text under another launch, so a stale record cannot be reused.
+    """
+    if self.emitter.kind != NATIVE:
+      raise EmissionRefused("only a native record states a native digest")
+    return _digest_value(
+      {
+        "kernel_sha256": self.kernel_sha256,
+        "launch": dict(self.launch),
+        "triton": dict(self.emitter.triton or ()),
+        "sir_role": self.emitter.sir_role,
+      }
+    )
+
   def as_record(self):
     """The JSON-able statement of this record, without the kernel text."""
-    return {
+    record = {
       "schema": SCHEMA,
       "kind": self.emitter.kind,
       "sir_sha256": self.sir_sha256,
@@ -119,7 +155,11 @@ class EmissionRecord:
       "target": self.target,
       "softmax_lowering": self.softmax_lowering,
       "launch": dict(self.launch),
+      "path": self.path,
     }
+    if self.emitter.kind == NATIVE:
+      record["native_digest"] = self.native_digest
+    return record
 
 
 def _canonical(value):
@@ -161,9 +201,39 @@ def _executable_path(executable):
   return path
 
 
-def _emitter_identity(kind, options, executable=None):
+def _triton_identity(value):
+  """The Triton identity block a native record must state."""
+  if value is None:
+    raise EmissionRefused("a native record must state its Triton identity")
+  pairs = _pairs(value, what="Triton identity")
+  fields = dict(pairs)
+  missing = [name for name in TRITON_IDENTITY_FIELDS if name not in fields]
+  if missing:
+    raise EmissionRefused(
+      "the Triton identity must state " + ", ".join(TRITON_IDENTITY_FIELDS)
+    )
+  for name in TRITON_IDENTITY_FIELDS:
+    if not isinstance(fields[name], str) or not fields[name]:
+      raise EmissionRefused(f"the Triton identity field {name!r} must be nonempty text")
+  return pairs
+
+
+def _emitter_identity(kind, options, executable=None, *, triton=None, sir_role=None):
   """The emitter in use, hashed with the options that reached the kernel."""
   pairs = _pairs(options, what="emitter options")
+  if kind == NATIVE:
+    if executable is not None:
+      raise EmissionRefused("a native record states no symirc executable")
+    if sir_role != SIR_ROLE_SIGNATURE_ONLY:
+      raise EmissionRefused(
+        f"a native record must state sir_role {SIR_ROLE_SIGNATURE_ONLY!r}"
+      )
+    return EmitterIdentity(
+      kind=NATIVE,
+      triton=_triton_identity(triton),
+      sir_role=SIR_ROLE_SIGNATURE_ONLY,
+      options=pairs,
+    )
   if kind == GLUON:
     if executable is not None:
       raise EmissionRefused("a Gluon emission records no executable")
@@ -189,7 +259,9 @@ def _emitter_identity(kind, options, executable=None):
       binary_sha256=_digest_bytes(data),
       options=pairs,
     )
-  raise EmissionRefused(f"emitter kind must be {GLUON!r} or {SYMIRC!r}, got {kind!r}")
+  raise EmissionRefused(
+    f"emitter kind must be {GLUON!r}, {SYMIRC!r}, or {NATIVE!r}, got {kind!r}"
+  )
 
 
 def _kernel_source(kernel):
@@ -231,6 +303,8 @@ def build(
   executable=None,
   layout_manifest=None,
   softmax_lowering=None,
+  triton=None,
+  sir_role=None,
   target=TARGET,
 ):
   """Render one kernel and bind it to the case that asked for it.
@@ -258,13 +332,22 @@ def build(
       raise EmissionRefused(
         "a Gluon emission records no ordinary layout manifest or softmax lowering"
       )
+  elif kind == NATIVE:
+    if layout_manifest is not None or softmax_lowering is not None:
+      raise EmissionRefused(
+        "a native record states no ordinary layout manifest or softmax lowering"
+      )
+    if executable is not None:
+      raise EmissionRefused("a native record states no symirc executable")
   elif kind == SYMIRC:
     if layout_manifest is None:
       raise EmissionRefused("an ordinary emission must state its layout manifest")
     if not isinstance(softmax_lowering, str) or not softmax_lowering:
       raise EmissionRefused("an ordinary emission must state its softmax lowering")
   else:
-    raise EmissionRefused(f"emitter kind must be {GLUON!r} or {SYMIRC!r}, got {kind!r}")
+    raise EmissionRefused(
+    f"emitter kind must be {GLUON!r}, {SYMIRC!r}, or {NATIVE!r}, got {kind!r}"
+  )
   manifest_sha256 = None if layout_manifest is None else _digest_value(layout_manifest)
   kernel = render()
   if isinstance(kernel, str):
@@ -274,7 +357,9 @@ def build(
     sir_sha256=_digest_text(sir),
     kernel_sha256=_digest_text(kernel_source),
     layout_sha256=_digest_value(layout),
-    emitter=_emitter_identity(kind, options, executable),
+    emitter=_emitter_identity(
+      kind, options, executable, triton=triton, sir_role=sir_role
+    ),
     profile=profile,
     entry=entry,
     launch=_pairs(launch, what="launch settings"),
@@ -331,6 +416,64 @@ def build_ordinary(
   )
 
 
+def build_native(
+  *,
+  sir,
+  kernel,
+  layout,
+  profile,
+  entry,
+  launch,
+  triton,
+  options=None,
+  sir_role=SIR_ROLE_SIGNATURE_ONLY,
+  target=TARGET,
+):
+  """Record one frozen Triton kernel as the native exploration path.
+
+  The record states the kernel's bytes, the launch settings, the Triton
+  identity block, and the fixed `signature-only` SIR role, and it refuses a
+  missing kernel or identity. `verify(..., native=True)` checks all four, and
+  `native_digest` binds the kernel, launch, and identity so a launch change
+  cannot reuse a record.
+  """
+  if not isinstance(kernel, str) or not kernel:
+    raise EmissionRefused("a native record must state its kernel text")
+  options = {} if options is None else options
+  return build(
+    kind=NATIVE,
+    sir=sir,
+    render=lambda: EmittedKernel(source=kernel),
+    layout=layout,
+    profile=profile,
+    entry=entry,
+    launch=launch,
+    options=options,
+    triton=triton,
+    sir_role=sir_role,
+    target=target,
+  )
+
+
+def require_path(record, expected):
+  """Refuse a record entering the wrong denominator."""
+  if expected not in (SIR_PATH, NATIVE_PATH):
+    raise EmissionRefused(f"a denominator must be {SIR_PATH!r} or {NATIVE_PATH!r}")
+  if record.path != expected:
+    raise EmissionRefused(
+      f"a {record.path} record cannot enter the {expected} denominator"
+    )
+  return record
+
+
+def denominator_report(records):
+  """The two path denominators, kept separate and never merged."""
+  report = {SIR_PATH: 0, NATIVE_PATH: 0}
+  for record in records:
+    report[record.path] += 1
+  return report
+
+
 def _require_record(record):
   """Refuse a missing or malformed record before any digest is compared."""
   if record is None:
@@ -355,6 +498,18 @@ def _require_record(record):
       )
     if not isinstance(record.emitter.module, str) or not record.emitter.module:
       raise EmissionRefused("emission record is garbled: emitter module is missing")
+  elif record.emitter.kind == NATIVE:
+    if record.emitter.triton is None:
+      raise EmissionRefused("a native record must state its Triton identity")
+    if record.emitter.sir_role != SIR_ROLE_SIGNATURE_ONLY:
+      raise EmissionRefused(
+        f"a native record must state sir_role {SIR_ROLE_SIGNATURE_ONLY!r}"
+      )
+    if (
+      record.layout_manifest_sha256 is not None
+      or record.softmax_lowering is not None
+    ):
+      raise EmissionRefused("a native record states no ordinary layout fields")
   elif record.emitter.kind == SYMIRC:
     if _DIGEST.fullmatch(record.emitter.binary_sha256 or "") is None:
       raise EmissionRefused(
@@ -417,6 +572,10 @@ def _compare_emitter(recorded, actual):
       f"in use: record {recorded.binary_sha256[:12]} != "
       f"{actual.binary_sha256[:12]}"
     )
+  if recorded.triton != actual.triton:
+    raise EmissionRefused("emission record Triton identity does not match the identity in use")
+  if recorded.sir_role != actual.sir_role:
+    raise EmissionRefused("emission record SIR role does not match the record in use")
   changed = _option_difference(recorded.options, actual.options)
   if changed:
     name = changed[0]
@@ -448,6 +607,9 @@ def verify(
   executable=None,
   layout_manifest=None,
   softmax_lowering=None,
+  native=False,
+  triton=None,
+  sir_role=None,
   target=None,
 ):
   """Return `record` once it matches the emission the caller is about to use.
@@ -460,7 +622,9 @@ def verify(
   ordinary route; omitting all of them states the Gluon route.
   """
   _require_record(record)
-  requested = _requested_kind(executable, layout_manifest, softmax_lowering)
+  requested = (
+    NATIVE if native else _requested_kind(executable, layout_manifest, softmax_lowering)
+  )
   if record.emitter.kind != requested:
     raise EmissionRefused(
       "emission record emitter kind does not match the emitter in use: "
@@ -508,6 +672,16 @@ def verify(
         f"{record.softmax_lowering!r} != {softmax_lowering!r}"
       )
     _compare_emitter(record.emitter, _emitter_identity(SYMIRC, options, executable))
+  elif requested == NATIVE:
+    _compare_emitter(
+      record.emitter,
+      _emitter_identity(
+        NATIVE,
+        options,
+        triton=triton,
+        sir_role=sir_role or SIR_ROLE_SIGNATURE_ONLY,
+      ),
+    )
   else:
     _compare_emitter(record.emitter, _emitter_identity(GLUON, options))
   expected_target = TARGET if target is None else target

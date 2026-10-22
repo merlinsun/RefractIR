@@ -442,5 +442,191 @@ class OrdinaryEmissionTests(unittest.TestCase):
         emission.reuse(ordinary, **_gluon_identity_arguments())
 
 
+TRITON_IDENTITY = {
+  "version": "3.9.0+git32f06df4",
+  "revision": "32f06df4bf1c30885ff61ee3488836ca81ed65f0",
+  "torch": "2.5.1+cu121",
+  "device": "Tesla V100-SXM2-32GB",
+  "cache_mode": "temporary",
+}
+NATIVE_KERNEL = """\
+import triton
+import triton.language as tl
+
+@triton.jit
+def kernel(x_ptr, out_ptr):
+    value = tl.load(x_ptr)
+    tl.store(out_ptr, value)
+"""
+NATIVE_SIR = """\
+fun @kernel(%x: tensor [2] f32) : tensor [2] f32 {
+  let mut %out: tensor [2] f32 = undef;
+^entry:
+  %out = %x;
+  ret %out;
+}
+"""
+
+
+class NativeRecordTests(unittest.TestCase):
+  """A frozen Triton kernel is a third record kind, never a SIR emission."""
+
+  def build(self, **overrides):
+    arguments = {
+      "sir": NATIVE_SIR,
+      "kernel": NATIVE_KERNEL,
+      "layout": LAYOUT,
+      "profile": PROFILE,
+      "entry": ENTRY,
+      "launch": LAUNCH,
+      "triton": TRITON_IDENTITY,
+    }
+    arguments.update(overrides)
+    return _emission().build_native(**arguments)
+
+  def verify(self, record, **overrides):
+    arguments = {
+      "sir": NATIVE_SIR,
+      "layout": LAYOUT,
+      "profile": PROFILE,
+      "entry": ENTRY,
+      "launch": LAUNCH,
+      "options": (),
+      "native": True,
+      "triton": TRITON_IDENTITY,
+    }
+    arguments.update(overrides)
+    return _emission().verify(record, **arguments)
+
+  def test_native_kind_requires_a_kernel_digest(self):
+    emission = _emission()
+    with self.assertRaises(emission.EmissionRefused):
+      self.build(kernel="")
+    record = self.build()
+    tampered = replace(record, kernel_sha256="")
+    with self.assertRaisesRegex(emission.EmissionRefused, "kernel_sha256"):
+      self.verify(tampered)
+
+  def test_native_requires_a_triton_identity(self):
+    emission = _emission()
+    with self.assertRaisesRegex(emission.EmissionRefused, "Triton identity"):
+      self.build(triton=None)
+    partial = dict(TRITON_IDENTITY)
+    del partial["revision"]
+    with self.assertRaisesRegex(emission.EmissionRefused, "Triton identity"):
+      self.build(triton=partial)
+
+  def test_native_refuses_a_missing_sir_role(self):
+    record = self.build()
+    broken = replace(record, emitter=replace(record.emitter, sir_role="full-program"))
+    with self.assertRaisesRegex(_emission().EmissionRefused, "sir_role"):
+      self.verify(broken)
+
+  def test_native_digest_covers_launch_options(self):
+    first = self.build()
+    second = self.build(launch={**LAUNCH, "num_warps": 4})
+    self.assertEqual(first.kernel_sha256, second.kernel_sha256)
+    self.assertNotEqual(first.native_digest, second.native_digest)
+
+  def test_native_gluon_fields_refused(self):
+    emission = _emission()
+    with self.assertRaises(emission.EmissionRefused):
+      emission.build(
+        kind="native",
+        sir=NATIVE_SIR,
+        render=lambda: NATIVE_KERNEL,
+        layout=LAYOUT,
+        profile=PROFILE,
+        entry=ENTRY,
+        launch=LAUNCH,
+        options=(),
+        triton=TRITON_IDENTITY,
+        executable="/bin/sh",
+      )
+    record = self.build()
+    broken = replace(record, layout_manifest_sha256=_digest("manifest"), softmax_lowering="direct")
+    with self.assertRaises(emission.EmissionRefused):
+      self.verify(broken)
+
+  def test_native_unchanged_kernel_shares_the_digest(self):
+    self.assertEqual(self.build().native_digest, self.build().native_digest)
+
+
+class PathSeparationTests(unittest.TestCase):
+  """SIR and native records never share a denominator."""
+
+  def test_path_field_is_sir_for_an_emitted_kernel(self):
+    record = _record(_emission())
+    self.assertEqual(record.path, "sir")
+    self.assertEqual(record.as_record()["path"], "sir")
+
+  def test_path_field_is_native_for_a_frozen_kernel(self):
+    record = _emission().build_native(
+      sir=NATIVE_SIR,
+      kernel=NATIVE_KERNEL,
+      layout=LAYOUT,
+      profile=PROFILE,
+      entry=ENTRY,
+      launch=LAUNCH,
+      triton=TRITON_IDENTITY,
+    )
+    self.assertEqual(record.path, "native")
+    self.assertEqual(record.as_record()["path"], "native")
+
+  def test_native_run_refused_in_sir_denominator(self):
+    emission = _emission()
+    native = emission.build_native(
+      sir=NATIVE_SIR,
+      kernel=NATIVE_KERNEL,
+      layout=LAYOUT,
+      profile=PROFILE,
+      entry=ENTRY,
+      launch=LAUNCH,
+      triton=TRITON_IDENTITY,
+    )
+    with self.assertRaisesRegex(emission.EmissionRefused, "sir denominator"):
+      emission.require_path(native, "sir")
+
+  def test_sir_run_refused_in_native_denominator(self):
+    emission = _emission()
+    with self.assertRaisesRegex(emission.EmissionRefused, "native denominator"):
+      emission.require_path(_record(emission), "native")
+
+  def test_denominator_report_names_both_paths(self):
+    emission = _emission()
+    native = emission.build_native(
+      sir=NATIVE_SIR,
+      kernel=NATIVE_KERNEL,
+      layout=LAYOUT,
+      profile=PROFILE,
+      entry=ENTRY,
+      launch=LAUNCH,
+      triton=TRITON_IDENTITY,
+    )
+    self.assertEqual(
+      emission.denominator_report([_record(emission), native, native]),
+      {"sir": 1, "native": 2},
+    )
+
+  def test_native_run_has_no_symirc_identity(self):
+    emission = _emission()
+    native = emission.build_native(
+      sir=NATIVE_SIR,
+      kernel=NATIVE_KERNEL,
+      layout=LAYOUT,
+      profile=PROFILE,
+      entry=ENTRY,
+      launch=LAUNCH,
+      triton=TRITON_IDENTITY,
+    )
+    record = native.as_record()
+    self.assertEqual(record["emitter"]["kind"], "native")
+    self.assertNotIn("executable", record["emitter"])
+    self.assertNotIn("binary_sha256", record["emitter"])
+    self.assertEqual(record["emitter"]["sir_role"], "signature-only")
+    self.assertEqual(record["emitter"]["triton"], TRITON_IDENTITY)
+    self.assertIn("native_digest", record)
+
+
 if __name__ == "__main__":
   unittest.main()
