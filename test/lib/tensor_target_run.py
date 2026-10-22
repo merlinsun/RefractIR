@@ -54,6 +54,9 @@ class ModeRun:
   stderr: str
   log: str
   reason: str = ""
+  # Logical output slots that still hold the declared canary. `None` means the
+  # case declares no physical layout, so the question does not apply.
+  unwritten: list[int] | None = None
 
   def as_record(self):
     return {
@@ -67,6 +70,7 @@ class ModeRun:
       "actual_byte_length": len(self.actual) if self.actual is not None else None,
       "log": self.log,
       "reason": self.reason,
+      "unwritten_logical_slots": self.unwritten,
     }
 
 
@@ -327,6 +331,7 @@ def _run_mode(
       stderr=stderr,
       log=_relative(log_path, artifacts),
       reason="the worker exceeded its time budget",
+      unwritten=_unwritten_logical_slots(_actual(mode_dir), case.record),
     )
   except OSError as error:
     raise tensor_emission.EmissionRefused(f"cannot start the {mode} worker: {error}") from error
@@ -351,7 +356,39 @@ def _run_mode(
     stderr=stderr,
     log=_relative(log_path, artifacts),
     reason=reason,
+    unwritten=_unwritten_logical_slots(actual, case.record),
   )
+
+
+def _unwritten_logical_slots(actual, record):
+  """Logical output slots that still hold the declared canary, or None.
+
+  A slot equal to the canary was not written by the kernel, because the worker
+  fills the allocation with that pattern before the run. A value that happens
+  to equal the canary is therefore reported here rather than failed: the check
+  states ownership, and the numerical comparison stays the only status.
+  """
+  if actual is None:
+    return None
+  profile = record.get("profile")
+  if profile not in ("tensor-v2", "tensor-v3"):
+    return None
+  canaries = (record.get("execution") or {}).get("output_canary_by_dtype") or {}
+  dtype = (record.get("output") or {}).get("dtype")
+  canary = canaries.get(dtype)
+  if not isinstance(canary, str):
+    return None
+  try:
+    pattern = bytes.fromhex(canary)
+  except ValueError:
+    return None
+  if len(pattern) != 4:
+    return None
+  return [
+    index // 4
+    for index in range(0, len(actual) - 3, 4)
+    if actual[index : index + 4] == pattern
+  ]
 
 
 def _text(value):

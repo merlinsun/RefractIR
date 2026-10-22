@@ -58,6 +58,8 @@ EXECUTION = {
   "warp_probe": {"status": "not_probed", "num_warps": 4},
 }
 AGREE = (1.0, 6.0, 3.0, 12.0)
+CANARY = bytes.fromhex(EXECUTION["output_canary_by_dtype"]["f32"])
+PARTIAL_HEX = (CANARY + struct.pack("<3f", 2.0, 3.0, 4.0)).hex()
 AGREE_HEX = struct.pack("<4f", *AGREE).hex()
 
 STUB_SYMBOLS = """\
@@ -383,6 +385,80 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(differences[0][1], "0x00000605")
     self.assertEqual(differences[0][2], "0x00000705")
 
+
+
+  def test_a_fully_written_output_reports_no_unwritten_slots(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    run = self.run_target()
+    self.assertEqual(run.interpreter.unwritten, [])
+    self.assertEqual(run.compiled.unwritten, [])
+    self.assertEqual(run.as_record()["interpreter"]["unwritten_logical_slots"], [])
+
+  def test_a_partial_write_reports_the_unwritten_slots(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": PARTIAL_HEX},
+        "compiled": {"phase": "runtime", "actual": PARTIAL_HEX},
+      }
+    )
+    run = self.run_target()
+    self.assertEqual(run.status, tensor_target_run.TARGET_AGREEMENT)
+    self.assertEqual(run.interpreter.unwritten, [0])
+    self.assertEqual(run.as_record()["compiled"]["unwritten_logical_slots"], [0])
+
+  def test_unwritten_slots_do_not_change_the_status(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": PARTIAL_HEX},
+        "compiled": {"phase": "runtime", "actual": PARTIAL_HEX},
+      }
+    )
+    state = self.run_target()
+    self.assertEqual(state.status, tensor_target_run.TARGET_AGREEMENT)
+    self.assertFalse(state.candidate)
+
+  def test_unwritten_slots_are_recorded_on_disagreement(self):
+    self.write_bundle()
+    first = CANARY + struct.pack("<3f", 2.0, 3.0, 4.0)
+    second = CANARY + struct.pack("<3f", 2.0, 3.0, 5.0)
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": first.hex()},
+        "compiled": {"phase": "runtime", "actual": second.hex()},
+      }
+    )
+    run = self.run_target()
+    self.assertEqual(run.status, tensor_target_run.TARGET_DISAGREEMENT)
+    record = run.as_record()
+    self.assertEqual(record["interpreter"]["unwritten_logical_slots"], [0])
+    self.assertEqual(record["compiled"]["unwritten_logical_slots"], [0])
+
+  def test_unwritten_slots_are_absent_without_a_profile(self):
+    record = {"profile": "tensor-v1", "execution": {"output_canary_by_dtype": {"f32": "3f000002"}}}
+    self.assertIsNone(tensor_target_run._unwritten_logical_slots(bytes(4), record))
+    self.assertIsNone(tensor_target_run._unwritten_logical_slots(bytes(4), {"execution": {}}))
+
+  def test_a_canary_equal_result_is_reported_not_failed(self):
+    self.write_bundle()
+    canary_hex = CANARY.hex()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": canary_hex * 4},
+        "compiled": {"phase": "runtime", "actual": canary_hex * 4},
+      }
+    )
+    run = self.run_target()
+    self.assertEqual(run.status, tensor_target_run.TARGET_AGREEMENT)
+    self.assertEqual(run.interpreter.unwritten, [0, 1, 2, 3])
+    self.assertFalse(run.candidate)
 
   def test_the_record_separates_frontend_input_and_concrete_legality(self):
     self.write_bundle()
