@@ -300,7 +300,7 @@ fun @kernel(%x: tensor [17] f32) : tensor [17] f32 {
     self.assertNotEqual(result.returncode, 0)
     self.assertIn("unsupported tensor operation", result.stderr)
 
-  def test_v3_rejects_tensor_min_without_mask_semantics(self):
+  def test_v3_admits_tensor_min_and_the_backend_masks_it(self):
     source = """\
 fun @kernel(%x: tensor [17] i32) : tensor [17] i32 {
   let mut %out: tensor [17] i32 = undef;
@@ -312,8 +312,7 @@ fun @kernel(%x: tensor [17] i32) : tensor [17] i32 {
 
     result = check_cli(source, "v3")
 
-    self.assertNotEqual(result.returncode, 0)
-    self.assertIn("unsupported tensor operation", result.stderr)
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
   def test_v3_rejects_tensor_exp_without_mask_semantics(self):
     source = """\
@@ -330,7 +329,7 @@ fun @kernel(%x: tensor [17] f32) : tensor [17] f32 {
     self.assertNotEqual(result.returncode, 0)
     self.assertIn("unsupported tensor operation", result.stderr)
 
-  def test_v3_rejects_tensor_min_reduction_without_mask_semantics(self):
+  def test_v3_admits_an_extrema_reduction_and_masks_it(self):
     source = """\
 fun @kernel(%x: tensor [17] i32) : i32 {
   let mut %out: i32 = undef;
@@ -342,8 +341,7 @@ fun @kernel(%x: tensor [17] i32) : i32 {
 
     result = check_cli(source, "v3")
 
-    self.assertNotEqual(result.returncode, 0)
-    self.assertIn("unsupported tensor operation", result.stderr)
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
   def test_v3_rejects_tensor_bitwise_ops_without_mask_semantics(self):
     source = """\

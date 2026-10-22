@@ -360,10 +360,14 @@ namespace refractir {
         case TensorOp::Add:
         case TensorOp::Sub:
         case TensorOp::Mul:
+        case TensorOp::Min:
+        case TensorOp::Max:
         case TensorOp::Expand:
         case TensorOp::Broadcast:
         case TensorOp::Transpose:
         case TensorOp::Sum:
+        case TensorOp::ReduceMin:
+        case TensorOp::ReduceMax:
           return true;
         default:
           return false;

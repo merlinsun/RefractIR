@@ -695,8 +695,23 @@ namespace refractir {
             "tl.sum(" + value + ", axis=" + std::to_string(axis) + ", keep_dims=" + keep + ")";
         return isInteger ? "(" + sum + ").to(tl.int32)" : sum;
       }
-      return std::string(atom.op == TensorOp::ReduceMin ? "tl.min(" : "tl.max(") +
-             operands.front() + ", axis=" + std::to_string(axis) + ", keep_dims=" + keep + ")";
+      std::string value = operands.front();
+      const bool minimum = atom.op == TensorOp::ReduceMin;
+      if (profile_.id == TensorProfileId::V3) {
+        // An inactive lane must not win an extrema reduction, so the mask
+        // replaces it with the identity of the operation before the call.
+        const auto validity = valueValidity(atom.operands.front());
+        if (validity.empty())
+          throw std::runtime_error("tensor-profile: v3 reduction operand lacks validity");
+        std::string neutral;
+        if (isInteger)
+          neutral = minimum ? "2147483647" : "-2147483648";
+        else
+          neutral = minimum ? "float(\"inf\")" : "-float(\"inf\")";
+        value = "tl.where(" + validity + ", " + value + ", " + neutral + ")";
+      }
+      return std::string(minimum ? "tl.min(" : "tl.max(") + value +
+             ", axis=" + std::to_string(axis) + ", keep_dims=" + keep + ")";
     }
     if (atom.op == TensorOp::Softmax) {
       const auto sourceType = valueType(atom.operands.front());

@@ -2,12 +2,14 @@
 
 import ast
 import json
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from test.unit.tensor_support import EMIT_API, SYMIRC
+from test.unit.tensor_support import EMIT_API, SYMIRC, check_source
 
 
 def emit_cli(source, extra_args=()):
@@ -954,6 +956,167 @@ fun @kernel(%x: tensor [2] f32) : tensor [2, 2] f32 {
 """
 
     self.assertEqual(self.run_kernel(source, ([1.5, 2.5],)), "[[4.0, 4.0], [4.0, 4.0]]")
+
+
+V3_RMIN_SOURCE = """\
+fun @kernel(%x: tensor [3] f32) : tensor [1] f32 {
+  let mut %out: tensor [1] f32 = undef;
+^entry:
+  %out = tensor rmin %x, 0, keep;
+  ret %out;
+}
+"""
+
+V3_RMAX_SOURCE = """\
+fun @kernel(%x: tensor [3] f32) : tensor [1] f32 {
+  let mut %out: tensor [1] f32 = undef;
+^entry:
+  %out = tensor rmax %x, 0, keep;
+  ret %out;
+}
+"""
+
+V3_RMIN_I32_SOURCE = """\
+fun @kernel(%x: tensor [3] i32) : tensor [1] i32 {
+  let mut %out: tensor [1] i32 = undef;
+^entry:
+  %out = tensor rmin %x, 0, keep;
+  ret %out;
+}
+"""
+
+V3_RMIN_SINGLE_SOURCE = """\
+fun @kernel(%x: tensor [1] f32) : tensor [1] f32 {
+  let mut %out: tensor [1] f32 = undef;
+^entry:
+  %out = tensor rmin %x, 0, keep;
+  ret %out;
+}
+"""
+
+V2_RMIN_SOURCE = """\
+fun @kernel(%x: tensor [4] f32) : tensor [1] f32 {
+  let mut %out: tensor [1] f32 = undef;
+^entry:
+  %out = tensor rmin %x, 0, keep;
+  ret %out;
+}
+"""
+
+
+@unittest.skipUnless(SYMIRC.is_file(), "symirc executable not found")
+class V3ExtremaEmissionTests(unittest.TestCase):
+  """A v3 extrema reduction excludes inactive lanes with a neutral value."""
+
+  def test_v3_admits_an_extrema_reduction(self):
+    result = check_source(V3_RMIN_SOURCE, tensor_profile="v3")
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+  def test_v3_rmin_masks_with_positive_infinity(self):
+    result, output = emit_cli(V3_RMIN_SOURCE, ("--tensor-profile-version", "v3"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn('float("inf")', output)
+    self.assertLess(output.index("tl.where("), output.index("tl.min("))
+
+  def test_v3_rmax_masks_with_negative_infinity(self):
+    result, output = emit_cli(V3_RMAX_SOURCE, ("--tensor-profile-version", "v3"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn('-float("inf")', output)
+    self.assertLess(output.index("tl.where("), output.index("tl.max("))
+
+  def test_v3_i32_rmin_masks_with_int_max(self):
+    result, output = emit_cli(V3_RMIN_I32_SOURCE, ("--tensor-profile-version", "v3"))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("2147483647", output)
+    self.assertLess(output.index("tl.where("), output.index("tl.min("))
+
+  def test_v2_rmin_emits_no_mask(self):
+    result, output = emit_cli(V2_RMIN_SOURCE)
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ast.parse(output)
+    self.assertIn("tl.min(", output)
+    self.assertNotIn("tl.where(", output)
+    self.assertNotIn("inf", output)
+
+
+@unittest.skipUnless(_triton_interpreter_available(), "Triton interpreter unavailable")
+class V3ExtremaExecutionTests(unittest.TestCase):
+  """The masked reduction returns the active values, not the neutral one."""
+
+  def run_kernel(self, source, values, output_length):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      source_path = root / "case.sir"
+      kernel_path = root / "kernel.py"
+      source_path.write_text(source, encoding="utf-8")
+      emitted = subprocess.run(
+        [
+          str(SYMIRC),
+          "--target",
+          "triton",
+          "--entry",
+          "kernel",
+          "--tensor-profile-version",
+          "v3",
+          "-o",
+          str(kernel_path),
+          str(source_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+      )
+      self.assertEqual(emitted.returncode, 0, emitted.stdout + emitted.stderr)
+      runner = root / "runner.py"
+      runner.write_text(
+        """\
+import importlib.util
+import sys
+
+import torch
+
+spec = importlib.util.spec_from_file_location("kernel", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+values = [float(value) for value in sys.argv[2].split(",")]
+output_length = int(sys.argv[3])
+dtype = torch.int32 if sys.argv[4] == "i32" else torch.float32
+x = torch.tensor(values, dtype=dtype)
+out = torch.full((output_length,), 0, dtype=dtype)
+module.kernel[(1, 1, 1)](x, out)
+print(out.tolist())
+""",
+        encoding="utf-8",
+      )
+      environment = dict(os.environ)
+      environment["TRITON_INTERPRET"] = "1"
+      completed = subprocess.run(
+        [
+          sys.executable,
+          str(runner),
+          str(kernel_path),
+          ",".join(str(value) for value in values),
+          str(output_length),
+          "i32" if "i32" in source else "f32",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+        env=environment,
+      )
+      self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+      return completed.stdout.strip()
+
+  def test_v3_extrema_reduces_a_padded_tile_end_to_end(self):
+    self.assertEqual(self.run_kernel(V3_RMIN_SOURCE, [5.0, 7.0, 9.0], 1), "[5.0]")
+
+  def test_v3_rmin_all_lanes_inactive(self):
+    self.assertEqual(self.run_kernel(V3_RMIN_SINGLE_SOURCE, [5.0], 1), "[5.0]")
 
 
 if __name__ == "__main__":
