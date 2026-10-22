@@ -126,6 +126,32 @@ namespace refractir::reify {
     std::vector<std::uint32_t> perValue;
   };
 
+  /// The facts a window assembly records about its masks, one field per fact
+  /// so a reader never has to infer one from another.
+  struct FreeFormWindowFacts {
+    /// "interior" when every row is active on every trip, otherwise "tail".
+    std::string_view regime;
+    /// "absent" without a physical layout, otherwise "constant" for an exact
+    /// tile and "nonconstant" when v3 padding contributes lanes.
+    std::string_view shapeValidity;
+    /// "all_true" for an interior window, "constant_partial" when a zero
+    /// stride makes the predicate independent of the trip, otherwise
+    /// "runtime".
+    std::string_view activePredicate;
+    /// Mask survival is an observation of compiled code, so assembly states
+    /// only that no observation has been made.
+    std::string_view maskAfterCompilation;
+  };
+
+  /// Classify a window from active positions over every trip.
+  ///
+  /// Interior means the highest address any trip and row can form is below
+  /// `active`; equality is a tail because the predicate is strict.
+  FreeFormWindowFacts classifyWindow(
+      std::uint32_t rows, std::uint32_t stride, std::uint32_t active,
+      std::uint64_t tripCount, bool v3, bool paddedTile
+  );
+
   FreeFormConsumers countFreeFormConsumers(
       std::uint32_t valueCount, const std::vector<std::vector<std::int32_t>> &consumerOperands
   );

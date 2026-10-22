@@ -667,6 +667,20 @@ namespace refractir::reify {
     return static_cast<std::uint32_t>(weights.size() - 1);
   }
 
+  FreeFormWindowFacts classifyWindow(
+      std::uint32_t rows, std::uint32_t stride, std::uint32_t active,
+      std::uint64_t tripCount, bool v3, bool paddedTile
+  ) {
+    const bool interior =
+        tripCount != 0 &&
+        static_cast<std::uint64_t>(tripCount - 1) * stride + (rows - 1) < active;
+    const char *predicate = interior ? "all_true" : (stride == 0 ? "constant_partial" : "runtime");
+    const char *validity = !v3 ? "absent" : (paddedTile ? "nonconstant" : "constant");
+    return FreeFormWindowFacts{
+        interior ? "interior" : "tail", validity, predicate, "not_observed"
+    };
+  }
+
   FreeFormConsumers countFreeFormConsumers(
       std::uint32_t valueCount, const std::vector<std::vector<std::int32_t>> &consumerOperands
   ) {

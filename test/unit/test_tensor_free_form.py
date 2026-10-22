@@ -139,6 +139,25 @@ class FreeFormContractTests(unittest.TestCase):
   def test_a_rank_one_dropped_extrema_is_a_scalar(self):
     self.run_contract("extrema-rank-one-drop-is-scalar")
 
+  def test_interior_needs_every_position_active_on_every_trip(self):
+    self.run_contract("window-facts-interior")
+
+  def test_a_zero_stride_with_two_rows_and_one_active_is_a_tail(self):
+    self.run_contract("window-facts-stride-zero-tail")
+
+  def test_a_zero_stride_with_one_row_is_interior(self):
+    self.run_contract("window-facts-stride-zero-rows-one")
+
+  def test_a_tail_may_have_a_constant_partial_predicate(self):
+    self.run_contract("window-facts-constant-partial")
+
+  def test_a_padded_v3_interior_records_nonconstant_shape_validity(self):
+    self.run_contract("window-facts-padded-v3")
+
+  def test_assembly_never_reports_a_compiled_mask(self):
+    self.run_contract("window-facts-mask-not-observed")
+
+
 
 
 

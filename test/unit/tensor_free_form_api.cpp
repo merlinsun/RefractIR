@@ -922,6 +922,64 @@ namespace {
     );
   }
 
+  void windowFactsInterior() {
+    const auto facts = classifyWindow(2, 2, 4, 2, false, false);
+    require(facts.regime == "interior", "every row must be active on every trip");
+    require(facts.shapeValidity == "absent", "v2 has no shape validity");
+    require(facts.activePredicate == "all_true", "an interior predicate is always true");
+    require(
+        classifyWindow(2, 2, 3, 2, false, false).regime == "tail",
+        "the boundary case equality is a tail"
+    );
+  }
+
+  void windowFactsStrideZeroTail() {
+    const auto facts = classifyWindow(2, 0, 1, 3, false, false);
+    require(facts.regime == "tail", "rows two active one must be a tail");
+    require(
+        facts.activePredicate == "constant_partial",
+        "a zero stride makes the predicate independent of the trip"
+    );
+  }
+
+  void windowFactsStrideZeroRowsOne() {
+    const auto facts = classifyWindow(1, 0, 1, 5, false, false);
+    require(facts.regime == "interior", "one row never reaches past its own address");
+    require(facts.activePredicate == "all_true", "the single row is always active");
+  }
+
+  void windowFactsConstantPartial() {
+    const auto facts = classifyWindow(2, 0, 1, 1, false, false);
+    require(facts.regime == "tail", "row one is inactive even on the first trip");
+    require(
+        facts.activePredicate == "constant_partial",
+        "the predicate is constant but not all true"
+    );
+  }
+
+  void windowFactsPaddedV3() {
+    const auto padded = classifyWindow(2, 2, 8, 2, true, true);
+    require(padded.regime == "interior", "the interior boundary is unchanged by padding");
+    require(
+        padded.shapeValidity == "nonconstant",
+        "a padded v3 result carries nonconstant shape validity"
+    );
+    require(
+        classifyWindow(2, 2, 8, 2, true, false).shapeValidity == "constant",
+        "an exact tile carries constant shape validity"
+    );
+  }
+
+  void windowFactsMaskNotObserved() {
+    for (const auto &facts: {classifyWindow(1, 0, 1, 1, false, false),
+                             classifyWindow(2, 4, 2, 3, false, false),
+                             classifyWindow(3, 1, 8, 2, true, true)})
+      require(
+          facts.maskAfterCompilation == "not_observed",
+          "assembly cannot observe compiled masks"
+      );
+  }
+
   std::string threeStateSource() {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
@@ -1001,6 +1059,18 @@ int main(int argc, char **argv) {
       extremaReplayDeterministic();
     else if (name == "extrema-rank-one-drop-is-scalar")
       extremaRankOneDropIsScalar();
+    else if (name == "window-facts-interior")
+      windowFactsInterior();
+    else if (name == "window-facts-stride-zero-tail")
+      windowFactsStrideZeroTail();
+    else if (name == "window-facts-stride-zero-rows-one")
+      windowFactsStrideZeroRowsOne();
+    else if (name == "window-facts-constant-partial")
+      windowFactsConstantPartial();
+    else if (name == "window-facts-padded-v3")
+      windowFactsPaddedV3();
+    else if (name == "window-facts-mask-not-observed")
+      windowFactsMaskNotObserved();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;
