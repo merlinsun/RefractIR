@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test.lib import tensor_free_form_case, tensor_free_form_inputs, tensor_target_case
 from test.unit.tensor_support import SYMIRI, check_source, describe_entry
 
 FREE_FORM_API = Path(
@@ -283,6 +284,105 @@ class FreeFormExportTests(unittest.TestCase):
       result = self.export("--max-rank", "4", "--out", directory)
       self.assertNotEqual(result.returncode, 0)
       self.assertIn("max rank", result.stderr)
+
+
+  def _export(self, directory, *arguments):
+    result = self.export(*arguments, "--out", str(directory))
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    region = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+    source = (Path(directory) / "program.sir").read_text(encoding="utf-8")
+    return region, source
+
+  def test_profile_reaches_the_bundle(self):
+    with tempfile.TemporaryDirectory() as directory:
+      region, source = self._export(
+        directory, "--policy", "unguided", "--seed", "3", "--shape", "2,2",
+        "--profile", "v3",
+      )
+      self.assertEqual(region["profile"], "tensor-v3")
+      proposal = tensor_free_form_inputs.proposal(region, pattern="distinct-integer", seed=0)
+      bundle = Path(directory) / "bundle"
+      case = tensor_free_form_case.build_bundle(
+        bundle, region=region, source=source, proposal=proposal
+      )
+      self.assertEqual(case.record["profile"], "tensor-v3")
+
+  def test_v3_admits_a_non_power_of_two_extent(self):
+    with tempfile.TemporaryDirectory() as directory:
+      region, source = self._export(
+        directory, "--policy", "unguided", "--seed", "3", "--shape", "3,5",
+        "--profile", "v3",
+      )
+      proposal = tensor_free_form_inputs.proposal(region, pattern="distinct-integer", seed=0)
+      bundle = Path(directory) / "bundle"
+      tensor_free_form_case.build_bundle(
+        bundle, region=region, source=source, proposal=proposal
+      )
+      case = tensor_target_case.load(bundle, symiri=SYMIRI)
+      self.assertEqual(case.record["profile"], "tensor-v3")
+      checked = check_source(source, tensor_profile="v3")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_v2_refuses_a_non_power_of_two_extent(self):
+    with tempfile.TemporaryDirectory() as directory:
+      region, source = self._export(
+        directory, "--policy", "unguided", "--seed", "3", "--shape", "3,5",
+        "--profile", "v2",
+      )
+      proposal = tensor_free_form_inputs.proposal(region, pattern="distinct-integer", seed=0)
+      bundle = Path(directory) / "bundle"
+      tensor_free_form_case.build_bundle(
+        bundle, region=region, source=source, proposal=proposal
+      )
+      with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+        tensor_target_case.load(bundle, symiri=SYMIRI)
+      self.assertEqual(raised.exception.status, "invalid_source")
+
+  def test_i32_reaches_parameters_and_output(self):
+    with tempfile.TemporaryDirectory() as directory:
+      region, source = self._export(
+        directory, "--policy", "unguided", "--seed", "3", "--shape", "2,2",
+        "--dtype", "i32",
+      )
+      self.assertEqual(region["dtype"], "i32")
+      self.assertEqual(
+        [parameter["dtype"] for parameter in region["parameters"]], ["i32", "i32"]
+      )
+      proposal = tensor_free_form_inputs.proposal(region, pattern="distinct-integer", seed=0)
+      bundle = Path(directory) / "bundle"
+      case = tensor_free_form_case.build_bundle(
+        bundle, region=region, source=source, proposal=proposal
+      )
+      self.assertEqual(
+        [record["dtype"] for record in case.record["inputs"]], ["i32", "i32"]
+      )
+      self.assertEqual(case.record["output"]["dtype"], "i32")
+      checked = check_source(source, tensor_profile="v2")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_i32_body_passes_the_native_frontend(self):
+    with tempfile.TemporaryDirectory() as directory:
+      region, source = self._export(
+        directory, "--policy", "deep", "--seed", "9", "--shape", "2,2",
+        "--dtype", "i32",
+      )
+      self.assertIn("tensor [2, 2] i32", source)
+      checked = check_source(source, tensor_profile="v2")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_power_of_two_v3_matches_v2_bytes(self):
+    with tempfile.TemporaryDirectory() as directory:
+      v2_region, v2_source = self._export(
+        directory + "/v2", "--policy", "shared", "--seed", "7", "--shape", "2,2",
+        "--profile", "v2",
+      )
+      v3_region, v3_source = self._export(
+        directory + "/v3", "--policy", "shared", "--seed", "7", "--shape", "2,2",
+        "--profile", "v3",
+      )
+      self.assertEqual(v2_source, v3_source)
+      self.assertEqual(v2_region["profile"], "tensor-v2")
+      self.assertEqual(v3_region["profile"], "tensor-v3")
 
   def test_exporter_refuses_an_impossible_configuration(self):
     with tempfile.TemporaryDirectory() as directory:

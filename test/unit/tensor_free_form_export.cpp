@@ -64,6 +64,9 @@ namespace {
     std::uint32_t numWarps = 4;
     FreeFormFeatures features;
     std::uint32_t maxRank = 2;
+    std::string profile = "tensor-v2";
+    TensorElement element = TensorElement::F32;
+    std::string dtype = "f32";
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
     std::uint32_t returnState = 0;
@@ -113,6 +116,26 @@ namespace {
         options.stateCount = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--max-nodes") {
         options.maxNodes = static_cast<std::uint32_t>(std::stoul(value()));
+      } else if (flag == "--profile") {
+        const std::string text = value();
+        if (text == "v2") {
+          options.profile = "tensor-v2";
+        } else if (text == "v3") {
+          options.profile = "tensor-v3";
+        } else {
+          throw std::invalid_argument("free-form export profile must be v2 or v3");
+        }
+      } else if (flag == "--dtype") {
+        const std::string text = value();
+        if (text == "f32") {
+          options.element = TensorElement::F32;
+          options.dtype = "f32";
+        } else if (text == "i32") {
+          options.element = TensorElement::I32;
+          options.dtype = "i32";
+        } else {
+          throw std::invalid_argument("free-form export dtype must be f32 or i32");
+        }
       } else if (flag == "--max-rank") {
         options.maxRank = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--features") {
@@ -231,7 +254,7 @@ namespace {
   }
 
   void run(const Options &options) {
-    const TensorTypeInfo stateType{options.shape, TensorElement::F32};
+    const TensorTypeInfo stateType{options.shape, options.element};
     std::vector<FreeFormInput> inputs;
     for (std::uint32_t index = 0; index < options.stateCount; ++index) {
       FreeFormInput input;
@@ -291,7 +314,8 @@ namespace {
     writeFile(options.output / "program.sir", source);
     std::ostringstream record;
     record << "{\"schema\":\"refractir.free-form-region.v1\",\"entry\":\"kernel\","
-           << "\"profile\":\"tensor-v2\",\"dtype\":\"f32\",\"policy\":"
+           << "\"profile\":" << jsonString(options.profile) << ",\"dtype\":"
+           << jsonString(options.dtype) << ",\"policy\":"
            << jsonString(std::string(freeFormPolicyName(options.policy)))
            << ",\"seed\":" << options.seed << ",\"shape\":" << shapeJson(options.shape)
            << ",\"trip_count\":" << options.tripCount << ",\"state_count\":"
