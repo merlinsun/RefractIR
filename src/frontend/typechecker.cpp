@@ -1130,6 +1130,63 @@ namespace refractir {
       return makeResult(atom.attribute, i32);
     }
 
+    if (atom.op == TensorOp::Window) {
+      if (!requireOperandCount(2))
+        return Ty{std::monostate{}};
+      const auto *named = std::get_if<LocalOrSymId>(&atom.operands[0]);
+      const auto *local = named ? std::get_if<LocalId>(named) : nullptr;
+      const auto variable = local ? vars.find(local->name) : vars.end();
+      if (local == nullptr || variable == vars.end() || !variable->second.isParam) {
+        diags.error("tensor-window: source must be a tensor function parameter", atom.span);
+        return Ty{std::monostate{}};
+      }
+      const auto tensor = TypeUtils::asTensor(variable->second.type);
+      if (!tensor || tensor->shape.empty()) {
+        diags.error("tensor-window: source must be a tensor of rank at least one", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (!isTensorScalar(tensor->elem)) {
+        diags.error("tensor-type: tensor operands require i32 or f32 elements", atom.span);
+        return Ty{std::monostate{}};
+      }
+      const auto indexType = typeOfCoef(atom.operands[1], vars, syms, diags, std::nullopt);
+      const auto indexBits = TypeUtils::getIntBitWidth(indexType);
+      if (!indexBits || *indexBits != 32 || !TypeUtils::isScalar(indexType)) {
+        diags.error("tensor-window: index must be an i32 scalar", atom.span);
+        return Ty{std::monostate{}};
+      }
+      const auto elementIsFloat = static_cast<bool>(TypeUtils::getFloatBitWidth(tensor->elem));
+      if (!atom.fill || (!std::holds_alternative<IntLit>(*atom.fill) &&
+                         !std::holds_alternative<FloatLit>(*atom.fill))) {
+        diags.error("tensor-window: fill must be a literal", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (std::holds_alternative<FloatLit>(*atom.fill) != elementIsFloat) {
+        diags.error("tensor-window: fill literal type must match the source element", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (atom.attribute.size() != 3) {
+        diags.error("tensor-window: expected [rows, stride, active]", atom.span);
+        return Ty{std::monostate{}};
+      }
+      const auto rows = atom.attribute[0];
+      const auto active = atom.attribute[2];
+      const auto leading = tensor->shape.front();
+      if (rows == 0 || rows > leading) {
+        diags.error("tensor-window: rows must be between one and the leading extent", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (active == 0 || active > leading) {
+        diags.error("tensor-window: active must be between one and the leading extent", atom.span);
+        return Ty{std::monostate{}};
+      }
+      Shape output = tensor->shape;
+      output.front() = rows;
+      if (!validateShape(output))
+        return Ty{std::monostate{}};
+      return makeResult(output, tensor->elem);
+    }
+
     if (atom.op == TensorOp::Extract || atom.op == TensorOp::Expand ||
         atom.op == TensorOp::Broadcast || atom.op == TensorOp::Transpose ||
         atom.op == TensorOp::Sum || atom.op == TensorOp::ReduceMin ||
