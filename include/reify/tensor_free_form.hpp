@@ -83,6 +83,52 @@ namespace refractir::reify {
     std::uint32_t maxMultiplications = 2;
   };
 
+  /// One bounded live-graph requirement. It names an input and result roots
+  /// the input must reach, operations the connecting path must contain, and
+  /// optionally two distinct consumers of a value derived from that input that
+  /// reach two distinct roots. This is a small fixed vocabulary, not a graph
+  /// constraint language.
+  struct FreeFormRequirement {
+    std::string input;
+    std::vector<std::uint32_t> results;
+    /// The connecting path must contain one operation from this set.
+    std::vector<TensorOp> pathOps;
+    /// When nonempty, the same path must also contain one of these shape
+    /// operations.
+    std::vector<TensorOp> shapeOps;
+    /// A value derived from the input must have two distinct live consumers
+    /// whose branches reach two distinct listed roots.
+    bool distinctConsumers = false;
+  };
+
+  /// One satisfied requirement, stated over the live graph and emitted names.
+  struct FreeFormRequirementWitness {
+    std::string input;
+    std::vector<std::string> results;
+    /// The witnessed source-to-result value path, input first.
+    std::vector<std::string> path;
+    /// Operation names on the path, in path order.
+    std::vector<std::string> operations;
+    /// Normalized live operation IDs on the path.
+    std::vector<std::uint32_t> operationIds;
+    /// Two distinct consumer values and the distinct roots they reach.
+    std::vector<std::string> consumers;
+    std::vector<std::string> consumerResults;
+    bool distinctConsumersSatisfied = false;
+  };
+
+  /// The normalized live graph, for identity and grouping. The connectivity
+  /// signature ignores extents, names, attributes, seeds, and trips; the typed
+  /// fingerprint keeps the types.
+  struct FreeFormLiveDag {
+    std::vector<std::string> values;
+    std::vector<std::string> ops;
+    std::vector<std::vector<std::string>> operands;
+    std::vector<std::string> roots;
+    std::string connectivitySignature;
+    std::string typedFingerprint;
+  };
+
   /// One free-form construction request. It names no loop, no state count, and
   /// no final expression: those belong to the assembly that consumes the
   /// region, not to the region itself.
@@ -93,6 +139,7 @@ namespace refractir::reify {
     FreeFormFeatures features;
     FreeFormLimits limits;
     std::uint32_t seed = 0;
+    std::vector<FreeFormRequirement> requirements;
   };
 
   /// The observable traits one legal action has. A policy can only bias what
@@ -198,6 +245,10 @@ namespace refractir::reify {
     std::vector<std::pair<std::string, std::uint32_t>> operatorCounts;
     /// Distinct consumers of every live value, ordered by value name.
     std::vector<std::pair<std::string, std::uint32_t>> consumers;
+    /// One witness per requested requirement, in request order.
+    std::vector<FreeFormRequirementWitness> requirementWitnesses;
+    /// The normalized live graph the witnesses were derived from.
+    FreeFormLiveDag liveDag;
   };
 
   /// Summarize the pruned graph. `actual` is the first of these traits that

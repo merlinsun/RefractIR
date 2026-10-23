@@ -72,6 +72,12 @@ namespace {
     std::string windowSource;
     /// Nonzero adds an assembly-only backing parameter of this many rows.
     std::uint32_t windowBufferRows = 0;
+    /// One of the four study requirements, or empty for an unconstrained body.
+    std::string windowRequirement;
+    std::uint32_t maxAttempts = 0;
+    bool maxAttemptsSet = false;
+    std::uint32_t maxMultiplications = 2;
+    bool maxMultiplicationsSet = false;
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
     std::uint32_t returnState = 0;
@@ -188,6 +194,22 @@ namespace {
         options.windowBufferRows = static_cast<std::uint32_t>(std::stoul(value()));
         if (options.windowBufferRows > 4096)
           throw std::invalid_argument("free-form export window buffer is too large");
+      } else if (flag == "--window-requirement") {
+        options.windowRequirement = value();
+        if (options.windowRequirement != "reduction" && options.windowRequirement != "shared" &&
+            options.windowRequirement != "extrema-transpose" &&
+            options.windowRequirement != "extrema-expand")
+          throw std::invalid_argument(
+              "unknown free-form window requirement: " + options.windowRequirement
+          );
+      } else if (flag == "--max-attempts") {
+        options.maxAttempts = static_cast<std::uint32_t>(std::stoul(value()));
+        options.maxAttemptsSet = true;
+        if (options.maxAttempts == 0)
+          throw std::invalid_argument("free-form export max attempts must be positive");
+      } else if (flag == "--max-multiplications") {
+        options.maxMultiplications = static_cast<std::uint32_t>(std::stoul(value()));
+        options.maxMultiplicationsSet = true;
       } else if (flag == "--num-warps") {
         options.numWarps = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--return") {
@@ -229,6 +251,8 @@ namespace {
       throw std::invalid_argument(
           "free-form export window buffer conflicts with --window-source"
       );
+    if (!options.windowRequirement.empty() && !options.windowEnabled)
+      throw std::invalid_argument("free-form export window requirement needs --window");
     if (options.windowEnabled) {
       const std::uint32_t sourceExtent =
           options.windowBufferRows != 0 ? options.windowBufferRows : options.shape[0];
@@ -322,6 +346,113 @@ namespace {
     return out.str();
   }
 
+  std::vector<FreeFormRequirement> windowRequirements(const Options &options) {
+    std::vector<FreeFormRequirement> requirements;
+    // The study requires each result root to keep its own prior state; the
+    // window relationship is layered on top of that.
+    requirements.push_back({"%acc_x", {0}, {}, {}, false});
+    requirements.push_back({"%acc_y", {1}, {}, {}, false});
+    if (options.windowRequirement == "reduction") {
+      requirements.push_back(
+          {"%tile", {0}, {TensorOp::Sum, TensorOp::ReduceMin, TensorOp::ReduceMax}, {}, false}
+      );
+    } else if (options.windowRequirement == "shared") {
+      requirements.push_back(
+          {"%tile", {0}, {TensorOp::Sum, TensorOp::ReduceMin, TensorOp::ReduceMax}, {}, false}
+      );
+      requirements.push_back({"%tile", {0, 1}, {}, {}, true});
+    } else if (options.windowRequirement == "extrema-transpose") {
+      requirements.push_back(
+          {"%tile", {0}, {TensorOp::ReduceMin, TensorOp::ReduceMax}, {TensorOp::Transpose}, false}
+      );
+    } else if (options.windowRequirement == "extrema-expand") {
+      requirements.push_back(
+          {"%tile", {0}, {TensorOp::ReduceMin, TensorOp::ReduceMax}, {TensorOp::Expand}, false}
+      );
+    }
+    return requirements;
+  }
+
+  std::string requirementJson(const FreeFormRequirementWitness &witness) {
+    std::ostringstream out;
+    out << "{\"input\":" << jsonString(witness.input) << ",\"results\":[";
+    for (std::size_t index = 0; index < witness.results.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(witness.results[index]);
+    }
+    out << "],\"path\":[";
+    for (std::size_t index = 0; index < witness.path.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(witness.path[index]);
+    }
+    out << "],\"operations\":[";
+    for (std::size_t index = 0; index < witness.operations.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(witness.operations[index]);
+    }
+    out << "],\"operation_ids\":[";
+    for (std::size_t index = 0; index < witness.operationIds.size(); ++index) {
+      if (index)
+        out << ',';
+      out << witness.operationIds[index];
+    }
+    out << "],\"consumers\":[";
+    for (std::size_t index = 0; index < witness.consumers.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(witness.consumers[index]);
+    }
+    out << "],\"consumer_results\":[";
+    for (std::size_t index = 0; index < witness.consumerResults.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(witness.consumerResults[index]);
+    }
+    out << "],\"distinct_consumers\":"
+        << (witness.distinctConsumersSatisfied ? "true" : "false") << '}';
+    return out.str();
+  }
+
+  std::string liveDagJson(const FreeFormLiveDag &dag) {
+    std::ostringstream out;
+    out << "{\"values\":[";
+    for (std::size_t index = 0; index < dag.values.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(dag.values[index]);
+    }
+    out << "],\"ops\":[";
+    for (std::size_t index = 0; index < dag.ops.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(dag.ops[index]);
+    }
+    out << "],\"operands\":[";
+    for (std::size_t index = 0; index < dag.operands.size(); ++index) {
+      if (index)
+        out << ',';
+      out << '[';
+      for (std::size_t operand = 0; operand < dag.operands[index].size(); ++operand) {
+        if (operand)
+          out << ',';
+        out << jsonString(dag.operands[index][operand]);
+      }
+      out << ']';
+    }
+    out << "],\"roots\":[";
+    for (std::size_t index = 0; index < dag.roots.size(); ++index) {
+      if (index)
+        out << ',';
+      out << jsonString(dag.roots[index]);
+    }
+    out << "],\"connectivity_signature\":" << jsonString(dag.connectivitySignature)
+        << ",\"typed_fingerprint\":" << jsonString(dag.typedFingerprint) << '}';
+    return out.str();
+  }
+
   void run(const Options &options) {
     const TensorTypeInfo stateType{options.shape, options.element};
     std::vector<FreeFormInput> inputs;
@@ -359,6 +490,12 @@ namespace {
     request.seed = options.seed;
     request.limits.maxNodes = options.maxNodes;
     request.limits.maxRank = options.maxRank;
+    if (options.maxAttemptsSet)
+      request.limits.maxAttempts = options.maxAttempts;
+    if (options.maxMultiplicationsSet)
+      request.limits.maxMultiplications = options.maxMultiplications;
+    if (!options.windowRequirement.empty())
+      request.requirements = windowRequirements(options);
     const auto built = buildFreeFormRegion(request);
     if (options.windowEnabled) {
       const auto tileIndex = static_cast<std::size_t>(inputs.size() - 1);
@@ -502,7 +639,21 @@ namespace {
              << jsonString(input.role == FreeFormRole::State ? "state" : "invariant")
              << ",\"init\":\"runtime\"}";
     }
-    record << "],\"window_source\":";
+    record << "],\"window_requirement\":";
+    if (options.windowRequirement.empty())
+      record << "null";
+    else
+      record << jsonString(options.windowRequirement);
+    record << ",\"max_attempts\":" << request.limits.maxAttempts
+           << ",\"max_multiplications\":" << request.limits.maxMultiplications
+           << ",\"requirements\":[";
+    for (std::size_t index = 0; index < built.structure.requirementWitnesses.size(); ++index) {
+      if (index)
+        record << ',';
+      record << requirementJson(built.structure.requirementWitnesses[index]);
+    }
+    record << "],\"live_dag\":" << liveDagJson(built.structure.liveDag)
+           << ",\"window_source\":";
     if (options.windowBufferRows != 0) {
       record << "{\"parameter\":\"%window_buffer\",\"shape\":["
              << options.windowBufferRows << ',' << options.shape[1]

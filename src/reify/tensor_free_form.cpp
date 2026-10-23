@@ -1,6 +1,9 @@
 #include "reify/tensor_free_form.hpp"
 
 #include <algorithm>
+#include <functional>
+#include <limits>
+#include <optional>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -9,6 +12,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -64,6 +68,10 @@ namespace refractir::reify {
 
     bool sameType(const TensorTypeInfo &left, const TensorTypeInfo &right) {
       return left.shape == right.shape && left.element == right.element;
+    }
+
+    bool containsOp(const std::vector<TensorOp> &ops, TensorOp op) {
+      return std::find(ops.begin(), ops.end(), op) != ops.end();
     }
 
     bool tensorShape(const Shape &shape) { return !shape.empty(); }
@@ -200,8 +208,13 @@ namespace refractir::reify {
           value.depth = 0;
           value.mask = 1ULL << index;
           value.node = -1;
+          inputIndices_.emplace(value.name, static_cast<std::uint32_t>(index));
           pool_.push_back(std::move(value));
         }
+      }
+
+      void setRequirements(const std::vector<FreeFormRequirement> &requirements) {
+        requirements_ = requirements;
       }
 
       /// Place up to `growthNodes_` actions. Returns whether any action was
@@ -224,6 +237,7 @@ namespace refractir::reify {
                 (action.op == TensorOp::Expand && features_.expand) ||
                 (isExtrema(action.op) && features_.extrema))
               weight *= 3.0;
+            weight *= requirementMultiplier(action);
             weights.push_back(weight);
           }
           const auto draw =
@@ -235,6 +249,184 @@ namespace refractir::reify {
       }
 
       void setPolicy(FreeFormPolicy policy) { policy_ = policy; }
+
+      /// Bias an action towards the inputs, operations, and consumers the
+      /// requirements still need. An empty requirement list returns 1, so the
+      /// unconstrained corpus is byte-identical.
+      [[nodiscard]] double requirementMultiplier(const Action &action) const {
+        if (requirements_.empty())
+          return 1.0;
+        double bonus = 0.0;
+        for (const auto &requirement: requirements_) {
+          const auto input = inputIndices_.find(requirement.input);
+          if (input == inputIndices_.end())
+            continue;
+          const std::uint64_t bit = 1ULL << input->second;
+          const auto &left = pool_[static_cast<std::size_t>(action.lhs)];
+          const bool derives =
+              (left.mask & bit) != 0 ||
+              (action.rhs >= 0 && (pool_[static_cast<std::size_t>(action.rhs)].mask & bit) != 0);
+          if (!derives)
+            continue;
+          if (containsOp(requirement.pathOps, action.op) ||
+              containsOp(requirement.shapeOps, action.op))
+            bonus += 3.0;
+          else
+            bonus += 1.0;
+          if (requirement.distinctConsumers) {
+            if ((left.mask & bit) != 0 && left.consumers < 2)
+              bonus += 1.5;
+            if (action.rhs >= 0 && (pool_[static_cast<std::size_t>(action.rhs)].mask & bit) != 0 &&
+                pool_[static_cast<std::size_t>(action.rhs)].consumers < 2)
+              bonus += 1.5;
+          }
+        }
+        return 1.0 + bonus;
+      }
+
+      struct PathHit {
+        /// Value indices from the input to the value, inputs included.
+        std::vector<std::uint32_t> values;
+        /// Node indices along the path, in the same order as `values[1:]`.
+        std::vector<std::uint32_t> nodes;
+      };
+
+      /// A path from `value` to the required input whose operations contain
+      /// one of `pathOps` and, when requested, one of `shapeOps`. This checks
+      /// a single path; operations on separate branches do not combine.
+      [[nodiscard]] std::optional<PathHit> requirementPath(
+          std::uint32_t value, const FreeFormRequirement &requirement
+      ) const {
+        const auto input = inputIndices_.find(requirement.input);
+        if (input == inputIndices_.end())
+          return std::nullopt;
+        PathHit hit;
+        std::vector<char> active(pool_.size(), 0);
+        std::function<bool(std::uint32_t, bool, bool)> walk =
+            [&](std::uint32_t current, bool hasPathOp, bool hasShapeOp) -> bool {
+          if (current == input->second) {
+            if (hasPathOp && (requirement.shapeOps.empty() || hasShapeOp)) {
+              hit.values.push_back(current);
+              return true;
+            }
+            return false;
+          }
+          if (current >= pool_.size() || active[current])
+            return false;
+          const auto &entry = pool_[current];
+          if (entry.node < 0)
+            return false;
+          active[current] = 1;
+          const auto &node = nodes_[static_cast<std::size_t>(entry.node)];
+          const bool nextPathOp = hasPathOp || containsOp(requirement.pathOps, node.op);
+          const bool nextShapeOp = hasShapeOp || containsOp(requirement.shapeOps, node.op);
+          for (const auto operand: node.operands) {
+            if (operand < 0)
+              continue;
+            if (walk(static_cast<std::uint32_t>(operand), nextPathOp, nextShapeOp)) {
+              hit.values.push_back(current);
+              hit.nodes.push_back(static_cast<std::uint32_t>(entry.node));
+              active[current] = 0;
+              return true;
+            }
+          }
+          active[current] = 0;
+          return false;
+        };
+        if (!walk(value, requirement.pathOps.empty(), requirement.shapeOps.empty()))
+          return std::nullopt;
+        return hit;
+      }
+
+      /// Try up to `limit` actions that close one requirement for a result of
+      /// `type`. The bridge walks forward from a value the input already
+      /// reaches and prefers the missing required operation, then a shape
+      /// restoration to the result type. Actions are charged to the node
+      /// budget by the caller.
+      [[nodiscard]] std::optional<std::uint32_t> bridgeForRequirement(
+          const FreeFormRequirement &requirement, const TensorTypeInfo &type,
+          std::uint32_t limit
+      ) {
+        const auto input = inputIndices_.find(requirement.input);
+        if (input == inputIndices_.end())
+          return std::nullopt;
+        const std::uint64_t bit = 1ULL << input->second;
+        std::optional<std::uint32_t> start;
+        std::uint32_t bestDepth = 0;
+        for (std::uint32_t index = 0; index < pool_.size(); ++index) {
+          const auto &value = pool_[index];
+          if ((value.mask & bit) == 0)
+            continue;
+          if (sameType(value.type, type) && (!start || value.depth > bestDepth)) {
+            start = index;
+            bestDepth = value.depth;
+          }
+        }
+        if (!start) {
+          for (std::uint32_t index = 0; index < pool_.size(); ++index) {
+            const auto &value = pool_[index];
+            if ((value.mask & bit) == 0)
+              continue;
+            if (!start || value.depth > bestDepth) {
+              start = index;
+              bestDepth = value.depth;
+            }
+          }
+        }
+        if (!start)
+          return std::nullopt;
+        std::uint32_t current = *start;
+        bool hasPathOp = false;
+        bool hasShapeOp = false;
+        std::vector<TensorOp> used;
+        for (std::uint32_t step = 0; step < limit; ++step) {
+          auto actions = enumerate();
+          std::optional<Action> chosen;
+          int bestScore = std::numeric_limits<int>::min();
+          for (const auto &action: actions) {
+            if (action.lhs != static_cast<std::int32_t>(current))
+              continue;
+            const bool nextPathOp =
+                hasPathOp || containsOp(requirement.pathOps, action.op);
+            const bool nextShapeOp =
+                hasShapeOp || containsOp(requirement.shapeOps, action.op);
+            const bool done = sameType(action.type, type) && nextPathOp &&
+                              (requirement.shapeOps.empty() || nextShapeOp);
+            int score = 0;
+            if (done)
+              score = 100;
+            else if (!hasShapeOp && containsOp(requirement.shapeOps, action.op))
+              score = 75;
+            else if (sameType(action.type, type) && nextPathOp && !nextShapeOp)
+              score = 70;
+            else if (!hasPathOp && containsOp(requirement.pathOps, action.op))
+              score = 60;
+            else if (sameType(action.type, type))
+              score = 40;
+            else if (action.op == TensorOp::Broadcast)
+              score = 30;
+            else
+              score = 10 + (action.traits.shapeChange ? 1 : 0);
+            if (std::find(used.begin(), used.end(), action.op) != used.end())
+              score -= 25;
+            if (score > bestScore) {
+              bestScore = score;
+              chosen = action;
+            }
+          }
+          if (!chosen)
+            return std::nullopt;
+          apply(*chosen);
+          current = static_cast<std::uint32_t>(pool_.size() - 1);
+          hasPathOp = hasPathOp || containsOp(requirement.pathOps, chosen->op);
+          hasShapeOp = hasShapeOp || containsOp(requirement.shapeOps, chosen->op);
+          used.push_back(chosen->op);
+          if (sameType(pool_[current].type, type) && hasPathOp &&
+              (requirement.shapeOps.empty() || hasShapeOp))
+            return current;
+        }
+        return std::nullopt;
+      }
 
       [[nodiscard]] const std::vector<PoolValue> &pool() const { return pool_; }
       [[nodiscard]] const std::vector<NodeRecord> &nodes() const { return nodes_; }
@@ -532,6 +724,8 @@ namespace refractir::reify {
       std::mt19937 random_;
       std::vector<PoolValue> pool_;
       std::vector<NodeRecord> nodes_;
+      std::unordered_map<std::string, std::uint32_t> inputIndices_;
+      std::vector<FreeFormRequirement> requirements_;
     };
 
     /// The value indices a root set depends on, in live closure.
@@ -556,6 +750,79 @@ namespace refractir::reify {
             stack.push_back(static_cast<std::uint32_t>(operand));
       }
       return live;
+    }
+
+    /// One path from a graph value to an input, with the operations it uses.
+    struct GraphPath {
+      std::vector<std::uint32_t> values;
+      std::vector<std::uint32_t> nodes;
+    };
+
+    [[nodiscard]] std::optional<GraphPath> requirementGraphPath(
+        const FreeFormGraphView &graph, std::uint32_t value, std::uint32_t input,
+        const FreeFormRequirement &requirement
+    ) {
+      GraphPath path;
+      std::vector<char> active(graph.valueNames.size(), 0);
+      std::function<bool(std::uint32_t, bool, bool)> walk =
+          [&](std::uint32_t current, bool hasPathOp, bool hasShapeOp) -> bool {
+        if (current == input) {
+          if (hasPathOp && (requirement.shapeOps.empty() || hasShapeOp)) {
+            path.values.push_back(current);
+            return true;
+          }
+          return false;
+        }
+        if (current >= graph.valueNames.size() || current < graph.inputCount || active[current])
+          return false;
+        const auto node = current - graph.inputCount;
+        if (node >= graph.nodeOps.size())
+          return false;
+        active[current] = 1;
+        const bool nextPathOp =
+            hasPathOp || containsOp(requirement.pathOps, graph.nodeOps[node]);
+        const bool nextShapeOp =
+            hasShapeOp || containsOp(requirement.shapeOps, graph.nodeOps[node]);
+        for (const auto operand: graph.nodeOperands[node]) {
+          if (operand < 0)
+            continue;
+          if (walk(static_cast<std::uint32_t>(operand), nextPathOp, nextShapeOp)) {
+            path.values.push_back(current);
+            path.nodes.push_back(node);
+            active[current] = 0;
+            return true;
+          }
+        }
+        active[current] = 0;
+        return false;
+      };
+      if (!walk(value, requirement.pathOps.empty(), requirement.shapeOps.empty()))
+        return std::nullopt;
+      return path;
+    }
+
+    [[nodiscard]] bool graphDependsOn(
+        const FreeFormGraphView &graph, std::uint32_t value, std::uint32_t input
+    ) {
+      if (value == input)
+        return true;
+      if (value < graph.inputCount || value >= graph.valueNames.size())
+        return false;
+      const auto node = value - graph.inputCount;
+      for (const auto operand: graph.nodeOperands[node])
+        if (operand >= 0 && graphDependsOn(graph, static_cast<std::uint32_t>(operand), input))
+          return true;
+      return false;
+    }
+
+    /// The live values, indexed by pool position.
+    [[nodiscard]] std::vector<char> liveClosure(
+        const FreeFormGraphView &graph, std::uint32_t root
+    ) {
+      return liveValues(
+          static_cast<std::uint32_t>(graph.valueNames.size()), graph.nodeOperands,
+          graph.inputCount, std::vector<std::uint32_t>{root}
+      );
     }
 
     std::string traitTarget(FreeFormPolicy policy) {
@@ -873,6 +1140,30 @@ namespace refractir::reify {
         if (!result.name.empty() && !names.insert(result.name).second)
           throw std::invalid_argument("free-form result name repeats another name");
       }
+      std::unordered_set<std::string> inputNames;
+      for (const auto &input: request.inputs)
+        inputNames.insert(input.value.name);
+      for (const auto &requirement: request.requirements) {
+        if (!inputNames.contains(requirement.input))
+          throw std::invalid_argument(
+              "free-form requirement input is not a declared input: " + requirement.input
+          );
+        if (requirement.results.empty())
+          throw std::invalid_argument("free-form requirement needs at least one result");
+        if (requirement.distinctConsumers && requirement.results.size() < 2)
+          throw std::invalid_argument(
+              "free-form requirement needs two results for distinct consumers"
+          );
+        std::unordered_set<std::uint32_t> seen;
+        for (const auto index: requirement.results) {
+          if (index >= request.results.size())
+            throw std::invalid_argument(
+                "free-form requirement result is outside the request"
+            );
+          if (!seen.insert(index).second)
+            throw std::invalid_argument("free-form requirement repeats a result");
+        }
+      }
     }
 
     std::string resolveResultName(const FreeFormRequest &request, std::size_t index) {
@@ -890,9 +1181,22 @@ namespace refractir::reify {
       throw std::runtime_error(
           "free_form_exhaustion: the node budget is smaller than the requested result count"
       );
+    // Path requirements may need a bounded bridge after growth, so their
+    // worst-case three nodes per requested result are reserved up front. A
+    // distinct-consumer requirement is construction bias, not a type bridge,
+    // and takes no reservation.
+    std::uint32_t bridgeReserve = 0;
+    for (const auto &requirement: request.requirements)
+      if (!requirement.pathOps.empty() || !requirement.shapeOps.empty())
+        bridgeReserve += 3 * static_cast<std::uint32_t>(requirement.results.size());
+    if (request.limits.maxNodes < resultCount + bridgeReserve)
+      throw std::runtime_error(
+          "free_form_exhaustion: node_budget_exhausted: the node budget cannot reserve the "
+          "requested path bridges"
+      );
     // One node per result is held back: a requested result type that the grown
     // pool does not reach can still be placed from an existing value.
-    const auto growthNodes = request.limits.maxNodes - resultCount;
+    const auto growthNodes = request.limits.maxNodes - resultCount - bridgeReserve;
     std::string lastReason = "no attempt placed every requested result";
     for (std::uint32_t attempt = 0; attempt < request.limits.maxAttempts; ++attempt) {
       FreeFormRequest seed = request;
@@ -901,39 +1205,97 @@ namespace refractir::reify {
       ));
       Growth growth(seed, growthNodes);
       growth.setPolicy(request.policy);
+      growth.setRequirements(request.requirements);
       growth.grow();
 
+      std::unordered_map<std::string, std::uint64_t> inputBits;
+      for (std::uint32_t input = 0; input < request.inputs.size(); ++input)
+        inputBits.emplace(request.inputs[input].value.name, 1ULL << input);
+      const auto satisfiesRequirement = [&](std::uint32_t candidate,
+                                            const FreeFormRequirement &requirement) {
+        const auto &value = growth.pool()[candidate];
+        const auto bit = inputBits.find(requirement.input);
+        if (bit == inputBits.end() || (value.mask & bit->second) == 0)
+          return false;
+        if (requirement.pathOps.empty() && requirement.shapeOps.empty())
+          return true;
+        return growth.requirementPath(candidate, requirement).has_value();
+      };
       std::vector<std::uint32_t> roots;
       bool complete = true;
       for (std::uint32_t index = 0; index < resultCount; ++index) {
         const auto type = request.results[index].type;
+        std::vector<const FreeFormRequirement *> covering;
+        for (const auto &requirement: request.requirements)
+          if (std::find(requirement.results.begin(), requirement.results.end(), index) !=
+              requirement.results.end())
+            covering.push_back(&requirement);
         std::optional<std::uint32_t> best;
-        std::uint32_t bestScore = 0;
-        for (const auto candidate: growth.valuesOfType(type)) {
-          if (std::find(roots.begin(), roots.end(), candidate) != roots.end())
-            continue;
-          const auto &value = growth.pool()[candidate];
-          const std::uint32_t score =
-              (value.node >= 0 ? 1U << 30 : 0U) + (value.depth << 16) + candidate;
-          if (!best || score > bestScore) {
-            best = candidate;
-            bestScore = score;
+        std::uint32_t bestSatisfied = 0;
+        const auto choose = [&]() {
+          best.reset();
+          bestSatisfied = 0;
+          std::uint32_t bestScore = 0;
+          for (const auto candidate: growth.valuesOfType(type)) {
+            if (std::find(roots.begin(), roots.end(), candidate) != roots.end())
+              continue;
+            std::uint32_t satisfied = 0;
+            for (const auto *requirement: covering)
+              satisfied += satisfiesRequirement(candidate, *requirement) ? 1U : 0U;
+            const auto &value = growth.pool()[candidate];
+            const std::uint32_t score =
+                (covering.empty() || satisfied == covering.size() ? 1U << 30 : satisfied << 28) +
+                (value.node >= 0 ? 1U << 27 : 0U) + (value.depth << 16) + candidate;
+            if (!best || score > bestScore) {
+              best = candidate;
+              bestScore = score;
+              bestSatisfied = satisfied;
+            }
           }
+        };
+        choose();
+        // A requirement the grown pool does not satisfy gets a bounded bridge,
+        // charged to the reserved budget.
+        for (const auto *requirement: covering) {
+          if (best && satisfiesRequirement(*best, *requirement))
+            continue;
+          if (growth.nodesPlaced() >= request.limits.maxNodes)
+            break;
+          if (!growth.bridgeForRequirement(*requirement, type, 3))
+            break;
+          choose();
         }
         if (!best) {
           if (growth.nodesPlaced() >= request.limits.maxNodes) {
-            lastReason = "the node budget was spent before result " + std::to_string(index) +
-                         " could be placed";
+            lastReason = "node_budget_exhausted: the node budget was spent before result " +
+                         std::to_string(index) + " could be placed";
             complete = false;
             break;
           }
           const auto placed = growth.placeForType(type);
           if (!placed) {
-            lastReason = "no legal action produces result " + std::to_string(index);
+            lastReason = "required_path_missing: no legal action produces result " +
+                         std::to_string(index);
             complete = false;
             break;
           }
           best = *placed;
+          choose();
+        }
+        if (!covering.empty() && (!best || bestSatisfied < covering.size())) {
+          const auto *missing = covering.front();
+          const auto bit = inputBits.find(missing->input);
+          bool derives = false;
+          for (const auto &value: growth.pool())
+            derives = derives || (bit != inputBits.end() && (value.mask & bit->second) != 0);
+          if (!derives)
+            lastReason = "required_input_unreachable: " + missing->input + " -> result " +
+                         std::to_string(index);
+          else
+            lastReason = "required_path_missing: " + missing->input + " -> result " +
+                         std::to_string(index);
+          complete = false;
+          break;
         }
         if (std::find(roots.begin(), roots.end(), *best) != roots.end()) {
           lastReason = "two requested results resolved to one value";
@@ -1002,9 +1364,164 @@ namespace refractir::reify {
         view.nodeOperands.push_back(record.operands);
       view.roots = roots;
 
+      // Requirements are validated on the live graph after pruning. A path
+      // counts only while it is live, and two consumers are two distinct nodes
+      // reaching two distinct listed roots; a shared value selected as a root
+      // is not a consumer.
+      const auto live = liveValues(
+          static_cast<std::uint32_t>(view.valueTypes.size()), view.nodeOperands,
+          view.inputCount, view.roots);
+      std::vector<std::uint32_t> normalized(view.valueTypes.size(), 0);
+      std::uint32_t nextLive = 0;
+      for (std::uint32_t value = view.inputCount; value < view.valueTypes.size(); ++value)
+        if (live[value])
+          normalized[value] = nextLive++;
+      std::unordered_map<std::string, std::uint32_t> inputIndexByName;
+      for (std::uint32_t input = 0; input < view.inputCount; ++input)
+        inputIndexByName.emplace(view.valueNames[input], input);
+      std::vector<std::vector<char>> reachesRoot(
+          view.valueTypes.size(), std::vector<char>(roots.size(), 0));
+      for (std::uint32_t root = 0; root < roots.size(); ++root) {
+        const auto closure = liveClosure(view, roots[root]);
+        for (std::uint32_t value = 0; value < closure.size(); ++value)
+          if (closure[value])
+            reachesRoot[value][root] = 1;
+      }
+      std::vector<FreeFormRequirementWitness> witnesses;
+      bool requirementsComplete = true;
+      std::string requirementReason;
+      for (const auto &requirement: request.requirements) {
+        FreeFormRequirementWitness witness;
+        witness.input = requirement.input;
+        const auto input = inputIndexByName.find(requirement.input);
+        for (const auto resultIndex: requirement.results) {
+          const auto root = roots[resultIndex];
+          std::optional<GraphPath> path;
+          if (input != inputIndexByName.end())
+            path = requirementGraphPath(view, root, input->second, requirement);
+          if (!path) {
+            requirementsComplete = false;
+            requirementReason = "required_path_missing: " + requirement.input + " -> result " +
+                                std::to_string(resultIndex);
+            break;
+          }
+          witness.results.push_back(resultNames[resultIndex]);
+          if (witness.path.empty()) {
+            for (const auto value: path->values)
+              witness.path.push_back(emittedNames[value]);
+            for (const auto node: path->nodes) {
+              witness.operations.emplace_back(tensorOpName(view.nodeOps[node]));
+              witness.operationIds.push_back(normalized[view.inputCount + node]);
+            }
+          }
+        }
+        if (!requirementsComplete)
+          break;
+        if (requirement.distinctConsumers) {
+          bool found = false;
+          std::uint32_t firstConsumer = 0;
+          std::uint32_t secondConsumer = 0;
+          std::uint32_t firstRoot = 0;
+          std::uint32_t secondRoot = 0;
+          for (std::uint32_t value = 0; value < view.valueTypes.size() && !found; ++value) {
+            if (!live[value] || input == inputIndexByName.end() ||
+                !graphDependsOn(view, value, input->second))
+              continue;
+            std::vector<std::uint32_t> consumers;
+            for (std::uint32_t node = 0; node < view.nodeOps.size(); ++node) {
+              const auto consumer = view.inputCount + node;
+              if (!live[consumer])
+                continue;
+              const auto &operands = view.nodeOperands[node];
+              if (std::find(
+                      operands.begin(), operands.end(), static_cast<std::int32_t>(value)
+                  ) != operands.end())
+                consumers.push_back(consumer);
+            }
+            for (std::size_t left = 0; left < consumers.size() && !found; ++left)
+              for (std::size_t right = left + 1; right < consumers.size() && !found; ++right)
+                for (const auto one: requirement.results)
+                  for (const auto two: requirement.results)
+                    if (one != two && reachesRoot[consumers[left]][one] &&
+                        reachesRoot[consumers[right]][two]) {
+                      found = true;
+                      firstConsumer = consumers[left];
+                      secondConsumer = consumers[right];
+                      firstRoot = one;
+                      secondRoot = two;
+                    }
+          }
+          if (!found) {
+            requirementsComplete = false;
+            requirementReason = "distinct_consumers_missing: " + requirement.input;
+            break;
+          }
+          witness.distinctConsumersSatisfied = true;
+          witness.consumers = {emittedNames[firstConsumer], emittedNames[secondConsumer]};
+          witness.consumerResults = {resultNames[firstRoot], resultNames[secondRoot]};
+        }
+        witnesses.push_back(std::move(witness));
+      }
+      if (!requirementsComplete) {
+        lastReason = requirementReason;
+        complete = false;
+      }
+      if (!complete)
+        continue;
+
+      FreeFormLiveDag liveDag;
+      std::ostringstream connectivity;
+      std::ostringstream typed;
+      for (std::uint32_t value = 0; value < view.valueTypes.size(); ++value)
+        if (live[value])
+          liveDag.values.push_back(emittedNames[value]);
+      for (std::uint32_t node = 0; node < view.nodeOps.size(); ++node) {
+        const auto value = view.inputCount + node;
+        if (!live[value])
+          continue;
+        liveDag.ops.emplace_back(tensorOpName(view.nodeOps[node]));
+        std::vector<std::string> operands;
+        connectivity << tensorOpName(view.nodeOps[node]) << '(';
+        typed << tensorOpName(view.nodeOps[node]) << '[' << nodes[node].axis << ','
+              << (nodes[node].keepDims ? 'k' : 'd') << ']' << '(';
+        bool firstOperand = true;
+        for (const auto operand: view.nodeOperands[node]) {
+          if (operand < 0)
+            continue;
+          if (!firstOperand) {
+            connectivity << ',';
+            typed << ',';
+          }
+          firstOperand = false;
+          operands.push_back(emittedNames[static_cast<std::size_t>(operand)]);
+          const auto reference = operand < static_cast<std::int32_t>(view.inputCount)
+                                     ? "i" + std::to_string(operand)
+                                     : "n" + std::to_string(
+                                           normalized[static_cast<std::size_t>(operand)]
+                                       );
+          connectivity << reference;
+          typed << reference;
+        }
+        connectivity << ");";
+        typed << ") :" << shapeText(view.valueTypes[value].shape) << ':'
+              << (view.valueTypes[value].element == TensorElement::F32 ? "f32" : "i32") << ';';
+        liveDag.operands.push_back(std::move(operands));
+      }
+      liveDag.roots = resultNames;
+      connectivity << "roots:";
+      for (std::size_t root = 0; root < resultNames.size(); ++root) {
+        if (root)
+          connectivity << ',';
+        connectivity << resultNames[root];
+      }
+      liveDag.connectivitySignature = connectivity.str();
+      liveDag.typedFingerprint = typed.str();
+
       FreeFormRegion built{
           std::move(region), summarizeFreeFormGraph(view, request.policy), {}
       };
+      built.structure.requirementWitnesses = std::move(witnesses);
+      built.structure.liveDag = std::move(liveDag);
       built.inputSpec.inputs = request.inputs;
       built.inputSpec.results = std::move(resultNames);
       return built;

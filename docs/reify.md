@@ -276,6 +276,22 @@ A case generated from a named request records the values it used under `generato
 
 A value outside its domain, such as `3,3` or nine trips, is refused with the rule it breaks. A route that cannot build a region - the compositional builder, a profile other than tensor-v2, or a stratum other than `loop-reduction` - is refused rather than emitting a case that ignores the request.
 
+#### Free-form window region assembly
+
+The free-form builder grows one typed DAG and the assembler wraps it in a counted loop. A loop names its runtime parameters in two roles: a region input is a declared local copied from its parameter in `^entry`, while a window backing parameter (`FreeFormLoop::windowSources`) is an assembly-only tensor that only the window production reads. Backing parameters are emitted before the runtime parameters, never enter the region value pool, and never receive a local copy, so a `[20,4]` buffer can supply `[4,4]` tiles without materializing the whole buffer. A window source names either a runtime parameter (the original route) or a backing parameter; its witness is computed from the source's own extent.
+
+The test exporter exposes the study's construction requests:
+
+| Option | Meaning |
+|---|---|
+| `--window rows,stride,active` | adds the `%tile` window invariant; needs a source |
+| `--window-source %x` | uses a runtime state parameter as the backing source |
+| `--window-buffer-rows P` | adds `%window_buffer: [P,C]`; requires `--window`, conflicts with `--window-source` |
+| `--window-requirement reduction\|shared\|extrema-transpose\|extrema-expand` | adds the bounded live relationships below; requires `--window` |
+| `--max-attempts N`, `--max-multiplications N` | set the builder's internal limits instead of only recording them |
+
+A requirement is a bounded live-graph relationship, not a graph constraint language: a named input must reach every listed result root; the connecting path must contain one operation from `pathOps` and, when `pathShapeOps` is nonempty, one from that set too; and `distinctConsumers` requires a value derived from the input with two distinct live consuming nodes whose branches reach two distinct listed roots. Requirements bias growth, are re-validated on the pruned live graph, and emit witnesses (source/result names, path values and edges, live operation IDs, consumer nodes and their roots) plus a normalized live-DAG record with a connectivity signature and typed fingerprint. A path counts only if it is live; operations on separate branches do not combine, and an input selected as a root is not a consumer. Path requirements reserve three bridge nodes per listed result, spent through the same legal-action enumerator when growth leaves a path unfinished. Refusals name `required_input_unreachable`, `required_path_missing`, `distinct_consumers_missing`, or `node_budget_exhausted`.
+
 #### Runtime input selection
 
 `--tensor-input-policy` chooses how a compositional case's runtime inputs are proposed for that frozen program, and the program does not depend on the choice:

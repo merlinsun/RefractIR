@@ -8,6 +8,7 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Added
 
+- Tensor free-form assembly: window backing parameters (`windowSources`), `--window-buffer-rows`, bounded window requirements with live-graph witnesses, and the live-DAG record.
 - Independent tensor boundary sampling uses versioned streams keyed by seed, parameter name, dtype, and shape. A frozen input-sensitivity study compares it with the legacy cycle under one program, domain, and comparison contract, retaining proposal, reference, and execution records.
 
 - Tensor campaigns retain per-case compiler summaries and bounded representative artifacts before cleaning passed cases. Pass captures keep separate identities; missing provenance and source mappings remain explicit.

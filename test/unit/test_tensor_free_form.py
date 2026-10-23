@@ -203,6 +203,24 @@ class FreeFormContractTests(unittest.TestCase):
     )
     self.assertEqual(description["output"]["shape"], [2, 2])
 
+  def test_a_requirement_keeps_the_input_in_the_result(self):
+    self.run_contract("requirement-keeps-the-input-in-the-result")
+
+  def test_a_requirement_builds_a_live_reduction(self):
+    self.run_contract("requirement-builds-a-live-reduction")
+
+  def test_a_requirement_counts_two_distinct_consumers(self):
+    self.run_contract("requirement-counts-two-distinct-consumers")
+
+  def test_a_requirement_shares_one_extrema_shape_path(self):
+    self.run_contract("requirement-shares-one-extrema-shape-path")
+
+  def test_a_requirement_reserves_its_bridge_budget(self):
+    self.run_contract("requirement-reserves-bridge-budget")
+
+  def test_a_requirement_rejects_unknown_names(self):
+    self.run_contract("requirement-rejects-unknown-names")
+
   def test_a_window_backing_parameter_supplies_the_window(self):
     self.run_contract("window-buffer-supplies-its-own-source")
 
@@ -588,6 +606,102 @@ class FreeFormExportTests(unittest.TestCase):
       if result.returncode == 0:
         return output
     self.fail("no seed within the bound consumed the window buffer")
+
+  def _requirement_export(self, directory, requirement, *extra, seeds=range(1, 25)):
+    for seed in seeds:
+      output = Path(directory) / f"seed-{seed}"
+      result = self.export(
+        "--policy", "reduction-heavy", "--seed", str(seed), "--shape", "4,4",
+        "--trip-count", "4", "--states", "2", "--window", "2,1,6",
+        "--window-buffer-rows", "8", "--profile", "v3", "--features",
+        "extrema,transpose,expand", "--window-requirement", requirement,
+        "--max-attempts", "4", *extra, "--out", str(output),
+      )
+      if result.returncode == 0:
+        return output
+    self.fail(f"no seed within the bound satisfied the {requirement} requirement")
+
+  def test_a_reduction_requirement_reaches_the_window_result(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output = self._requirement_export(directory, "reduction")
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["window_requirement"], "reduction")
+      witnesses = [witness for witness in record["requirements"] if witness["input"] == "%tile"]
+      self.assertTrue(witnesses, "the satisfied requirement must be recorded")
+      witness = witnesses[0]
+      self.assertEqual(witness["results"], ["%next_x"])
+      self.assertTrue(witness["path"][0] == "%tile")
+      self.assertTrue(
+        any(operation in witness["operations"] for operation in ("sum", "rmin", "rmax")),
+        witness["operations"],
+      )
+      self.assertIn("tensor window %window_buffer", (output / "program.sir").read_text(encoding="utf-8"))
+
+  def test_a_shared_requirement_witnesses_two_consumers(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output = self._requirement_export(directory, "shared")
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      filled = [witness for witness in record["requirements"] if witness["distinct_consumers"]]
+      self.assertTrue(filled, record["requirements"])
+      witness = filled[0]
+      self.assertEqual(len(witness["consumers"]), 2)
+      self.assertNotEqual(witness["consumers"][0], witness["consumers"][1])
+      self.assertEqual(len(set(witness["consumer_results"])), 2)
+
+  def test_an_extrema_transpose_requirement_shares_a_path(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output = self._requirement_export(directory, "extrema-transpose")
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      witness = record["requirements"][0]
+      self.assertTrue(
+        any(operation in witness["operations"] for operation in ("rmin", "rmax")),
+        witness["operations"],
+      )
+      self.assertIn("transpose", witness["operations"])
+
+  def test_exporter_limits_reach_the_record(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output = self._requirement_export(directory, "reduction")
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["max_attempts"], 4)
+      self.assertEqual(record["max_multiplications"], 2)
+      result = self.export(
+        "--policy", "unguided", "--seed", "1", "--shape", "2,2",
+        "--max-attempts", "0", "--out", directory,
+      )
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("max attempts", result.stderr)
+
+  def test_a_requirement_refusal_names_the_subgoal(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "reduction-heavy", "--seed", "1", "--shape", "4,4",
+        "--trip-count", "4", "--states", "2", "--window", "2,1,6",
+        "--window-buffer-rows", "8", "--profile", "v3", "--features", "extrema",
+        "--window-requirement", "extrema-expand", "--max-attempts", "2",
+        "--out", directory,
+      )
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("required_path_missing", result.stderr)
+      result = self.export(
+        "--shape", "2,2", "--window-requirement", "reduction", "--out", directory,
+      )
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("needs --window", result.stderr)
+      result = self.export("--window-requirement", "rotate", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("unknown free-form window requirement", result.stderr)
+
+  def test_live_dag_states_roots_and_edges(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output = self._requirement_export(directory, "reduction")
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      dag = record["live_dag"]
+      self.assertEqual(dag["roots"], ["%next_x", "%next_y"])
+      self.assertEqual(dag["ops"], [op for op in dag["ops"]])
+      self.assertTrue(dag["connectivity_signature"])
+      self.assertTrue(dag["typed_fingerprint"])
+      self.assertGreaterEqual(len(dag["values"]), len(dag["ops"]))
 
   def test_a_window_buffer_is_a_separate_parameter(self):
     with tempfile.TemporaryDirectory() as directory:

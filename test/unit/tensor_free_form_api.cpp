@@ -61,6 +61,25 @@ namespace {
   }
 
   template<typename Action>
+  void requireExhaustionReason(Action action, const std::string &needle) {
+    try {
+      action();
+    } catch (const std::runtime_error &error) {
+      const std::string message = error.what();
+      require(
+          message.starts_with("free_form_exhaustion:"),
+          "exhaustion must name its own prefix: " + message
+      );
+      require(
+          message.find(needle) != std::string::npos,
+          "exhaustion must name '" + needle + "': " + message
+      );
+      return;
+    }
+    throw std::runtime_error("expected a free-form request to refuse with " + needle);
+  }
+
+  template<typename Action>
   void requireExhaustion(Action action) {
     try {
       action();
@@ -1294,6 +1313,157 @@ namespace {
     );
   }
 
+  FreeFormRequest requirementRequest() {
+    FreeFormRequest request;
+    request.inputs = {
+        input("%a", type({4, 4}), FreeFormRole::State),
+        input("%b", type({4, 4}), FreeFormRole::State),
+    };
+    request.results = {{"%r0", type({4, 4})}, {"%r1", type({4, 4})}};
+    request.features.extrema = true;
+    request.features.transpose = true;
+    request.features.expand = true;
+    request.limits.maxNodes = 16;
+    request.seed = 5;
+    return request;
+  }
+
+  void requirementKeepsTheInputInTheResult() {
+    auto request = requirementRequest();
+    request.requirements = {{"%a", {0}, {}, {}, false}};
+    const auto built = buildFreeFormRegion(request);
+    require(
+        built.structure.requirementWitnesses.size() == 1,
+        "the satisfied requirement must emit one witness"
+    );
+    require(
+        (built.structure.resultDependencies[0] & 1ULL) != 0,
+        "result zero must depend on the required input"
+    );
+    const auto &witness = built.structure.requirementWitnesses.front();
+    require(!witness.path.empty(), "the witness must state a source-to-result path");
+    require(witness.path.front() == "%a", "the witness path must start at the input");
+    require(witness.results.size() == 1, "the witness must name the required result");
+  }
+
+  void requirementBuildsALiveReduction() {
+    auto request = requirementRequest();
+    request.requirements = {{
+        "%a", {0}, {TensorOp::Sum, TensorOp::ReduceMin, TensorOp::ReduceMax}, {}, false
+    }};
+    const auto built = buildFreeFormRegion(request);
+    require(
+        built.structure.requirementWitnesses.size() == 1,
+        "the satisfied requirement must emit one witness"
+    );
+        const auto &witness = built.structure.requirementWitnesses.front();
+    bool sawReduction = false;
+    for (const auto &operation: witness.operations)
+      sawReduction = sawReduction || operation == "sum" || operation == "rmin" ||
+                     operation == "rmax";
+    require(sawReduction, "the witnessed path must contain the required reduction");
+    require(
+        witness.operations.size() == witness.operationIds.size(),
+        "every witnessed operation needs one live ID"
+    );
+    require(
+        built.structure.nodes >= witness.operationIds.size(),
+        "the witnessed operations must be inside the live graph"
+    );
+  }
+
+  void requirementCountsTwoDistinctConsumers() {
+    auto request = requirementRequest();
+    request.requirements = {{"%a", {0, 1}, {}, {}, true}};
+    const auto built = buildFreeFormRegion(request);
+    require(
+        built.structure.requirementWitnesses.size() == 1,
+        "the satisfied requirement must emit one witness"
+    );
+        const auto &witness = built.structure.requirementWitnesses.front();
+    require(witness.distinctConsumersSatisfied, "two distinct consumers must be witnessed");
+    require(witness.consumers.size() == 2, "the witness must name the two consumers");
+    require(witness.consumers[0] != witness.consumers[1], "the consumers must be distinct");
+    require(
+        witness.consumerResults.size() == 2 &&
+            witness.consumerResults[0] != witness.consumerResults[1],
+        "the consumers must reach different result roots"
+    );
+
+    auto single = requirementRequest();
+    single.limits.maxNodes = 3;
+    single.requirements = {{"%a", {0, 1}, {}, {}, true}};
+    single.seed = 1;
+    requireExhaustionReason(
+        [&] { (void) buildFreeFormRegion(single); }, "distinct_consumers_missing"
+    );
+  }
+
+  void requirementSharesOneExtremaShapePath() {
+    auto request = requirementRequest();
+    request.requirements = {{
+        "%a", {0}, {TensorOp::ReduceMin, TensorOp::ReduceMax}, {TensorOp::Transpose}, false
+    }};
+    const auto built = buildFreeFormRegion(request);
+    require(
+        built.structure.requirementWitnesses.size() == 1,
+        "the satisfied requirement must emit one witness"
+    );
+        const auto &witness = built.structure.requirementWitnesses.front();
+    bool sawExtrema = false;
+    bool sawShape = false;
+    for (const auto &operation: witness.operations) {
+      sawExtrema = sawExtrema || operation == "rmin" || operation == "rmax";
+      sawShape = sawShape || operation == "transpose";
+    }
+    require(sawExtrema && sawShape, "one path must carry both the extrema and the shape op");
+
+    auto missing = requirementRequest();
+    missing.features.transpose = false;
+    missing.requirements = {{
+        "%a", {0}, {TensorOp::ReduceMin, TensorOp::ReduceMax}, {TensorOp::Transpose}, false
+    }};
+    missing.limits.maxAttempts = 8;
+    requireExhaustionReason(
+        [&] { (void) buildFreeFormRegion(missing); }, "required_path_missing"
+    );
+  }
+
+  void requirementReservesBridgeBudget() {
+    auto request = requirementRequest();
+    request.limits.maxNodes = 4;
+    request.requirements = {{"%a", {0}, {TensorOp::Sum}, {}, false}};
+    requireExhaustionReason(
+        [&] { (void) buildFreeFormRegion(request); }, "node_budget_exhausted"
+    );
+
+    auto feasible = requirementRequest();
+    feasible.requirements = {{
+        "%a", {0}, {TensorOp::ReduceMin, TensorOp::ReduceMax}, {TensorOp::Transpose}, false
+    }};
+    const auto built = buildFreeFormRegion(feasible);
+    require(
+        built.structure.liveDag.roots.size() == 2,
+        "the live DAG must state both roots"
+    );
+    require(
+        built.structure.liveDag.values.size() >= 2,
+        "the live DAG must state its values"
+    );
+  }
+
+  void requirementRejectsUnknownNames() {
+    auto request = requirementRequest();
+    request.requirements = {{"%missing", {0}, {}, {}, false}};
+    requireInvalid([&] { (void) buildFreeFormRegion(request); }, "requirement input");
+    auto outOfRange = requirementRequest();
+    outOfRange.requirements = {{"%a", {5}, {}, {}, false}};
+    requireInvalid([&] { (void) buildFreeFormRegion(outOfRange); }, "requirement result");
+    auto oneRoot = requirementRequest();
+    oneRoot.requirements = {{"%a", {0}, {}, {}, true}};
+    requireInvalid([&] { (void) buildFreeFormRegion(oneRoot); }, "two results");
+  }
+
   FreeFormWindow witnessSpec(std::uint32_t rows, std::uint32_t stride, std::uint32_t active) {
     FreeFormWindow window;
     window.result = "%tile";
@@ -1471,6 +1641,18 @@ int main(int argc, char **argv) {
       std::cout << assembledWindowSource();
     } else if (name == "window-three-state-assembled-source")
       windowThreeStateSource();
+    else if (name == "requirement-keeps-the-input-in-the-result")
+      requirementKeepsTheInputInTheResult();
+    else if (name == "requirement-builds-a-live-reduction")
+      requirementBuildsALiveReduction();
+    else if (name == "requirement-counts-two-distinct-consumers")
+      requirementCountsTwoDistinctConsumers();
+    else if (name == "requirement-shares-one-extrema-shape-path")
+      requirementSharesOneExtremaShapePath();
+    else if (name == "requirement-reserves-bridge-budget")
+      requirementReservesBridgeBudget();
+    else if (name == "requirement-rejects-unknown-names")
+      requirementRejectsUnknownNames();
     else if (name == "window-buffer-supplies-its-own-source")
       windowBufferSuppliesItsOwnSource();
     else if (name == "window-buffer-stays-out-of-the-value-pool")
