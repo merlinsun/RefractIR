@@ -15,9 +15,16 @@ interpreter-only runner, and the paired runner.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[3]
+if str(_ROOT) not in sys.path:
+  sys.path.insert(0, str(_ROOT))
 
 from test.lib import tensor_tranche
 
@@ -683,3 +690,395 @@ def report_from_records(work):
     work / "tranche-ledger.jsonl", frozen.tranche
   )
   return study._final_record(study.ledger.counts())
+
+
+def _trip_variant(source, trips):
+  """The same body at a smaller trip count, with the window witness checked."""
+  marker = "br %i < "
+  start = source.find(marker)
+  if start < 0:
+    raise StudyRefused("the assembled source has no counted trip branch")
+  end = source.find(", ^body, ^exit;", start)
+  if end < 0:
+    raise StudyRefused("the assembled source has no counted trip branch")
+  return source[:start] + marker + str(trips) + source[end:]
+
+
+def device_operations(*, exporter, symirc, symiri, timeout_s=300.0):
+  """Bind the driver to the exporter, the interpreter screen, and the runner."""
+  from pathlib import Path as _Path
+
+  from test.lib import (
+    native_triton_family,
+    probe_triton_env,
+    tensor_free_form_case,
+    tensor_free_form_inputs,
+    tensor_target_case,
+    tensor_target_reference,
+    tensor_target_run,
+  )
+
+  exporter = Path(exporter).resolve()
+  symirc = Path(symirc).resolve()
+  symiri = Path(symiri).resolve()
+  environment = probe_triton_env.collect_environment()
+  identity = native_triton_family.triton_identity(environment)
+
+  def build(request):
+    slot = request["slot"]
+    seed = request["seed"]
+    directory = _Path(request["directory"])
+    directory.mkdir(parents=True, exist_ok=True)
+    rows, columns = slot["shape"]
+    command = [
+      str(exporter),
+      "--policy", slot["policy"],
+      "--seed", str(seed),
+      "--shape", f"{rows},{columns}",
+      "--states", "2",
+      "--trip-count", str(slot["trips"]),
+      "--window", f"{rows},{slot['stride']},{slot['active']}",
+      "--window-buffer-rows", str(slot["backing_rows"]),
+      "--profile", "v3",
+      "--features", "extrema,transpose,expand",
+      "--window-requirement", slot["requirement"],
+      "--max-attempts", "1",
+      "--max-multiplications", "1",
+      "--num-warps", "1",
+      "--out", str(directory / "export"),
+    ]
+    completed = subprocess.run(
+      command, capture_output=True, text=True, check=False, timeout=timeout_s
+    )
+    if completed.returncode != 0:
+      return {
+        "kind": "refused",
+        "reason": (completed.stderr or completed.stdout).strip().splitlines()[-1:]
+        and (completed.stderr or completed.stdout).strip()
+      }
+    export = directory / "export"
+    region = json.loads((export / "region.json").read_text(encoding="utf-8"))
+    source = (export / "program.sir").read_text(encoding="utf-8")
+    if (slot["trips"] - 1) * slot["stride"] + rows > slot["backing_rows"]:
+      return {"kind": "refused", "reason": "window witness leaves the backing"}
+    probes = tensor_free_form_inputs.window_probes(
+      region, group=slot["group"], column=slot["column"]
+    )
+    layouts = None
+    if slot["padded"]:
+      layouts = {
+        "%window_buffer": tensor_free_form_case.strided_output(
+          [slot["backing_rows"], columns], row_padding=3, element_offset=1
+        )
+      }
+    bundles = {}
+    for probe in probes:
+      bundle = directory / "bundles" / probe.probe
+      tensor_free_form_case.build_bundle(
+        bundle,
+        region=region,
+        source=source,
+        proposal=probe,
+        input_layouts=layouts,
+        output_row_padding=1,
+        output_offset=1,
+      )
+      bundles[probe.probe] = str(bundle)
+    tminus = _trip_variant(source, slot["trips"] - 1)
+    for probe in probes:
+      if probe.probe in ("i0-base", "i2-late-row"):
+        bundle = directory / "bundles" / f"{probe.probe}-tminus"
+        tensor_free_form_case.build_bundle(
+          bundle,
+          region=region,
+          source=tminus,
+          proposal=probe,
+          input_layouts=layouts,
+          output_row_padding=1,
+          output_offset=1,
+        )
+        bundles[f"{probe.probe}-tminus"] = str(bundle)
+    return {
+      "kind": "admitted",
+      "region": region,
+      "source": source,
+      "trip_variant": tminus,
+      "probes": {probe.probe: probe.as_record() for probe in probes},
+      "probe_values": {probe.probe: list(probe.data) for probe in probes},
+      "layouts": layouts or {},
+      "bundles": bundles,
+      "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+      "inputs_sha256": hashlib.sha256(probes[0].data).hexdigest(),
+      "witnesses": region.get("requirements", []),
+      "compiler_identity": identity,
+    }
+
+  def _screen_bundle(bundle_path):
+    return tensor_target_run.run_interpreter(
+      _Path(bundle_path),
+      symirc=symirc,
+      symiri=symiri,
+      timeout_s=timeout_s,
+      compiler_identity=identity,
+    )
+
+  def screen(outcome):
+    runs = {}
+    for probe in ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows"):
+      runs[probe] = _screen_bundle(outcome["bundles"][probe])
+    tminus = {
+      probe: _screen_bundle(outcome["bundles"][f"{probe}-tminus"])
+      for probe in ("i0-base", "i2-late-row")
+    }
+
+    def value(run):
+      return run.interpreter.actual if run.status == "completed" else None
+
+    base = value(runs["i0-base"])
+    broad = value(runs["i1-read-plus-one"])
+    late = value(runs["i2-late-row"])
+    unused = value(runs["i3-unused-rows"])
+    trip_base = value(tminus["i0-base"])
+    finished = all(part is not None for part in (base, broad, late, unused, trip_base))
+    selected = bool(
+      finished and base != broad and base != late and base == unused and base != trip_base
+    )
+    reason = None
+    if not finished:
+      reason = "incomplete_observation"
+    elif base == unused and not (base != broad and base != late):
+      reason = "insensitive_to_window_probes"
+    elif base != unused:
+      reason = "unused_rows_changed"
+    elif base == trip_base:
+      reason = "trip_invariant"
+    record = {
+      "runs": {
+        name: {
+          "status": run.status,
+          "output_sha256": run.as_record()["output_sha256"],
+        }
+        for name, run in {**runs, **{f"{k}-tminus": v for k, v in tminus.items()}}.items()
+      },
+      "selected": selected,
+      "reason": reason,
+    }
+    p0 = []
+    if selected:
+      for probe in ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows"):
+        case = tensor_target_case.load(outcome["bundles"][probe], symiri=symiri)
+        observation = tensor_target_reference.observe(
+          case, symiri=symiri, timeout_s=timeout_s
+        )
+        p0.append(
+          {
+            "probe": probe,
+            "status": observation.status,
+            "output_sha256": getattr(observation, "output_sha256", None),
+          }
+        )
+        if observation.status == tensor_target_reference.UB:
+          selected = False
+          reason = "invalid_execution"
+          record["selected"] = False
+          record["reason"] = reason
+    return {
+      "selected": selected,
+      "reason": reason,
+      "launches": len(runs) + len(tminus),
+      "p0": len(p0),
+      "record": {**record, "p0": p0},
+    }
+
+  def execute(request):
+    slot = request["slot"]
+    corpus = request["corpus"]
+    probe = request["input"]
+    configuration = request["configuration"]
+    directory = _Path(request["directory"])
+    directory.mkdir(parents=True, exist_ok=True)
+    if corpus.get("kind") == "control":
+      return {
+        "status": "unavailable",
+        "paths": {},
+        "candidate": False,
+        "unavailable": ["archived control is not bound to a bundle in this driver"],
+        "compiler": {"status": "unavailable"},
+      }
+    region = corpus["region"]
+    source = corpus["source"]
+    probe_bytes = bytes(corpus["probe_values"][probe])
+    proposal = tensor_free_form_inputs.Proposal(
+      schema=tensor_free_form_inputs.WINDOW_PROBE_SCHEMA,
+      pattern=probe,
+      seed=0,
+      names=tuple(record["name"] for record in
+                  tensor_free_form_inputs.parameters(region)),
+      shapes=tuple(tuple(record["shape"]) for record in
+                   tensor_free_form_inputs.parameters(region)),
+      dtype="f32",
+      values=(),
+      data=probe_bytes,
+    )
+    warps = int(configuration.rsplit("-", 1)[1])
+    bundled_region = {**region, "num_warps": warps}
+    bundle = directory / "bundle"
+    tensor_free_form_case.build_bundle(
+      bundle,
+      region=bundled_region,
+      source=source,
+      proposal=proposal,
+      input_layouts=corpus.get("layouts") or None,
+      output_row_padding=1,
+      output_offset=1,
+    )
+    case = tensor_target_case.load(bundle, symiri=symiri)
+    reference = request.get("reference")
+    if reference is None:
+      reference = tensor_target_reference.observe(
+        case, symiri=symiri, timeout_s=timeout_s
+      )
+    run = tensor_target_run.run(
+      bundle,
+      symirc=symirc,
+      symiri=symiri,
+      reference=reference,
+      timeout_s=timeout_s,
+      compiler_identity=identity,
+    )
+    paths = {
+      "p0": {
+        "status": reference.status,
+        "cached": request.get("reference") is not None,
+        "directory": str(bundle / "runs" / "reference"),
+      },
+      "p1": {
+        "status": run.interpreter.status,
+        "directory": str(bundle / "target-runs" / "interpret"),
+      },
+      "p2": {
+        "status": run.compiled.status,
+        "directory": str(bundle / "target-runs" / "compiled"),
+      },
+    }
+    compiled = bundle / "target-runs" / "compiled"
+    compiler = {"status": "unavailable"}
+    ttir = compiled / "compiler-ttir.ir"
+    ptx = compiled / "compiler-ptx.ir"
+    if ttir.is_file() and ptx.is_file():
+      compiler = {
+        "status": "observed",
+        "ttir_sha256": hashlib.sha256(ttir.read_bytes()).hexdigest(),
+        "ptx_sha256": hashlib.sha256(ptx.read_bytes()).hexdigest(),
+      }
+    unavailable = []
+    if reference.status != tensor_target_reference.COMPLETED:
+      unavailable.append(f"p0:{reference.status}")
+    return {
+      "status": run.status,
+      "paths": paths,
+      "candidate": run.candidate,
+      "unavailable": unavailable,
+      "compiler": compiler,
+      "reference": reference,
+      "record": run.as_record(),
+    }
+
+  return {"build": build, "screen": screen, "execute": execute}
+
+
+def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
+  """Four integration cases under two warp settings, reusing each P0."""
+  frozen = freeze_study()
+  chosen = frozen.spec["sources"][:slots]
+  work = Path(work)
+  work.mkdir(parents=True, exist_ok=True)
+  record = {"schema": "refractir.moving-window-qualification.v1", "cases": []}
+  for slot in chosen:
+    case_record = {"case": slot["id"], "padded": slot["padded"], "configurations": {}}
+    built = None
+    for attempt in range(4):
+      candidate = operations["build"](
+        {
+          "slot": slot,
+          "attempt": attempt,
+          "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
+          "max_attempts": 1,
+          "directory": str(work / slot["id"] / f"attempt-{attempt}"),
+        }
+      )
+      if candidate.get("kind") == "admitted":
+        built = candidate
+        case_record["attempt"] = attempt
+        break
+      case_record.setdefault("refusals", []).append(candidate.get("reason"))
+    if built is None:
+      record["cases"].append(case_record)
+      continue
+    p0_reference = None
+    for configuration in frozen.spec["configurations"]:
+      outcome = operations["execute"](
+        {
+          "slot": f"{slot['id']}/i0-base/{configuration}",
+          "case": slot["id"],
+          "corpus": {"kind": "source", **built, "case": slot["id"]},
+          "input": "i0-base",
+          "configuration": configuration,
+          "attempt": case_record.get("attempt", 0),
+          "directory": str(work / slot["id"] / configuration),
+          "reference": p0_reference,
+        }
+      )
+      if p0_reference is None:
+        p0_reference = outcome.get("reference")
+      case_record["configurations"][configuration] = {
+        "status": outcome.get("status"),
+        "paths": outcome.get("paths"),
+        "candidate": outcome.get("candidate"),
+        "compiler": outcome.get("compiler"),
+      }
+    record["cases"].append(case_record)
+  record["digest"] = _digest(record)
+  (work / "qualification.json").write_text(
+    json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+  )
+  return record
+
+
+def main(argv=None):
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument("--work", required=True)
+  parser.add_argument("--exporter", required=True)
+  parser.add_argument("--symirc", required=True)
+  parser.add_argument("--symiri", required=True)
+  parser.add_argument("--timeout", type=float, default=300.0)
+  parser.add_argument("--mode", choices=("qualification", "select", "discover"),
+                      required=True)
+  arguments = parser.parse_args(argv)
+  operations = device_operations(
+    exporter=Path(arguments.exporter),
+    symirc=Path(arguments.symirc),
+    symiri=Path(arguments.symiri),
+    timeout_s=arguments.timeout,
+  )
+  if arguments.mode == "qualification":
+    record = run_qualification(arguments.work, operations=operations)
+    print(json.dumps({"cases": len(record["cases"]), "digest": record["digest"]}))
+    return 0
+  frozen = freeze_study()
+  study = Study(Path(arguments.work), frozen, **operations).prepare()
+  if arguments.mode == "select":
+    study.select_sources()
+    corpus = study.freeze_corpus()
+    print(json.dumps({"selected": len(corpus["sources"]),
+                      "shortfalls": corpus["shortfalls"]}))
+    return 0
+  study.run_discovery()
+  final = study.finalize()
+  print(json.dumps({"execution": final["execution"]["states"],
+                    "candidates": len(final["candidates"])}))
+  return 0
+
+
+if __name__ == "__main__":
+  sys.exit(main())

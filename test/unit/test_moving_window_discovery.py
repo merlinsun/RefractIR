@@ -288,5 +288,50 @@ class DiscoveryTests(unittest.TestCase):
       self.assertEqual(resumed.reserve_spent(), 1)
 
 
+class QualificationTests(unittest.TestCase):
+  def test_qualification_runs_four_cases_under_two_warps_and_reuses_p0(self):
+    calls = []
+    built = {
+      "kind": "admitted",
+      "source_sha256": "source",
+      "inputs_sha256": "inputs",
+      "layouts": {},
+      "witnesses": [],
+      "region": {"shape": [2, 8]},
+      "source": "fun @kernel() {}",
+      "probe_values": {"i0-base": []},
+    }
+
+    def build(request):
+      return built
+
+    def execute(request):
+      calls.append(request)
+      return {
+        "status": "target_agreement",
+        "paths": {
+          "p0": {"status": "completed", "cached": request.get("reference") is not None},
+          "p1": {"status": "completed"},
+          "p2": {"status": "completed"},
+        },
+        "candidate": False,
+        "compiler": {"status": "observed"},
+        "reference": {"kind": "ref"},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      record = study.run_qualification(
+        Path(directory) / "qualification",
+        operations={"build": build, "execute": execute},
+      )
+      self.assertEqual(len(record["cases"]), 4)
+      self.assertEqual(len(calls), 8)
+      for case in record["cases"]:
+        self.assertEqual(sorted(case["configurations"]), ["warps-1", "warps-4"])
+        self.assertFalse(case["configurations"]["warps-1"]["paths"]["p0"]["cached"])
+        self.assertTrue(case["configurations"]["warps-4"]["paths"]["p0"]["cached"])
+      self.assertTrue((Path(directory) / "qualification" / "qualification.json").is_file())
+
+
 if __name__ == "__main__":
   unittest.main()
