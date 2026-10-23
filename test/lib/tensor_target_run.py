@@ -393,31 +393,33 @@ def diagnose_with_optional_reference(*, reference, interpreter, compiled):
   ]
   # An unavailable path must not erase a comparison that did complete: a
   # completed pair that differs stays a numerical candidate, because the
-  # discrepancy is real evidence even though the other path never ran.
+  # discrepancy is real evidence even though the other path never ran. A
+  # completed agreement is recorded too, so a record distinguishes it from a
+  # comparison that never happened.
+  completed_pairs = {}
   if (
     unavailable
     and reference is not None
     and reference.status == tensor_target_reference.COMPLETED
   ):
-    completed_pairs = {}
     if interpreter.status == COMPLETED:
       completed_pairs["R-T"] = _comparison(reference.output, interpreter.actual)
     if compiled.status == COMPLETED:
       completed_pairs["R-G"] = _comparison(reference.output, compiled.actual)
-    if "different" in completed_pairs.values():
-      return {
-        "diagnosis": UNRESOLVED_NUMERICAL,
-        "p0_availability": p0_availability,
-        "candidates": candidates,
-        "observations": completed_pairs,
-        "unavailable": sorted(unavailable),
-      }
+  if unavailable and "different" in completed_pairs.values():
+    return {
+      "diagnosis": UNRESOLVED_NUMERICAL,
+      "p0_availability": p0_availability,
+      "candidates": candidates,
+      "observations": completed_pairs,
+      "unavailable": sorted(unavailable),
+    }
   if unavailable:
     return {
       "diagnosis": TARGET_UNAVAILABLE,
       "p0_availability": p0_availability,
       "candidates": candidates,
-      "observations": {},
+      "observations": completed_pairs,
       "unavailable": sorted(unavailable),
     }
   if reference is None or reference.status in {

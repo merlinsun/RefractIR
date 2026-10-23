@@ -447,6 +447,11 @@ class TargetRunTests(unittest.TestCase):
     )
     self.assertEqual(record["diagnosis"]["observations"], {"R-T": "different"})
     self.assertTrue(record["candidate"])
+    saved = json.loads(
+      (self.bundle / "target-runs" / "target-run.json").read_text(encoding="utf-8")
+    )
+    self.assertEqual(saved["diagnosis"]["observations"], {"R-T": "different"})
+    self.assertTrue(saved["candidate"])
 
   def test_an_unavailable_gpu_with_an_interpreter_failure_is_still_a_candidate(self):
     self.write_bundle()
@@ -482,10 +487,15 @@ class TargetRunTests(unittest.TestCase):
     )
     run = self.run_target(reference=reference)
     self.assertEqual(run.status, tensor_target_run.COMPARISON_UNAVAILABLE)
-    self.assertEqual(
-      run.as_record()["diagnosis"]["diagnosis"], tensor_target_run.TARGET_UNAVAILABLE
+    record = run.as_record()
+    self.assertEqual(record["diagnosis"]["diagnosis"], tensor_target_run.TARGET_UNAVAILABLE)
+    self.assertEqual(record["diagnosis"]["observations"], {"R-G": "equal"})
+    self.assertFalse(record["candidate"])
+    saved = json.loads(
+      (self.bundle / "target-runs" / "target-run.json").read_text(encoding="utf-8")
     )
-    self.assertFalse(run.candidate)
+    self.assertEqual(saved["diagnosis"]["observations"], {"R-G": "equal"})
+    self.assertFalse(saved["candidate"])
 
   def test_a_reference_unavailable_run_is_not_a_candidate(self):
     self.write_bundle()
