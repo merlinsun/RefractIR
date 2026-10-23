@@ -183,6 +183,21 @@ class SelectionTests(unittest.TestCase):
       with self.assertRaises(study.StudyRefused):
         run.select_sources()
 
+  def test_a_shortfall_is_reported_with_a_case_identity(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      run = study.Study(
+        Path(directory) / "work", frozen, build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(), execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      final = run._final_record(run.ledger.counts())
+      shortfalls = [item for item in final["refusals"] if item["reason"] == "attempts_exhausted"]
+      self.assertIn(
+        {"slot": "mw-g0c1", "reason": "attempts_exhausted"}, shortfalls
+      )
+
   def test_resume_keeps_the_corpus_and_does_not_rebuild_it(self):
     log = []
     with tempfile.TemporaryDirectory() as directory:

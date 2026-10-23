@@ -705,7 +705,7 @@ class Study:
         ),
       },
       "refusals": [
-        {"slot": e["slot"], "reason": e.get("reason")}
+        {"slot": e.get("slot") or e.get("case"), "reason": e.get("reason")}
         for e in events
         if e.get("kind") in ("launch_refused", "reconciled", "shortfall")
       ],
