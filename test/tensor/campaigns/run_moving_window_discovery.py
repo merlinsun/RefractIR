@@ -41,6 +41,12 @@ COLUMNS = (
   {"column": 2, "shape": [4, 4], "trips": 8, "stride": 2, "backing_rows": 20, "active": 18, "regime": "interior"},
   {"column": 3, "shape": [3, 8], "trips": 8, "stride": 2, "backing_rows": 19, "active": 15, "regime": "tail"},
 )
+CONTROL_PATTERNS = {
+  "i0-base": "distinct-integer-0",
+  "i1-read-plus-one": "mixed-sign-1",
+  "i2-late-row": "repeated-value-2",
+  "i3-unused-rows": "seeded-random-3",
+}
 CONTROLS = (
   {"id": "control-e7-unguided-1", "source": "e7-unguided-1-20296002"},
   {"id": "control-e7-shared-1", "source": "e7-shared-1-20296052"},
@@ -432,6 +438,11 @@ class Study:
             "inputs_sha256": outcome.get("inputs_sha256"),
             "layouts": outcome.get("layouts", {}),
             "witnesses": outcome.get("witnesses", []),
+            "region": outcome.get("region"),
+            "source": outcome.get("source"),
+            "trip_variant": outcome.get("trip_variant"),
+            "probe_values": outcome.get("probe_values"),
+            "bundles": outcome.get("bundles"),
             "compiler_identity": outcome.get("compiler_identity"),
             "screen": screened.get("record", {}),
           }
@@ -452,6 +463,32 @@ class Study:
       selected.add(slot["id"])
     return self
 
+  def diversity_report(self):
+    """Per-group admitted bodies and distinct connectivity signatures."""
+    groups = {}
+    for entry in self.corpus():
+      lane = entry.get("lane")
+      if lane not in ("G0", "G1", "G2"):
+        continue
+      signature = (
+        (entry.get("region") or {}).get("live_dag") or {}
+      ).get("connectivity_signature")
+      group = groups.setdefault(lane, {"bodies": 0, "signatures": []})
+      group["bodies"] += 1
+      if signature:
+        group["signatures"].append(signature)
+    report = {}
+    for lane in ("G0", "G1", "G2"):
+      group = groups.get(lane, {"bodies": 0, "signatures": []})
+      distinct = len(set(group["signatures"]))
+      report[lane] = {
+        "bodies": group["bodies"],
+        "distinct_signatures": distinct,
+        "sufficient": group["bodies"] >= 3 and distinct >= 3,
+      }
+    report["sufficient"] = all(report[lane]["sufficient"] for lane in ("G0", "G1", "G2"))
+    return report
+
   def freeze_corpus(self):
     """Freeze the admitted sources and every archived control before dispatch."""
     if not self._selection_closed():
@@ -467,6 +504,7 @@ class Study:
           "lane": "control",
           "kind": "control",
           "source": control["source"],
+          "patterns": dict(CONTROL_PATTERNS),
         }
       )
     record = {
@@ -474,6 +512,7 @@ class Study:
       "sources": entries,
       "controls": controls,
       "shortfalls": self._shortfalls(),
+      "diversity": self.diversity_report(),
     }
     record["digest"] = _digest(record)
     (self.work / "corpus-frozen.json").write_text(
@@ -505,6 +544,8 @@ class Study:
     if self.ledger is None:
       raise StudyRefused("prepare the study before dispatch")
     corpus = self.frozen_corpus()
+    if not corpus.get("diversity", {}).get("sufficient", False):
+      raise StudyRefused("the generator diversity minimum is not met")
     available = {entry["case"] for entry in corpus["sources"] + corpus["controls"]}
     cases = {
       case["id"]: case
@@ -635,6 +676,7 @@ class Study:
       },
       "corpus": sources,
       "corpus_digest": self.frozen_corpus()["digest"],
+      "diversity": self.frozen_corpus().get("diversity"),
       "observations": [
         {
           "slot": e["slot"],
@@ -704,7 +746,7 @@ def _trip_variant(source, trips):
   return source[:start] + marker + str(trips) + source[end:]
 
 
-def device_operations(*, exporter, symirc, symiri, timeout_s=300.0):
+def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s=300.0):
   """Bind the driver to the exporter, the interpreter screen, and the runner."""
   from pathlib import Path as _Path
 
@@ -898,12 +940,84 @@ def device_operations(*, exporter, symirc, symiri, timeout_s=300.0):
     directory = _Path(request["directory"])
     directory.mkdir(parents=True, exist_ok=True)
     if corpus.get("kind") == "control":
+      if controls_root is None:
+        return {
+          "status": "unavailable",
+          "paths": {},
+          "candidate": False,
+          "unavailable": ["no controls root was supplied"],
+          "compiler": {"status": "unavailable"},
+        }
+      warps = int(configuration.rsplit("-", 1)[1])
+      pattern = CONTROL_PATTERNS[probe]
+      bundle = (
+        Path(controls_root) / str(corpus["source"]) / f"{pattern}-warps-{warps}"
+      )
+      if not bundle.is_dir():
+        return {
+          "status": "unavailable",
+          "paths": {},
+          "candidate": False,
+          "unavailable": [f"archived control bundle is missing: {bundle}"],
+          "compiler": {"status": "unavailable"},
+        }
+      archived_program = (bundle / "program.sir").read_bytes()
+      archived_inputs = (bundle / "inputs.bin").read_bytes()
+      case = tensor_target_case.load(bundle, symiri=symiri)
+      reference = tensor_target_reference.observe(
+        case, symiri=symiri, timeout_s=timeout_s,
+        output_path=directory / "p0.bin",
+      )
+      run = tensor_target_run.run(
+        bundle,
+        symirc=symirc,
+        symiri=symiri,
+        reference=reference,
+        timeout_s=timeout_s,
+        artifact_dir=directory / "target-runs",
+        compiler_identity=identity,
+      )
+      paths = {
+        "p0": {
+          "status": reference.status,
+          "cached": False,
+          "directory": str(directory / "p0.bin"),
+        },
+        "p1": {
+          "status": run.interpreter.status,
+          "directory": str(directory / "target-runs" / "interpret"),
+        },
+        "p2": {
+          "status": run.compiled.status,
+          "directory": str(directory / "target-runs" / "compiled"),
+        },
+      }
+      compiled = directory / "target-runs" / "compiled"
+      compiler = {"status": "unavailable"}
+      ttir = compiled / "compiler-ttir.ir"
+      ptx = compiled / "compiler-ptx.ir"
+      if ttir.is_file() and ptx.is_file():
+        compiler = {
+          "status": "observed",
+          "ttir_sha256": hashlib.sha256(ttir.read_bytes()).hexdigest(),
+          "ptx_sha256": hashlib.sha256(ptx.read_bytes()).hexdigest(),
+        }
       return {
-        "status": "unavailable",
-        "paths": {},
-        "candidate": False,
-        "unavailable": ["archived control is not bound to a bundle in this driver"],
-        "compiler": {"status": "unavailable"},
+        "status": run.status,
+        "paths": paths,
+        "candidate": run.candidate,
+        "unavailable": [] if reference.status == tensor_target_reference.COMPLETED else [
+          f"p0:{reference.status}"
+        ],
+        "compiler": compiler,
+        "control": {
+          "program_sha256": hashlib.sha256(archived_program).hexdigest(),
+          "inputs_sha256": hashlib.sha256(archived_inputs).hexdigest(),
+          "pattern": pattern,
+          "warps": warps,
+        },
+        "reference": reference,
+        "record": run.as_record(),
       }
     region = corpus["region"]
     source = corpus["source"]
@@ -1052,6 +1166,7 @@ def main(argv=None):
   parser.add_argument("--symirc", required=True)
   parser.add_argument("--symiri", required=True)
   parser.add_argument("--timeout", type=float, default=300.0)
+  parser.add_argument("--controls-root", default=None)
   parser.add_argument("--mode", choices=("qualification", "select", "discover"),
                       required=True)
   arguments = parser.parse_args(argv)
@@ -1059,6 +1174,7 @@ def main(argv=None):
     exporter=Path(arguments.exporter),
     symirc=Path(arguments.symirc),
     symiri=Path(arguments.symiri),
+    controls_root=Path(arguments.controls_root) if arguments.controls_root else None,
     timeout_s=arguments.timeout,
   )
   if arguments.mode == "qualification":

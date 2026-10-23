@@ -40,6 +40,7 @@ def fake_builder(admit=(), log=None, outcomes=None):
       "layouts": {"dense": True},
       "witnesses": [{"input": "%tile", "results": ["%next_x"]}],
       "compiler_identity": {"revision": "deadbeef"},
+      "region": {"live_dag": {"connectivity_signature": f"sig-{case}"}},
     }
 
   return build
@@ -245,6 +246,29 @@ class DiscoveryTests(unittest.TestCase):
         any(event.get("kind") == "launch_refused" for event in run.path_ledger.events)
       )
       self.assertEqual(final["reserve"]["spent"], 0)
+
+  def test_the_diversity_report_requires_three_bodies_and_three_signatures(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = self._frozen_run(directory)
+      report = run.diversity_report()
+      for lane in ("G0", "G1", "G2"):
+        self.assertTrue(report[lane]["sufficient"], report)
+
+  def test_discovery_refuses_below_the_diversity_minimum(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = self._frozen_run(directory)
+      record = json.loads((run.work / "corpus-frozen.json").read_text(encoding="utf-8"))
+      record["diversity"] = {
+        "G0": {"bodies": 2, "distinct_signatures": 2, "sufficient": False},
+        "G1": {"bodies": 4, "distinct_signatures": 4, "sufficient": True},
+        "G2": {"bodies": 3, "distinct_signatures": 3, "sufficient": True},
+        "sufficient": False,
+      }
+      payload = {key: record[key] for key in record if key != "digest"}
+      record["digest"] = study._digest(payload)
+      (run.work / "corpus-frozen.json").write_text(json.dumps(record), encoding="utf-8")
+      with self.assertRaises(study.StudyRefused):
+        run.run_discovery()
 
   def test_a_missing_compiler_witness_cannot_suppress_a_candidate(self):
     with tempfile.TemporaryDirectory() as directory:
