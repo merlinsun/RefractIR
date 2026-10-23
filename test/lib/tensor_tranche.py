@@ -132,6 +132,16 @@ def freeze(manifest):
   if not isinstance(budget, dict) or not isinstance(budget.get("executions"), int):
     raise ManifestRefused("a tranche manifest must state an integer execution budget")
 
+  lanes = manifest.get("lanes", list(TRANCHES))
+  if (
+    not isinstance(lanes, list)
+    or not lanes
+    or any(not isinstance(lane, str) or not lane for lane in lanes)
+  ):
+    raise ManifestRefused("a tranche manifest must state a nonempty lane list")
+  if len(set(lanes)) != len(lanes):
+    raise ManifestRefused("a tranche manifest repeats a lane")
+
   slots = []
   seen = set()
   for case in cases:
@@ -141,7 +151,7 @@ def freeze(manifest):
     configurations = case.get("configurations")
     if not isinstance(case_id, str) or not case_id:
       raise ManifestRefused("every case needs a string id")
-    if lane not in TRANCHES:
+    if lane not in lanes:
       raise ManifestRefused(f"case {case_id!r} names an unknown lane {lane!r}")
     if not isinstance(inputs, list) or not inputs:
       raise ManifestRefused(f"case {case_id!r} lists no inputs")

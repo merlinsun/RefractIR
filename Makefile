@@ -296,14 +296,15 @@ $(TENSOR_FREE_FORM_EXPORT): test/unit/tensor_free_form_export.cpp $(TENSOR_FREE_
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_free_form_export.cpp $(TENSOR_FREE_FORM_SRCS)
 
-test-tensor-free-form: $(TARGET_INTERP) $(TENSOR_FREE_FORM_API) $(TENSOR_FREE_FORM_EXPORT)
+test-tensor-free-form: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_FREE_FORM_API) $(TENSOR_FREE_FORM_EXPORT)
 	REFRACTIR_TENSOR_FREE_FORM_API=$(TENSOR_FREE_FORM_API) \
 	  REFRACTIR_TENSOR_FREE_FORM_EXPORT=$(TENSOR_FREE_FORM_EXPORT) \
-	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) \
+	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  $(PY) -m unittest test.unit.test_tensor_free_form \
 	    test.unit.test_tensor_free_form_inputs test.unit.test_tensor_free_form_case \
 	    test.unit.test_tensor_target_case test.unit.test_tensor_target_run \
-	    test.unit.test_tensor_target_reference test.unit.test_tensor_state_diagnostics
+	    test.unit.test_tensor_target_reference test.unit.test_tensor_state_diagnostics \
+	    test.unit.test_tensor_tranche test.unit.test_moving_window_discovery
 
 TENSOR_GRAPH_REGION_API = $(BIN_DIR)/tensor_graph_region_api
 TENSOR_GRAPH_REGION_EXPORT = $(BIN_DIR)/tensor_graph_region_export

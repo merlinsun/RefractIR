@@ -116,5 +116,45 @@ class LedgerTests(unittest.TestCase):
     self.assertEqual(len(ledger.events), 4)
 
 
+def _lane_manifest(**overrides):
+  manifest = {
+    "tranche": "study",
+    "lanes": ["G0", "G1", "control"],
+    "budget": {"executions": 4},
+    "cases": [
+      {"id": "S0", "lane": "G0", "inputs": ["i0"], "configurations": ["w1", "w4"]},
+      {"id": "C0", "lane": "control", "inputs": ["i0"], "configurations": ["w1", "w4"]},
+    ],
+  }
+  manifest.update(overrides)
+  return manifest
+
+
+class LaneTests(unittest.TestCase):
+  def test_an_explicit_lane_list_is_honoured(self):
+    frozen = tensor_tranche.freeze(_lane_manifest())
+    self.assertEqual([slot.lane for slot in frozen.slots], ["G0", "G0", "control", "control"])
+    self.assertEqual(
+      frozen.payload["manifest"]["lanes"], ["G0", "G1", "control"]
+    )
+
+  def test_a_lane_outside_the_declared_list_is_refused(self):
+    manifest = _lane_manifest(
+      cases=[{"id": "A1", "lane": "A", "inputs": ["i0"], "configurations": ["w1"]}]
+    )
+    with self.assertRaises(tensor_tranche.ManifestRefused):
+      tensor_tranche.freeze(manifest)
+
+  def test_the_default_lanes_are_preserved(self):
+    manifest = _manifest()
+    frozen = tensor_tranche.freeze(manifest)
+    self.assertEqual(
+      frozen.payload["manifest"]["lanes"] if "lanes" in frozen.payload["manifest"]
+      else list(tensor_tranche.TRANCHES),
+      list(tensor_tranche.TRANCHES),
+    )
+    self.assertEqual([slot.lane for slot in frozen.slots], ["A", "A", "A", "A", "B", "B"])
+
+
 if __name__ == "__main__":
   unittest.main()
