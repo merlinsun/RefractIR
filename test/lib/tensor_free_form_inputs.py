@@ -3,8 +3,15 @@
 The free-form route states the shapes, dtype, and roles it needs. Input values
 therefore come from that record rather than from the canonical certificate
 parser, so a body the certificate grammar cannot express still receives inputs.
-The values are small integers held exactly in f32, which keeps a mismatch
-between two execution paths a behavioural difference rather than rounding.
+The values are small integers chosen to be exact in f32, which keeps a mismatch
+between two execution paths a behavioural difference rather than an input
+rounding. Exact input words do not establish that an execution is exact:
+intermediate f32 operations may round, so the study compares observed outputs
+rather than assuming a closed form.
+
+Window probes are role-aware: the backing parameter is perturbed while the two
+state tensors stay bit-identical, and each probe states its own pattern and
+probe name so a study record can reference it.
 """
 
 import hashlib
@@ -12,7 +19,9 @@ import struct
 from dataclasses import dataclass
 
 PROPOSAL_SCHEMA = "refractir.free-form-input-proposal.v1"
+WINDOW_PROBE_SCHEMA = "refractir.free-form-window-probes.v1"
 PATTERNS = ("distinct-integer", "mixed-sign", "repeated-value", "seeded-random")
+WINDOW_PROBES = ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows")
 _MASK = 0xFFFFFFFFFFFFFFFF
 
 
@@ -32,6 +41,7 @@ class Proposal:
   dtype: str
   values: tuple
   data: bytes
+  probe: str | None = None
 
   def as_record(self):
     """The JSON-able statement of this proposal, without the payload."""
@@ -45,6 +55,7 @@ class Proposal:
       "values": [list(row) for row in self.values],
       "byte_length": len(self.data),
       "sha256": hashlib.sha256(self.data).hexdigest(),
+      "probe": self.probe,
     }
 
 
@@ -167,3 +178,178 @@ def derive_proposals_from_spec(spec, *, count=1, seed=0, patterns=None):
     proposal(spec, pattern=sequence[index % len(sequence)], seed=seed + index)
     for index in range(count)
   ]
+
+
+
+def _window_roles(region):
+  """Resolve the window backing parameter, the two states, and the window."""
+  records = parameters(region)
+  source = region.get("window_source")
+  if not isinstance(source, dict):
+    raise SpecError("a window region needs a window_source record")
+  backing_name = source.get("parameter")
+  records_by_name = {record["name"]: record for record in records}
+  if backing_name not in records_by_name:
+    raise SpecError("the window_source parameter is not a runtime parameter")
+  backing = records_by_name[backing_name]
+  if backing.get("dtype") != "f32":
+    raise SpecError("window probes need f32 parameters")
+  if len(backing["shape"]) != 2:
+    raise SpecError("the window backing parameter must be a matrix")
+  states = [record for record in records if record["name"] != backing_name]
+  if len(states) != 2:
+    raise SpecError("window probes need exactly two state parameters")
+  if any(state["dtype"] != "f32" for state in states):
+    raise SpecError("window probes need f32 states")
+  for state in states:
+    if len(state["shape"]) != 2:
+      raise SpecError("window state parameters must be matrices")
+  if states[0]["shape"] != states[1]["shape"]:
+    raise SpecError("window state parameters must share one shape")
+  window = region.get("window")
+  if not isinstance(window, dict):
+    raise SpecError("a window region needs a window record")
+  for field in ("rows", "stride", "active"):
+    if type(window.get(field)) is not int or window[field] < 0:
+      raise SpecError(f"window {field} must be a nonnegative integer")
+  if window["rows"] == 0 or window["active"] == 0:
+    raise SpecError("window rows and active must be positive")
+  trips = region.get("trip_count")
+  if type(trips) is not int or trips < 1:
+    raise SpecError("a window region needs a positive trip_count")
+  rows, columns = backing["shape"]
+  if states[0]["shape"] != [window["rows"], columns]:
+    raise SpecError("the state shape must match the window rows and backing columns")
+  if window["active"] > rows:
+    raise SpecError("window active must fit the backing rows")
+  if (trips - 1) * window["stride"] + window["rows"] > rows:
+    raise SpecError("the window witness must fit the backing rows")
+  return {
+    "parameters": records,
+    "backing": backing,
+    "states": states,
+    "window": window,
+    "trips": trips,
+  }
+
+
+def _window_rows(roles, *, group, column):
+  """The base backing and state values for one source slot."""
+  if type(group) is not int or not 0 <= group < 3:
+    raise SpecError("window probe group must be in [0, 3)")
+  if type(column) is not int or not 0 <= column < 4:
+    raise SpecError("window probe column must be in [0, 4)")
+  slot = 4 * group + column
+  rows, columns = roles["backing"]["shape"]
+  state_rows = roles["window"]["rows"]
+  states = roles["states"]
+  state_zero = [
+    [((r + 2 * c) % 5) - 2 for c in range(columns)]
+    for r in range(state_rows)
+  ]
+  state_one = [
+    [((2 * r + c + 1) % 5) - 2 for c in range(columns)] for r in range(state_rows)
+  ]
+  base = [[((3 * r + c + slot) % 7) - 3 for c in range(columns)] for r in range(rows)]
+  values = {
+    roles["backing"]["name"]: base,
+    states[0]["name"]: state_zero,
+    states[1]["name"]: state_one,
+  }
+  return slot, values
+
+
+def _pack_window_proposal(roles, values, *, pattern, probe, seed):
+  """Pack one probe's rows in the region's recorded parameter order."""
+  names = tuple(record["name"] for record in roles["parameters"])
+  shapes = tuple(tuple(record["shape"]) for record in roles["parameters"])
+  payload = bytearray()
+  rows = tuple(tuple(tuple(values[name][r]) for r in range(len(values[name]))) for name in names)
+  for row in rows:
+    for values_row in row:
+      payload.extend(struct.pack(f"<{len(values_row)}f", *values_row))
+  return Proposal(
+    schema=WINDOW_PROBE_SCHEMA,
+    pattern=pattern,
+    seed=seed,
+    names=names,
+    shapes=shapes,
+    dtype="f32",
+    values=rows,
+    data=bytes(payload),
+    probe=probe,
+  )
+
+
+def _read_positions(roles):
+  """Every backing coordinate a trip and row read under the witness."""
+  window = roles["window"]
+  read = set()
+  for trip in range(roles["trips"]):
+    for row in range(window["rows"]):
+      address = trip * window["stride"] + row
+      if address < window["active"]:
+        read.add(address)
+  return read
+
+
+def window_base_proposal(region, *, group, column):
+  """The I0 probe: role-separated states and backing, before any perturbation."""
+  roles = _window_roles(region)
+  slot, values = _window_rows(roles, group=group, column=column)
+  return _pack_window_proposal(
+    roles, values, pattern="window-base", probe="i0-base", seed=slot
+  )
+
+
+def window_probes(region, *, group, column):
+  """The four frozen window probes I0-I3 for one source slot.
+
+  I1 adds one to every backing position any trip reads, I2 replaces the last
+  active row, and I3 flips the rows at or above the active bound that no trip
+  reads. The states are identical in all four.
+  """
+  roles = _window_roles(region)
+  slot, base_values = _window_rows(roles, group=group, column=column)
+  window = roles["window"]
+  rows, columns = roles["backing"]["shape"]
+  backing_name = roles["backing"]["name"]
+  read = _read_positions(roles)
+  late = window["active"] - 1
+  if late < window["rows"]:
+    raise SpecError("the late row is read by the first window")
+  if late not in read:
+    raise SpecError("the late row is not reachable by any trip")
+  if window["active"] > rows:
+    raise SpecError("window active must fit the backing rows")
+
+  def clone(values, backing):
+    return {
+      backing_name: backing,
+      roles["states"][0]["name"]: [list(row) for row in values[roles["states"][0]["name"]]],
+      roles["states"][1]["name"]: [list(row) for row in values[roles["states"][1]["name"]]],
+    }
+
+  base = clone(base_values, [list(row) for row in base_values[backing_name]])
+  read_plus = clone(base_values, [list(row) for row in base_values[backing_name]])
+  for address in read:
+    for column in range(columns):
+      read_plus[backing_name][address][column] += 1
+  late_row = [(-5 if column % 2 == 0 else 5) for column in range(columns)]
+  late_probe = clone(base_values, [list(row) for row in base_values[backing_name]])
+  late_probe[backing_name][late] = late_row
+  unused = clone(base_values, [list(row) for row in base_values[backing_name]])
+  for address in range(window["active"], rows):
+    unused[backing_name][address] = [1 - value for value in unused[backing_name][address]]
+  return (
+    _pack_window_proposal(roles, base, pattern="window-base", probe="i0-base", seed=slot),
+    _pack_window_proposal(
+      roles, read_plus, pattern="window-read-plus-one", probe="i1-read-plus-one", seed=slot
+    ),
+    _pack_window_proposal(
+      roles, late_probe, pattern="window-late-row", probe="i2-late-row", seed=slot
+    ),
+    _pack_window_proposal(
+      roles, unused, pattern="window-unused-rows", probe="i3-unused-rows", seed=slot
+    ),
+  )

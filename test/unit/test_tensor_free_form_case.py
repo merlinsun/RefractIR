@@ -105,6 +105,47 @@ fun @kernel(%x: tensor [2, 2] f32, %y: tensor [2, 2] f32) : tensor [2, 2] f32 {
 """
 
 
+
+
+WINDOW_REGION = {
+  "schema": "refractir.free-form-region.v1",
+  "entry": "kernel",
+  "profile": "tensor-v3",
+  "dtype": "f32",
+  "policy": "reduction-heavy",
+  "seed": 1,
+  "shape": [2, 8],
+  "trip_count": 4,
+  "state_count": 2,
+  "num_warps": 4,
+  "parameters": [
+    {"name": "%window_buffer", "shape": [7, 8], "dtype": "f32"},
+    {"name": "%x", "shape": [2, 8], "dtype": "f32"},
+    {"name": "%y", "shape": [2, 8], "dtype": "f32"},
+  ],
+  "window_source": {"parameter": "%window_buffer", "shape": [7, 8], "dtype": "f32"},
+  "window": {"rows": 2, "stride": 1, "active": 5, "source": "%window_buffer"},
+}
+
+WINDOW_SOURCE = """\
+fun @kernel(%window_buffer: tensor [7, 8] f32, %x: tensor [2, 8] f32, %y: tensor [2, 8] f32) : tensor [2, 8] f32 {
+  let mut %i: i32 = undef;
+  let mut %tile: tensor [2, 8] f32 = undef;
+  let mut %next_x: tensor [2, 8] f32 = undef;
+^entry:
+  %i = 0;
+  br ^header;
+^header:
+  br %i < 4, ^body, ^exit;
+^body:
+  %tile = tensor window %window_buffer, %i, 0.0, [2, 1, 5];
+  %next_x = tensor add %x, %tile;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  ret %next_x;
+}
+"""
 class FreeFormCaseTests(unittest.TestCase):
   """A bundle carries the proposal's bytes and no reference."""
 
@@ -280,6 +321,52 @@ class FreeFormCaseTests(unittest.TestCase):
     with self.assertRaises(tensor_target_case.TargetCaseError):
       tensor_free_form_case.build_bundle(
         self.bundle, region={**REGION, "num_warps": 0}, source=SOURCE, proposal=proposal
+      )
+
+
+  def test_a_window_backing_layout_survives_the_bundle(self):
+    proposals = tensor_free_form_inputs.window_probes(WINDOW_REGION, group=0, column=0)
+    layout = tensor_free_form_case.strided_output(
+      [7, 8], row_padding=3, element_offset=1
+    )
+    case = tensor_free_form_case.build_bundle(
+      self.bundle,
+      region=WINDOW_REGION,
+      source=WINDOW_SOURCE,
+      proposal=proposals[0],
+      input_layouts={"%window_buffer": layout},
+      output_row_padding=1,
+      output_offset=1,
+    )
+    records = {record["name"]: record for record in case.record["inputs"]}
+    self.assertEqual(records["%window_buffer"]["element_strides"], layout["element_strides"])
+    self.assertEqual(records["%window_buffer"]["element_offset"], 1)
+    self.assertEqual(records["%window_buffer"]["storage_span"], layout["storage_span"])
+    self.assertEqual(records["%x"]["element_strides"], [8, 1])
+    self.assertEqual(records["%x"]["element_offset"], 0)
+    self.assertEqual(records["%y"]["element_strides"], [8, 1])
+    self.assertEqual(case.inputs, proposals[0].data)
+    self.assertEqual(case.record["execution"]["guard_envelope"], {"prefix": 1, "suffix": 1})
+    self.assertEqual(case.record["output"]["element_strides"], [9, 1])
+    self.assertEqual(case.record["output"]["element_offset"], 1)
+
+  def test_an_unknown_layout_parameter_is_refused(self):
+    proposal = tensor_free_form_inputs.window_probes(WINDOW_REGION, group=0, column=0)[0]
+    with self.assertRaises(tensor_target_case.TargetCaseError):
+      tensor_free_form_case.build_bundle(
+        self.bundle,
+        region=WINDOW_REGION,
+        source=WINDOW_SOURCE,
+        proposal=proposal,
+        input_layouts={"%missing": tensor_free_form_case.dense_layout([2, 8])},
+      )
+    with self.assertRaises(tensor_target_case.TargetCaseError):
+      tensor_free_form_case.build_bundle(
+        self.bundle,
+        region=WINDOW_REGION,
+        source=WINDOW_SOURCE,
+        proposal=proposal,
+        input_layouts={"%window_buffer": tensor_free_form_case.dense_layout([2, 8])},
       )
 
 

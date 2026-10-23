@@ -97,14 +97,28 @@ def execution_record(*, num_warps, envelope=None):
   }
 
 
-def input_records(region, proposal):
+def input_records(region, proposal, *, layouts=None):
   """One record per runtime parameter, each carrying its own bytes.
 
   `proposal` packs the parameters in the order the region record lists them,
-  so each record takes the next element-count slice. A mismatch between the
-  proposal and the record is refused rather than padded.
+  so each record takes the next element-count slice. `layouts` optionally maps
+  a parameter name to the physical layout the worker should stage; every
+  unnamed parameter keeps the dense layout. A mismatch between the proposal
+  and the record is refused rather than padded.
   """
   parameters = tensor_free_form_inputs.parameters(region)
+  if layouts is not None:
+    if not isinstance(layouts, dict):
+      raise tensor_target_case.TargetCaseError(
+        tensor_target_case.INVALID_LAYOUT, "input layouts must be a mapping by parameter name"
+      )
+    known = {parameter["name"] for parameter in parameters}
+    unknown = sorted(set(layouts) - known)
+    if unknown:
+      raise tensor_target_case.TargetCaseError(
+        tensor_target_case.INVALID_LAYOUT,
+        "an input layout names an unknown parameter: " + ", ".join(unknown),
+      )
   if tuple(proposal.names) != tuple(parameter["name"] for parameter in parameters):
     raise tensor_target_case.TargetCaseError(
       tensor_target_case.INVALID_CASE,
@@ -120,11 +134,35 @@ def input_records(region, proposal):
         tensor_target_case.INVALID_CASE,
         f"the proposal is shorter than parameter {parameter['name']} needs",
       )
+    layout = dense_layout(parameter["shape"])
+    if layouts is not None and parameter["name"] in layouts:
+      given = layouts[parameter["name"]]
+      if not isinstance(given, dict):
+        raise tensor_target_case.TargetCaseError(
+          tensor_target_case.INVALID_LAYOUT,
+          f"the layout for {parameter['name']} must be an object",
+        )
+      if given.get("shape") != list(parameter["shape"]):
+        raise tensor_target_case.TargetCaseError(
+          tensor_target_case.INVALID_LAYOUT,
+          f"the layout for {parameter['name']} states another shape",
+        )
+      tensor_target_case._validate_layout(given, "input")
+      layout = {
+        key: given[key]
+        for key in (
+          "shape",
+          "element_strides",
+          "element_offset",
+          "storage_span",
+          "axis_order",
+        )
+      }
     records.append(
       {
         "name": parameter["name"],
         "dtype": parameter["dtype"],
-        **dense_layout(parameter["shape"]),
+        **layout,
         "data": data,
       }
     )
@@ -146,6 +184,7 @@ def build_bundle(
   envelope=None,
   output_row_padding=0,
   output_offset=0,
+  input_layouts=None,
 ):
   """Write the bundle for one region record and return the loaded case."""
   num_warps = region.get("num_warps")
@@ -165,7 +204,7 @@ def build_bundle(
   return tensor_target_case.write(
     bundle_dir,
     source=source,
-    inputs=input_records(region, proposal),
+    inputs=input_records(region, proposal, layouts=input_layouts),
     output=output,
     launch={
       "num_warps": num_warps,
