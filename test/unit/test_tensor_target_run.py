@@ -387,6 +387,62 @@ class TargetRunTests(unittest.TestCase):
     self.assertTrue(run.candidate)
     self.assertTrue(run.as_record()["candidate"])
 
+  def test_an_unavailable_gpu_is_not_a_numerical_candidate(self):
+    self.write_bundle()
+    self.configure({"interpret": {"phase": "runtime", "actual": AGREE_HEX}})
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.COMPLETED, output=bytes.fromhex(AGREE_HEX)
+    )
+    run = self.run_target(gpu=False, reference=reference)
+    self.assertEqual(run.status, tensor_target_run.ENVIRONMENT_UNAVAILABLE)
+    record = run.as_record()
+    self.assertEqual(record["diagnosis"]["diagnosis"], tensor_target_run.TARGET_UNAVAILABLE)
+    self.assertFalse(record["candidate"])
+    saved = json.loads(
+      (self.bundle / "target-runs" / "target-run.json").read_text(encoding="utf-8")
+    )
+    self.assertEqual(saved["diagnosis"]["diagnosis"], tensor_target_run.TARGET_UNAVAILABLE)
+    self.assertFalse(saved["candidate"])
+
+  def test_an_unavailable_gpu_with_an_interpreter_failure_is_still_a_candidate(self):
+    self.write_bundle()
+    self.configure(
+      {"interpret": {"phase": "runtime", "stderr": "RuntimeError: boom", "exit": 1}}
+    )
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.COMPLETED, output=bytes.fromhex(AGREE_HEX)
+    )
+    run = self.run_target(gpu=False, reference=reference)
+    # The unavailable GPU owns the run's status, but the interpreter's actual
+    # failure is still the diagnosis and still enters triage.
+    self.assertEqual(run.status, tensor_target_run.ENVIRONMENT_UNAVAILABLE)
+    self.assertEqual(
+      run.as_record()["diagnosis"]["diagnosis"], tensor_target_run.INTERPRETER_CANDIDATE
+    )
+    self.assertTrue(run.candidate)
+
+  def test_an_unsupported_interpreter_is_not_a_candidate(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {
+          "phase": "runtime",
+          "stderr": "InterpreterError: NotImplementedError('inline_asm not supported in interpreter mode')",
+          "exit": 1,
+        },
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.COMPLETED, output=bytes.fromhex(AGREE_HEX)
+    )
+    run = self.run_target(reference=reference)
+    self.assertEqual(run.status, tensor_target_run.COMPARISON_UNAVAILABLE)
+    self.assertEqual(
+      run.as_record()["diagnosis"]["diagnosis"], tensor_target_run.TARGET_UNAVAILABLE
+    )
+    self.assertFalse(run.candidate)
+
   def test_a_reference_unavailable_run_is_not_a_candidate(self):
     self.write_bundle()
     self.configure(

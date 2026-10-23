@@ -47,6 +47,7 @@ REFERENCE_UNAVAILABLE = "reference_unavailable"
 BOTH_PATHS_FAILED = "both_paths_failed"
 COMPILED_PATH_CANDIDATE = "compiled_path_candidate"
 INTERPRETER_CANDIDATE = "interpreter_candidate"
+TARGET_UNAVAILABLE = "target_unavailable"
 
 # Diagnoses that name triage-worthy evidence even when the two target paths
 # happened to agree with each other.
@@ -353,8 +354,10 @@ def diagnose_with_optional_reference(*, reference, interpreter, compiled):
   """Diagnose a run against an optional diagnostic SIR observation.
 
   Precedence: undefined behaviour first; then any target failure with its
-  path; then an unavailable/failed/timed-out observation; only a completed
-  observation delegates to the shared three-way comparison. The reference's
+  path; then a target that never ran (an unavailable GPU or an unsupported
+  interpreter), which is not a numerical candidate; then an
+  unavailable/failed/timed-out observation; only a completed comparison
+  delegates to the shared three-way comparison. The reference's
   availability is always recorded beside the diagnosis so a candidate verdict
   never hides an unavailable reference.
   """
@@ -380,6 +383,20 @@ def diagnose_with_optional_reference(*, reference, interpreter, compiled):
       "p0_availability": p0_availability,
       "candidates": candidates,
       "observations": {},
+    }
+  unavailable = [
+    path
+    for path, run in (("P1", interpreter), ("P2", compiled))
+    if run is not None
+    and run.status in {ENVIRONMENT_UNAVAILABLE, INTERPRETER_UNSUPPORTED}
+  ]
+  if unavailable:
+    return {
+      "diagnosis": TARGET_UNAVAILABLE,
+      "p0_availability": p0_availability,
+      "candidates": candidates,
+      "observations": {},
+      "unavailable": sorted(unavailable),
     }
   if reference is None or reference.status in {
     tensor_target_reference.UNAVAILABLE,
