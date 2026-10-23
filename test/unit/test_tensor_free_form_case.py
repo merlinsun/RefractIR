@@ -234,6 +234,40 @@ class FreeFormCaseTests(unittest.TestCase):
     ]
     self.assertEqual(len(set(addresses)), 16)
     tensor_target_case._validate_layout(layout, "output")
+
+  def test_rank_three_padding_two_has_no_overlap(self):
+    layout = tensor_free_form_case.strided_output([2, 2, 2], row_padding=2)
+    self.assertEqual(layout["element_strides"], [8, 4, 1])
+    self.assertEqual(layout["storage_span"], 14)
+    addresses = {a * 8 + b * 4 + c for a in range(2) for b in range(2) for c in range(2)}
+    self.assertEqual(len(addresses), 8)
+    tensor_target_case._validate_layout(layout, "output")
+
+  def test_rank_three_padding_with_an_offset_has_no_overlap(self):
+    layout = tensor_free_form_case.strided_output(
+      [2, 2, 2], element_offset=1, row_padding=1
+    )
+    self.assertEqual(layout["element_strides"], [6, 3, 1])
+    self.assertEqual(layout["storage_span"], 12)
+    addresses = {
+      1 + a * 6 + b * 3 + c for a in range(2) for b in range(2) for c in range(2)
+    }
+    self.assertEqual(len(addresses), 8)
+    tensor_target_case._validate_layout(layout, "output")
+
+  def test_rank_four_padding_three_has_no_overlap(self):
+    layout = tensor_free_form_case.strided_output([2, 2, 2, 2], row_padding=3)
+    self.assertEqual(layout["element_strides"], [20, 10, 5, 1])
+    self.assertEqual(layout["storage_span"], 37)
+    addresses = {
+      a * 20 + b * 10 + c * 5 + d
+      for a in range(2)
+      for b in range(2)
+      for c in range(2)
+      for d in range(2)
+    }
+    self.assertEqual(len(addresses), 16)
+    tensor_target_case._validate_layout(layout, "output")
   def test_a_proposal_that_does_not_name_the_parameters_is_refused(self):
     proposal = tensor_free_form_inputs.proposal(REGION, pattern="distinct-integer", seed=0)
     renamed = tensor_free_form_inputs.proposal(
