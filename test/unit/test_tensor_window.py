@@ -321,6 +321,24 @@ class TensorWindowFillRangeTests(unittest.TestCase):
     self.assertNotEqual(result.returncode, 0)
     self.assertIn("out of range", result.stderr)
 
+
+  def test_an_i32_fill_far_above_the_range_is_refused(self):
+    result = check_source(i32_window("4294967296"), tensor_profile="v2")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("out of range", result.stderr)
+
+  def test_an_i32_fill_far_below_the_range_is_refused(self):
+    result = check_source(i32_window("-4294967297"), tensor_profile="v2")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("out of range", result.stderr)
+
+  def test_an_i32_fill_above_the_range_with_a_wider_source_is_refused(self):
+    source = I32_WINDOW_SOURCE.replace("tensor [2] i32", "tensor [4] i32").replace(
+      "[1, 0, 2]", "[2, 1, 4]"
+    )
+    result = check_source(source.replace("<fill>", "2147483648"), tensor_profile="v2")
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("out of range", result.stderr)
   def test_the_i32_signed_boundaries_are_admitted(self):
     for fill in ("2147483647", "-2147483648"):
       with self.subTest(fill=fill):
