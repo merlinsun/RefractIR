@@ -402,6 +402,7 @@ class TargetRunTests(unittest.TestCase):
       (self.bundle / "target-runs" / "target-run.json").read_text(encoding="utf-8")
     )
     self.assertEqual(saved["diagnosis"]["diagnosis"], tensor_target_run.TARGET_UNAVAILABLE)
+    self.assertEqual(saved["diagnosis"]["observations"], {"R-T": "equal"})
     self.assertFalse(saved["candidate"])
 
   def test_an_unsupported_interpreter_keeps_a_p0_target_difference(self):
