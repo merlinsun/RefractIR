@@ -192,6 +192,88 @@ class TargetRunTests(unittest.TestCase):
       **kwargs,
     )
 
+  def run_screen(self, **overrides):
+    arguments = {
+      "symirc": self.symirc,
+      "symiri": self.symiri,
+      "worker_command": self.worker_command,
+      "timeout_s": 5,
+    }
+    arguments.update(overrides)
+    return tensor_target_run.run_interpreter(self.bundle, **arguments)
+
+  def test_screening_runs_only_the_interpreter(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "stderr": "must not run", "exit": 9},
+      }
+    )
+    screen = self.run_screen()
+    self.assertEqual(screen.status, tensor_target_run.COMPLETED)
+    record = screen.as_record()
+    self.assertEqual(record["mode"], "interpret")
+    self.assertNotIn("compiled", record)
+    self.assertNotIn("agreement", record)
+    self.assertNotIn("diagnosis", record)
+    staged = (self.bundle / "interpreter-runs" / "interpret" / "kernel.py").read_bytes()
+    self.assertEqual(record["kernel_sha256"], hashlib.sha256(staged).hexdigest())
+    self.assertEqual(
+      record["source_sha256"], hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
+    )
+    self.assertFalse((self.bundle / "interpreter-runs" / "compiled").exists())
+    saved = json.loads(
+      (self.bundle / "interpreter-runs" / "interpreter-run.json").read_text(
+        encoding="utf-8"
+      )
+    )
+    self.assertEqual(saved["schema"], tensor_target_run.SCREEN_SCHEMA)
+    self.assertEqual(saved["status"], tensor_target_run.COMPLETED)
+    self.assertEqual(saved["output_sha256"], hashlib.sha256(bytes.fromhex(AGREE_HEX)).hexdigest())
+    actual_path = self.bundle / "interpreter-runs" / "interpret" / "actual.bin"
+    self.assertEqual(actual_path.read_bytes(), bytes.fromhex(AGREE_HEX))
+
+  def test_screening_preserves_a_failure_as_a_diagnostic(self):
+    self.write_bundle()
+    self.configure(
+      {"interpret": {"phase": "runtime", "stderr": "RuntimeError: boom", "exit": 1}}
+    )
+    screen = self.run_screen()
+    self.assertEqual(screen.status, tensor_target_run.RUNTIME_FAILURE)
+    record = screen.as_record()
+    self.assertIsNone(record["output_sha256"])
+    self.assertIsNone(record["finite"])
+    self.assertIn("RuntimeError: boom", screen.interpreter.stderr)
+
+  def test_screening_marks_a_non_finite_result(self):
+    self.write_bundle()
+    non_finite = struct.pack("<4f", float("inf"), 2.0, 3.0, 4.0).hex()
+    self.configure({"interpret": {"phase": "runtime", "actual": non_finite}})
+    screen = self.run_screen()
+    self.assertEqual(screen.status, tensor_target_run.NON_FINITE)
+    record = screen.as_record()
+    self.assertFalse(record["finite"])
+    self.assertEqual(
+      record["output_sha256"], hashlib.sha256(bytes.fromhex(non_finite)).hexdigest()
+    )
+
+  def test_screening_reuses_one_emission(self):
+    self.write_bundle()
+    self.configure({"interpret": {"phase": "runtime", "actual": AGREE_HEX}})
+    first = self.run_screen().as_record()
+    second = self.run_screen().as_record()
+    self.assertEqual(first["kernel_sha256"], second["kernel_sha256"])
+    self.assertEqual(first["source_sha256"], second["source_sha256"])
+    self.assertEqual(first["inputs_sha256"], second["inputs_sha256"])
+
+  def test_a_screening_never_reports_a_target_status(self):
+    self.write_bundle()
+    self.configure({"interpret": {"phase": "runtime", "actual": AGREE_HEX}})
+    record = self.run_screen().as_record()
+    self.assertNotIn("target_agreement", json.dumps(record))
+    self.assertNotIn("target_disagreement", json.dumps(record))
+
   def test_a_reference_observation_is_recorded_as_diagnostic(self):
     self.write_bundle()
     self.configure(

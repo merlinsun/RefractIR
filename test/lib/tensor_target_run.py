@@ -10,7 +10,9 @@ happened rather than treating it as a comparison outcome.
 
 import hashlib
 import json
+import math
 import shutil
+import struct
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -189,6 +191,186 @@ class TargetRun:
     }
 
 
+SCREEN_SCHEMA = "refractir.tensor-interpreter-screen.v1"
+NON_FINITE = "non_finite"
+
+
+@dataclass(frozen=True)
+class ScreeningRun:
+  """One interpreter-only screening result. It states no target comparison."""
+
+  bundle: Path
+  status: str
+  emission: tensor_emission.EmissionRecord | None
+  interpreter: ModeRun
+  case: object
+  reference: object | None = None
+  compiler_identity: dict | None = None
+  finite: bool | None = None
+
+  def as_record(self):
+    actual = self.interpreter.actual
+    return {
+      "schema": SCREEN_SCHEMA,
+      "bundle": str(self.bundle),
+      "status": self.status,
+      "mode": "interpret",
+      "source_sha256": self.emission.sir_sha256 if self.emission is not None else None,
+      "kernel_sha256": (
+        self.emission.kernel_sha256 if self.emission is not None else None
+      ),
+      "inputs_sha256": hashlib.sha256(self.case.inputs).hexdigest(),
+      "output_sha256": (
+        hashlib.sha256(actual).hexdigest() if actual is not None else None
+      ),
+      "output_length": len(actual) if actual is not None else None,
+      "finite": self.finite,
+      "emission": self.emission.as_record() if self.emission is not None else None,
+      "interpreter": self.interpreter.as_record(),
+      "reference": (
+        self.reference.as_record()
+        if self.reference is not None
+        else {"kind": "none"}
+      ),
+      "compiler_identity": self.compiler_identity,
+      "note": (
+        "interpreter-only screening: no target comparison and no GPU worker launch"
+      ),
+    }
+
+
+def _prepare_emission(case, symirc, artifacts):
+  """Emit the one kernel both routes consume, or return its failure mode."""
+  emission_dir = artifacts / "emission"
+  _reset_dir(emission_dir)
+  kernel_path, emit_stderr, emit_stdout = tensor_execution.emit_kernel(
+    case, symirc, emission_dir
+  )
+  (emission_dir / "compiler.log").write_text(
+    emit_stdout + emit_stderr, encoding="utf-8"
+  )
+  if kernel_path is None:
+    return (
+      None,
+      emission_dir,
+      ModeRun(
+        mode="emission",
+        status=COMPILE_FAILURE,
+        exit_code=None,
+        phase="emission",
+        actual=None,
+        stderr=emit_stderr,
+        log="emission/compiler.log",
+      ),
+    )
+  layout_manifest = _layout_manifest(emission_dir)
+  options = {
+    "target": "triton",
+    "profile": case.record["profile"],
+    "softmax_lowering": case.record["softmax_lowering"],
+    "layout_manifest": layout_manifest,
+  }
+  emission = tensor_emission.build_ordinary(
+    sir=case.source,
+    executable=symirc,
+    layout=layout_manifest,
+    layout_manifest=layout_manifest,
+    profile=case.record["profile"],
+    entry=case.record["entry"],
+    launch=case.record["launch"],
+    softmax_lowering=case.record["softmax_lowering"],
+    options=options,
+    kernel=kernel_path,
+  )
+  return emission, emission_dir, None
+
+
+def run_interpreter(
+  bundle_dir,
+  *,
+  symirc,
+  symiri=None,
+  timeout_s=tensor_execution.DEFAULT_TIMEOUT_S,
+  worker_command=None,
+  artifact_dir=None,
+  reference=None,
+  compiler_identity=None,
+):
+  """Emit once and run only the Triton interpreter.
+
+  This is the screening path: it never probes or starts a GPU worker and it
+  reports the interpreter's own status instead of a target comparison. A
+  failure, timeout, unsupported mode, missing output, or non-finite f32 result
+  is preserved as a diagnostic record; it is never evidence of collapse.
+  """
+  case = tensor_target_case.load(bundle_dir, symiri=symiri)
+  root = case.path
+  artifacts = (
+    Path(artifact_dir) if artifact_dir is not None else root / "interpreter-runs"
+  )
+  emission, emission_dir, failure = _prepare_emission(case, symirc, artifacts)
+  if emission is None:
+    screen = ScreeningRun(
+      bundle=root,
+      status=COMPILE_FAILURE,
+      emission=None,
+      interpreter=failure,
+      case=case,
+      reference=reference,
+      compiler_identity=compiler_identity,
+    )
+    _save_screen(artifacts, screen)
+    return screen
+  interpreter = _run_mode(
+    case,
+    "interpret",
+    artifacts=artifacts,
+    emission_dir=emission_dir,
+    emission=emission,
+    timeout_s=timeout_s,
+    worker_command=worker_command,
+    expected_output_bytes=case.record["output"]["byte_length"],
+  )
+  status = interpreter.status
+  finite = None
+  if status == COMPLETED and interpreter.actual is not None:
+    if case.record["output"]["dtype"] == "f32":
+      finite = _finite_output(interpreter.actual)
+      if finite is False:
+        status = NON_FINITE
+    else:
+      finite = True
+  screen = ScreeningRun(
+    bundle=root,
+    status=status,
+    emission=emission,
+    interpreter=interpreter,
+    case=case,
+    reference=reference,
+    compiler_identity=compiler_identity,
+    finite=finite,
+  )
+  _save_screen(artifacts, screen)
+  return screen
+
+
+def _finite_output(actual):
+  if actual is None or len(actual) % 4 != 0:
+    return False
+  for index in range(0, len(actual), 4):
+    (value,) = struct.unpack("<f", actual[index : index + 4])
+    if not math.isfinite(value):
+      return False
+  return True
+
+
+def _save_screen(artifacts, screen):
+  tensor_execution.write_atomic(
+    artifacts / "interpreter-run.json",
+    tensor_execution.canonical_json(screen.as_record()).encode("utf-8"),
+  )
+
+
 def run(
   bundle_dir,
   *,
@@ -214,56 +396,20 @@ def run(
   case = tensor_target_case.load(bundle_dir, symiri=symiri)
   root = case.path
   artifacts = Path(artifact_dir) if artifact_dir is not None else root / "target-runs"
-  emission_dir = artifacts / "emission"
-  _reset_dir(emission_dir)
-  kernel_path, emit_stderr, emit_stdout = tensor_execution.emit_kernel(
-    case, symirc, emission_dir
-  )
-  (emission_dir / "compiler.log").write_text(
-    emit_stdout + emit_stderr, encoding="utf-8"
-  )
-  if kernel_path is None:
-    mode = ModeRun(
-      mode="emission",
-      status=COMPILE_FAILURE,
-      exit_code=None,
-      phase="emission",
-      actual=None,
-      stderr=emit_stderr,
-      log="emission/compiler.log",
-    )
+  emission, emission_dir, failure = _prepare_emission(case, symirc, artifacts)
+  if emission is None:
     target = TargetRun(
       bundle=root,
       status=COMPILE_FAILURE,
       emission=None,
-      interpreter=mode,
-      compiled=mode,
+      interpreter=failure,
+      compiled=failure,
       case=case,
       reference=reference,
       compiler_identity=compiler_identity,
     )
     _save(artifacts, target)
     return target
-
-  layout_manifest = _layout_manifest(emission_dir)
-  options = {
-    "target": "triton",
-    "profile": case.record["profile"],
-    "softmax_lowering": case.record["softmax_lowering"],
-    "layout_manifest": layout_manifest,
-  }
-  emission = tensor_emission.build_ordinary(
-    sir=case.source,
-    executable=symirc,
-    layout=layout_manifest,
-    layout_manifest=layout_manifest,
-    profile=case.record["profile"],
-    entry=case.record["entry"],
-    launch=case.record["launch"],
-    softmax_lowering=case.record["softmax_lowering"],
-    options=options,
-    kernel=kernel_path,
-  )
 
   expected_output_bytes = case.record["output"]["byte_length"]
   interpreter = _run_mode(

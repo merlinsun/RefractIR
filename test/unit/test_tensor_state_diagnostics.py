@@ -162,5 +162,138 @@ class CollapseLabelTests(unittest.TestCase):
     self.assertEqual(len(calls), len(diagnostics.observations(1)))
 
 
+def window_runner(values=None, failures=None, states=None):
+  """A callback for window_screen with per-run status and per-state bytes."""
+  values = dict(values or {})
+  failures = dict(failures or {})
+  states = dict(states or {})
+  calls = []
+
+  def run(probe, trip_count, variant):
+    calls.append((probe, trip_count, variant))
+    if (probe, trip_count, variant) in failures:
+      return failures[(probe, trip_count, variant)]
+    if variant == "combined":
+      return "completed", values[(probe, trip_count)]
+    return "completed", states.get((probe, trip_count, variant), payload(1.0))
+
+  return run, calls
+
+
+class WindowScreenTests(unittest.TestCase):
+  def test_the_schedule_has_six_base_runs_and_a_ten_run_cap(self):
+    schedule = diagnostics.window_probe_schedule(4)
+    self.assertEqual(len(schedule), 6)
+    self.assertEqual(
+      [(item["probe"], item["trip_count"]) for item in schedule],
+      [
+        ("i0-base", 4), ("i1-read-plus-one", 4), ("i2-late-row", 4),
+        ("i3-unused-rows", 4), ("i0-base", 3), ("i2-late-row", 3),
+      ],
+    )
+    self.assertEqual(diagnostics.MAX_WINDOW_PROBE_RUNS, 10)
+    with self.assertRaises(diagnostics.DiagnosticsError):
+      diagnostics.window_probe_schedule(1)
+
+  def test_a_sensitive_body_is_selected_without_conditional_runs(self):
+    run, calls = window_runner(
+      values={
+        ("i0-base", 4): payload(1.0),
+        ("i1-read-plus-one", 4): payload(2.0),
+        ("i2-late-row", 4): payload(3.0),
+        ("i3-unused-rows", 4): payload(1.0),
+        ("i0-base", 3): payload(0.0),
+        ("i2-late-row", 3): payload(3.0),
+      }
+    )
+    record = diagnostics.window_screen(trip_count=4, run_probe=run)
+    self.assertTrue(record["selection"]["selected"])
+    self.assertIsNone(record["selection"]["reason"])
+    self.assertEqual(record["conditional_runs"], 0)
+    self.assertEqual(len(calls), 6)
+    self.assertEqual(record["candidates"], [])
+    self.assertFalse(record["labels"]["unused_rows_changed"])
+
+  def test_an_insensitive_body_is_a_selection_failure(self):
+    run, calls = window_runner(
+      values={
+        ("i0-base", 4): payload(1.0),
+        ("i1-read-plus-one", 4): payload(1.0),
+        ("i2-late-row", 4): payload(3.0),
+        ("i3-unused-rows", 4): payload(1.0),
+        ("i0-base", 3): payload(0.0),
+        ("i2-late-row", 3): payload(3.0),
+      },
+      states={
+        ("i0-base", 4, "state-0"): payload(1.0),
+        ("i1-read-plus-one", 4, "state-0"): payload(2.0),
+      },
+    )
+    record = diagnostics.window_screen(trip_count=4, run_probe=run)
+    self.assertFalse(record["selection"]["selected"])
+    self.assertEqual(record["selection"]["reason"], diagnostics.NOT_SELECTED_INVARIANT)
+    self.assertEqual(record["conditional_runs"], 4)
+    self.assertLessEqual(len(calls), 10)
+    self.assertIn(
+      {"probe": "i1-read-plus-one", "variant": "state-0"},
+      record["labels"]["hidden_contribution"],
+    )
+
+  def test_a_failed_run_is_never_collapse_evidence(self):
+    run, calls = window_runner(
+      values={
+        ("i0-base", 4): payload(1.0),
+        ("i1-read-plus-one", 4): payload(2.0),
+        ("i2-late-row", 4): payload(3.0),
+        ("i3-unused-rows", 4): payload(1.0),
+        ("i0-base", 3): payload(0.0),
+        ("i2-late-row", 3): payload(3.0),
+      },
+      failures={("i1-read-plus-one", 4, "combined"): ("runtime_failure", None)},
+    )
+    record = diagnostics.window_screen(trip_count=4, run_probe=run)
+    self.assertFalse(record["selection"]["selected"])
+    self.assertEqual(record["selection"]["reason"], diagnostics.NOT_SELECTED_INCOMPLETE)
+    self.assertEqual(len(record["candidates"]), 1)
+    self.assertEqual(record["candidates"][0]["status"], "runtime_failure")
+
+  def test_unused_rows_changing_is_a_candidate(self):
+    run, _ = window_runner(
+      values={
+        ("i0-base", 4): payload(1.0),
+        ("i1-read-plus-one", 4): payload(2.0),
+        ("i2-late-row", 4): payload(3.0),
+        ("i3-unused-rows", 4): payload(4.0),
+        ("i0-base", 3): payload(0.0),
+        ("i2-late-row", 3): payload(3.0),
+      }
+    )
+    record = diagnostics.window_screen(trip_count=4, run_probe=run)
+    self.assertFalse(record["selection"]["selected"])
+    self.assertEqual(record["selection"]["reason"], diagnostics.NOT_SELECTED_UNUSED)
+    self.assertTrue(record["labels"]["unused_rows_changed"])
+
+  def test_a_non_finite_result_is_not_a_completed_observation(self):
+    infinite = struct.pack("<4f", float("inf"), 1.0, 2.0, 3.0)
+    run, _ = window_runner(
+      values={
+        ("i0-base", 4): payload(1.0),
+        ("i1-read-plus-one", 4): infinite,
+        ("i2-late-row", 4): payload(3.0),
+        ("i3-unused-rows", 4): payload(1.0),
+        ("i0-base", 3): payload(0.0),
+        ("i2-late-row", 3): payload(3.0),
+      }
+    )
+    record = diagnostics.window_screen(trip_count=4, run_probe=run)
+    self.assertEqual(record["candidates"][0]["status"], "non_finite")
+    self.assertFalse(record["selection"]["selected"])
+
+  def test_the_old_default_schedule_is_unchanged(self):
+    self.assertEqual(len(diagnostics.observations(3)), 4 * 3 * 3)
+    self.assertEqual(diagnostics.TRIP_COUNTS, (1, 2, 4))
+    self.assertEqual(diagnostics.INPUT_COUNT, 3)
+
+
 if __name__ == "__main__":
   unittest.main()
