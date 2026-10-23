@@ -48,6 +48,7 @@ BOTH_PATHS_FAILED = "both_paths_failed"
 COMPILED_PATH_CANDIDATE = "compiled_path_candidate"
 INTERPRETER_CANDIDATE = "interpreter_candidate"
 TARGET_UNAVAILABLE = "target_unavailable"
+UNRESOLVED_NUMERICAL = "unresolved numerical difference"
 
 # Diagnoses that name triage-worthy evidence even when the two target paths
 # happened to agree with each other.
@@ -58,7 +59,7 @@ _TRIAGE_DIAGNOSES = frozenset(
     COMPILED_PATH_CANDIDATE,
     INTERPRETER_CANDIDATE,
     "emission suspect",
-    "unresolved numerical difference",
+    UNRESOLVED_NUMERICAL,
     "reference drift",
   }
 )
@@ -390,6 +391,27 @@ def diagnose_with_optional_reference(*, reference, interpreter, compiled):
     if run is not None
     and run.status in {ENVIRONMENT_UNAVAILABLE, INTERPRETER_UNSUPPORTED}
   ]
+  # An unavailable path must not erase a comparison that did complete: a
+  # completed pair that differs stays a numerical candidate, because the
+  # discrepancy is real evidence even though the other path never ran.
+  if (
+    unavailable
+    and reference is not None
+    and reference.status == tensor_target_reference.COMPLETED
+  ):
+    completed_pairs = {}
+    if interpreter.status == COMPLETED:
+      completed_pairs["R-T"] = _comparison(reference.output, interpreter.actual)
+    if compiled.status == COMPLETED:
+      completed_pairs["R-G"] = _comparison(reference.output, compiled.actual)
+    if "different" in completed_pairs.values():
+      return {
+        "diagnosis": UNRESOLVED_NUMERICAL,
+        "p0_availability": p0_availability,
+        "candidates": candidates,
+        "observations": completed_pairs,
+        "unavailable": sorted(unavailable),
+      }
   if unavailable:
     return {
       "diagnosis": TARGET_UNAVAILABLE,

@@ -404,6 +404,50 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(saved["diagnosis"]["diagnosis"], tensor_target_run.TARGET_UNAVAILABLE)
     self.assertFalse(saved["candidate"])
 
+  def test_an_unsupported_interpreter_keeps_a_p0_target_difference(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {
+          "phase": "runtime",
+          "stderr": "InterpreterError: NotImplementedError('inline_asm not supported in interpreter mode')",
+          "exit": 1,
+        },
+        "compiled": {"phase": "runtime", "actual": PARTIAL_HEX},
+      }
+    )
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.COMPLETED, output=bytes.fromhex(AGREE_HEX)
+    )
+    run = self.run_target(reference=reference)
+    self.assertEqual(run.status, tensor_target_run.COMPARISON_UNAVAILABLE)
+    record = run.as_record()
+    self.assertEqual(
+      record["diagnosis"]["diagnosis"], tensor_target_run.UNRESOLVED_NUMERICAL
+    )
+    self.assertEqual(record["diagnosis"]["observations"], {"R-G": "different"})
+    self.assertTrue(record["candidate"])
+    saved = json.loads(
+      (self.bundle / "target-runs" / "target-run.json").read_text(encoding="utf-8")
+    )
+    self.assertEqual(saved["diagnosis"]["observations"], {"R-G": "different"})
+    self.assertTrue(saved["candidate"])
+
+  def test_an_unavailable_gpu_keeps_a_p0_interpreter_difference(self):
+    self.write_bundle()
+    self.configure({"interpret": {"phase": "runtime", "actual": PARTIAL_HEX}})
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.COMPLETED, output=bytes.fromhex(AGREE_HEX)
+    )
+    run = self.run_target(gpu=False, reference=reference)
+    self.assertEqual(run.status, tensor_target_run.ENVIRONMENT_UNAVAILABLE)
+    record = run.as_record()
+    self.assertEqual(
+      record["diagnosis"]["diagnosis"], tensor_target_run.UNRESOLVED_NUMERICAL
+    )
+    self.assertEqual(record["diagnosis"]["observations"], {"R-T": "different"})
+    self.assertTrue(record["candidate"])
+
   def test_an_unavailable_gpu_with_an_interpreter_failure_is_still_a_candidate(self):
     self.write_bundle()
     self.configure(
