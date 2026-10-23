@@ -1077,12 +1077,43 @@ namespace refractir::reify {
   void validateFreeFormWindows(const FreeFormLoop &loop) {
     std::unordered_map<std::string, std::size_t> parameters;
     std::unordered_map<std::string, std::size_t> windowInputs;
+    std::unordered_map<std::string, TensorTypeInfo> sources;
     for (std::size_t index = 0; index < loop.inputs.size(); ++index) {
       const auto &input = loop.inputs[index];
-      if (input.init == FreeFormInit::RuntimeInput)
+      if (input.init == FreeFormInit::RuntimeInput) {
         parameters.emplace(parameterName(input, index), index);
-      else if (input.init == FreeFormInit::Window)
+        sources.emplace(parameterName(input, index), input.value.type);
+      } else if (input.init == FreeFormInit::Window) {
         windowInputs.emplace(input.value.name, index);
+      }
+    }
+    std::unordered_set<std::string> sourceNames;
+    std::unordered_set<std::string> localNames;
+    for (const auto &input: loop.inputs)
+      localNames.insert(input.value.name);
+    for (const auto &source: loop.windowSources) {
+      requireLocalName(source.parameter, "counted loop window source");
+      if (source.parameter == "%i" || source.parameter == "%out" ||
+          std::find(loop.reservedNames.begin(), loop.reservedNames.end(), source.parameter) !=
+              loop.reservedNames.end())
+        throw std::invalid_argument(
+            "counted loop window source reuses a loop local: " + source.parameter
+        );
+      if (localNames.contains(source.parameter))
+        throw std::invalid_argument(
+            "counted loop window source repeats a loop local: " + source.parameter
+        );
+      if (parameters.contains(source.parameter))
+        throw std::invalid_argument(
+            "counted loop window source repeats a runtime parameter: " + source.parameter
+        );
+      if (!sourceNames.insert(source.parameter).second)
+        throw std::invalid_argument(
+            "counted loop window source is declared more than once: " + source.parameter
+        );
+      if (source.type.shape.empty())
+        throw std::invalid_argument("counted loop window source must be a tensor");
+      sources.emplace(source.parameter, source.type);
     }
     std::unordered_set<std::string> declared;
     for (const auto &window: loop.windows) {
@@ -1095,9 +1126,12 @@ namespace refractir::reify {
         throw std::invalid_argument(
             "free-form window: a window-initialized input has more than one window"
         );
-      const auto source = parameters.find(window.source);
-      if (source == parameters.end())
-        throw std::invalid_argument("free-form window: source must be a runtime parameter");
+      const auto source = sources.find(window.source);
+      if (source == sources.end())
+        throw std::invalid_argument(
+            "free-form window: source must be a runtime parameter or a window backing "
+            "parameter"
+        );
       if (window.index != "%i")
         throw std::invalid_argument(
             "free-form window: index must be the induction variable"
@@ -1107,7 +1141,7 @@ namespace refractir::reify {
           throw std::invalid_argument(
               "free-form window: an update cannot target the window result"
           );
-      const auto &sourceType = loop.inputs[source->second].value.type;
+      const auto &sourceType = source->second;
       const auto &targetType = loop.inputs[target->second].value.type;
       if (sourceType.shape.empty())
         throw std::invalid_argument("free-form window: source must be a tensor");
@@ -1185,6 +1219,10 @@ namespace refractir::reify {
     }
 
     std::unordered_set<std::string> parameters;
+    for (const auto &source: loop.windowSources) {
+      if (!parameters.insert(source.parameter).second)
+        throw std::invalid_argument("counted loop parameter is declared more than once");
+    }
     for (std::size_t index = 0; index < loop.inputs.size(); ++index) {
       const auto &input = loop.inputs[index];
       if (input.init != FreeFormInit::RuntimeInput)
@@ -1233,13 +1271,33 @@ namespace refractir::reify {
     }
 
     const auto updates = loop.updates;
-    const auto reserved = loop.reservedNames;
+    auto reserved = loop.reservedNames;
+    for (const auto &source: loop.windowSources)
+      reserved.push_back(source.parameter);
     const auto declarations = region.renderDeclarations(updates, reserved);
     const auto body = region.renderBody(updates, reserved);
+    // A window backing parameter lives in the signature, so it cannot share a
+    // name with any local the region declares (a live node or a snapshot).
+    for (const auto &source: loop.windowSources) {
+      const std::string declaration = "  let mut " + source.parameter + ":";
+      if (std::any_of(
+              declarations.begin(), declarations.end(),
+              [&](const std::string &line) { return line.starts_with(declaration); }
+          ))
+        throw std::invalid_argument(
+            "counted loop window source collides with a region local: " + source.parameter
+        );
+    }
 
     std::ostringstream source;
     source << "fun @" << loop.entry << '(';
     bool first = true;
+    for (const auto &windowSource: loop.windowSources) {
+      if (!first)
+        source << ", ";
+      first = false;
+      source << windowSource.parameter << ": " << tensorTypeText(windowSource.type);
+    }
     for (std::size_t index = 0; index < loop.inputs.size(); ++index) {
       const auto &input = loop.inputs[index];
       if (input.init != FreeFormInit::RuntimeInput)

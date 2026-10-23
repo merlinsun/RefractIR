@@ -1173,6 +1173,127 @@ namespace {
     std::cout << source;
   }
 
+  FreeFormLoop windowBufferLoop() {
+    FreeFormLoop loop;
+    loop.inputs = {
+        state("%acc_x", {4, 4}, "%x"),
+        state("%acc_y", {4, 4}, "%y"),
+        input("%tile", type({4, 4}), FreeFormRole::Invariant, FreeFormInit::Window),
+    };
+    loop.windowSources = {{"%window_buffer", type({20, 4})}};
+    loop.results = {"%next_x", "%next_y"};
+    loop.updates = {{"%acc_x", "%next_x"}, {"%acc_y", "%next_y"}};
+    loop.finalTerms = {"%acc_x", "%acc_y"};
+    loop.tripCount = 8;
+    FreeFormWindow window;
+    window.result = "%tile";
+    window.source = "%window_buffer";
+    window.fillKind = FreeFormFillKind::Float;
+    window.fillFloat = 0.0;
+    window.rows = 4;
+    window.stride = 2;
+    window.active = 18;
+    loop.windows = {window};
+    return loop;
+  }
+
+  TensorRegion windowBufferRegion() {
+    TensorRegion region(
+        {{"%acc_x", type({4, 4})}, {"%acc_y", type({4, 4})}, {"%tile", type({4, 4})}}
+    );
+    region.add("%next_x", TensorOp::Add, {"%acc_x", "%tile"});
+    region.add("%next_y", TensorOp::Add, {"%acc_y", "%tile"});
+    region.setResults({"%next_x", "%next_y"});
+    return region;
+  }
+
+  void windowBufferSuppliesItsOwnSource() {
+    const auto source = assembleCountedLoop(windowBufferRegion(), windowBufferLoop());
+    require(
+        source.find("fun @kernel(%window_buffer: tensor [20, 4] f32, %x: tensor [4, 4] f32, "
+                    "%y: tensor [4, 4] f32)") != std::string::npos,
+        "the backing parameter must be a function parameter before the runtime inputs:\n" + source
+    );
+    require(
+        source.find("tensor window %window_buffer, %i, 0.0, [4, 2, 18];") != std::string::npos,
+        "the window must read the backing parameter:\n" + source
+    );
+    require(
+        source.find("let mut %window_buffer") == std::string::npos,
+        "the backing parameter must not be a local\n"
+    );
+    require(
+        source.find("%window_buffer = ") == std::string::npos,
+        "the backing parameter must not be copied into a local\n"
+    );
+  }
+
+  void windowBufferStaysOutOfTheValuePool() {
+    auto region = windowBufferRegion();
+    bool absent = false;
+    try {
+      (void) region.typeOf("%window_buffer");
+    } catch (const std::invalid_argument &) {
+      absent = true;
+    }
+    require(absent, "the backing parameter must not be a region value");
+    const auto loop = windowBufferLoop();
+    for (const auto &input: loop.inputs)
+      require(
+          input.value.name != "%window_buffer",
+          "the backing parameter must not be a region input"
+      );
+    validateFreeFormWindows(loop);
+    const auto source = assembleCountedLoop(region, loop);
+    std::size_t occurrences = 0;
+    for (std::size_t at = source.find("%window_buffer"); at != std::string::npos;
+         at = source.find("%window_buffer", at + 1))
+      ++occurrences;
+    require(
+        occurrences == 2,
+        "the backing parameter appears only in the signature and the window line:\n" + source
+    );
+  }
+
+  void windowBufferWitnessUsesItsOwnExtent() {
+    auto loop = windowBufferLoop();
+    loop.windowSources.front().type = type({8, 4});
+    loop.tripCount = 4;
+    loop.windows.front().active = 8;
+    requireInvalid(
+        [&] { validateFreeFormWindows(loop); }, "fit the source extent"
+    );
+    bool witnessRefused = false;
+    try {
+      (void) witnessWindow(loop.windows.front(), loop.tripCount, 8);
+    } catch (const std::invalid_argument &error) {
+      witnessRefused = std::string(error.what()).find("maximum address") != std::string::npos;
+    }
+    require(witnessRefused, "the witness must refuse a maximum address outside the backing");
+    validateFreeFormWindows(windowBufferLoop());
+  }
+
+  void windowBufferNameCollisionIsRefused() {
+    for (const std::string &name: {"%acc_x", "%x", "%tile", "%i", "%out"}) {
+      auto loop = windowBufferLoop();
+      loop.windowSources.front().parameter = name;
+      loop.windows.front().source = name;
+      requireInvalid([&] { validateFreeFormWindows(loop); }, "window source");
+    }
+    auto loop = windowBufferLoop();
+    loop.windowSources.front().parameter = "%window_buffer";
+    TensorRegion region(
+        {{"%acc_x", type({4, 4})}, {"%acc_y", type({4, 4})}, {"%tile", type({4, 4})}}
+    );
+    region.add("%window_buffer", TensorOp::Add, {"%acc_x", "%acc_y"});
+    region.add("%next_x", TensorOp::Add, {"%window_buffer", "%tile"});
+    region.add("%next_y", TensorOp::Add, {"%acc_y", "%tile"});
+    region.setResults({"%next_x", "%next_y"});
+    requireInvalid(
+        [&] { (void) assembleCountedLoop(region, loop); }, "region local"
+    );
+  }
+
   FreeFormWindow witnessSpec(std::uint32_t rows, std::uint32_t stride, std::uint32_t active) {
     FreeFormWindow window;
     window.result = "%tile";
@@ -1350,6 +1471,14 @@ int main(int argc, char **argv) {
       std::cout << assembledWindowSource();
     } else if (name == "window-three-state-assembled-source")
       windowThreeStateSource();
+    else if (name == "window-buffer-supplies-its-own-source")
+      windowBufferSuppliesItsOwnSource();
+    else if (name == "window-buffer-stays-out-of-the-value-pool")
+      windowBufferStaysOutOfTheValuePool();
+    else if (name == "window-buffer-witness-uses-its-own-extent")
+      windowBufferWitnessUsesItsOwnExtent();
+    else if (name == "window-buffer-name-collision-is-refused")
+      windowBufferNameCollisionIsRefused();
     else if (name == "window-witness-enumerates-computed-addresses")
       windowWitnessEnumeratesComputedAddresses();
     else if (name == "window-witness-reports-active-set-per-trip")

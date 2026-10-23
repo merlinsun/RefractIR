@@ -70,6 +70,8 @@ namespace {
     bool windowEnabled = false;
     FreeFormWindow window;
     std::string windowSource;
+    /// Nonzero adds an assembly-only backing parameter of this many rows.
+    std::uint32_t windowBufferRows = 0;
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
     std::uint32_t returnState = 0;
@@ -182,6 +184,10 @@ namespace {
         options.window.index = "%i";
       } else if (flag == "--window-source") {
         options.windowSource = value();
+      } else if (flag == "--window-buffer-rows") {
+        options.windowBufferRows = static_cast<std::uint32_t>(std::stoul(value()));
+        if (options.windowBufferRows > 4096)
+          throw std::invalid_argument("free-form export window buffer is too large");
       } else if (flag == "--num-warps") {
         options.numWarps = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--return") {
@@ -215,20 +221,37 @@ namespace {
       throw std::invalid_argument("free-form export num_warps must be 1, 2, 4, or 8");
     if (options.shape.size() != 2)
       throw std::invalid_argument("free-form export needs a two-dimensional shape");
-    if (options.windowEnabled != !options.windowSource.empty())
-      throw std::invalid_argument("free-form export needs both --window and --window-source");
+    if (options.windowEnabled && options.windowSource.empty() && options.windowBufferRows == 0)
+      throw std::invalid_argument("free-form export needs both --window and a window source");
+    if (!options.windowEnabled && (!options.windowSource.empty() || options.windowBufferRows != 0))
+      throw std::invalid_argument("free-form export window needs --window");
+    if (!options.windowSource.empty() && options.windowBufferRows != 0)
+      throw std::invalid_argument(
+          "free-form export window buffer conflicts with --window-source"
+      );
     if (options.windowEnabled) {
-      bool known = false;
-      for (std::uint32_t index = 0; index < std::min<std::uint32_t>(options.stateCount, 2);
-           ++index)
-        known = known || options.windowSource == parameterNames[index];
-      if (!known)
-        throw std::invalid_argument("free-form export window source is not a runtime parameter");
-      if (options.window.rows > options.shape[0] || options.window.active > options.shape[0])
+      const std::uint32_t sourceExtent =
+          options.windowBufferRows != 0 ? options.windowBufferRows : options.shape[0];
+      if (options.windowBufferRows == 0) {
+        bool known = false;
+        for (std::uint32_t index = 0; index < std::min<std::uint32_t>(options.stateCount, 2);
+             ++index)
+          known = known || options.windowSource == parameterNames[index];
+        if (!known)
+          throw std::invalid_argument(
+              "free-form export window source is not a runtime parameter"
+          );
+        options.window.source = options.windowSource;
+      } else {
+        options.window.source = "%window_buffer";
+      }
+      if (options.window.rows > sourceExtent || options.window.active > sourceExtent)
         throw std::invalid_argument(
             "free-form export window rows and active must fit the source extent"
         );
-      options.window.source = options.windowSource;
+      // Check the witness before writing anything, so a refused case leaves no
+      // program behind.
+      (void) witnessWindow(options.window, options.tripCount, sourceExtent);
       if (options.element == TensorElement::F32) {
         options.window.fillKind = FreeFormFillKind::Float;
         options.window.fillFloat = 0.0;
@@ -356,8 +379,14 @@ namespace {
           std::string(stateNames[index]), built.inputSpec.results[index]
       );
     loop.tripCount = options.tripCount;
-    if (options.windowEnabled)
+    if (options.windowEnabled) {
       loop.windows = {options.window};
+      if (options.windowBufferRows != 0)
+        loop.windowSources = {{
+            "%window_buffer",
+            TensorTypeInfo{{options.windowBufferRows, options.shape[1]}, options.element},
+        }};
+    }
     if (options.returnCombined) {
       for (std::uint32_t index = 0; index < options.stateCount; ++index)
         loop.finalTerms.emplace_back(stateNames[index]);
@@ -398,7 +427,9 @@ namespace {
            << ",\"extrema\":" << (options.features.extrema ? "true" : "false") << "},"
            << "\"window\":";
     if (options.windowEnabled) {
-      const auto witness = witnessWindow(options.window, options.tripCount, options.shape[0]);
+      const auto sourceExtent =
+          options.windowBufferRows != 0 ? options.windowBufferRows : options.shape[0];
+      const auto witness = witnessWindow(options.window, options.tripCount, sourceExtent);
       const bool v3 = options.profile == "tensor-v3";
       const auto isPowerOfTwo = [](std::uint32_t value) {
         return value != 0 && (value & (value - 1)) == 0;
@@ -416,6 +447,13 @@ namespace {
              << (options.window.fillKind == FreeFormFillKind::Float
                      ? "0.0"
                      : "0")
+             << ",\"source_kind\":"
+             << jsonString(
+                    options.windowBufferRows != 0 ? "backing" : "input"
+                )
+             << ",\"source_shape\":["
+             << (options.windowBufferRows != 0 ? options.windowBufferRows : options.shape[0])
+             << ',' << options.shape[1] << ']'
              << ",\"witness\":{\"computed_max\":" << witness.computedMax
              << ",\"per_trip_active\":[";
       for (std::size_t trip = 0; trip < witness.perTripActive.size(); ++trip) {
@@ -442,6 +480,15 @@ namespace {
            << "\"accepted\":" << (canonical.source.empty() ? "false" : "true")
            << ",\"refusal\":" << jsonString(canonical.refusal) << "},\"parameters\":[";
     bool first = true;
+    for (const auto &windowSource: loop.windowSources) {
+      if (!first)
+        record << ',';
+      first = false;
+      record << "{\"name\":" << jsonString(windowSource.parameter)
+             << ",\"shape\":" << shapeJson(windowSource.type.shape)
+             << ",\"dtype\":" << jsonString(scalarElement(windowSource.type))
+             << ",\"role\":\"window_source\",\"init\":\"window_backing\"}";
+    }
     for (const auto &input: inputs) {
       if (input.init != FreeFormInit::RuntimeInput)
         continue;
@@ -450,9 +497,21 @@ namespace {
       first = false;
       record << "{\"name\":" << jsonString(input.parameter)
              << ",\"shape\":" << shapeJson(input.value.type.shape)
-             << ",\"dtype\":" << jsonString(scalarElement(input.value.type)) << '}';
+             << ",\"dtype\":" << jsonString(scalarElement(input.value.type))
+             << ",\"role\":"
+             << jsonString(input.role == FreeFormRole::State ? "state" : "invariant")
+             << ",\"init\":\"runtime\"}";
     }
-    record << "],\"inputs\":[";
+    record << "],\"window_source\":";
+    if (options.windowBufferRows != 0) {
+      record << "{\"parameter\":\"%window_buffer\",\"shape\":["
+             << options.windowBufferRows << ',' << options.shape[1]
+             << "],\"dtype\":" << jsonString(options.dtype)
+             << ",\"role\":\"window_source\"}";
+    } else {
+      record << "null";
+    }
+    record << ",\"inputs\":[";
     for (std::size_t index = 0; index < inputs.size(); ++index) {
       if (index)
         record << ',';

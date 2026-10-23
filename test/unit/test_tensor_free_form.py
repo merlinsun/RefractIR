@@ -203,6 +203,18 @@ class FreeFormContractTests(unittest.TestCase):
     )
     self.assertEqual(description["output"]["shape"], [2, 2])
 
+  def test_a_window_backing_parameter_supplies_the_window(self):
+    self.run_contract("window-buffer-supplies-its-own-source")
+
+  def test_a_window_backing_parameter_stays_out_of_the_value_pool(self):
+    self.run_contract("window-buffer-stays-out-of-the-value-pool")
+
+  def test_a_window_backing_witness_uses_its_own_extent(self):
+    self.run_contract("window-buffer-witness-uses-its-own-extent")
+
+  def test_a_window_backing_name_collision_is_refused(self):
+    self.run_contract("window-buffer-name-collision-is-refused")
+
   def test_the_witness_enumerates_computed_addresses(self):
     self.run_contract("window-witness-enumerates-computed-addresses")
 
@@ -504,6 +516,13 @@ class FreeFormExportTests(unittest.TestCase):
       window = record["window"]
       self.assertEqual(window["result"], "%tile")
       self.assertEqual(window["source"], "%x")
+      self.assertEqual(window["source_kind"], "input")
+      self.assertEqual(window["source_shape"], [4, 2])
+      self.assertIsNone(record["window_source"])
+      self.assertEqual(
+        [(parameter["role"], parameter["init"]) for parameter in record["parameters"]],
+        [("state", "runtime"), ("state", "runtime")],
+      )
       self.assertEqual((window["rows"], window["stride"], window["active"]), (2, 1, 4))
       self.assertEqual(window["fill"], 0.0)
       self.assertEqual(window["witness"]["computed_max"], 2)
@@ -556,6 +575,122 @@ class FreeFormExportTests(unittest.TestCase):
       self.assertEqual(tile[0]["role"], "invariant")
       source_parameter = record["parameters"][0]
       self.assertEqual((source_parameter["name"], source_parameter["shape"]), ("%x", [4, 2]))
+
+  def _window_buffer_export(self, directory, *extra, seeds=range(1, 17)):
+    """Export the first seed whose body consumes the tile with a backing buffer."""
+    for seed in seeds:
+      output = Path(directory) / f"seed-{seed}"
+      result = self.export(
+        "--policy", "reduction-heavy", "--seed", str(seed), "--shape", "4,4",
+        "--trip-count", "8", "--states", "2", "--window", "4,2,18",
+        "--window-buffer-rows", "20", "--profile", "v3", *extra, "--out", str(output),
+      )
+      if result.returncode == 0:
+        return output
+    self.fail("no seed within the bound consumed the window buffer")
+
+  def test_a_window_buffer_is_a_separate_parameter(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output = self._window_buffer_export(directory)
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      source = (output / "program.sir").read_text(encoding="utf-8")
+      parameters = record["parameters"]
+      self.assertEqual(
+        [parameter["name"] for parameter in parameters],
+        ["%window_buffer", "%x", "%y"],
+      )
+      self.assertEqual(
+        [(parameter["role"], parameter["init"]) for parameter in parameters],
+        [("window_source", "window_backing"), ("state", "runtime"), ("state", "runtime")],
+      )
+      self.assertEqual(parameters[0]["shape"], [20, 4])
+      self.assertEqual(
+        record["window_source"],
+        {
+          "parameter": "%window_buffer",
+          "shape": [20, 4],
+          "dtype": "f32",
+          "role": "window_source",
+        },
+      )
+      window = record["window"]
+      self.assertEqual(window["source"], "%window_buffer")
+      self.assertEqual(window["source_kind"], "backing")
+      self.assertEqual(window["source_shape"], [20, 4])
+      self.assertEqual(window["witness"]["computed_max"], 17)
+      self.assertEqual(record["shape"], [4, 4])
+      self.assertEqual(
+        [entry["shape"] for entry in record["inputs"] if entry["init"] != "window"],
+        [[4, 4], [4, 4]],
+      )
+      self.assertNotIn("%window_buffer", [entry["value"] for entry in record["inputs"]])
+      self.assertIn(
+        "%window_buffer: tensor [20, 4] f32", source.splitlines()[0]
+      )
+      self.assertIn("tensor window %window_buffer, %i, 0.0, [4, 2, 18];", source)
+      self.assertNotIn("let mut %window_buffer", source)
+      checked = check_source(source, tensor_profile="v3")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+      result, description = describe_entry(source, tensor_profile="v3")
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      self.assertEqual(
+        [parameter["name"] for parameter in description["inputs"]],
+        ["window_buffer", "x", "y"],
+      )
+      self.assertEqual(description["output"]["shape"], [4, 4])
+
+  def test_a_window_buffer_witness_violation_is_refused_before_emission(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for window, rows in (("4,2,12", "8"), ("4,2,4", "2")):
+        output = Path(directory) / f"rows-{rows}"
+        result = self.export(
+          "--policy", "reduction-heavy", "--seed", "1", "--shape", "4,4",
+          "--trip-count", "4", "--states", "2", "--window", window,
+          "--window-buffer-rows", rows, "--profile", "v3", "--out", str(output),
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("fit the source extent", result.stderr)
+        self.assertFalse((output / "program.sir").exists())
+
+  def test_a_window_buffer_conflicts_with_an_explicit_source(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--shape", "4,4", "--trip-count", "8", "--window", "4,2,18",
+        "--window-buffer-rows", "20", "--window-source", "%x", "--out", directory,
+      )
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("conflicts", result.stderr)
+      result = self.export("--window-buffer-rows", "20", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("needs --window", result.stderr)
+      result = self.export("--window", "4,2,18", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("window source", result.stderr)
+
+  def test_a_backing_only_change_leaves_state_initialization_identical(self):
+    with tempfile.TemporaryDirectory() as directory:
+      first = self._window_buffer_export(directory)
+      # Rebuild the same seed with a wider backing, so only the parameter type
+      # and the witness can change.
+      wider = Path(directory) / "wider"
+      seed = int(first.name.removeprefix("seed-"))
+      result = self.export(
+        "--policy", "reduction-heavy", "--seed", str(seed), "--shape", "4,4",
+        "--trip-count", "8", "--states", "2", "--window", "4,2,18",
+        "--window-buffer-rows", "24", "--profile", "v3", "--out", str(wider / "out"),
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      narrow_source = (first / "program.sir").read_text(encoding="utf-8")
+      wide_source = (wider / "out" / "program.sir").read_text(encoding="utf-8")
+      def entry_block(source):
+        start = source.index("^entry:")
+        end = source.index("^header:")
+        return source[start:end]
+      self.assertEqual(entry_block(narrow_source), entry_block(wide_source))
+      self.assertIn("%window_buffer: tensor [20, 4]", narrow_source)
+      self.assertIn("%window_buffer: tensor [24, 4]", wide_source)
+      for source in (narrow_source, wide_source):
+        self.assertIn("tensor window %window_buffer, %i, 0.0, [4, 2, 18];", source)
 
   def test_window_replay_is_deterministic(self):
     with tempfile.TemporaryDirectory() as directory:

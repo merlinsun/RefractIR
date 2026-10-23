@@ -242,10 +242,23 @@ namespace refractir::reify {
     std::uint32_t active = 0;
   };
 
+  /// One assembly-only window backing parameter. It supplies window data but
+  /// is not a region value, state, local copy, or result: the window reads it
+  /// directly, so a backing buffer larger than the tile never enters the
+  /// region's value pool.
+  struct FreeFormWindowSource {
+    std::string parameter;
+    TensorTypeInfo type;
+  };
+
   struct FreeFormLoop {
     std::string entry = "kernel";
     /// The region's inputs, with the role and initialization each one has.
     std::vector<FreeFormInput> inputs;
+    /// Backing parameters that supply window data without entering the region.
+    /// They are emitted before the runtime inputs; each must be named by a
+    /// window's `source`.
+    std::vector<FreeFormWindowSource> windowSources;
     /// The region's result names, in the order the updates consume them.
     std::vector<std::string> results;
     /// Each state together with the result that rewrites it.
