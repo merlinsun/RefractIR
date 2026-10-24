@@ -1028,7 +1028,7 @@ namespace refractir::reify {
     std::ostringstream connectivity;
     std::ostringstream typed;
     connectivity << "sig2;roles:";
-    typed << "fp2;roles:";
+    typed << "fp3;roles:";
     for (std::size_t input = 0; input < inputRoles.size(); ++input) {
       if (input)
         connectivity << ',';
@@ -1039,6 +1039,13 @@ namespace refractir::reify {
     }
     connectivity << ';';
     typed << ';';
+    // Input types are part of the typed identity but not of connectivity.
+    for (std::uint32_t input = 0; input < graph.inputCount; ++input) {
+      typed << "i" << input << ':' << inputRoles[input] << ':'
+            << shapeText(graph.valueTypes[input].shape) << ':'
+            << (graph.valueTypes[input].element == TensorElement::F32 ? "f32" : "i32")
+            << ';';
+    }
     for (const auto value: producerValues) {
       const auto node = value - graph.inputCount;
       const auto axis = graph.nodeAxes.size() == graph.nodeOps.size()

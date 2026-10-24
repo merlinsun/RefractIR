@@ -1407,6 +1407,37 @@ namespace {
     );
   }
 
+  void graphKeysIncludeInputTypes() {
+    FreeFormGraphView narrow;
+    narrow.valueNames = {"%a", "%b", "%r"};
+    narrow.valueTypes = {type({2, 2}), type({2, 2}), type({2})};
+    narrow.inputCount = 2;
+    narrow.nodeOps = {TensorOp::Sum};
+    narrow.nodeOperands = {{0}};
+    narrow.nodeAxes = {0};
+    narrow.nodeKeepDims = {0};
+    narrow.nodeAttributes = {{}};
+    narrow.roots = {2};
+    auto wider = narrow;
+    wider.valueTypes[0] = type({3, 2});
+    const auto one = freeFormGraphKeys(narrow, {"state", "state"});
+    const auto two = freeFormGraphKeys(wider, {"state", "state"});
+    require(
+        one.connectivitySignature == two.connectivitySignature,
+        "input extents stay excluded from connectivity"
+    );
+    require(
+        one.typedFingerprint != two.typedFingerprint,
+        "input extents must be part of the typed fingerprint"
+    );
+    auto renamed = narrow;
+    renamed.valueNames = {"%x", "%y", "%z"};
+    require(
+        one.typedFingerprint == freeFormGraphKeys(renamed, {"state", "state"}).typedFingerprint,
+        "renaming values must not change the typed fingerprint"
+    );
+  }
+
   void graphKeysFollowRootsEdgesAndRoles() {
     const auto base = freeFormGraphKeys(graphKeysView(), {"state", "state"});
     auto changedRoot = graphKeysView();
@@ -1416,10 +1447,10 @@ namespace {
         "a changed root must change connectivity"
     );
     auto changedEdge = graphKeysView();
-    changedEdge.nodeOps[0] = TensorOp::Sub;
+    changedEdge.nodeOperands[0] = {0, 0};
     require(
         base.connectivitySignature != freeFormGraphKeys(changedEdge, {"state", "state"}).connectivitySignature,
-        "a changed edge must change connectivity"
+        "a changed operand connection must change connectivity"
     );
     require(
         base.connectivitySignature != freeFormGraphKeys(graphKeysView(), {"state", "invariant"}).connectivitySignature,
@@ -1775,6 +1806,8 @@ int main(int argc, char **argv) {
       computedRootsAreBothProduced();
     else if (name == "computed-roots-respect-the-budget")
       computedRootsRespectTheBudget();
+    else if (name == "graph-keys-include-input-types")
+      graphKeysIncludeInputTypes();
     else if (name == "graph-keys-ignore-names-and-order")
       graphKeysIgnoreNamesAndDeclarationOrder();
     else if (name == "graph-keys-follow-roots-edges-roles")
