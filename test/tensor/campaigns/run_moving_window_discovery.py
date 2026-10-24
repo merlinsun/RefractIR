@@ -1899,11 +1899,22 @@ def main(argv=None):
   parser.add_argument("--symiri", required=True)
   parser.add_argument("--timeout", type=float, default=300.0)
   parser.add_argument("--controls-root", default=None)
-  parser.add_argument("--mode", choices=("qualification", "select", "discover", "close"),
+  parser.add_argument("--mode", choices=("qualification", "select", "discover", "close", "reconcile"),
                       required=True)
+  parser.add_argument("--triage-ledger", default=None)
   parser.add_argument("--accept-current-toolchain", action="store_true")
   parser.add_argument("--triage-decision", default=None)
   arguments = parser.parse_args(argv)
+  if arguments.mode == "reconcile":
+    report = report_from_records(
+      Path(arguments.work),
+      triage_ledger=Path(arguments.triage_ledger) if arguments.triage_ledger else None,
+    )
+    (Path(arguments.work) / "final-reconciled.json").write_text(
+      json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(json.dumps(report["reserve"]))
+    return 0
   operations = device_operations(
     exporter=Path(arguments.exporter),
     symirc=Path(arguments.symirc),
@@ -1924,6 +1935,7 @@ def main(argv=None):
   )
   study = Study(
     work, frozen, controls_root=Path(arguments.controls_root) if arguments.controls_root else None,
+    triage_ledger=Path(arguments.triage_ledger) if arguments.triage_ledger else None,
     **operations,
   ).prepare()
   if study.is_paused():

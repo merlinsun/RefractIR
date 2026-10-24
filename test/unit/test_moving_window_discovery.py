@@ -723,6 +723,18 @@ class TriageAndAccountingTests(unittest.TestCase):
       self.assertEqual(len(built), 1)
       self.assertTrue(run.is_paused())
 
+  def test_reconciliation_charges_the_triage_ledger_without_changing_the_final(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = DiscoveryTests()._frozen_run(directory)
+      final = run.finalize()
+      ledger = Path(directory) / "triage-ledger.jsonl"
+      ledger.write_text("{}\n", encoding="utf-8")
+      plain = study.report_from_records(run.work)
+      reconciled = study.report_from_records(run.work, triage_ledger=ledger)
+      self.assertEqual(plain, final)
+      self.assertEqual(reconciled["reserve"]["spent"], 1)
+      self.assertEqual(reconciled["reserve"]["remaining"], 31)
+
   def test_the_triage_ledger_is_charged_to_the_executable_reserve(self):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
