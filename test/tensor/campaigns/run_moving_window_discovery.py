@@ -1270,7 +1270,16 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         if hashlib.sha256(archived_inputs).hexdigest() != frozen_hashes.get("inputs_sha256"):
           raise StudyRefused(f"archived control input changed: {corpus.get('source')}")
       case = tensor_target_case.load(bundle, symiri=symiri)
-      cache_key = ("control", corpus["source"], probe)
+      cache_key = (
+        "control",
+        corpus["source"],
+        probe,
+        hashlib.sha256(archived_inputs).hexdigest(),
+        case.record.get("profile"),
+        case.record.get("entry"),
+        "interpret",
+        toolchain["symiri_sha256"],
+      )
       reference = reference_cache.get(cache_key)
       cached = reference is not None
       if reference is None:
@@ -1294,7 +1303,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
           "status": reference.status,
           "cached": cached,
           "directory": str(directory / "p0.bin"),
-          "cache_key": "|".join(cache_key),
+          "cache_key": "|".join(str(part) for part in cache_key),
         },
         "p1": {
           "status": run.interpreter.status,
@@ -1330,7 +1339,6 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     source = corpus["source"]
     if corpus.get("source_sha256") and hashlib.sha256(source.encode("utf-8")).hexdigest() != corpus["source_sha256"]:
       raise StudyRefused("the corpus source changed after the freeze")
-    probe_bytes = bytes(corpus["probe_values"][probe])
     stored_probe = (corpus.get("probes") or {}).get(probe) or {}
     if stored_probe.get("sha256") and hashlib.sha256(probe_bytes).hexdigest() != stored_probe["sha256"]:
       raise StudyRefused("the corpus probe inputs changed after the freeze")
@@ -1362,7 +1370,16 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     reference = request.get("reference")
     cached = reference is not None
     cache_state = "hit" if cached else "miss"
-    cache_key = ("source", corpus.get("case"), probe)
+    probe_bytes = bytes(corpus["probe_values"][probe])
+    cache_key = (
+      "source",
+      corpus.get("source_sha256"),
+      hashlib.sha256(probe_bytes).hexdigest(),
+      case.record.get("profile"),
+      case.record.get("entry"),
+      "interpret",
+      toolchain["symiri_sha256"],
+    )
     if reference is None:
       reference = reference_cache.get(cache_key)
       cached = reference is not None
