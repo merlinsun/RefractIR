@@ -59,9 +59,12 @@ namespace refractir::reify {
   };
 
   /// One requested result root. An empty name derives `%next_<index>`.
+  /// `requireComputed` refuses a direct input as this result's root; it is a
+  /// construction requirement, not a language rule, and is off by default.
   struct FreeFormResult {
     std::string name;
     TensorTypeInfo type;
+    bool requireComputed = false;
   };
 
   /// Operations beyond the additive, reduction, and broadcast core. Both are
@@ -217,8 +220,28 @@ namespace refractir::reify {
     std::uint32_t inputCount = 0;
     std::vector<TensorOp> nodeOps;
     std::vector<std::vector<std::int32_t>> nodeOperands;
+    /// Attributes of the producer nodes, parallel to `nodeOps`; empty vectors
+    /// mean the view does not state them.
+    std::vector<std::int64_t> nodeAxes;
+    std::vector<char> nodeKeepDims;
+    std::vector<Shape> nodeAttributes;
     std::vector<std::uint32_t> roots;
   };
+
+  /// The two normalized identities of one live graph. The connectivity
+  /// signature ignores value names, concrete extents, operator attributes, and
+  /// creation order; the typed fingerprint keeps types and attributes.
+  struct FreeFormGraphKeys {
+    std::string connectivitySignature;
+    std::string typedFingerprint;
+  };
+
+  /// Derive the graph keys from ordered roots and input roles. Producer IDs
+  /// are assigned by a deterministic traversal from the roots, not by
+  /// creation order; roots and inputs are named by position only.
+  FreeFormGraphKeys freeFormGraphKeys(
+      const FreeFormGraphView &graph, const std::vector<std::string> &inputRoles
+  );
 
   /// The post-pruning statistics of one graph. Every count covers live nodes
   /// and live consumer edges only. A shape change is counted once per

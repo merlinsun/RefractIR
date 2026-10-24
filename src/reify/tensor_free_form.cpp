@@ -973,6 +973,115 @@ namespace refractir::reify {
     return consumers;
   }
 
+  FreeFormGraphKeys freeFormGraphKeys(
+      const FreeFormGraphView &graph, const std::vector<std::string> &inputRoles
+  ) {
+    const auto valueCount = static_cast<std::uint32_t>(graph.valueTypes.size());
+    if (valueCount < graph.inputCount)
+      throw std::invalid_argument("free-form graph has more inputs than values");
+    if (graph.nodeOps.size() != graph.nodeOperands.size())
+      throw std::invalid_argument("free-form graph names a different operand list per node");
+    if (valueCount != graph.inputCount + graph.nodeOps.size())
+      throw std::invalid_argument("free-form graph value count does not match its nodes");
+    if (graph.valueNames.size() != valueCount)
+      throw std::invalid_argument("free-form graph names a different value count");
+    if (graph.roots.empty())
+      throw std::invalid_argument("free-form graph has no roots");
+    if (inputRoles.size() != graph.inputCount)
+      throw std::invalid_argument("free-form graph input roles do not match its inputs");
+    for (const auto root: graph.roots)
+      if (root >= valueCount)
+        throw std::invalid_argument("free-form graph root is outside its pool");
+    for (const auto &operands: graph.nodeOperands)
+      for (const auto operand: operands)
+        if (operand < 0 || operand >= static_cast<std::int32_t>(valueCount))
+          throw std::invalid_argument("free-form graph operand is outside its pool");
+
+    // Canonical producer IDs: one deterministic depth-first traversal from the
+    // ordered roots, visiting operands in operand order. Creation order and
+    // value names never enter the identity.
+    std::vector<std::uint32_t> producer(valueCount, UINT32_MAX);
+    std::vector<std::uint32_t> producerValues;
+    std::function<void(std::uint32_t)> visit = [&](std::uint32_t value) {
+      if (value < graph.inputCount || value >= valueCount)
+        return;
+      if (producer[value] != UINT32_MAX)
+        return;
+      producer[value] = static_cast<std::uint32_t>(producerValues.size());
+      producerValues.push_back(value);
+      const auto node = value - graph.inputCount;
+      for (const auto operand: graph.nodeOperands[node])
+        if (operand >= 0)
+          visit(static_cast<std::uint32_t>(operand));
+    };
+    for (const auto root: graph.roots)
+      visit(root);
+
+    const auto reference = [&](std::int32_t value) -> std::string {
+      if (value < 0)
+        return "?";
+      if (value < static_cast<std::int32_t>(graph.inputCount))
+        return "i" + std::to_string(value);
+      return "n" + std::to_string(producer[static_cast<std::size_t>(value)]);
+    };
+
+    std::ostringstream connectivity;
+    std::ostringstream typed;
+    connectivity << "sig2;roles:";
+    typed << "fp2;roles:";
+    for (std::size_t input = 0; input < inputRoles.size(); ++input) {
+      if (input)
+        connectivity << ',';
+      if (input)
+        typed << ',';
+      connectivity << inputRoles[input];
+      typed << inputRoles[input];
+    }
+    connectivity << ';';
+    typed << ';';
+    for (const auto value: producerValues) {
+      const auto node = value - graph.inputCount;
+      const auto axis = graph.nodeAxes.size() == graph.nodeOps.size()
+                            ? graph.nodeAxes[node]
+                            : 0;
+      const bool keep = graph.nodeKeepDims.size() == graph.nodeOps.size() &&
+                        graph.nodeKeepDims[node] != 0;
+      connectivity << tensorOpName(graph.nodeOps[node]) << '(';
+      typed << tensorOpName(graph.nodeOps[node]) << '[' << axis << ',' << (keep ? 'k' : 'd')
+            << ']';
+      if (graph.nodeAttributes.size() == graph.nodeOps.size() &&
+          !graph.nodeAttributes[node].empty())
+        typed << "attr" << shapeText(graph.nodeAttributes[node]);
+      typed << '(';
+      bool first = true;
+      for (const auto operand: graph.nodeOperands[node]) {
+        if (operand < 0)
+          continue;
+        if (!first) {
+          connectivity << ',';
+          typed << ',';
+        }
+        first = false;
+        connectivity << reference(operand);
+        typed << reference(operand);
+      }
+      connectivity << ");";
+      typed << ") :" << shapeText(graph.valueTypes[value].shape) << ':'
+            << (graph.valueTypes[value].element == TensorElement::F32 ? "f32" : "i32") << ';';
+    }
+    connectivity << "roots:";
+    typed << "roots:";
+    for (std::size_t root = 0; root < graph.roots.size(); ++root) {
+      if (root) {
+        connectivity << ',';
+        typed << ',';
+      }
+      connectivity << "r" << root << '=' << reference(static_cast<std::int32_t>(graph.roots[root]));
+      typed << "r" << root << '=' << reference(static_cast<std::int32_t>(graph.roots[root]));
+    }
+    return {connectivity.str(), typed.str()};
+  }
+
   FreeFormStructure summarizeFreeFormGraph(const FreeFormGraphView &graph, FreeFormPolicy policy) {
     const auto valueCount = static_cast<std::uint32_t>(graph.valueTypes.size());
     if (valueCount < graph.inputCount)
@@ -1232,12 +1341,15 @@ namespace refractir::reify {
             covering.push_back(&requirement);
         std::optional<std::uint32_t> best;
         std::uint32_t bestSatisfied = 0;
+        const bool requireComputed = request.results[index].requireComputed;
         const auto choose = [&]() {
           best.reset();
           bestSatisfied = 0;
           std::uint32_t bestScore = 0;
           for (const auto candidate: growth.valuesOfType(type)) {
             if (std::find(roots.begin(), roots.end(), candidate) != roots.end())
+              continue;
+            if (requireComputed && growth.pool()[candidate].node < 0)
               continue;
             std::uint32_t satisfied = 0;
             for (const auto *requirement: covering)
@@ -1297,6 +1409,12 @@ namespace refractir::reify {
           complete = false;
           break;
         }
+        if (requireComputed && (!best || growth.pool()[*best].node < 0)) {
+          lastReason = "required_computed_root_missing: result " +
+                       std::to_string(index) + " has no computed root";
+          complete = false;
+          break;
+        }
         if (std::find(roots.begin(), roots.end(), *best) != roots.end()) {
           lastReason = "two requested results resolved to one value";
           complete = false;
@@ -1304,6 +1422,15 @@ namespace refractir::reify {
         }
         roots.push_back(*best);
       }
+      if (!complete)
+        continue;
+      for (std::uint32_t index = 0; index < resultCount; ++index)
+        if (request.results[index].requireComputed && growth.pool()[roots[index]].node < 0) {
+          lastReason = "required_computed_root_missing: result " + std::to_string(index) +
+                       " kept an input root";
+          complete = false;
+          break;
+        }
       if (!complete)
         continue;
 
@@ -1362,6 +1489,11 @@ namespace refractir::reify {
         view.nodeOps.push_back(record.op);
       for (const auto &record: nodes)
         view.nodeOperands.push_back(record.operands);
+      for (const auto &record: nodes) {
+        view.nodeAxes.push_back(record.axis);
+        view.nodeKeepDims.push_back(record.keepDims ? 1 : 0);
+        view.nodeAttributes.push_back(record.attribute);
+      }
       view.roots = roots;
 
       // Requirements are validated on the live graph after pruning. A path
@@ -1470,8 +1602,6 @@ namespace refractir::reify {
         continue;
 
       FreeFormLiveDag liveDag;
-      std::ostringstream connectivity;
-      std::ostringstream typed;
       for (std::uint32_t value = 0; value < view.valueTypes.size(); ++value)
         if (live[value])
           liveDag.values.push_back(emittedNames[value]);
@@ -1481,41 +1611,21 @@ namespace refractir::reify {
           continue;
         liveDag.ops.emplace_back(tensorOpName(view.nodeOps[node]));
         std::vector<std::string> operands;
-        connectivity << tensorOpName(view.nodeOps[node]) << '(';
-        typed << tensorOpName(view.nodeOps[node]) << '[' << nodes[node].axis << ','
-              << (nodes[node].keepDims ? 'k' : 'd') << ']' << '(';
-        bool firstOperand = true;
         for (const auto operand: view.nodeOperands[node]) {
           if (operand < 0)
             continue;
-          if (!firstOperand) {
-            connectivity << ',';
-            typed << ',';
-          }
-          firstOperand = false;
           operands.push_back(emittedNames[static_cast<std::size_t>(operand)]);
-          const auto reference = operand < static_cast<std::int32_t>(view.inputCount)
-                                     ? "i" + std::to_string(operand)
-                                     : "n" + std::to_string(
-                                           normalized[static_cast<std::size_t>(operand)]
-                                       );
-          connectivity << reference;
-          typed << reference;
         }
-        connectivity << ");";
-        typed << ") :" << shapeText(view.valueTypes[value].shape) << ':'
-              << (view.valueTypes[value].element == TensorElement::F32 ? "f32" : "i32") << ';';
         liveDag.operands.push_back(std::move(operands));
       }
       liveDag.roots = resultNames;
-      connectivity << "roots:";
-      for (std::size_t root = 0; root < resultNames.size(); ++root) {
-        if (root)
-          connectivity << ',';
-        connectivity << resultNames[root];
-      }
-      liveDag.connectivitySignature = connectivity.str();
-      liveDag.typedFingerprint = typed.str();
+      std::vector<std::string> inputRoles;
+      inputRoles.reserve(request.inputs.size());
+      for (const auto &input: request.inputs)
+        inputRoles.emplace_back(input.role == FreeFormRole::State ? "state" : "invariant");
+      const auto keys = freeFormGraphKeys(view, inputRoles);
+      liveDag.connectivitySignature = keys.connectivitySignature;
+      liveDag.typedFingerprint = keys.typedFingerprint;
 
       FreeFormRegion built{
           std::move(region), summarizeFreeFormGraph(view, request.policy), {}

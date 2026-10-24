@@ -1313,6 +1313,134 @@ namespace {
     );
   }
 
+  FreeFormGraphView graphKeysView() {
+    FreeFormGraphView view;
+    view.valueNames = {"%a", "%b", "%n0", "%n1"};
+    view.valueTypes = {type({2, 2}), type({2, 2}), type({2, 2}), type({2, 2})};
+    view.inputCount = 2;
+    view.nodeOps = {TensorOp::Add, TensorOp::Transpose};
+    view.nodeOperands = {{0, 1}, {2}};
+    view.nodeAxes = {0, 0};
+    view.nodeKeepDims = {0, 0};
+    view.nodeAttributes = {{}, {0, 1}};
+    view.roots = {3, 2};
+    return view;
+  }
+
+  void computedRootRefusesAnInput() {
+    FreeFormRequest request;
+    request.inputs = {input("%a", type({2, 2}), FreeFormRole::State)};
+    request.results = {{"%r0", type({2, 2}), true}};
+    request.limits.maxNodes = 1;
+    const auto built = buildFreeFormRegion(request);
+    require(
+        built.inputSpec.results.size() == 1 && built.inputSpec.results[0] != "%a",
+        "a computed-root result must not keep the input name"
+    );
+    require(
+        built.region.typeOf(built.inputSpec.results[0]).shape == Shape({2, 2}),
+        "the computed root keeps the requested type"
+    );
+
+    auto control = request;
+    control.results = {{"%r0", type({2, 2}), false}};
+    const auto admitted = buildFreeFormRegion(control);
+    require(
+        admitted.inputSpec.results == std::vector<std::string>{"%a"},
+        "without the requirement an input root is still legal"
+    );
+  }
+
+  void computedRootsAreBothProduced() {
+    FreeFormRequest request;
+    request.inputs = {input("%a", type({2, 2}), FreeFormRole::State),
+                      input("%b", type({2, 2}), FreeFormRole::State)};
+    request.results = {{"%r0", type({2, 2}), true}, {"%r1", type({2, 2}), true}};
+    request.limits.maxNodes = 4;
+    request.seed = 3;
+    const auto built = buildFreeFormRegion(request);
+    for (const auto &name: built.inputSpec.results)
+      require(name != "%a" && name != "%b", "both roots must be computed");
+    require(
+        built.structure.nodes >= 2,
+        "both computed roots need producers"
+    );
+  }
+
+  void computedRootsRespectTheBudget() {
+    FreeFormRequest request;
+    request.inputs = {input("%a", type({2, 2}), FreeFormRole::State)};
+    request.results = {{"%r0", type({2, 2}), true}, {"%r1", type({2, 2}), true},
+                       {"%r2", type({2, 2}), true}, {"%r3", type({2, 2}), true}};
+    request.limits.maxNodes = 3;
+    request.limits.maxAttempts = 2;
+    requireExhaustion([&] { (void) buildFreeFormRegion(request); });
+  }
+
+  void graphKeysIgnoreNamesAndDeclarationOrder() {
+    auto first = graphKeysView();
+    auto renamed = first;
+    renamed.valueNames = {"%x", "%y", "%p", "%q"};
+    const auto one = freeFormGraphKeys(first, {"state", "state"});
+    const auto two = freeFormGraphKeys(renamed, {"state", "state"});
+    require(
+        one.connectivitySignature == two.connectivitySignature,
+        "renaming values must not change connectivity"
+    );
+    require(one.typedFingerprint != "", "the typed fingerprint must be stated");
+
+    // Same DAG, producer declarations listed in the other order.
+    FreeFormGraphView reordered;
+    reordered.valueNames = {"%a", "%b", "%p", "%q"};
+    reordered.valueTypes = {type({2, 2}), type({2, 2}), type({2, 2}), type({2, 2})};
+    reordered.inputCount = 2;
+    reordered.nodeOps = {TensorOp::Transpose, TensorOp::Add};
+    reordered.nodeOperands = {{3}, {0, 1}};
+    reordered.nodeAxes = {0, 0};
+    reordered.nodeKeepDims = {0, 0};
+    reordered.nodeAttributes = {{0, 1}, {}};
+    reordered.roots = {2, 3};
+    const auto three = freeFormGraphKeys(reordered, {"state", "state"});
+    require(
+        one.connectivitySignature == three.connectivitySignature,
+        "creation order must not change connectivity"
+    );
+  }
+
+  void graphKeysFollowRootsEdgesAndRoles() {
+    const auto base = freeFormGraphKeys(graphKeysView(), {"state", "state"});
+    auto changedRoot = graphKeysView();
+    changedRoot.roots = {2, 3};
+    require(
+        base.connectivitySignature != freeFormGraphKeys(changedRoot, {"state", "state"}).connectivitySignature,
+        "a changed root must change connectivity"
+    );
+    auto changedEdge = graphKeysView();
+    changedEdge.nodeOps[0] = TensorOp::Sub;
+    require(
+        base.connectivitySignature != freeFormGraphKeys(changedEdge, {"state", "state"}).connectivitySignature,
+        "a changed edge must change connectivity"
+    );
+    require(
+        base.connectivitySignature != freeFormGraphKeys(graphKeysView(), {"state", "invariant"}).connectivitySignature,
+        "a changed input role must change connectivity"
+    );
+    auto wider = graphKeysView();
+    wider.valueTypes[0] = type({2, 2});
+    wider.valueTypes[1] = type({2, 2});
+    wider.valueTypes[2] = type({4, 2});
+    wider.valueTypes[3] = type({4, 2});
+    const auto typed = freeFormGraphKeys(wider, {"state", "state"});
+    require(
+        base.connectivitySignature == typed.connectivitySignature,
+        "an extent-only change must keep connectivity"
+    );
+    require(
+        base.typedFingerprint != typed.typedFingerprint,
+        "an extent-only change must change the typed fingerprint"
+    );
+  }
+
   FreeFormRequest requirementRequest() {
     FreeFormRequest request;
     request.inputs = {
@@ -1641,6 +1769,16 @@ int main(int argc, char **argv) {
       std::cout << assembledWindowSource();
     } else if (name == "window-three-state-assembled-source")
       windowThreeStateSource();
+    else if (name == "computed-root-refuses-an-input")
+      computedRootRefusesAnInput();
+    else if (name == "computed-roots-are-both-produced")
+      computedRootsAreBothProduced();
+    else if (name == "computed-roots-respect-the-budget")
+      computedRootsRespectTheBudget();
+    else if (name == "graph-keys-ignore-names-and-order")
+      graphKeysIgnoreNamesAndDeclarationOrder();
+    else if (name == "graph-keys-follow-roots-edges-roles")
+      graphKeysFollowRootsEdgesAndRoles();
     else if (name == "requirement-keeps-the-input-in-the-result")
       requirementKeepsTheInputInTheResult();
     else if (name == "requirement-builds-a-live-reduction")

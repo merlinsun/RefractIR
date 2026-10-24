@@ -203,6 +203,21 @@ class FreeFormContractTests(unittest.TestCase):
     )
     self.assertEqual(description["output"]["shape"], [2, 2])
 
+  def test_a_computed_root_requirement_refuses_an_input(self):
+    self.run_contract("computed-root-refuses-an-input")
+
+  def test_both_computed_roots_are_produced(self):
+    self.run_contract("computed-roots-are-both-produced")
+
+  def test_computed_roots_respect_the_budget(self):
+    self.run_contract("computed-roots-respect-the-budget")
+
+  def test_graph_keys_ignore_names_and_declaration_order(self):
+    self.run_contract("graph-keys-ignore-names-and-order")
+
+  def test_graph_keys_follow_roots_edges_and_roles(self):
+    self.run_contract("graph-keys-follow-roots-edges-roles")
+
   def test_a_requirement_keeps_the_input_in_the_result(self):
     self.run_contract("requirement-keeps-the-input-in-the-result")
 
@@ -780,6 +795,26 @@ class FreeFormExportTests(unittest.TestCase):
       result = self.export("--window", "4,2,18", "--out", directory)
       self.assertNotEqual(result.returncode, 0)
       self.assertIn("window source", result.stderr)
+
+  def test_computed_roots_are_required_for_every_result(self):
+    for seed in range(1, 25):
+      with tempfile.TemporaryDirectory() as directory:
+        result = self.export(
+          "--policy", "reduction-heavy", "--seed", str(seed), "--shape", "4,2",
+          "--trip-count", "2", "--window", "2,1,4", "--window-source", "%x",
+          "--require-computed-roots", "--out", directory,
+        )
+        if result.returncode != 0:
+          continue
+        record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+        source = (Path(directory) / "program.sir").read_text(encoding="utf-8")
+        self.assertNotIn("%acc_y = %acc_y;", source)
+        self.assertFalse(set(record["results"]) & {"%x", "%y", "%acc_x", "%acc_y"})
+        self.assertTrue(
+          all(update["state"] != update["result"] for update in record["updates"])
+        )
+        return
+    self.fail("no seed within the bound admitted a computed-root export")
 
   def test_a_backing_only_change_leaves_state_initialization_identical(self):
     with tempfile.TemporaryDirectory() as directory:

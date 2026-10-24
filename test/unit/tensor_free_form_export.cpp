@@ -78,6 +78,7 @@ namespace {
     bool maxAttemptsSet = false;
     std::uint32_t maxMultiplications = 2;
     bool maxMultiplicationsSet = false;
+    bool requireComputedRoots = false;
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
     std::uint32_t returnState = 0;
@@ -210,6 +211,8 @@ namespace {
       } else if (flag == "--max-multiplications") {
         options.maxMultiplications = static_cast<std::uint32_t>(std::stoul(value()));
         options.maxMultiplicationsSet = true;
+      } else if (flag == "--require-computed-roots") {
+        options.requireComputedRoots = true;
       } else if (flag == "--num-warps") {
         options.numWarps = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--return") {
@@ -481,7 +484,11 @@ namespace {
     }
     std::vector<FreeFormResult> results;
     for (std::uint32_t index = 0; index < options.stateCount; ++index)
-      results.push_back(FreeFormResult{std::string(resultNames[index]), stateType});
+      results.push_back(
+          FreeFormResult{
+              std::string(resultNames[index]), stateType, options.requireComputedRoots
+          }
+      );
     FreeFormRequest request;
     request.inputs = inputs;
     request.results = results;
