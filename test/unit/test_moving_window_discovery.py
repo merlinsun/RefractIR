@@ -37,6 +37,7 @@ def fake_builder(admit=(), log=None, outcomes=None):
       return {"kind": "refused", "reason": "no body"}
     return {
       "kind": "admitted",
+      "synthetic": True,
       "source_sha256": f"source-{case}",
       "inputs_sha256": f"inputs-{case}",
       "layouts": {"dense": True},
@@ -990,7 +991,7 @@ class TriageAndAccountingTests(unittest.TestCase):
       if request["attempt"] < 7:
         return {"kind": "refused", "reason": "seed"}
       return {
-        "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+        "kind": "admitted", "synthetic": True, "source_sha256": "s", "inputs_sha256": "i",
         "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
         "trip_variant": "sir", "probe_values": {}, "bundles": {},
         "compiler_identity": {},
@@ -1024,7 +1025,7 @@ class TriageAndAccountingTests(unittest.TestCase):
     def builder(request):
       calls["count"] += 1
       return {
-        "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+        "kind": "admitted", "synthetic": True, "source_sha256": "s", "inputs_sha256": "i",
         "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
         "trip_variant": "sir", "probe_values": {}, "bundles": {},
         "compiler_identity": {},
@@ -1083,7 +1084,7 @@ class TriageAndAccountingTests(unittest.TestCase):
       run = study.Study(
         Path(directory) / "work", frozen,
         build=lambda request: built.append(request) or {
-          "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+          "kind": "admitted", "synthetic": True, "source_sha256": "s", "inputs_sha256": "i",
           "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
           "trip_variant": "sir", "probe_values": {}, "bundles": {},
           "compiler_identity": {},

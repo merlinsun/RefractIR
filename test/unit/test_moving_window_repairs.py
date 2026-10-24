@@ -238,6 +238,7 @@ class QualificationFixture:
     (bundle / "case.json").write_text(json.dumps({"launch": {"num_warps": 1}}))
     return {
       "kind": "admitted",
+      "synthetic": True,
       "directory": str(directory),
       "source": source,
       "source_sha256": hashlib.sha256(source.encode()).hexdigest(),

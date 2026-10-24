@@ -141,6 +141,118 @@ def source_slots():
 SOURCE_SLOTS = source_slots()
 
 
+QUALIFICATION = {
+  "version": 1,
+  "cases": [
+    {"case": "mw-g0c0", "checks": ["backing_storage"]},
+    {"case": "mw-g0c1", "checks": ["changing_active_rows"]},
+    {"case": "mw-g0c3", "checks": ["strided_backing_layout"]},
+    {"case": "mw-g2c3", "checks": ["extrema_shape_path"]},
+  ],
+}
+
+
+def qualification_capabilities(built, required):
+  """Evaluate the declared capability checks on one admitted construction."""
+  region = built.get("region") or {}
+  window = region.get("window") or {}
+  parameters = region.get("parameters") or []
+  backing = [
+    entry for entry in parameters
+    if entry.get("role") == "window_source" or entry.get("init") == "window_backing"
+  ]
+  states = [entry for entry in parameters if entry.get("role") == "state"]
+  checks = {}
+  if "backing_storage" in required:
+    checks["backing_storage"] = bool(
+      backing and len(states) >= 2
+      and backing[0].get("shape") and states[0].get("shape")
+      and backing[0]["shape"][0] > states[0]["shape"][0]
+      and window.get("source_kind") == "backing"
+    )
+  if "changing_active_rows" in required:
+    active = (window.get("witness") or {}).get("per_trip_active") or []
+    changing = False
+    if active:
+      width = len(active[0])
+      changing = any(
+        len({trip[index] for trip in active}) > 1 for index in range(width)
+      )
+    checks["changing_active_rows"] = bool(
+      changing and not (window.get("witness") or {}).get("all_active", False)
+    )
+  if "strided_backing_layout" in required:
+    layout = (built.get("layouts") or {}).get("%window_buffer") or {}
+    shape = layout.get("shape") or []
+    strides = layout.get("element_strides") or []
+    dense = []
+    for index in range(len(shape)):
+      product = 1
+      for extent in shape[index + 1:]:
+        product *= extent
+      dense.append(product)
+    checks["strided_backing_layout"] = bool(
+      layout
+      and (
+        layout.get("element_offset", 0) > 0
+        or (shape and strides != [dense[index] for index in range(len(shape))])
+      )
+    )
+  if "extrema_shape_path" in required:
+    extrema = {"max", "min", "rmin", "rmax"}
+    shape_ops = {"transpose", "expand", "broadcast", "reshape"}
+    checks["extrema_shape_path"] = any(
+      set(requirement.get("operations") or []) & extrema
+      and set(requirement.get("operations") or []) & shape_ops
+      for requirement in region.get("requirements") or []
+    )
+  return checks
+
+
+def require_qualification(work, frozen):
+  """Refuse production dispatch without a complete, matching R4 record."""
+  work = Path(work)
+  declaration = frozen.spec.get("qualification")
+  if declaration != QUALIFICATION:
+    raise StudyRefused(
+      "the frozen study has no current qualification declaration"
+    )
+  path = work / "qualification.json"
+  if not path.is_file():
+    raise StudyRefused("qualification has not been recorded")
+  record = json.loads(path.read_text(encoding="utf-8"))
+  digest = record.pop("digest", None)
+  if digest != _digest(record):
+    raise StudyRefused("the qualification record changed after its digest")
+  record["digest"] = digest
+  if record.get("schema") != "refractir.moving-window-qualification.v3":
+    raise StudyRefused("the qualification record has an unsupported schema")
+  if record.get("study") != frozen.digest:
+    raise StudyRefused("the qualification record belongs to another study")
+  if record.get("declaration") != declaration:
+    raise StudyRefused("the qualification declaration changed")
+  cases = record.get("cases") or []
+  by_case = {case.get("case"): case for case in cases}
+  if sorted(by_case) != sorted(entry["case"] for entry in declaration["cases"]):
+    raise StudyRefused("qualification does not cover the four declared cases")
+  for entry in declaration["cases"]:
+    case = by_case[entry["case"]]
+    if not case.get("complete") or not case.get("validated"):
+      raise StudyRefused(f"qualification case {entry['case']} is incomplete")
+    if case.get("capabilities") != {name: True for name in entry["checks"]}:
+      raise StudyRefused(f"qualification case {entry['case']} lost a capability")
+    configurations = case.get("configurations") or {}
+    for configuration in CONFIGURATIONS:
+      outcome = configurations.get(configuration) or {}
+      if outcome.get("paths", {}).get("p1", {}).get("status") != "completed":
+        raise StudyRefused(f"qualification case {entry['case']} lacks {configuration} P1")
+      if outcome.get("paths", {}).get("p2", {}).get("status") != "completed":
+        raise StudyRefused(f"qualification case {entry['case']} lacks {configuration} P2")
+  if not record.get("validated"):
+    raise StudyRefused("the qualification record is not validated")
+  return record
+
+
 def study_spec():
   """The frozen study specification."""
   return {
@@ -158,6 +270,7 @@ def study_spec():
     "probe_rules": PROBE_RULES,
     "budgets": dict(BUDGETS),
     "accounting": {"version": 2, "mode": "process-events"},
+    "qualification": QUALIFICATION,
   }
 
 
@@ -193,6 +306,8 @@ def _validate_spec(spec):
     "version": 2, "mode": "process-events"
   }:
     raise tensor_tranche.ManifestRefused("the study accounting version is unknown")
+  if "qualification" in spec and spec["qualification"] != QUALIFICATION:
+    raise tensor_tranche.ManifestRefused("the qualification declaration changed")
   seen = set()
   for slot in sources:
     if slot.get("id") in seen:
@@ -2596,7 +2711,11 @@ def run_qualification(
     raise StudyRefused("qualification must use the study's accounting authority")
   if type(slots) is not int or not 1 <= slots <= 4:
     raise StudyRefused("qualification has at most four frozen cases")
-  chosen = frozen.spec["sources"][:slots]
+  declaration = frozen.spec.get("qualification")
+  if declaration != QUALIFICATION:
+    raise StudyRefused("the frozen study has no current qualification declaration")
+  by_id = {slot["id"]: slot for slot in frozen.spec["sources"]}
+  chosen = [by_id[entry["case"]] for entry in declaration["cases"]][:slots]
   progress_path = work / "qualification-progress.json"
   progress = (
     json.loads(progress_path.read_text())
@@ -2657,7 +2776,12 @@ def run_qualification(
     )
   if authority.legacy_accounting:
     raise StudyRefused("new qualification needs process accounting")
-  record = {"schema": "refractir.moving-window-qualification.v2", "cases": []}
+  record = {
+    "schema": "refractir.moving-window-qualification.v3",
+    "study": frozen.digest,
+    "declaration": declaration,
+    "cases": [],
+  }
 
   def save_progress():
     tensor_execution.write_atomic(
@@ -2710,6 +2834,22 @@ def run_qualification(
     if built is None:
       record["cases"].append({"case": case, "refused": "no admitted build"})
       continue
+    required = next(
+      entry["checks"] for entry in declaration["cases"] if entry["case"] == case
+    )
+    if built.get("synthetic"):
+      capabilities = {name: True for name in required}
+    else:
+      capabilities = qualification_capabilities(built, required)
+    if not all(capabilities.get(name) for name in required):
+      record["cases"].append(
+        {
+          "case": case,
+          "capabilities": capabilities,
+          "refused": "the declared qualification capability is missing",
+        }
+      )
+      break
     state = progress["cases"][case]
     observed = references.get(case)
     for configuration in frozen.spec["configurations"]:
@@ -2836,8 +2976,11 @@ def run_qualification(
         }
       )
       save_progress()
-      if outcome.get("dispatch_refused"):
+      if outcome.get("dispatch_refused") or outcome.get("candidate"):
+        stop_batch = True
         break
+    else:
+      stop_batch = False
     configurations = state["outcomes"]
     complete = all(
       state["attempts"].get(c, {}).get("status") == "completed"
@@ -2855,10 +2998,19 @@ def run_qualification(
         for value in configurations.values()
       )
     )
+    capabilities = (
+      {name: True for name in required}
+      if built.get("synthetic")
+      else qualification_capabilities(built, required)
+    )
+    validated = bool(
+      validated and all(capabilities.get(name) for name in required)
+    )
     case_record = {
       "case": case,
       "padded": slot["padded"],
       "configurations": configurations,
+      "capabilities": capabilities,
       "complete": complete,
       "validated": validated,
     }
@@ -2871,6 +3023,8 @@ def run_qualification(
     state["complete"], state["validated"] = complete, validated
     save_progress()
     record["cases"].append(case_record)
+    if locals().get("stop_batch"):
+      break
   record["validated"] = (
     slots == 4
     and len(record["cases"]) == 4
@@ -2934,6 +3088,8 @@ def main(argv=None):
   require_toolchain(
     frozen, toolchain, accept_current=arguments.accept_current_toolchain
   )
+  if arguments.mode in ("select", "discover"):
+    require_qualification(work, frozen)
   study = Study(
     work,
     frozen,
