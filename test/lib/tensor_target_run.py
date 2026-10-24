@@ -123,6 +123,7 @@ class TargetRun:
   )
   diagnosis: dict | None = field(default=None, compare=False)
   compiler_identity: dict | None = field(default=None, compare=False)
+  dispatch_refused: str | None = field(default=None, compare=False)
 
   @property
   def candidate(self):
@@ -151,6 +152,7 @@ class TargetRun:
       "bundle": str(self.bundle),
       "status": self.status,
       "candidate": self.candidate,
+      "dispatch_refused": self.dispatch_refused,
       "emission": self.emission.as_record() if self.emission is not None else None,
       "interpreter": self.interpreter.as_record(),
       "compiled": self.compiled.as_record(),
@@ -426,6 +428,7 @@ def run(
     expected_output_bytes=expected_output_bytes,
     on_process=on_process,
   )
+  dispatch_refused = None
   visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
   if not visible:
     compiled = ModeRun(
@@ -438,19 +441,32 @@ def run(
       log="",
     )
   else:
-    compiled = _run_mode(
-      case,
-      "compiled",
-      artifacts=artifacts,
-      emission_dir=emission_dir,
-      emission=emission,
-      timeout_s=timeout_s,
-      worker_command=worker_command,
-      device_id=device_id,
-      cache_dir=cache_dir,
-      expected_output_bytes=expected_output_bytes,
-      on_process=on_process,
-    )
+    try:
+      compiled = _run_mode(
+        case,
+        "compiled",
+        artifacts=artifacts,
+        emission_dir=emission_dir,
+        emission=emission,
+        timeout_s=timeout_s,
+        worker_command=worker_command,
+        device_id=device_id,
+        cache_dir=cache_dir,
+        expected_output_bytes=expected_output_bytes,
+        on_process=on_process,
+      )
+      dispatch_refused = None
+    except tensor_execution.DispatchRefused as error:
+      compiled = ModeRun(
+        mode="compiled",
+        status=COMPARISON_UNAVAILABLE,
+        exit_code=None,
+        phase="dispatch_refused",
+        actual=None,
+        stderr=str(error),
+        log="",
+      )
+      dispatch_refused = str(error)
 
   status, mismatches = _classify(interpreter, compiled)
   diagnosis = (
@@ -463,6 +479,7 @@ def run(
   target = TargetRun(
     bundle=root,
     status=status,
+    dispatch_refused=dispatch_refused,
     emission=emission,
     interpreter=interpreter,
     compiled=compiled,
@@ -687,6 +704,7 @@ def run_native(
     expected_output_bytes=expected_output_bytes,
     on_process=on_process,
   )
+  dispatch_refused = None
   visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
   if not visible:
     compiled = ModeRun(

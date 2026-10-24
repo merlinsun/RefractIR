@@ -27,7 +27,7 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
   sys.path.insert(0, str(_ROOT))
 
-from test.lib import tensor_tranche
+from test.lib import tensor_execution, tensor_tranche
 
 MIN_FREE_BYTES = 2 * 1024**3
 SCHEMA = "refractir.moving-window-study.v1"
@@ -96,9 +96,7 @@ class StudyRefused(RuntimeError):
   """A refusal that keeps evidence and stops the requested operation."""
 
 
-class DispatchRefused(StudyRefused):
-  """A resource/allocation refusal issued before a process was spawned."""
-  """The study cannot proceed as frozen."""
+DispatchRefused = tensor_execution.DispatchRefused
 
 
 def _canonical(value):
@@ -394,15 +392,24 @@ def parse_triage_ledger(data, source=None):
     if not isinstance(row.get("result"), str) or not row["result"]:
       raise StudyRefused(f"the triage ledger row {number} has no result")
     path = row.get("path", "p2")
-    allocation = row.get("allocation", "discovery")
+    allocation = row.get("allocation", "triage")
     if path not in ("p0", "p1", "p2"):
       raise StudyRefused(f"the triage ledger row {number} has an unknown path")
-    if not isinstance(allocation, str) or not allocation:
-      raise StudyRefused(f"the triage ledger row {number} has no allocation")
+    if allocation not in ("triage", "qualification", "selection", "discovery"):
+      raise StudyRefused(f"the triage ledger row {number} has an unknown allocation")
+    if row["result"] not in (
+      "completed", "failed", "timed_out", "hung", "refused", "spawn_failed",
+    ):
+      raise StudyRefused(f"the triage ledger row {number} has an unknown outcome")
     supplied = row.get("execution_id")
     if supplied is not None and (not isinstance(supplied, str) or not supplied):
       raise StudyRefused(
         f"the triage ledger row {number} has an invalid execution_id"
+      )
+    attempt = row.get("attempt")
+    if supplied is None and (type(attempt) is not int or attempt < 0):
+      raise StudyRefused(
+        f"the triage ledger row {number} needs an execution_id or a valid attempt"
       )
     key = supplied or hashlib.sha256(
       json.dumps(
@@ -1284,6 +1291,27 @@ class Study:
             attempt=attempt, directory=info.get("directory", str(directory)),
             status=info.get("status", "completed"),
           )
+      if outcome.get("dispatch_refused"):
+        classification = {
+          "slot": slot.slot_id,
+          "case": slot.case_id,
+          "status": "dispatch_refused",
+          "candidate": bool(outcome.get("candidate")),
+          "dispatch_refused": outcome["dispatch_refused"],
+          "unavailable": list(outcome.get("unavailable", [])),
+          "compiler": outcome.get("compiler", {"status": "unavailable"}),
+        }
+        self.path_ledger.append("dispatch_refused", **classification)
+        self.path_ledger.append("classification", **classification)
+        self.ledger.finish(
+          slot.slot_id, "refused", reason=outcome["dispatch_refused"],
+          detail={"status": "dispatch_refused", "candidate": classification["candidate"]},
+        )
+        self.pause(
+          [classification], reason=f"dispatch refused at {slot.slot_id}",
+          phase="resource",
+        )
+        return self
       classification = {
         "slot": slot.slot_id,
         "case": slot.case_id,
@@ -1490,7 +1518,7 @@ class Study:
     return record
 
 
-def report_from_records(work, *, triage_ledger=None):
+def report_from_records(work, *, triage_ledger=None, accounting_mode=None):
   """Recompute the final summary from the preserved records alone."""
   work = Path(work)
   frozen = FrozenStudy.load(work / "study.json")
@@ -1524,6 +1552,21 @@ def report_from_records(work, *, triage_ledger=None):
         }
       ]
   study.path_ledger.load()
+  process_events = any(
+    event.get("kind") == "process" for event in study.path_ledger.events
+  )
+  accounted = frozen.spec.get("accounting")
+  if accounting_mode == "legacy" and accounted is not None:
+    raise StudyRefused("a versioned process study cannot be reinterpreted as legacy")
+  if accounting_mode == "process":
+    study.legacy_accounting = False
+  elif accounted is None and process_events:
+    raise StudyRefused(
+      "the study has process events but no accounting version; pass the "
+      "explicit process interpretation"
+    )
+  elif accounted is None:
+    study.legacy_accounting = True
   study.ledger = tensor_tranche.Ledger.open(
     work / "tranche-ledger.jsonl", frozen.tranche
   )
@@ -2041,6 +2084,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         "status": run.status,
         "paths": paths,
         "candidate": run.candidate,
+        "dispatch_refused": run.dispatch_refused,
         "unavailable": [] if reference.status == tensor_target_reference.COMPLETED else [
           f"p0:{reference.status}"
         ],
@@ -2174,7 +2218,8 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         "directory": str(bundle / "target-runs" / "interpret"),
       },
       "p2": {
-        "status": run.compiled.status,
+        "status": "not_run" if run.dispatch_refused else run.compiled.status,
+        "reason": run.dispatch_refused,
         "directory": str(bundle / "target-runs" / "compiled"),
       },
     }
@@ -2187,6 +2232,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "status": run.status,
       "paths": paths,
       "candidate": run.candidate,
+      "dispatch_refused": run.dispatch_refused,
       "unavailable": unavailable,
       "compiler": compiler,
       "reference": reference,
@@ -2211,9 +2257,6 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None)
   )
   for slot in chosen:
     stored = progress["cases"].get(slot["id"])
-    if stored and stored.get("complete"):
-      record["cases"].append(stored["case_record"])
-      continue
     case_record = {"case": slot["id"], "padded": slot["padded"], "configurations": {}}
     case_record["configurations"] = dict((stored or {}).get("outcomes", {}))
     case_progress = progress["cases"].get(slot["id"], {})
@@ -2264,6 +2307,13 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None)
     }
     initial = progress.setdefault("initial", {"p0": 0, "p1": 0, "p2": 0})
     retry_charges = progress.setdefault("retry_charges", 0)
+    if stored and stored.get("complete"):
+      if stored.get("identity") != identity:
+        case_record["identity_mismatch"] = True
+        record["cases"].append(case_record)
+        continue
+      record["cases"].append(stored["case_record"])
+      continue
     p0_reference = None
     if p0_bin.is_file() and p0_meta.is_file():
       meta = json.loads(p0_meta.read_text(encoding="utf-8"))
@@ -2276,6 +2326,10 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None)
         case_record["p0_identity_mismatch"] = True
         record["cases"].append(case_record)
         continue
+    elif case_record["configurations"] and retry is None:
+      case_record["p0_unavailable"] = "the cached qualification P0 is missing"
+      record["cases"].append(case_record)
+      continue
     for configuration in frozen.spec["configurations"]:
       if configuration in case_record["configurations"]:
         continue
@@ -2298,7 +2352,12 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None)
           continue
         retries += 1
         retry_charges += 1
-        if retry_charges > min(
+        imported = 0
+        imports_path = work / "accepted-imports.json"
+        if imports_path.is_file():
+          for record_entry in json.loads(imports_path.read_text(encoding="utf-8")):
+            imported += (record_entry.get("paths") or {}).get("p2", 0)
+        if retry_charges + imported > min(
           frozen.spec["budgets"]["triage_gpu"],
           frozen.spec["budgets"]["triage_interpreter"],
           frozen.spec["budgets"]["triage_p0"],
@@ -2316,6 +2375,12 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None)
             "qualification allocation is exhausted"
           )
           continue
+        initial["p1"] += 1
+        initial["p2"] += 1
+        if p0_reference is None:
+          initial["p0"] += 1
+      progress["initial"] = initial
+      progress["retry_charges"] = retry_charges
       events = []
 
       def account(event, events=events, configuration=configuration):
@@ -2378,11 +2443,8 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None)
           }, indent=1, sort_keys=True) + "\n",
           encoding="utf-8",
         )
-      if retry != f"{slot['id']}/{configuration}":
-        initial["p1"] += 1
-        initial["p2"] += 1
-        if p0_reference is None:
-          initial["p0"] += 1
+      progress["initial"] = initial
+      progress["retry_charges"] = retry_charges
       case_record["configurations"][configuration] = {
         "status": outcome.get("status"),
         "paths": outcome.get("paths"),
@@ -2413,6 +2475,7 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None)
       "outcomes": case_record["configurations"],
       "attempts": attempts, "retries": retries,
       "initial": initial, "retry_charges": retry_charges,
+      "identity": identity,
       "complete": complete_case,
       **({"case_record": case_record} if complete_case else {}),
     }
@@ -2439,6 +2502,7 @@ def main(argv=None):
                       required=True)
   parser.add_argument("--triage-ledger", default=None)
   parser.add_argument("--qualification-retry", default=None)
+  parser.add_argument("--accounting-mode", choices=("legacy", "process"), default=None)
   parser.add_argument("--accept-current-toolchain", action="store_true")
   parser.add_argument("--triage-decision", default=None)
   arguments = parser.parse_args(argv)
@@ -2446,6 +2510,7 @@ def main(argv=None):
     report = report_from_records(
       Path(arguments.work),
       triage_ledger=Path(arguments.triage_ledger) if arguments.triage_ledger else None,
+      accounting_mode=arguments.accounting_mode,
     )
     (Path(arguments.work) / "final-reconciled.json").write_text(
       json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8"

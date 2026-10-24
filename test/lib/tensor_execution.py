@@ -14,6 +14,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+class DispatchRefused(RuntimeError):
+  """A resource refusal issued before a subprocess was spawned."""
+
+
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TIMEOUT_S = 60
 EMIT_TIMEOUT_S = 10

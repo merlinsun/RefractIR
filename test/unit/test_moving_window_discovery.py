@@ -557,6 +557,69 @@ class DiscoveryTests(unittest.TestCase):
       self.assertEqual(study.report_from_records(work), final)
       self.assertEqual(final["paths"]["p1"]["launches"], 96)
 
+  def test_a_dispatch_refusal_keeps_an_existing_candidate(self):
+    def execute(request):
+      return {
+        "status": "target_disagreement",
+        "paths": {
+          "p0": {"status": "completed", "cached": True},
+          "p1": {"status": "completed"},
+          "p2": {"status": "not_run"},
+        },
+        "candidate": True,
+        "dispatch_refused": "the discovery p2 allocation is exhausted",
+        "unavailable": [], "compiler": {"status": "unavailable"},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      run = study.Study(
+        work, frozen,
+        build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
+        screen=fake_screen(), execute=execute,
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      run.run_discovery()
+      classification = [
+        e for e in run.path_ledger.events
+        if e.get("kind") == "classification" and e.get("status") == "dispatch_refused"
+      ][0]
+      self.assertTrue(classification["candidate"])
+      self.assertIn("refused", run.ledger.counts())
+
+  def test_unversioned_process_studies_need_an_explicit_mode(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = DiscoveryTests()._frozen_run(directory)
+      run.path_ledger.append(
+        "process", phase="discovery", path="p1", event="start", slot="s", attempt=0,
+      )
+      run.run_discovery()
+      final = run.finalize()
+      with self.assertRaises(study.StudyRefused):
+        study.report_from_records(run.work)
+      reconstructed = study.report_from_records(
+        run.work, accounting_mode="process"
+      )
+      self.assertEqual(reconstructed["paths"]["p1"]["launches"], 1)
+
+  def test_the_historical_adapter_charges_ten_p2_attempts(self):
+    rows = "\n".join(
+      json.dumps({"case": f"case-{index // 2}", "attempt": index,
+                  "result": "timed_out"})
+      for index in range(10)
+    ) + "\n"
+    entries = study.parse_triage_ledger(rows)
+    self.assertEqual(len(entries), 10)
+    self.assertTrue(all(entry["path"] == "p2" for entry in entries))
+    with self.assertRaises(study.StudyRefused):
+      study.parse_triage_ledger(
+        "\n".join(
+          json.dumps({"case": "c", "result": "timed_out"}) for _ in range(32)
+        ) + "\n"
+      )
+
   def test_an_interrupted_discovery_stop_is_replayed(self):
     def execute(request):
       return {
@@ -788,6 +851,11 @@ class QualificationTests(unittest.TestCase):
         retry=f"{record['cases'][0]['case']}/warps-1",
       )
       self.assertEqual(calls, ["warps-1"])
+      progress = json.loads(
+        (work / "qualification-progress.json").read_text(encoding="utf-8")
+      )
+      self.assertGreaterEqual(progress["retry_charges"], 1)
+      self.assertGreaterEqual(progress["initial"]["p0"], 1)
 
 
 class EvidenceTests(unittest.TestCase):
@@ -949,7 +1017,7 @@ def legacy_frozen():
 
 def triage_rows(count):
   return "\n".join(
-    json.dumps({"case": f"c{index}", "result": "timed_out"})
+    json.dumps({"case": f"c{index}", "attempt": index, "result": "timed_out"})
     for index in range(count)
   ) + "\n"
 
@@ -1124,7 +1192,7 @@ class TriageAndAccountingTests(unittest.TestCase):
           "process", phase="discovery", path="p0", event="reserved",
           slot="s", attempt=0,
         )
-      with self.assertRaises(study.StudyRefused):
+      with self.assertRaises(study.DispatchRefused):
         run._reserve_process_budget(
           "discovery", {"event": "reserved", "path": "p0"}
         )
