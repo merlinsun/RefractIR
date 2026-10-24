@@ -621,6 +621,7 @@ def diagnose_with_optional_reference(*, reference, interpreter, compiled):
     }
   if reference is None or reference.status in {
     tensor_target_reference.UNAVAILABLE,
+    tensor_target_reference.NOT_RUN,
     tensor_target_reference.FAILED,
     tensor_target_reference.TIMED_OUT,
   }:

@@ -2317,11 +2317,15 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       )
       reference = reference_cache.get(cache_key)
       cached = reference is not None
+      current_p0_refused = False
       if reference is None:
         reference = tensor_target_reference.observe(
           case, symiri=symiri, timeout_s=timeout_s,
           output_path=directory / "p0.bin",
           on_process=p0_process,
+        )
+        current_p0_refused = (
+          reference.status == tensor_target_reference.NOT_RUN
         )
         if reference.status == tensor_target_reference.COMPLETED:
           reference_cache[cache_key] = reference
@@ -2330,9 +2334,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         symirc=symirc,
         symiri=symiri,
         reference=reference,
-        dispatch_refused=reference.reason
-        if reference.status == tensor_target_reference.NOT_RUN
-        else None,
+        dispatch_refused=reference.reason if current_p0_refused else None,
         timeout_s=timeout_s,
         artifact_dir=directory / "target-runs",
         compiler_identity=identity,
@@ -2411,6 +2413,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     case = tensor_target_case.load(bundle, symiri=symiri)
     reference = request.get("reference")
     cached = reference is not None
+    current_p0_refused = False
     cache_state = "hit" if cached else "miss"
     cache_key = (
       "source",
@@ -2474,6 +2477,9 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         on_process=p0_process,
         output_path=request.get("reference_output_path"),
       )
+      current_p0_refused = (
+        reference.status == tensor_target_reference.NOT_RUN
+      )
     if request.get("on_reference") is not None:
       request["on_reference"](reference)
     run = tensor_target_run.run(
@@ -2481,9 +2487,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       symirc=symirc,
       symiri=symiri,
       reference=reference,
-      dispatch_refused=reference.reason
-      if reference.status == tensor_target_reference.NOT_RUN
-      else None,
+      dispatch_refused=reference.reason if current_p0_refused else None,
       timeout_s=timeout_s,
       compiler_identity=identity,
       on_process=run_process,

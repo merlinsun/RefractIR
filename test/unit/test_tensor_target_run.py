@@ -598,6 +598,24 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(saved["diagnosis"]["observations"], {"R-G": "equal"})
     self.assertFalse(saved["candidate"])
 
+  def test_a_cached_not_run_reference_does_not_block_targets(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    reference = tensor_target_reference.ReferenceObservation(
+      tensor_target_reference.NOT_RUN, reason="cached P0 dispatch refusal"
+    )
+    run = self.run_target(reference=reference)
+    self.assertIsNone(run.dispatch_refused)
+    self.assertEqual(run.interpreter.status, "completed")
+    self.assertEqual(run.compiled.status, "completed")
+    self.assertEqual(run.diagnosis["p0_availability"], tensor_target_reference.NOT_RUN)
+    self.assertFalse(run.candidate)
+
   def test_a_reference_unavailable_run_is_not_a_candidate(self):
     self.write_bundle()
     self.configure(

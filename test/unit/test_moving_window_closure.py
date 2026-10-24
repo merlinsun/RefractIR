@@ -364,10 +364,6 @@ class BoundedDeviceValidation(unittest.TestCase):
     )
 
   def test_3_refused_p0_uses_cached_unavailability(self):
-    self.skipTest(
-      "scenario 3 is blocked on P0-refusal retry reference propagation; "
-      "the r3 evidence is preserved and the batch remains open"
-    )
     work, frozen, authority = self.scenario("refused-p0")
     for index in range(4):
       authority.path_ledger.append(
