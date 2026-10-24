@@ -88,21 +88,31 @@ def run_child(
         {"event": "finish", "mode": mode, "status": "spawn_failed", "reason": str(error)}
       )
     raise
-  if on_process is not None:
-    on_process({"event": "start", "mode": mode, "pid": process.pid})
   try:
+    if on_process is not None:
+      on_process({"event": "start", "mode": mode, "pid": process.pid})
     stdout, stderr = process.communicate(timeout=timeout_s)
   except subprocess.TimeoutExpired:
     process.kill()
     process.communicate()
-    if on_process is not None:
-      on_process({"event": "finish", "mode": mode, "status": "timed_out"})
+    try:
+      if on_process is not None:
+        on_process({"event": "finish", "mode": mode, "status": "timed_out"})
+    except Exception:
+      pass
     raise
   except BaseException:
-    process.kill()
-    process.communicate()
-    if on_process is not None:
-      on_process({"event": "finish", "mode": mode, "status": "interrupted"})
+    if process.poll() is None:
+      process.kill()
+    try:
+      process.communicate(timeout=5)
+    except Exception:
+      pass
+    try:
+      if on_process is not None:
+        on_process({"event": "finish", "mode": mode, "status": "interrupted"})
+    except Exception:
+      pass
     raise
   completed = subprocess.CompletedProcess(
     command, process.returncode, stdout, stderr

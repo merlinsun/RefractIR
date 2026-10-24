@@ -107,15 +107,18 @@ def observe(case, *, symiri, timeout_s=120.0, output_path=None, on_process=None)
     return ReferenceObservation(
       UNAVAILABLE, reason=f"cannot start symiri: {error}", command=tuple(command)
     )
-  if on_process is not None:
-    on_process({"event": "start", "mode": "reference", "pid": process.pid})
   try:
+    if on_process is not None:
+      on_process({"event": "start", "mode": "reference", "pid": process.pid})
     stdout, stderr_text = process.communicate(timeout=timeout_s)
   except subprocess.TimeoutExpired:
     process.kill()
     _, stderr_text = process.communicate()
-    if on_process is not None:
-      on_process({"event": "finish", "mode": "reference", "status": "timed_out"})
+    try:
+      if on_process is not None:
+        on_process({"event": "finish", "mode": "reference", "status": "timed_out"})
+    except Exception:
+      pass
     return ReferenceObservation(
       TIMED_OUT,
       stderr=_captured(stderr_text),
@@ -123,10 +126,17 @@ def observe(case, *, symiri, timeout_s=120.0, output_path=None, on_process=None)
       command=tuple(command),
     )
   except BaseException:
-    process.kill()
-    process.communicate()
-    if on_process is not None:
-      on_process({"event": "finish", "mode": "reference", "status": "interrupted"})
+    if process.poll() is None:
+      process.kill()
+    try:
+      process.communicate(timeout=5)
+    except Exception:
+      pass
+    try:
+      if on_process is not None:
+        on_process({"event": "finish", "mode": "reference", "status": "interrupted"})
+    except Exception:
+      pass
     raise
   completed = subprocess.CompletedProcess(
     command, process.returncode, stdout, stderr_text

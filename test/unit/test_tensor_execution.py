@@ -2,6 +2,7 @@
 
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -64,6 +65,27 @@ class TensorExecutionTests(unittest.TestCase):
       self.assertEqual(
         sorted(child.name for child in path.parent.iterdir()), ["artifact.json"]
       )
+
+  def test_a_failing_start_callback_reaps_the_child(self):
+    from test.lib import tensor_execution
+
+    with tempfile.TemporaryDirectory() as directory:
+      marker = Path(directory) / "marker"
+      command = [
+        sys.executable, "-c",
+        f"import time; time.sleep(1.5); open({str(marker)!r}, 'w').write('x')",
+      ]
+
+      def on_process(event):
+        if event["event"] == "start":
+          raise OSError("ledger write failed")
+
+      with self.assertRaises(OSError):
+        tensor_execution.run_child(
+          command, "interpret", timeout_s=5, on_process=on_process
+        )
+      time.sleep(2.0)
+      self.assertFalse(marker.exists())
 
   def test_gpu_availability_is_false_without_torch(self):
     from test.lib import tensor_execution

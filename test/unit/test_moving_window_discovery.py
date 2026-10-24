@@ -325,6 +325,173 @@ class DiscoveryTests(unittest.TestCase):
       self.assertTrue(final["corpus"], "the final record keeps the admitted corpus")
       self.assertTrue(final["observations"], "the final record keeps its observations")
 
+
+  def test_new_runs_derive_launches_from_process_starts(self):
+    def execute(request):
+      for path in ("p1", "p2"):
+        request["on_process"]({"event": "reserved", "mode": "x", "path": path})
+        request["on_process"]({"event": "start", "mode": "x", "path": path, "pid": 1})
+        request["on_process"]({"event": "finish", "mode": "x", "path": path, "status": "completed"})
+      return {
+        "status": "completed",
+        "paths": {
+          "p0": {"status": "unavailable"},
+          "p1": {"status": "completed"},
+          "p2": {"status": "completed"},
+        },
+        "candidate": False, "unavailable": [], "compiler": {"status": "unavailable"},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      admitted = [slot["id"] for slot in frozen.spec["sources"]]
+      run = study.Study(
+        Path(directory) / "work", frozen, build=fake_builder(admitted),
+        screen=fake_screen(), execute=execute,
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      run.run_discovery()
+      final = run.finalize()
+      self.assertEqual(final["paths"]["p0"]["launches"], 0)
+      self.assertEqual(final["paths"]["p0"]["not_run"], 96)
+      self.assertEqual(final["paths"]["p1"]["launches"], 96)
+      self.assertEqual(final["paths"]["p2"]["launches"], 96)
+
+  def test_a_pending_admission_cannot_be_resumed_without_a_disposition(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      run = study.Study(
+        Path(directory) / "work", frozen,
+        build=fake_builder(["mw-g0c0"]),
+        screen=DiscoveryTests().candidate_screen if hasattr(DiscoveryTests(), "candidate_screen") else fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      # Use the candidate screen explicitly.
+      run.screen = TriageAndAccountingTests().candidate_screen
+      run.select_sources()
+      self.assertTrue(run.is_paused())
+      with self.assertRaises(study.StudyRefused):
+        run.record_triage_decision("resume")
+      self.assertTrue(run.is_paused())
+      self.assertIsNotNone(run._pending_admission())
+
+  def test_an_unapplied_admit_is_replayed_once_after_restart(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      run = study.Study(
+        work, frozen, build=fake_builder(["mw-g0c0"]),
+        screen=TriageAndAccountingTests().candidate_screen,
+        execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      pending = run._pending_admission()
+      path = work / "triage-decisions.jsonl"
+      path.write_text(
+        json.dumps({
+          "action": "admit", "case": pending["case"], "attempt": pending["attempt"],
+        }) + "\n",
+        encoding="utf-8",
+      )
+      # The pause and pending admission remain; a new process replays the decision.
+      resumed = study.Study(
+        work, study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      self.assertFalse(resumed.is_paused())
+      self.assertEqual([entry["case"] for entry in resumed.corpus()], ["mw-g0c0"])
+      self.assertIsNone(resumed._pending_admission())
+      again = study.Study(
+        work, study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      self.assertEqual(len(again.corpus()), 1)
+
+
+  def test_qualification_persists_events_and_skips_completed_configurations(self):
+    calls = []
+
+    def build(request):
+      return {
+        "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+        "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
+        "trip_variant": "sir", "probe_values": {}, "bundles": {},
+        "compiler_identity": {},
+      }
+
+    def execute(request):
+      request["on_process"]({"event": "reserved", "mode": "x"})
+      request["on_process"]({"event": "start", "mode": "x", "pid": 1})
+      request["on_process"]({"event": "finish", "mode": "x", "status": "completed"})
+      calls.append(request["configuration"])
+      return {
+        "status": "completed",
+        "paths": {
+          "p0": {"status": "completed", "cached": False},
+          "p1": {"status": "completed"},
+          "p2": {"status": "completed"},
+        },
+        "candidate": False, "compiler": {"status": "unavailable"},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      work = Path(directory) / "qualification"
+      record = study.run_qualification(
+        work, operations={"build": build, "execute": execute}
+      )
+      self.assertEqual(len(record["cases"]), 4)
+      self.assertEqual(len(calls), 8)
+      lines = (work / "qualification-processes.jsonl").read_text().splitlines()
+      self.assertTrue(any('"event": "start"' in line for line in lines))
+      calls.clear()
+      study.run_qualification(work, operations={"build": build, "execute": execute})
+      self.assertEqual(calls, [])
+
+  def test_an_accepted_triage_import_survives_without_the_option(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      ledger = Path(directory) / "triage-ledger.jsonl"
+      ledger.write_text("\n".join("{}" for _ in range(10)) + "\n", encoding="utf-8")
+      study.Study(
+        work, frozen, build=fake_builder(), screen=fake_screen(),
+        execute=fake_execute()[0], triage_ledger=ledger,
+      ).prepare()
+      resumed = study.Study(
+        work, frozen, build=fake_builder(), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      self.assertEqual(resumed.triage_charge(), 10)
+      self.assertEqual(resumed.triage_charge("p2"), 10)
+      self.assertEqual(resumed.triage_charge("p0"), 0)
+      self.assertEqual(resumed.triage_charge("p1"), 0)
+      with self.assertRaises(study.StudyRefused):
+        study.Study(
+          work, frozen, build=fake_builder(), screen=fake_screen(),
+          execute=fake_execute()[0],
+          triage_ledger=Path(directory) / "missing.jsonl",
+        ).prepare()
+
+  def test_changed_accepted_import_bytes_are_refused(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      ledger = Path(directory) / "triage-ledger.jsonl"
+      ledger.write_text("{}\n", encoding="utf-8")
+      study.Study(
+        work, frozen, build=fake_builder(), screen=fake_screen(),
+        execute=fake_execute()[0], triage_ledger=ledger,
+      ).prepare()
+      ledger.write_text("{}\n{}\n", encoding="utf-8")
+      with self.assertRaises(study.StudyRefused):
+        study.Study(
+          work, frozen, build=fake_builder(), screen=fake_screen(),
+          execute=fake_execute()[0], triage_ledger=ledger,
+        ).prepare()
+
   def test_a_screening_candidate_appears_in_the_final_report(self):
     with tempfile.TemporaryDirectory() as directory:
       run = self._frozen_run(directory)
@@ -989,6 +1156,41 @@ class DeviceIntegrationTests(unittest.TestCase):
       self.assertEqual(outcome["paths"]["p0"]["status"], "unavailable")
       self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
       self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
+
+  def test_an_unavailable_selection_p0_is_not_replayed(self):
+    operations = self.operations()
+    with tempfile.TemporaryDirectory() as directory:
+      for attempt in range(1, 5):
+        slot, built = self.build(operations, directory, attempt)
+        if built["kind"] != "admitted":
+          continue
+        screened = operations["screen"](built)
+        if not screened["selected"]:
+          continue
+        built["screen"] = {
+          "p0": [
+            {"probe": probe, "status": "unavailable", "reason": "fixture"}
+            for probe in ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows")
+          ]
+        }
+        for warps in (1, 4):
+          events = []
+          outcome = operations["execute"]({
+            "slot": "device", "case": slot["id"],
+            "corpus": {"kind": "source", **built, "case": slot["id"]},
+            "input": "i0-base", "configuration": f"warps-{warps}",
+            "attempt": attempt,
+            "directory": str(Path(directory) / f"run-{warps}"),
+            "on_process": events.append,
+          })
+          self.assertEqual(outcome["paths"]["p0"]["status"], "unavailable")
+          self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
+          self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
+          self.assertFalse(
+            any(e.get("path") == "p0" and e.get("event") == "start" for e in events)
+          )
+        return
+      self.fail("no selected body in the bound")
 
   def test_conditional_state_variants_execute(self):
     operations = self.operations()

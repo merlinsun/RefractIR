@@ -4,6 +4,7 @@ import json
 import stat
 import struct
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -91,6 +92,21 @@ class DiagnosticReferenceTests(unittest.TestCase):
     observation = tensor_target_reference.observe(self.case, symiri=SYMIRI)
     self.assertEqual(observation.status, tensor_target_reference.COMPLETED)
     self.assertEqual(observation.output, EXPECTED)
+
+  def test_a_failing_start_callback_reaps_the_reference_child(self):
+    marker = self.root / "marker"
+    symiri = stub_symiri(self.root, f"sleep 1.5; touch {marker}", 0)
+
+    def on_process(event):
+      if event["event"] == "start":
+        raise OSError("ledger write failed")
+
+    with self.assertRaises(OSError):
+      tensor_target_reference.observe(
+        self.case, symiri=symiri, on_process=on_process
+      )
+    time.sleep(2.0)
+    self.assertFalse(marker.exists())
 
   def test_a_missing_interpreter_is_unavailable(self):
     observation = tensor_target_reference.observe(
