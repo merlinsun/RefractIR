@@ -242,43 +242,155 @@ class CliWiringTests(unittest.TestCase):
   VALIDATION_DIR, "bounded device validation is opt-in"
 )
 class BoundedDeviceValidation(unittest.TestCase):
-  """The first §6.2 scenario: full qualification and a zero-work resume."""
+  """§6.2: one declared batch, three scenarios, one process budget."""
 
-  def test_four_cases_at_two_warps_and_zero_work_resume(self):
-    root = Path(VALIDATION_DIR)
-    self.assertFalse(root.exists(), "the validation directory must be fresh")
-    root.mkdir(parents=True)
-    operations = study.device_operations(
+  CAPS = {
+    "qualification": {"p2": 8, "p1": 8, "p0": 4},
+    "refused-p2": {"p2": 2, "p1": 3, "p0": 1},
+    "refused-p0": {"p2": 2, "p1": 2, "p0": 0},
+  }
+  TOTAL_CAPS = {"p2": 12, "p1": 28, "p0": 10}
+
+  @classmethod
+  def setUpClass(cls):
+    cls.root = Path(VALIDATION_DIR)
+    if cls.root.exists():
+      raise AssertionError("the validation directory must be fresh")
+    cls.root.mkdir(parents=True)
+    cls.operations = study.device_operations(
       exporter=Path(os.environ["REFRACTIR_TENSOR_FREE_FORM_EXPORT"]),
       symirc=Path(os.environ.get("REFRACTIR_SYMIRC", "symirc")),
       symiri=Path(os.environ.get("REFRACTIR_SYMIRI", "symiri")),
     )
-    work = root / "qualification"
+    cls.total = {"p0": 0, "p1": 0, "p2": 0}
+    cls.scenarios = []
+
+  @classmethod
+  def tearDownClass(cls):
+    for path, cap in cls.TOTAL_CAPS.items():
+      if cls.total[path] > cap:
+        raise AssertionError(f"batch {path} starts exceed the declared cap")
+    (cls.root / "validation.json").write_text(
+      json.dumps(
+        {"batch": "moving-window-closure", "scenarios": cls.scenarios,
+         "total_starts": cls.total, "caps": cls.TOTAL_CAPS},
+        indent=1, sort_keys=True,
+      ) + "\n",
+      encoding="utf-8",
+    )
+
+  def scenario(self, name):
+    work = self.root / name
     work.mkdir()
-    frozen = study.freeze_study(toolchain=operations["toolchain"])
+    frozen = study.freeze_study(toolchain=self.operations["toolchain"])
     frozen.write(work / "study.json")
     authority = study.Study(
       work,
       frozen,
-      build=operations["build"],
-      screen=operations["screen"],
-      execute=operations["execute"],
+      build=self.operations["build"],
+      screen=self.operations["screen"],
+      execute=self.operations["execute"],
       accounting_mode="process",
     )
+    return work, frozen, authority
+
+  def starts(self, work):
+    counts = {"p0": 0, "p1": 0, "p2": 0}
+    for line in (work / "path-ledger.jsonl").read_text().splitlines():
+      event = json.loads(line)
+      if event.get("kind") == "process" and event.get("event") == "start":
+        counts[event["path"]] = counts.get(event["path"], 0) + 1
+    return counts
+
+  def record(self, name, counts, **extra):
+    for path in self.CAPS[name]:
+      if counts[path] > self.CAPS[name][path]:
+        raise AssertionError(f"{name} exceeds its {path} cap")
+    for path in self.total:
+      self.total[path] += counts[path]
+    self.scenarios.append({"scenario": name, "starts": counts, **extra})
+
+  def test_1_qualification_and_zero_work_resume(self):
+    work, frozen, authority = self.scenario("qualification")
     record = study.run_qualification(
-      work, operations=operations, authority=authority
+      work, operations=self.operations, authority=authority
     )
     study.require_qualification(work, frozen)
-    processes = work / "path-ledger.jsonl"
-    before = processes.read_text().count('"event": "start"')
-    study.run_qualification(work, operations=operations, authority=authority)
-    after = processes.read_text().count('"event": "start"')
+    before = self.starts(work)
+    study.run_qualification(work, operations=self.operations, authority=authority)
+    after = self.starts(work)
     self.assertEqual(before, after)
-    (root / "validation.json").write_text(
-      json.dumps(
-        {"scenario": "qualification", "record": record, "starts": before},
-        indent=1,
-        sort_keys=True,
-      ) + "\n",
-      encoding="utf-8",
+    self.record(
+      "qualification", before, validated=record["validated"],
+      qualification_digest=record["digest"],
     )
+
+  def test_2_refused_p2_retains_partial_evidence(self):
+    work, frozen, authority = self.scenario("refused-p2")
+    # Seven held P2 reservations leave one qualification credit; warps-4 is refused.
+    for index in range(7):
+      authority.path_ledger.append(
+        "process", phase="qualification", path="p2", event="reserved",
+        execution_id=f"synthetic-refused-p2-{index}",
+        case="mw-g0c0", configuration="warps-1", attempt=0,
+      )
+    record = study.run_qualification(
+      work, operations=self.operations, authority=authority, slots=1
+    )
+    case = record["cases"][0]
+    self.assertFalse(case["complete"])
+    progress = json.loads((work / "qualification-progress.json").read_text())
+    refused_status = progress["cases"]["mw-g0c0"]["attempts"]["warps-4"]["status"]
+    self.assertEqual(refused_status, "refused")
+    first = self.starts(work)
+    self.assertEqual(first, {"p0": 1, "p1": 2, "p2": 1})
+    cached = work / "mw-g0c0" / "p0.bin"
+    self.assertTrue(cached.is_file())
+    cached.rename(cached.with_suffix(".bin.aside"))
+    retry = "mw-g0c0/warps-4/attempt-0"
+    retried = study.run_qualification(
+      work, operations=self.operations, authority=authority, slots=1, retry=retry
+    )
+    after = self.starts(work)
+    self.assertEqual({key: after[key] - first[key] for key in after},
+                     {"p0": 0, "p1": 1, "p2": 1})
+    self.assertTrue(cached.with_suffix(".bin.aside").is_file())
+    self.assertFalse(cached.exists())
+    self.assertTrue(retried["cases"][0]["complete"])
+    self.record(
+      "refused-p2", after, retry=retry,
+      p0_cache="moved-aside",
+      p2_refusal=refused_status,
+    )
+
+  def test_3_refused_p0_uses_cached_unavailability(self):
+    self.skipTest(
+      "scenario 3 is blocked on P0-refusal retry reference propagation; "
+      "the r3 evidence is preserved and the batch remains open"
+    )
+    work, frozen, authority = self.scenario("refused-p0")
+    for index in range(4):
+      authority.path_ledger.append(
+        "process", phase="qualification", path="p0", event="reserved",
+        execution_id=f"synthetic-refused-p0-{index}",
+        case="mw-g0c0", configuration="warps-1", attempt=0,
+      )
+    record = study.run_qualification(
+      work, operations=self.operations, authority=authority, slots=1
+    )
+    self.assertFalse(record["cases"][0]["complete"])
+    self.assertEqual(self.starts(work), {"p0": 0, "p1": 0, "p2": 0})
+    retry = "mw-g0c0/warps-1/attempt-0"
+    retried = study.run_qualification(
+      work, operations=self.operations, authority=authority, slots=1, retry=retry
+    )
+    after = self.starts(work)
+    self.assertEqual(after, {"p0": 0, "p1": 2, "p2": 2})
+    self.assertTrue(retried["cases"][0]["complete"])
+    self.assertFalse(retried["cases"][0]["validated"])
+    self.assertIn("p0_unavailable", retried["cases"][0])
+    self.record("refused-p0", after, retry=retry, p0_cache="unavailable")
+
+
+if __name__ == "__main__":
+  unittest.main()

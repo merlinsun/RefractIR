@@ -2947,6 +2947,15 @@ def run_qualification(
           }
         )
       except DispatchRefused as error:
+        if needs_reference and observed is None:
+          from test.lib.tensor_target_reference import (
+            ReferenceObservation,
+            UNAVAILABLE,
+          )
+          failed = ReferenceObservation(
+            UNAVAILABLE, reason=f"P0 dispatch refused: {error}"
+          )
+          retain_reference(failed)
         outcome = {
           "status": "dispatch_refused",
           "dispatch_refused": str(error),
