@@ -331,6 +331,17 @@ def window_screen(*, trip_count, run_probe):
       if base_state[variant] != probe_state[variant]:
         hidden.append({"probe": probe, "variant": variant})
   all_runs = runs + conditional
+  relationship_candidates = []
+  if usable["base"] and usable["unused"] and not unused_agrees:
+    relationship_candidates.append(
+      {
+        "kind": "unused_rows_changed",
+        "path": "interpreter",
+        "probe": "i0-base vs i3-unused-rows",
+        "base_sha256": base["actual_sha256"],
+        "unused_sha256": unused["actual_sha256"],
+      }
+    )
   if len(all_runs) > MAX_WINDOW_PROBE_RUNS:
     raise DiagnosticsError("window screening exceeded its interpreter cap")
   return {
@@ -354,7 +365,7 @@ def window_screen(*, trip_count, run_probe):
        ("probe", "trip_count", "variant", "status", "finite", "actual_sha256")}
       for run in all_runs
       if run["status"] != COMPLETED and not run.get("unavailable")
-    ],
+    ] + relationship_candidates,
     "unavailable": [
       {key: run[key] for key in
        ("probe", "trip_count", "variant", "status", "finite", "actual_sha256")}

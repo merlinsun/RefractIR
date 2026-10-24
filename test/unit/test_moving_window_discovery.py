@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -286,14 +287,58 @@ class DiscoveryTests(unittest.TestCase):
         run.run_discovery()
 
   def test_a_missing_compiler_witness_cannot_suppress_a_candidate(self):
+    calls = {"count": 0}
+
+    def execute(request):
+      calls["count"] += 1
+      return {
+        "status": "target_agreement",
+        "paths": {
+          "p0": {"status": "completed", "cached": False},
+          "p1": {"status": "completed"},
+          "p2": {"status": "completed"},
+        },
+        "candidate": calls["count"] == 1,
+        "unavailable": [],
+        "compiler": {"status": "unavailable"},
+      }
+
     with tempfile.TemporaryDirectory() as directory:
-      run = self._frozen_run(directory, compiler_status="unavailable", candidate=True)
+      frozen = study.freeze_study()
+      admitted = [slot["id"] for slot in frozen.spec["sources"]]
+      run = study.Study(
+        Path(directory) / "work", frozen, build=fake_builder(admitted),
+        screen=fake_screen(), execute=execute,
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      run.run_discovery()
+      self.assertTrue(run.is_paused())
+      self.assertGreater(run.ledger.counts()["pending"], 0)
+      with self.assertRaises(study.StudyRefused):
+        run.finalize()
+      run.record_triage_decision("continue")
       run.run_discovery()
       final = run.finalize()
       self.assertGreater(len(final["candidates"]), 0)
       self.assertGreater(final["compiler"]["unavailable"], 0)
       self.assertTrue(final["corpus"], "the final record keeps the admitted corpus")
       self.assertTrue(final["observations"], "the final record keeps its observations")
+
+  def test_a_screening_candidate_appears_in_the_final_report(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = self._frozen_run(directory)
+      run.path_ledger.append(
+        "selection_candidates", case="mw-g0c0",
+        candidates=[{"kind": "unused_rows_changed", "probe": "i0-base vs i3-unused-rows"}],
+      )
+      run.run_discovery()
+      final = run.finalize()
+      phases = {candidate["phase"] for candidate in final["candidates"]}
+      self.assertIn("screening", phases)
+      self.assertTrue(
+        any(candidate.get("case") == "mw-g0c0" for candidate in final["candidates"])
+      )
 
   def test_report_from_records_reproduces_the_final_summary(self):
     with tempfile.TemporaryDirectory() as directory:
@@ -491,10 +536,17 @@ class EvidenceTests(unittest.TestCase):
       run.select_sources()
       run.freeze_corpus()
       entry = run.corpus()[0]
-      entry["source_sha256"] = "contradiction"
-      run.corpus_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
-      with self.assertRaises(study.StudyRefused):
-        run.corpus_for_report()
+      for field, value in (
+        ("source_sha256", "contradiction"),
+        ("inputs_sha256", "contradiction"),
+        ("layouts", {"bad": True}),
+        ("witnesses", [{"bad": True}]),
+      ):
+        mutated = dict(entry)
+        mutated[field] = value
+        run.corpus_path.write_text(json.dumps(mutated) + "\n", encoding="utf-8")
+        with self.assertRaises(study.StudyRefused):
+          run.corpus_for_report()
 
   def test_toolchain_identity_is_enforced(self):
     frozen = study.freeze_study(toolchain={"symirc_sha256": "a"})
@@ -523,6 +575,205 @@ class EvidenceTests(unittest.TestCase):
       self.assertIn("ttir", observed["stages"])
       self.assertIn("ptx", observed["artifact_sha256"])
       self.assertEqual(observed["predicate_attribution"], "unavailable")
+
+
+DEVICE_TESTS = os.environ.get("REFRACTIR_DEVICE_TESTS") == "1"
+
+
+
+class ReportAndControlTests(unittest.TestCase):
+  def test_low_disk_space_pauses_without_building(self):
+    import unittest.mock as mock
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      built = []
+      run = study.Study(
+        Path(directory) / "work", frozen,
+        build=lambda request: built.append(request) or {"kind": "refused"},
+        screen=fake_screen(), execute=fake_execute()[0],
+      ).prepare()
+      with mock.patch.object(study.shutil, "disk_usage") as usage:
+        usage.return_value = type("Usage", (), {"free": 0, "total": 0, "used": 0})()
+        run.select_sources()
+      self.assertTrue(run.is_paused())
+      self.assertEqual(built, [])
+      self.assertEqual(
+        [e for e in run.path_ledger.events if e.get("kind") == "disk_guard"][0]["free_bytes"],
+        0,
+      )
+
+  def test_process_events_are_counted_in_the_final_record(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = DiscoveryTests()._frozen_run(directory)
+      for path in ("p0", "p1", "p2"):
+        run.path_ledger.append("process", slot="s", path=path, event="start", mode="x")
+        run.path_ledger.append(
+          "process", slot="s", path=path, event="finish", mode="x", status="completed"
+        )
+      final = run.finalize()
+      processes = final["execution"]["processes"]
+      self.assertEqual(processes["started"], 3)
+      self.assertEqual(processes["finished"], 3)
+      self.assertEqual(processes["by_path"]["p1"]["started"], 1)
+
+  def controls_root(self, directory):
+    root = Path(directory) / "controls"
+    for control in study.study_spec()["controls"]:
+      for pattern in study.CONTROL_PATTERNS.values():
+        for warps in (1, 4):
+          bundle = root / control["source"] / f"{pattern}-warps-{warps}"
+          bundle.mkdir(parents=True)
+          (bundle / "program.sir").write_text(
+            "fun @kernel() : i32 { ^entry: ret 0; }\n", encoding="utf-8"
+          )
+          (bundle / "inputs.bin").write_bytes(b"\x00" * 4)
+          (bundle / "case.json").write_text(
+            json.dumps({"launch": {"num_warps": warps}}), encoding="utf-8"
+          )
+    return root
+
+  def frozen_with_controls(self, directory, controls_root):
+    frozen = study.freeze_study()
+    admitted = [slot["id"] for slot in frozen.spec["sources"]]
+    run = study.Study(
+      Path(directory) / "work", frozen, build=fake_builder(admitted),
+      screen=fake_screen(), execute=fake_execute()[0],
+      controls_root=controls_root,
+    ).prepare()
+    run.select_sources()
+    run.freeze_corpus()
+    return run
+
+  def test_freeze_records_control_payload_and_case_hashes(self):
+    with tempfile.TemporaryDirectory() as directory:
+      root = self.controls_root(directory)
+      run = self.frozen_with_controls(directory, root)
+      controls = run.frozen_corpus()["controls"]
+      self.assertEqual(len(controls), 4)
+      for control in controls:
+        self.assertEqual(len(control["hashes"]), 4)
+        for entry in control["hashes"].values():
+          self.assertEqual(set(entry["case_sha256"]), {"1", "4"})
+          self.assertTrue(entry["program_sha256"])
+          self.assertTrue(entry["inputs_sha256"])
+
+  def test_a_changed_control_case_is_refused_at_freeze(self):
+    with tempfile.TemporaryDirectory() as directory:
+      root = self.controls_root(directory)
+      control = study.study_spec()["controls"][0]
+      pattern = study.CONTROL_PATTERNS["i0-base"]
+      run = self.frozen_with_controls(directory, root)
+      frozen_control = next(
+        entry for entry in run.frozen_corpus()["controls"]
+        if entry["case"] == control["id"]
+      )
+      (root / control["source"] / f"{pattern}-warps-4" / "case.json").write_text(
+        json.dumps({"launch": {"num_warps": 4, "grid": 99}}), encoding="utf-8"
+      )
+      with self.assertRaises(study.StudyRefused):
+        study.verify_control_payload(
+          frozen_control, "i0-base",
+          root / control["source"] / f"{pattern}-warps-4", 4,
+        )
+
+  def test_a_missing_control_is_recorded_and_left_unexecuted(self):
+    with tempfile.TemporaryDirectory() as directory:
+      root = self.controls_root(directory)
+      control = study.study_spec()["controls"][0]
+      pattern = study.CONTROL_PATTERNS["i0-base"]
+      import shutil as shutil_module
+      shutil_module.rmtree(root / control["source"] / f"{pattern}-warps-1")
+      run = self.frozen_with_controls(directory, root)
+      controls = {entry["case"]: entry for entry in run.frozen_corpus()["controls"]}
+      self.assertEqual(controls[control["id"]]["status"], "missing")
+      run.run_discovery()
+      final = run.finalize()
+      missing_slots = [
+        slot_id for slot_id in final["execution"]["unexecuted"]
+        if slot_id.startswith(control["id"])
+      ]
+      self.assertEqual(len(missing_slots), 8)
+
+
+@unittest.skipUnless(DEVICE_TESTS, "device integration tests are opt-in")
+class DeviceIntegrationTests(unittest.TestCase):
+  def operations(self):
+    root = Path(os.environ.get("REFRACTIR_ROOT", ".")).resolve()
+    return study.device_operations(
+      exporter=Path(os.environ.get(
+        "REFRACTIR_TENSOR_FREE_FORM_EXPORT", root / "build/bin/tensor_free_form_export"
+      )),
+      symirc=Path(os.environ.get("REFRACTIR_SYMIRC", root / "symirc")),
+      symiri=Path(os.environ.get("REFRACTIR_SYMIRI", root / "symiri")),
+      controls_root=Path(os.environ["REFRACTIR_CONTROLS_ROOT"])
+      if os.environ.get("REFRACTIR_CONTROLS_ROOT") else None,
+    )
+
+  def build(self, operations, directory, attempt=1, case_id=None):
+    frozen = study.freeze_study()
+    slot = (
+      next(entry for entry in frozen.spec["sources"] if entry["id"] == case_id)
+      if case_id is not None else frozen.spec["sources"][0]
+    )
+    seed = frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt
+    return slot, operations["build"]({
+      "slot": slot, "attempt": attempt, "seed": seed,
+      "max_attempts": frozen.spec["attempts"]["internal_max_attempts"],
+      "directory": str(Path(directory) / f"build-{case_id or attempt}-{attempt}"),
+    })
+
+  def test_build_then_execute_reaches_the_workers(self):
+    operations = self.operations()
+    with tempfile.TemporaryDirectory() as directory:
+      slot, built = self.build(operations, directory)
+      self.assertEqual(built["kind"], "admitted", built.get("reason"))
+      self.assertIn("directory", built)
+      outcome = operations["execute"]({
+        "slot": "device", "case": slot["id"],
+        "corpus": {"kind": "source", **built, "case": slot["id"]},
+        "input": "i0-base", "configuration": "warps-1", "attempt": 0,
+        "directory": str(Path(directory) / "run"),
+      })
+      self.assertEqual(outcome["paths"]["p0"]["status"], "completed")
+      self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
+      self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
+
+  def test_conditional_state_variants_execute(self):
+    operations = self.operations()
+    with tempfile.TemporaryDirectory() as directory:
+      # The preserved selection record rejected this attempt for insensitivity,
+      # so the six base probes run and the conditional state probes follow.
+      slot, built = self.build(operations, directory, attempt=0, case_id="mw-g0c2")
+      self.assertEqual(built["kind"], "admitted", built.get("reason"))
+      screened = operations["screen"](built)
+      conditional = [
+        run for run in screened["record"]["runs"]
+        if run.get("variant") != "combined"
+      ]
+      self.assertTrue(conditional, screened["record"]["selection"])
+      self.assertTrue(
+        any(run["status"] == "completed" for run in conditional),
+        [run["status"] for run in conditional],
+      )
+      self.assertLessEqual(len(screened["record"]["runs"]), 10)
+
+  def test_screening_records_p0_output_identity(self):
+    operations = self.operations()
+    with tempfile.TemporaryDirectory() as directory:
+      for attempt in (1, 2, 3):
+        slot, built = self.build(operations, directory, attempt=attempt)
+        self.assertEqual(built["kind"], "admitted", built.get("reason"))
+        screened = operations["screen"](built)
+        if not screened["selected"]:
+          continue
+        self.assertEqual(screened["p0"], 4)
+        for entry in screened["record"]["p0"]:
+          self.assertTrue(entry["output_sha256"])
+          self.assertTrue(Path(entry["output_path"]).is_file())
+          self.assertIn(entry["agreement"], (True, False, None))
+        self.assertEqual(len(screened["record"]["p0"]), 4)
+        return
+      self.fail("no admitted body passed screening in the bound")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ if str(_ROOT) not in sys.path:
 
 from test.lib import tensor_tranche
 
+MIN_FREE_BYTES = 2 * 1024**3
 SCHEMA = "refractir.moving-window-study.v1"
 FINAL_SCHEMA = "refractir.moving-window-final.v1"
 CORPUS_SCHEMA = "refractir.moving-window-corpus.v1"
@@ -385,11 +387,14 @@ class Study:
     self.path_ledger.append("paused", reason=reason, candidates=len(candidates))
 
   def record_triage_decision(self, decision):
-    """Clear a pause only with an explicit triage decision in the record."""
+    """Record a triage disposition and only then clear the pause."""
     if not self.is_paused():
       raise StudyRefused("the study is not paused")
     self.path_ledger.append("triage_decision", decision=decision)
-    (self.work / "study-paused.json").rename(self.work / "study-triage.json")
+    path = self.work / "triage-decisions.jsonl"
+    with path.open("a", encoding="utf-8") as handle:
+      handle.write(json.dumps({"decision": decision}, sort_keys=True) + "\n")
+    (self.work / "study-paused.json").unlink()
     return decision
 
   def _paused_reason(self):
@@ -406,6 +411,17 @@ class Study:
       self.frozen.spec["sources"]
     )
 
+  def _disk_guard(self):
+    free = shutil.disk_usage(self.work).free
+    if free < MIN_FREE_BYTES:
+      self.path_ledger.append("disk_guard", free_bytes=free, required=MIN_FREE_BYTES)
+      self.pause(
+        [{"kind": "disk_space", "free_bytes": free, "required": MIN_FREE_BYTES}],
+        reason="free disk space is below the dispatch guard",
+      )
+      return False
+    return True
+
   def select_sources(self, max_slots=None):
     """Run the bounded builder calls and screen every admitted body.
 
@@ -413,6 +429,10 @@ class Study:
     re-rolls a shortfall. `max_slots` is a host-fixture hook for interrupting a
     selection run; the campaign passes no limit.
     """
+    if self.is_paused():
+      raise StudyRefused(f"the study is paused: {self._paused_reason()}")
+    if not self._disk_guard():
+      return self
     if (self.work / "corpus-frozen.json").is_file():
       raise StudyRefused("the corpus is already frozen")
     selected = self._selected_ids()
@@ -586,21 +606,26 @@ class Study:
       }
       if self.controls_root is not None:
         hashes = {}
+        missing = []
         for probe, pattern in CONTROL_PATTERNS.items():
           bundles = [
             self.controls_root / control["source"] / f"{pattern}-warps-{warps}"
             for warps in (1, 4)
           ]
           if not all(bundle.is_dir() for bundle in bundles):
-            raise StudyRefused(
-              f"archived control is missing: {control['source']}/{pattern}"
-            )
+            missing.append(f"{control['source']}/{pattern}")
+            continue
           program_sha = hashlib.sha256(
             (bundles[0] / "program.sir").read_bytes()
           ).hexdigest()
           inputs_sha = hashlib.sha256(
             (bundles[0] / "inputs.bin").read_bytes()
           ).hexdigest()
+          case_hashes = {}
+          for warps, bundle in zip((1, 4), bundles):
+            case_hashes[str(warps)] = hashlib.sha256(
+              (bundle / "case.json").read_bytes()
+            ).hexdigest()
           for bundle in bundles[1:]:
             if hashlib.sha256((bundle / "program.sir").read_bytes()).hexdigest() != program_sha:
               raise StudyRefused(f"archived control program changed across warps: {bundle}")
@@ -610,8 +635,12 @@ class Study:
             "pattern": pattern,
             "program_sha256": program_sha,
             "inputs_sha256": inputs_sha,
+            "case_sha256": case_hashes,
           }
         entry["hashes"] = hashes
+        if missing:
+          entry["status"] = "missing"
+          entry["reason"] = "missing archived controls: " + ", ".join(missing)
       controls.append(entry)
     record = {
       "schema": CORPUS_SCHEMA,
@@ -664,8 +693,13 @@ class Study:
       and event["attempt"] not in finished
     ]
 
+  IMMUTABLE_FIELDS = (
+    "source_sha256", "inputs_sha256", "layouts", "witnesses", "region",
+    "probes", "compiler_identity",
+  )
+
   def corpus_for_report(self):
-    """The frozen corpus, cross-checked against selection history if present."""
+    """The frozen corpus; selection history is cross-checked, never returned."""
     frozen = self.frozen_corpus()
     selected = self.corpus()
     if not selected:
@@ -677,13 +711,14 @@ class Study:
         raise StudyRefused(
           f"selection history names a case outside the frozen corpus: {entry.get('case')}"
         )
-      if entry.get("source_sha256") != frozen_entry.get("source_sha256"):
-        raise StudyRefused(
-          f"selection history contradicts the frozen source for {entry['case']}"
-        )
+      for field in self.IMMUTABLE_FIELDS:
+        if entry.get(field) != frozen_entry.get(field):
+          raise StudyRefused(
+            f"selection history contradicts the frozen {field} for {entry['case']}"
+          )
     if len(selected) != len(frozen["sources"]):
       raise StudyRefused("selection history and the frozen corpus disagree on source count")
-    return selected
+    return frozen["sources"]
 
   def _next_attempt(self, slot_id):
     used = [
@@ -701,6 +736,8 @@ class Study:
       raise StudyRefused("prepare the study before dispatch")
     if self.is_paused():
       raise StudyRefused(f"the study is paused: {self._paused_reason()}")
+    if not self._disk_guard():
+      return self
     corpus = self.frozen_corpus()
     if not corpus.get("diversity", {}).get("sufficient", False):
       raise StudyRefused("the generator diversity minimum is not met")
@@ -713,6 +750,16 @@ class Study:
       if self.ledger.state(slot.slot_id) != "pending":
         continue
       if slot.case_id not in available:
+        continue
+      corpus_entry = next(
+        entry for entry in corpus["sources"] + corpus["controls"]
+        if entry["case"] == slot.case_id
+      )
+      if corpus_entry.get("status") == "missing":
+        self.path_ledger.append(
+          "control_missing", case=slot.case_id, slot=slot.slot_id,
+          reason=corpus_entry.get("reason"),
+        )
         continue
       self.ledger.claim(slot.slot_id)
       attempt = self._next_attempt(slot.slot_id)
@@ -750,15 +797,20 @@ class Study:
         outcome = self.execute(request)
       except Exception as error:
         self.ledger.finish(slot.slot_id, "failed", reason=f"{type(error).__name__}: {error}")
-        self.path_ledger.append(
-          "classification",
-          slot=slot.slot_id,
-          status="driver_error",
-          candidate=False,
-          unavailable=[],
-          compiler={"status": "unavailable"},
+        classification = {
+          "slot": slot.slot_id,
+          "case": slot.case_id,
+          "status": "driver_error",
+          "candidate": True,
+          "unavailable": [f"driver error: {type(error).__name__}: {error}"],
+          "compiler": {"status": "unavailable"},
+        }
+        self.path_ledger.append("classification", **classification)
+        self.pause(
+          [classification],
+          reason=f"infrastructure error during discovery at {slot.slot_id}",
         )
-        continue
+        return self
       for path in ("p0", "p1", "p2"):
         info = outcome.get("paths", {}).get(path)
         if info is None:
@@ -831,7 +883,22 @@ class Study:
     events = self.path_ledger.events
     sources = self.corpus_for_report()
     classifications = [e for e in events if e.get("kind") == "classification"]
-    candidates = [e for e in classifications if e.get("candidate")]
+    screening_candidates = [
+      {"phase": "screening", **event}
+      for event in events
+      if event.get("kind") in ("selection_candidates", "selection_invalid_execution")
+    ]
+    discovery_candidates = [
+      {"phase": "discovery", **event}
+      for event in classifications
+      if event.get("candidate")
+    ]
+    # Historical records predate screening-candidate provenance; keep their
+    # shape so a preserved final record still reproduces exactly.
+    if screening_candidates:
+      candidates = screening_candidates + discovery_candidates
+    else:
+      candidates = [e for e in classifications if e.get("candidate")]
     unavailable = [
       {"slot": e["slot"], "reason": reason}
       for e in classifications
@@ -875,6 +942,37 @@ class Study:
         "slots": len(self.frozen.tranche.slots),
         "states": counts,
         "unexecuted": unexecuted,
+        **(
+          {
+            "processes": {
+              "started": sum(
+                1 for e in events if e.get("kind") == "process" and e.get("event") == "start"
+              ),
+              "finished": sum(
+                1 for e in events if e.get("kind") == "process" and e.get("event") == "finish"
+              ),
+              "by_path": {
+                path: {
+                  "started": sum(
+                    1 for e in events
+                    if e.get("kind") == "process"
+                    and e.get("event") == "start"
+                    and e.get("path") == path
+                  ),
+                  "finished": sum(
+                    1 for e in events
+                    if e.get("kind") == "process"
+                    and e.get("event") == "finish"
+                    and e.get("path") == path
+                  ),
+                }
+                for path in ("p0", "p1", "p2")
+              },
+            }
+          }
+          if any(e.get("kind") == "process" for e in events)
+          else {}
+        ),
       },
       "paths": path_counts(events),
       "candidates": candidates,
@@ -899,6 +997,10 @@ class Study:
   def finalize(self):
     if self.ledger is None:
       raise StudyRefused("prepare the study before finalizing")
+    if self.is_paused():
+      raise StudyRefused(
+        f"cannot finalize a paused study: {self._paused_reason()}"
+      )
     counts = self.ledger.close()
     record = self._final_record(counts)
     (self.work / "final.json").write_text(
@@ -1004,6 +1106,28 @@ def _file_sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
   except OSError:
     return None
+
+
+def verify_control_payload(corpus, probe, bundle, warps):
+  """Load a frozen control only after verifying every mutable payload part."""
+  bundle = Path(bundle)
+  archived_program = (bundle / "program.sir").read_bytes()
+  archived_inputs = (bundle / "inputs.bin").read_bytes()
+  archived_case = (bundle / "case.json").read_bytes()
+  frozen_hashes = (corpus.get("hashes") or {}).get(probe)
+  if frozen_hashes:
+    if hashlib.sha256(archived_program).hexdigest() != frozen_hashes.get("program_sha256"):
+      raise StudyRefused(f"archived control program changed: {corpus.get('source')}")
+    if hashlib.sha256(archived_inputs).hexdigest() != frozen_hashes.get("inputs_sha256"):
+      raise StudyRefused(f"archived control input changed: {corpus.get('source')}")
+    if hashlib.sha256(archived_case).hexdigest() != (frozen_hashes.get("case_sha256") or {}).get(str(warps)):
+      raise StudyRefused(f"archived control case changed: {corpus.get('source')}")
+  case_record = json.loads(archived_case)
+  if case_record.get("launch", {}).get("num_warps") != warps:
+    raise StudyRefused(
+      f"archived control warp setting differs from the slot: {warps}"
+    )
+  return archived_program, archived_inputs, archived_case
 
 
 def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s=300.0):
@@ -1119,6 +1243,8 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         bundles[f"{probe.probe}-tminus"] = str(bundle)
     return {
       "kind": "admitted",
+      "directory": str(directory),
+      "export_command": list(command),
       "region": region,
       "source": source,
       "trip_variant": tminus,
@@ -1143,13 +1269,73 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       compiler_identity=identity,
     )
 
+  def _state_variant(outcome, probe, trips, variant):
+    """Export the same body returning one state, then run the requested probe."""
+    state = variant.rsplit("-", 1)[-1]
+    if state not in ("0", "1"):
+      return "unsupported", None
+    base = _Path(outcome["directory"]) / "variants" / f"state-{state}"
+    base.mkdir(parents=True, exist_ok=True)
+    command = list(outcome.get("export_command") or [])
+    if len(command) < 2 or command[-2] != "--out":
+      return "unsupported", None
+    command = command[:-2] + ["--return", f"state:{state}", "--out", str(base / "export")]
+    completed = subprocess.run(
+      command, capture_output=True, text=True, check=False, timeout=timeout_s
+    )
+    if completed.returncode != 0:
+      (base / "reason.txt").write_text(
+        (completed.stderr or completed.stdout).strip()[-2000:], encoding="utf-8"
+      )
+      return "runtime_failure", None
+    source = (base / "export" / "program.sir").read_text(encoding="utf-8")
+
+    def body(text):
+      # Returning one state omits the unused combined-output declaration; every
+      # loop declaration and statement must otherwise be identical.
+      return [
+        line for line in text.split("^exit:")[0].splitlines()
+        if not line.strip().startswith("let mut %out:")
+      ]
+
+    if body(source) != body(outcome["source"]):
+      (base / "reason.txt").write_text("the variant body changed", encoding="utf-8")
+      return "runtime_failure", None
+    if trips != outcome["trip_count"]:
+      source = _trip_variant(source, trips)
+    data = bytes(outcome["probe_values"][probe])
+    proposal = tensor_free_form_inputs.Proposal(
+      schema=tensor_free_form_inputs.WINDOW_PROBE_SCHEMA,
+      pattern=probe,
+      seed=0,
+      names=tuple(record["name"] for record in
+                  tensor_free_form_inputs.parameters(outcome["region"])),
+      shapes=tuple(tuple(record["shape"]) for record in
+                   tensor_free_form_inputs.parameters(outcome["region"])),
+      dtype="f32",
+      values=(),
+      data=data,
+    )
+    bundle = base / f"bundle-{probe}-{trips}"
+    tensor_free_form_case.build_bundle(
+      bundle,
+      region={**outcome["region"], "num_warps": 1},
+      source=source,
+      proposal=proposal,
+      input_layouts=outcome.get("layouts") or None,
+      output_row_padding=1,
+      output_offset=1,
+    )
+    run = _screen_bundle(bundle)
+    return run.status, run.interpreter.actual
+
   def screen(outcome):
     """Use the shared window schedule; keep candidates and P0 separate."""
     trip_count = outcome["trip_count"]
 
     def run_probe(probe, trips, variant):
       if variant != "combined":
-        return "unsupported", None
+        return _state_variant(outcome, probe, trips, variant)
       key = probe if trips == trip_count else f"{probe}-tminus"
       bundle = outcome["bundles"].get(key)
       if bundle is None:
@@ -1238,6 +1424,16 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     probe = request["input"]
     configuration = request["configuration"]
     directory = _Path(request["directory"])
+    process = request.get("on_process")
+
+    def p0_process(event):
+      if process is not None:
+        process({**event, "path": "p0"})
+
+    def run_process(event):
+      if process is not None:
+        path = "p1" if event.get("mode") == "interpret" else "p2"
+        process({**event, "path": path})
     directory.mkdir(parents=True, exist_ok=True)
     if corpus.get("kind") == "control":
       if controls_root is None:
@@ -1261,14 +1457,17 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
           "unavailable": [f"archived control bundle is missing: {bundle}"],
           "compiler": {"status": "unavailable"},
         }
-      archived_program = (bundle / "program.sir").read_bytes()
-      archived_inputs = (bundle / "inputs.bin").read_bytes()
-      frozen_hashes = (corpus.get("hashes") or {}).get(probe)
-      if frozen_hashes:
-        if hashlib.sha256(archived_program).hexdigest() != frozen_hashes.get("program_sha256"):
-          raise StudyRefused(f"archived control program changed: {corpus.get('source')}")
-        if hashlib.sha256(archived_inputs).hexdigest() != frozen_hashes.get("inputs_sha256"):
-          raise StudyRefused(f"archived control input changed: {corpus.get('source')}")
+      if corpus.get("status") == "missing":
+        return {
+          "status": "unavailable",
+          "paths": {},
+          "candidate": False,
+          "unavailable": [corpus.get("reason", "archived control is missing")],
+          "compiler": {"status": "unavailable"},
+        }
+      archived_program, archived_inputs, archived_case = verify_control_payload(
+        corpus, probe, bundle, warps
+      )
       case = tensor_target_case.load(bundle, symiri=symiri)
       cache_key = (
         "control",
@@ -1286,6 +1485,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         reference = tensor_target_reference.observe(
           case, symiri=symiri, timeout_s=timeout_s,
           output_path=directory / "p0.bin",
+          on_process=p0_process,
         )
         if reference.status == tensor_target_reference.COMPLETED:
           reference_cache[cache_key] = reference
@@ -1297,6 +1497,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         timeout_s=timeout_s,
         artifact_dir=directory / "target-runs",
         compiler_identity=identity,
+        on_process=run_process,
       )
       paths = {
         "p0": {
@@ -1339,6 +1540,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     source = corpus["source"]
     if corpus.get("source_sha256") and hashlib.sha256(source.encode("utf-8")).hexdigest() != corpus["source_sha256"]:
       raise StudyRefused("the corpus source changed after the freeze")
+    probe_bytes = bytes(corpus["probe_values"][probe])
     stored_probe = (corpus.get("probes") or {}).get(probe) or {}
     if stored_probe.get("sha256") and hashlib.sha256(probe_bytes).hexdigest() != stored_probe["sha256"]:
       raise StudyRefused("the corpus probe inputs changed after the freeze")
@@ -1370,7 +1572,6 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     reference = request.get("reference")
     cached = reference is not None
     cache_state = "hit" if cached else "miss"
-    probe_bytes = bytes(corpus["probe_values"][probe])
     cache_key = (
       "source",
       corpus.get("source_sha256"),
@@ -1419,7 +1620,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         }
       if reference is None:
         reference = tensor_target_reference.observe(
-          case, symiri=symiri, timeout_s=timeout_s
+          case, symiri=symiri, timeout_s=timeout_s, on_process=p0_process
         )
     run = tensor_target_run.run(
       bundle,
@@ -1532,9 +1733,10 @@ def main(argv=None):
   parser.add_argument("--symiri", required=True)
   parser.add_argument("--timeout", type=float, default=300.0)
   parser.add_argument("--controls-root", default=None)
-  parser.add_argument("--mode", choices=("qualification", "select", "discover"),
+  parser.add_argument("--mode", choices=("qualification", "select", "discover", "close"),
                       required=True)
   parser.add_argument("--accept-current-toolchain", action="store_true")
+  parser.add_argument("--triage-decision", default=None)
   arguments = parser.parse_args(argv)
   operations = device_operations(
     exporter=Path(arguments.exporter),
@@ -1558,13 +1760,31 @@ def main(argv=None):
     work, frozen, controls_root=Path(arguments.controls_root) if arguments.controls_root else None,
     **operations,
   ).prepare()
+  if study.is_paused():
+    if arguments.triage_decision is None:
+      raise StudyRefused(
+        f"the study is paused ({study._paused_reason()}); pass --triage-decision"
+      )
+    study.record_triage_decision(arguments.triage_decision)
+    if arguments.triage_decision == "stop":
+      print(json.dumps({"paused": "stopped"}))
+      return 2
   if arguments.mode == "select":
     study.select_sources()
+    if study.is_paused():
+      print(json.dumps({"paused": study._paused_reason()}))
+      return 2
     corpus = study.freeze_corpus()
     print(json.dumps({"selected": len(corpus["sources"]),
                       "shortfalls": corpus["shortfalls"]}))
     return 0
-  study.run_discovery()
+  if arguments.mode == "discover":
+    study.run_discovery()
+    if study.is_paused():
+      print(json.dumps({"paused": study._paused_reason()}))
+      return 2
+    print(json.dumps({"execution": study.ledger.counts()}))
+    return 0
   final = study.finalize()
   print(json.dumps({"execution": final["execution"]["states"],
                     "candidates": len(final["candidates"])}))

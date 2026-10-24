@@ -272,6 +272,10 @@ class WindowScreenTests(unittest.TestCase):
     self.assertFalse(record["selection"]["selected"])
     self.assertEqual(record["selection"]["reason"], diagnostics.NOT_SELECTED_UNUSED)
     self.assertTrue(record["labels"]["unused_rows_changed"])
+    candidates = [c for c in record["candidates"] if c.get("kind") == "unused_rows_changed"]
+    self.assertEqual(len(candidates), 1)
+    self.assertIn("base_sha256", candidates[0])
+    self.assertIn("unused_sha256", candidates[0])
 
   def test_a_non_finite_result_is_not_a_completed_observation(self):
     infinite = struct.pack("<4f", float("inf"), 1.0, 2.0, 3.0)

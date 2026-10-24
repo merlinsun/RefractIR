@@ -58,7 +58,7 @@ class ReferenceObservation:
     }
 
 
-def observe(case, *, symiri, timeout_s=120.0, output_path=None):
+def observe(case, *, symiri, timeout_s=120.0, output_path=None, on_process=None):
   """Run `symiri` over the bundle's inputs and classify the observation.
 
   `case` only needs `path` and `record`; a loaded `TargetCase` qualifies, and a
@@ -90,6 +90,8 @@ def observe(case, *, symiri, timeout_s=120.0, output_path=None):
     str(output),
     str(bundle / "program.sir"),
   ]
+  if on_process is not None:
+    on_process({"event": "start", "mode": "reference", "command": list(command)})
   try:
     completed = subprocess.run(
       command,
@@ -99,6 +101,8 @@ def observe(case, *, symiri, timeout_s=120.0, output_path=None):
       timeout=timeout_s,
     )
   except subprocess.TimeoutExpired as error:
+    if on_process is not None:
+      on_process({"event": "finish", "mode": "reference", "status": "timed_out"})
     return ReferenceObservation(
       TIMED_OUT,
       stderr=_captured(error.stderr),
@@ -106,8 +110,23 @@ def observe(case, *, symiri, timeout_s=120.0, output_path=None):
       command=tuple(command),
     )
   except OSError as error:
+    if on_process is not None:
+      on_process({"event": "finish", "mode": "reference", "status": "unavailable"})
     return ReferenceObservation(
       UNAVAILABLE, reason=f"cannot start symiri: {error}", command=tuple(command)
+    )
+  except BaseException:
+    if on_process is not None:
+      on_process({"event": "finish", "mode": "reference", "status": "interrupted"})
+    raise
+  if on_process is not None:
+    on_process(
+      {
+        "event": "finish",
+        "mode": "reference",
+        "status": "completed" if completed.returncode == 0 else "failed",
+        "exit_code": completed.returncode,
+      }
     )
   stderr = completed.stderr or ""
   if completed.returncode == 0:

@@ -46,6 +46,7 @@ def run_child(
   cwd=ROOT,
   cache_dir=None,
   device_id=None,
+  on_process=None,
 ):
   """Run one mode in a fresh process with an explicit interpreter setting."""
   if mode not in {"compiled", "interpret"}:
@@ -71,14 +72,35 @@ def run_child(
   env["PYTHONPATH"] = str(ROOT) + (
     os.pathsep + existing_pythonpath if existing_pythonpath else ""
   )
-  return subprocess.run(
-    command,
-    cwd=cwd,
-    env=env,
-    capture_output=True,
-    timeout=timeout_s,
-    check=False,
-  )
+  if on_process is not None:
+    on_process({"event": "start", "mode": mode, "command": list(command)})
+  try:
+    completed = subprocess.run(
+      command,
+      cwd=cwd,
+      env=env,
+      capture_output=True,
+      timeout=timeout_s,
+      check=False,
+    )
+  except subprocess.TimeoutExpired:
+    if on_process is not None:
+      on_process({"event": "finish", "mode": mode, "status": "timed_out"})
+    raise
+  except BaseException:
+    if on_process is not None:
+      on_process({"event": "finish", "mode": mode, "status": "interrupted"})
+    raise
+  if on_process is not None:
+    on_process(
+      {
+        "event": "finish",
+        "mode": mode,
+        "status": "completed" if completed.returncode == 0 else "failed",
+        "exit_code": completed.returncode,
+      }
+    )
+  return completed
 
 
 def gpu_available(device_id=0):

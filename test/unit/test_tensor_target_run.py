@@ -337,6 +337,24 @@ class TargetRunTests(unittest.TestCase):
     arguments.update(overrides)
     return tensor_target_run.run_native(self.bundle, **arguments)
 
+  def test_the_native_runner_reports_process_lifecycle_events(self):
+    self.write_bundle()
+    self.configure(
+      {
+        "interpret": {"phase": "runtime", "actual": AGREE_HEX},
+        "compiled": {"phase": "runtime", "actual": AGREE_HEX},
+      }
+    )
+    events = []
+    run = self.run_native(on_process=events.append)
+    self.assertEqual(run.status, "target_agreement")
+    self.assertEqual(
+      [event["event"] for event in events],
+      ["start", "finish", "start", "finish"],
+    )
+    self.assertEqual({event["mode"] for event in events}, {"interpret", "compiled"})
+    self.assertTrue(all(event.get("status") == "completed" for event in events if event["event"] == "finish"))
+
   def test_a_frozen_native_kernel_runs_both_modes_without_symirc(self):
     self.write_bundle()
     self.configure(

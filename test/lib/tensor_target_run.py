@@ -295,6 +295,7 @@ def run_interpreter(
   artifact_dir=None,
   reference=None,
   compiler_identity=None,
+  on_process=None,
 ):
   """Emit once and run only the Triton interpreter.
 
@@ -330,6 +331,7 @@ def run_interpreter(
     timeout_s=timeout_s,
     worker_command=worker_command,
     expected_output_bytes=case.record["output"]["byte_length"],
+    on_process=on_process,
   )
   status = interpreter.status
   finite = None
@@ -384,6 +386,7 @@ def run(
   cache_dir=None,
   reference=None,
   compiler_identity=None,
+  on_process=None,
 ):
   """Emit once, run both modes, and record what each produced.
 
@@ -421,6 +424,7 @@ def run(
     timeout_s=timeout_s,
     worker_command=worker_command,
     expected_output_bytes=expected_output_bytes,
+    on_process=on_process,
   )
   visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
   if not visible:
@@ -445,6 +449,7 @@ def run(
       device_id=device_id,
       cache_dir=cache_dir,
       expected_output_bytes=expected_output_bytes,
+      on_process=on_process,
     )
 
   status, mismatches = _classify(interpreter, compiled)
@@ -622,6 +627,7 @@ def run_native(
   record=None,
   reference=None,
   compiler_identity=None,
+  on_process=None,
 ):
   """Run one frozen Triton kernel through both modes, without an emitter.
 
@@ -679,6 +685,7 @@ def run_native(
     timeout_s=timeout_s,
     worker_command=worker_command,
     expected_output_bytes=expected_output_bytes,
+    on_process=on_process,
   )
   visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
   if not visible:
@@ -703,6 +710,7 @@ def run_native(
       device_id=device_id,
       cache_dir=cache_dir,
       expected_output_bytes=expected_output_bytes,
+      on_process=on_process,
     )
   status, mismatches = _classify(interpreter, compiled)
   target = TargetRun(
@@ -739,6 +747,7 @@ def _run_mode(
   device_id=None,
   cache_dir=None,
   expected_output_bytes=None,
+  on_process=None,
 ):
   """Stage the recorded kernel and run one mode in a fresh process."""
   mode_dir = artifacts / mode
@@ -776,6 +785,7 @@ def _run_mode(
       cache_dir=(
         Path(cache_dir) / "compiled" if mode == "compiled" and cache_dir is not None else None
       ),
+      on_process=on_process,
     )
   except subprocess.TimeoutExpired as error:
     stderr = _text(error.stderr)
