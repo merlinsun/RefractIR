@@ -73,24 +73,40 @@ def run_child(
     os.pathsep + existing_pythonpath if existing_pythonpath else ""
   )
   if on_process is not None:
-    on_process({"event": "start", "mode": mode, "command": list(command)})
+    on_process({"event": "reserved", "mode": mode, "command": list(command)})
   try:
-    completed = subprocess.run(
+    process = subprocess.Popen(
       command,
       cwd=cwd,
       env=env,
-      capture_output=True,
-      timeout=timeout_s,
-      check=False,
+      stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE,
     )
+  except OSError as error:
+    if on_process is not None:
+      on_process(
+        {"event": "finish", "mode": mode, "status": "spawn_failed", "reason": str(error)}
+      )
+    raise
+  if on_process is not None:
+    on_process({"event": "start", "mode": mode, "pid": process.pid})
+  try:
+    stdout, stderr = process.communicate(timeout=timeout_s)
   except subprocess.TimeoutExpired:
+    process.kill()
+    process.communicate()
     if on_process is not None:
       on_process({"event": "finish", "mode": mode, "status": "timed_out"})
     raise
   except BaseException:
+    process.kill()
+    process.communicate()
     if on_process is not None:
       on_process({"event": "finish", "mode": mode, "status": "interrupted"})
     raise
+  completed = subprocess.CompletedProcess(
+    command, process.returncode, stdout, stderr
+  )
   if on_process is not None:
     on_process(
       {

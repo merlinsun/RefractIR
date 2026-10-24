@@ -215,6 +215,9 @@ class FreeFormContractTests(unittest.TestCase):
   def test_graph_keys_ignore_names_and_declaration_order(self):
     self.run_contract("graph-keys-ignore-names-and-order")
 
+  def test_graph_keys_include_input_types(self):
+    self.run_contract("graph-keys-include-input-types")
+
   def test_graph_keys_follow_roots_edges_and_roles(self):
     self.run_contract("graph-keys-follow-roots-edges-roles")
 

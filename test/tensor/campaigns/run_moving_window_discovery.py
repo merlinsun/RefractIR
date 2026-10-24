@@ -326,13 +326,15 @@ def path_counts(events):
 class Study:
   """One run of the frozen study: selection, discovery, and accounting."""
 
-  def __init__(self, work, frozen, *, build, screen, execute, controls_root=None):
+  def __init__(self, work, frozen, *, build, screen, execute, controls_root=None,
+               triage_ledger=None):
     self.work = Path(work)
     self.frozen = frozen
     self.build = build
     self.screen = screen
     self.execute = execute
     self.controls_root = None if controls_root is None else Path(controls_root)
+    self.triage_ledger = None if triage_ledger is None else Path(triage_ledger)
     self.path_ledger = PathLedger(self.work / "path-ledger.jsonl")
     self.corpus_path = self.work / "corpus.jsonl"
     self.ledger = None
@@ -387,15 +389,38 @@ class Study:
     self.path_ledger.append("paused", reason=reason, candidates=len(candidates))
 
   def record_triage_decision(self, decision):
-    """Record a triage disposition and only then clear the pause."""
+    """Apply a validated disposition and only then clear the pause."""
     if not self.is_paused():
       raise StudyRefused("the study is not paused")
-    self.path_ledger.append("triage_decision", decision=decision)
+    record = dict(decision) if isinstance(decision, dict) else {"action": decision}
+    action = record.get("action")
+    if action not in ("admit", "reject", "resume", "stop"):
+      raise StudyRefused(f"unknown triage action: {action}")
+    pending = self._pending_admission()
+    if action in ("admit", "reject") and pending is None:
+      raise StudyRefused("no pending admission to decide")
+    record = {
+      **record,
+      "case": (pending or {}).get("case"),
+      "attempt": (pending or {}).get("attempt"),
+    }
     path = self.work / "triage-decisions.jsonl"
     with path.open("a", encoding="utf-8") as handle:
-      handle.write(json.dumps({"decision": decision}, sort_keys=True) + "\n")
+      handle.write(json.dumps(record, sort_keys=True) + "\n")
+    self.path_ledger.append("triage_decision", decision=record)
+    if action == "admit":
+      self._admit_pending()
+    elif action == "reject":
+      self.path_ledger.append(
+        "triage_rejected", case=pending["case"], attempt=pending["attempt"]
+      )
+      self._clear_pending()
+    elif action == "stop":
+      (self.work / "study-stopped.json").write_text(
+        json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+      )
     (self.work / "study-paused.json").unlink()
-    return decision
+    return record
 
   def _paused_reason(self):
     path = self.work / "study-paused.json"
@@ -410,6 +435,93 @@ class Study:
     return len(self._selected_ids()) + len(self._shortfalls()) >= len(
       self.frozen.spec["sources"]
     )
+
+  def _corpus_entry(self, slot, outcome, screened):
+    return {
+      "case": slot["id"],
+      "lane": slot["lane"],
+      "kind": "source",
+      "source_sha256": outcome.get("source_sha256"),
+      "inputs_sha256": outcome.get("inputs_sha256"),
+      "layouts": outcome.get("layouts", {}),
+      "witnesses": outcome.get("witnesses", []),
+      "region": outcome.get("region"),
+      "source": outcome.get("source"),
+      "trip_variant": outcome.get("trip_variant"),
+      "probe_values": outcome.get("probe_values"),
+      "bundles": outcome.get("bundles"),
+      "compiler_identity": outcome.get("compiler_identity"),
+      "screen": screened.get("record", {}),
+    }
+
+  def _pending_path(self):
+    return self.work / "pending-admission.json"
+
+  def _pending_admission(self):
+    path = self._pending_path()
+    if not path.is_file():
+      return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+  def _save_pending(self, pending):
+    self._pending_path().write_text(
+      json.dumps(pending, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+  def _clear_pending(self):
+    self._pending_path().unlink(missing_ok=True)
+
+  def _admit_pending(self):
+    pending = self._pending_admission()
+    if pending is None:
+      return False
+    entry = pending["entry"]
+    if entry["case"] not in self._selected_ids():
+      self.path_ledger.append(
+        "corpus", case=entry["case"],
+        source_sha256=entry.get("source_sha256"),
+        inputs_sha256=entry.get("inputs_sha256"),
+      )
+      with self.corpus_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    self._clear_pending()
+    return True
+
+  def _decisions(self):
+    path = self.work / "triage-decisions.jsonl"
+    if not path.is_file():
+      return []
+    return [
+      json.loads(line)
+      for line in path.read_text(encoding="utf-8").splitlines()
+      if line.strip()
+    ]
+
+  def _reconcile_pending(self):
+    pending = self._pending_admission()
+    if pending is None:
+      return
+    decisions = [
+      decision for decision in self._decisions()
+      if decision.get("case") == pending.get("case")
+      and decision.get("attempt") == pending.get("attempt")
+    ]
+    if not decisions:
+      raise StudyRefused(
+        f"a pending admission for {pending.get('case')} needs a triage decision"
+      )
+    action = decisions[-1].get("action")
+    if action == "admit":
+      self._admit_pending()
+    elif action == "reject":
+      self._clear_pending()
+    elif action == "stop":
+      raise StudyRefused("the study is stopped")
+    else:
+      raise StudyRefused(f"unsupported triage action for a pending admission: {action}")
+
+  def is_stopped(self):
+    return (self.work / "study-stopped.json").is_file()
 
   def _disk_guard(self):
     free = shutil.disk_usage(self.work).free
@@ -431,6 +543,9 @@ class Study:
     """
     if self.is_paused():
       raise StudyRefused(f"the study is paused: {self._paused_reason()}")
+    if self.is_stopped():
+      raise StudyRefused("the study is stopped")
+    self._reconcile_pending()
     if not self._disk_guard():
       return self
     if (self.work / "corpus-frozen.json").is_file():
@@ -460,6 +575,8 @@ class Study:
       for attempt in range(self.frozen.spec["attempts"]["per_slot"]):
         if attempt in used:
           continue
+        if not self._disk_guard():
+          return self
         seed = (
           self.frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt
         )
@@ -496,6 +613,9 @@ class Study:
         )
         if outcome.get("kind") != "admitted":
           continue
+        outcome["on_process"] = lambda event, case=slot["id"], attempt=attempt:           self.path_ledger.append(
+            "process", phase="screening", case=case, attempt=attempt, **event
+          )
         screened = self.screen(outcome)
         self.path_ledger.append(
           "selection_screen",
@@ -518,6 +638,15 @@ class Study:
             case=slot["id"],
             candidates=candidates,
           )
+          self._save_pending(
+            {
+              "case": slot["id"],
+              "attempt": attempt,
+              "seed": seed,
+              "entry": self._corpus_entry(slot, outcome, screened),
+              "candidates": candidates,
+            }
+          )
           self.pause(
             candidates,
             reason=f"screening candidates for {slot['id']}",
@@ -529,22 +658,7 @@ class Study:
             unavailable=screened["unavailable"],
           )
         if screened.get("selected"):
-          admitted = {
-            "case": slot["id"],
-            "lane": slot["lane"],
-            "kind": "source",
-            "source_sha256": outcome.get("source_sha256"),
-            "inputs_sha256": outcome.get("inputs_sha256"),
-            "layouts": outcome.get("layouts", {}),
-            "witnesses": outcome.get("witnesses", []),
-            "region": outcome.get("region"),
-            "source": outcome.get("source"),
-            "trip_variant": outcome.get("trip_variant"),
-            "probe_values": outcome.get("probe_values"),
-            "bundles": outcome.get("bundles"),
-            "compiler_identity": outcome.get("compiler_identity"),
-            "screen": screened.get("record", {}),
-          }
+          admitted = self._corpus_entry(slot, outcome, screened)
           break
       if admitted is None:
         self.path_ledger.append(
@@ -604,7 +718,10 @@ class Study:
         "source": control["source"],
         "patterns": dict(CONTROL_PATTERNS),
       }
-      if self.controls_root is not None:
+      if self.controls_root is None:
+        entry["status"] = "missing"
+        entry["reason"] = "no control archive was supplied"
+      else:
         hashes = {}
         missing = []
         for probe, pattern in CONTROL_PATTERNS.items():
@@ -736,6 +853,8 @@ class Study:
       raise StudyRefused("prepare the study before dispatch")
     if self.is_paused():
       raise StudyRefused(f"the study is paused: {self._paused_reason()}")
+    if self.is_stopped():
+      raise StudyRefused("the study is stopped")
     if not self._disk_guard():
       return self
     corpus = self.frozen_corpus()
@@ -749,6 +868,8 @@ class Study:
     for slot in self.frozen.tranche.slots:
       if self.ledger.state(slot.slot_id) != "pending":
         continue
+      if not self._disk_guard():
+        return self
       if slot.case_id not in available:
         continue
       corpus_entry = next(
@@ -781,6 +902,12 @@ class Study:
         attempt=attempt,
         directory=str(directory),
       )
+      def account(event):
+        self.path_ledger.append(
+          "process", phase="discovery", slot=slot.slot_id, case=slot.case_id,
+          attempt=attempt, directory=str(directory), **event,
+        )
+
       request = {
         "slot": slot.slot_id,
         "case": cases[slot.case_id],
@@ -792,6 +919,7 @@ class Study:
         "configuration": slot.configuration,
         "attempt": attempt,
         "directory": str(directory),
+        "on_process": account,
       }
       try:
         outcome = self.execute(request)
@@ -844,11 +972,24 @@ class Study:
         return self
     return self
 
+  def triage_charge(self):
+    """The documented triage attempts imported into the executable reserve."""
+    if self.triage_ledger is None or not self.triage_ledger.is_file():
+      return 0
+    return sum(
+      1 for line in self.triage_ledger.read_text(encoding="utf-8").splitlines()
+      if line.strip()
+    )
+
   def reserve_spent(self):
-    return sum(1 for e in self.path_ledger.events if e.get("kind") == "retry")
+    return sum(
+      1 for e in self.path_ledger.events if e.get("kind") == "retry"
+    ) + self.triage_charge()
 
   def retry(self, slot_id, *, case_id, input, configuration, reason):
     """Reserve a unique retry directory, charging every paired-path reserve."""
+    if not self._disk_guard():
+      return None
     budgets = self.frozen.spec["budgets"]
     spent = self.reserve_spent()
     limits = {
@@ -886,7 +1027,12 @@ class Study:
     screening_candidates = [
       {"phase": "screening", **event}
       for event in events
-      if event.get("kind") in ("selection_candidates", "selection_invalid_execution")
+      if event.get("kind") == "selection_candidates"
+    ]
+    invalid_executions = [
+      {"phase": "screening", **event}
+      for event in events
+      if event.get("kind") == "selection_invalid_execution"
     ]
     discovery_candidates = [
       {"phase": "discovery", **event}
@@ -976,6 +1122,7 @@ class Study:
       },
       "paths": path_counts(events),
       "candidates": candidates,
+      **({"invalid_executions": invalid_executions} if invalid_executions else {}),
       "unavailable": unavailable,
       "compiler": {
         "observed": compiler_observed,
@@ -1009,11 +1156,14 @@ class Study:
     return record
 
 
-def report_from_records(work):
+def report_from_records(work, *, triage_ledger=None):
   """Recompute the final summary from the preserved records alone."""
   work = Path(work)
   frozen = FrozenStudy.load(work / "study.json")
-  study = Study(work, frozen, build=None, screen=None, execute=None)
+  study = Study(
+    work, frozen, build=None, screen=None, execute=None,
+    triage_ledger=triage_ledger,
+  )
   study.path_ledger.load()
   study.ledger = tensor_tranche.Ledger.open(
     work / "tranche-ledger.jsonl", frozen.tranche
@@ -1260,16 +1410,17 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "compiler_identity": identity,
     }
 
-  def _screen_bundle(bundle_path):
+  def _screen_bundle(bundle_path, on_process=None):
     return tensor_target_run.run_interpreter(
       _Path(bundle_path),
       symirc=symirc,
       symiri=symiri,
       timeout_s=timeout_s,
       compiler_identity=identity,
+      on_process=on_process,
     )
 
-  def _state_variant(outcome, probe, trips, variant):
+  def _state_variant(outcome, probe, trips, variant, p1_process=None):
     """Export the same body returning one state, then run the requested probe."""
     state = variant.rsplit("-", 1)[-1]
     if state not in ("0", "1"):
@@ -1326,21 +1477,30 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       output_row_padding=1,
       output_offset=1,
     )
-    run = _screen_bundle(bundle)
+    run = _screen_bundle(bundle, p1_process)
     return run.status, run.interpreter.actual
 
   def screen(outcome):
     """Use the shared window schedule; keep candidates and P0 separate."""
+    process = outcome.get("on_process")
     trip_count = outcome["trip_count"]
+
+    def p1_process(event):
+      if process is not None:
+        process({**event, "path": "p1"})
+
+    def p0_process(event):
+      if process is not None:
+        process({**event, "path": "p0"})
 
     def run_probe(probe, trips, variant):
       if variant != "combined":
-        return _state_variant(outcome, probe, trips, variant)
+        return _state_variant(outcome, probe, trips, variant, p1_process)
       key = probe if trips == trip_count else f"{probe}-tminus"
       bundle = outcome["bundles"].get(key)
       if bundle is None:
         return "unsupported", None
-      screened = _screen_bundle(bundle)
+      screened = _screen_bundle(bundle, p1_process)
       return screened.status, screened.interpreter.actual
 
     result = tensor_state_diagnostics.window_screen(
@@ -1356,7 +1516,8 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         case = tensor_target_case.load(bundle, symiri=symiri)
         output_path = _Path(outcome["directory"]) / f"p0-{probe}.bin"
         observation = tensor_target_reference.observe(
-          case, symiri=symiri, timeout_s=timeout_s, output_path=output_path
+          case, symiri=symiri, timeout_s=timeout_s, output_path=output_path,
+          on_process=p0_process,
         )
         record = observation.as_record()
         base_run = next(
@@ -1610,14 +1771,11 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
             cache_state = "selection-corrupt"
         else:
           cache_state = "selection-incomplete"
-      if reference is None and cache_state in ("selection-corrupt",):
-        return {
-          "status": "unavailable",
-          "paths": {},
-          "candidate": False,
-          "unavailable": [f"cached P0 for {probe} is corrupt"],
-          "compiler": {"status": "unavailable"},
-        }
+      if reference is None and cache_state == "selection-corrupt":
+        reference = tensor_target_reference.ReferenceObservation(
+          tensor_target_reference.UNAVAILABLE,
+          reason=f"cached P0 output for {probe} is missing or fails identity validation",
+        )
       if reference is None:
         reference = tensor_target_reference.observe(
           case, symiri=symiri, timeout_s=timeout_s, on_process=p0_process
@@ -1629,6 +1787,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       reference=reference,
       timeout_s=timeout_s,
       compiler_identity=identity,
+      on_process=run_process,
     )
     if reference.status == tensor_target_reference.COMPLETED and not cached:
       reference_cache[cache_key] = reference
@@ -1697,6 +1856,11 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
       continue
     p0_reference = None
     for configuration in frozen.spec["configurations"]:
+      events = []
+
+      def account(event, events=events):
+        events.append(event)
+
       outcome = operations["execute"](
         {
           "slot": f"{slot['id']}/i0-base/{configuration}",
@@ -1707,6 +1871,7 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
           "attempt": case_record.get("attempt", 0),
           "directory": str(work / slot["id"] / configuration),
           "reference": p0_reference,
+          "on_process": account,
         }
       )
       if p0_reference is None:
@@ -1716,6 +1881,7 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
         "paths": outcome.get("paths"),
         "candidate": outcome.get("candidate"),
         "compiler": outcome.get("compiler"),
+        "processes": events,
       }
     record["cases"].append(case_record)
   record["digest"] = _digest(record)

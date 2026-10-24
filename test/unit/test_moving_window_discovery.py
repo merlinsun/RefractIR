@@ -244,12 +244,12 @@ class DiscoveryTests(unittest.TestCase):
       run = self._frozen_run(directory, cached_p0=True)
       run.run_discovery()
       final = run.finalize()
-      self.assertEqual(final["execution"]["states"]["completed"], 128)
-      self.assertEqual(final["execution"]["unexecuted"], [])
-      self.assertEqual(final["paths"]["p0"]["cached"], 128)
+      self.assertEqual(final["execution"]["states"]["completed"], 96)
+      self.assertEqual(len(final["execution"]["unexecuted"]), 32)
+      self.assertEqual(final["paths"]["p0"]["cached"], 96)
       self.assertEqual(final["paths"]["p0"]["launches"], 0)
-      self.assertEqual(final["paths"]["p1"]["launches"], 128)
-      self.assertEqual(final["paths"]["p2"]["launches"], 128)
+      self.assertEqual(final["paths"]["p1"]["launches"], 96)
+      self.assertEqual(final["paths"]["p2"]["launches"], 96)
       for _ in range(32):
         run.retry("mw-g0c0/i0-base/warps-1", case_id="mw-g0c0", input="i0-base",
                   configuration="warps-1", reason="repeat")
@@ -317,7 +317,7 @@ class DiscoveryTests(unittest.TestCase):
       self.assertGreater(run.ledger.counts()["pending"], 0)
       with self.assertRaises(study.StudyRefused):
         run.finalize()
-      run.record_triage_decision("continue")
+      run.record_triage_decision("resume")
       run.run_discovery()
       final = run.finalize()
       self.assertGreater(len(final["candidates"]), 0)
@@ -580,6 +580,216 @@ class EvidenceTests(unittest.TestCase):
 DEVICE_TESTS = os.environ.get("REFRACTIR_DEVICE_TESTS") == "1"
 
 
+class TriageAndAccountingTests(unittest.TestCase):
+  def candidate_screen(self, outcome):
+    return {
+      "selected": True, "reason": "candidate", "launches": 6, "p0": 4,
+      "candidates": [{"kind": "unused_rows_changed", "probe": "i0-base vs i3-unused-rows"}],
+      "record": {},
+    }
+
+  def test_a_stop_survives_restart_and_blocks_dispatch(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      run = study.Study(
+        work, frozen, build=fake_builder(["mw-g0c0"]),
+        screen=self.candidate_screen, execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      self.assertTrue(run.is_paused())
+      run.record_triage_decision("stop")
+      self.assertTrue(run.is_stopped())
+      self.assertFalse(run.is_paused())
+      resumed = study.Study(
+        work, study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      with self.assertRaises(study.StudyRefused):
+        resumed.select_sources()
+      with self.assertRaises(study.StudyRefused):
+        resumed.run_discovery()
+
+  def test_an_eighth_attempt_candidate_can_be_admitted_by_triage(self):
+    def builder(request):
+      if request["attempt"] < 7:
+        return {"kind": "refused", "reason": "seed"}
+      return {
+        "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+        "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
+        "trip_variant": "sir", "probe_values": {}, "bundles": {},
+        "compiler_identity": {},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      run = study.Study(
+        Path(directory) / "work", frozen, build=builder,
+        screen=self.candidate_screen, execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources(max_slots=1)
+      self.assertTrue(run.is_paused())
+      self.assertIsNotNone(run._pending_admission())
+      run.record_triage_decision("admit")
+      self.assertEqual([entry["case"] for entry in run.corpus()], ["mw-g0c0"])
+      self.assertNotIn(
+        "mw-g0c0", [e.get("case") for e in run.path_ledger.events if e.get("kind") == "shortfall"]
+      )
+      attempts = [
+        e["attempt"] for e in run.path_ledger.events
+        if e.get("kind") == "selection_attempt" and e.get("case") == "mw-g0c0"
+      ]
+      self.assertEqual(attempts, list(range(8)))
+      run.select_sources()
+      self.assertEqual(len(run.corpus()), 1)
+
+  def test_a_rejected_candidate_consumes_one_attempt(self):
+    calls = {"count": 0}
+
+    def builder(request):
+      calls["count"] += 1
+      return {
+        "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+        "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
+        "trip_variant": "sir", "probe_values": {}, "bundles": {},
+        "compiler_identity": {},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      run = study.Study(
+        Path(directory) / "work", frozen, build=builder,
+        screen=self.candidate_screen, execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources(max_slots=1)
+      run.record_triage_decision("reject")
+      self.assertIsNone(run._pending_admission())
+      run.select_sources(max_slots=1)
+      attempts = [
+        e["attempt"] for e in run.path_ledger.events
+        if e.get("kind") == "selection_attempt" and e.get("case") == "mw-g0c0"
+      ]
+      self.assertEqual(attempts, [0, 1])
+
+  def test_an_invalid_execution_is_not_a_report_candidate(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = DiscoveryTests()._frozen_run(directory)
+      run.path_ledger.append(
+        "selection_invalid_execution", case="mw-g0c0",
+        candidates=[{"kind": "invalid_execution", "probe": "i0-base"}],
+      )
+      final = run.finalize()
+      self.assertEqual(len(final["invalid_executions"]), 1)
+      self.assertFalse(
+        any(candidate.get("kind") == "invalid_execution" for candidate in final["candidates"])
+      )
+
+  def test_an_absent_archive_marks_every_control_missing(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      admitted = [slot["id"] for slot in frozen.spec["sources"]]
+      run = study.Study(
+        Path(directory) / "work", frozen, build=fake_builder(admitted),
+        screen=fake_screen(), execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      controls = run.frozen_corpus()["controls"]
+      self.assertTrue(all(control.get("status") == "missing" for control in controls))
+      run.run_discovery()
+      final = run.finalize()
+      self.assertEqual(len(final["execution"]["unexecuted"]), 32)
+
+  def test_low_disk_after_the_first_attempt_stops_selection(self):
+    import unittest.mock as mock
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      built = []
+      run = study.Study(
+        Path(directory) / "work", frozen,
+        build=lambda request: built.append(request) or {
+          "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+          "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
+          "trip_variant": "sir", "probe_values": {}, "bundles": {},
+          "compiler_identity": {},
+        },
+        screen=fake_screen(), execute=fake_execute()[0],
+      ).prepare()
+      usage = type("Usage", (), {"free": 8 * 1024**3, "total": 8 * 1024**3, "used": 0})()
+      low = type("Usage", (), {"free": 0, "total": 8 * 1024**3, "used": 0})()
+      with mock.patch.object(study.shutil, "disk_usage", side_effect=[usage, usage, low, low]):
+        run.select_sources()
+      self.assertEqual(len(built), 1)
+      self.assertTrue(run.is_paused())
+
+  def test_the_triage_ledger_is_charged_to_the_executable_reserve(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      ledger = Path(directory) / "triage-ledger.jsonl"
+      ledger.write_text("\n".join("{}" for _ in range(10)) + "\n", encoding="utf-8")
+      run = study.Study(
+        work, frozen, build=fake_builder(), screen=fake_screen(),
+        execute=fake_execute()[0], triage_ledger=ledger,
+      ).prepare()
+      self.assertEqual(run.triage_charge(), 10)
+      self.assertEqual(run.reserve_spent(), 10)
+      for _ in range(22):
+        run.path_ledger.append("retry", slot="s", case="c", attempt=0)
+      self.assertEqual(run.reserve_spent(), 32)
+      self.assertIsNone(
+        run.retry("s", case_id="mw-g0c0", input="i0-base",
+                  configuration="warps-1", reason="over")
+      )
+      self.assertEqual(run.triage_charge(), 10)
+
+  def test_low_disk_during_discovery_stops_before_the_next_slot(self):
+    import unittest.mock as mock
+    with tempfile.TemporaryDirectory() as directory:
+      run = DiscoveryTests()._frozen_run(directory)
+      usage = type("Usage", (), {"free": 8 * 1024**3, "total": 8 * 1024**3, "used": 0})()
+      low = type("Usage", (), {"free": 0, "total": 8 * 1024**3, "used": 0})()
+      with mock.patch.object(
+        study.shutil, "disk_usage", side_effect=[usage, usage, low, low]
+      ):
+        run.run_discovery()
+      self.assertTrue(run.is_paused())
+      self.assertEqual(run.ledger.counts()["completed"], 1)
+      self.assertGreater(run.ledger.counts()["pending"], 0)
+
+  def test_discovery_wires_process_callbacks_into_the_request(self):
+    seen = []
+
+    def execute(request):
+      request["on_process"]({"event": "reserved", "mode": "reference"})
+      request["on_process"]({"event": "start", "mode": "reference", "pid": 1})
+      request["on_process"]({"event": "finish", "mode": "reference", "status": "completed"})
+      seen.append(True)
+      return {
+        "status": "completed",
+        "paths": {
+          "p0": {"status": "completed", "cached": False},
+          "p1": {"status": "completed"},
+          "p2": {"status": "completed"},
+        },
+        "candidate": False, "unavailable": [], "compiler": {"status": "unavailable"},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      admitted = [slot["id"] for slot in frozen.spec["sources"]]
+      run = study.Study(
+        Path(directory) / "work", frozen, build=fake_builder(admitted),
+        screen=fake_screen(), execute=execute,
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      run.run_discovery()
+      final = run.finalize()
+      self.assertEqual(final["execution"]["processes"]["started"], 96)
+      self.assertTrue(seen)
+
 
 class ReportAndControlTests(unittest.TestCase):
   def test_low_disk_space_pauses_without_building(self):
@@ -728,13 +938,43 @@ class DeviceIntegrationTests(unittest.TestCase):
       slot, built = self.build(operations, directory)
       self.assertEqual(built["kind"], "admitted", built.get("reason"))
       self.assertIn("directory", built)
+      events = []
       outcome = operations["execute"]({
         "slot": "device", "case": slot["id"],
         "corpus": {"kind": "source", **built, "case": slot["id"]},
         "input": "i0-base", "configuration": "warps-1", "attempt": 0,
         "directory": str(Path(directory) / "run"),
+        "on_process": events.append,
       })
       self.assertEqual(outcome["paths"]["p0"]["status"], "completed")
+      self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
+      self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
+      paths = {event.get("path") for event in events}
+      self.assertIn("p0", paths)
+      self.assertIn("p1", paths)
+      self.assertIn("p2", paths)
+      self.assertEqual(
+        [event["event"] for event in events if event.get("path") == "p2"],
+        ["reserved", "start", "finish"],
+      )
+
+  def test_a_corrupt_cached_p0_does_not_block_the_targets(self):
+    operations = self.operations()
+    with tempfile.TemporaryDirectory() as directory:
+      slot, built = self.build(operations, directory)
+      built["screen"] = {
+        "p0": [{
+          "probe": "i0-base", "status": "completed",
+          "output_sha256": "0" * 64, "output_path": str(Path(directory) / "missing.bin"),
+        }]
+      }
+      outcome = operations["execute"]({
+        "slot": "device", "case": slot["id"],
+        "corpus": {"kind": "source", **built, "case": slot["id"]},
+        "input": "i0-base", "configuration": "warps-1", "attempt": 0,
+        "directory": str(Path(directory) / "run-corrupt"),
+      })
+      self.assertEqual(outcome["paths"]["p0"]["status"], "unavailable")
       self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
       self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
 
@@ -763,7 +1003,12 @@ class DeviceIntegrationTests(unittest.TestCase):
       for attempt in (1, 2, 3):
         slot, built = self.build(operations, directory, attempt=attempt)
         self.assertEqual(built["kind"], "admitted", built.get("reason"))
+        events = []
+        built["on_process"] = events.append
         screened = operations["screen"](built)
+        self.assertIn("p1", {event.get("path") for event in events})
+        if screened["selected"]:
+          self.assertIn("p0", {event.get("path") for event in events})
         if not screened["selected"]:
           continue
         self.assertEqual(screened["p0"], 4)

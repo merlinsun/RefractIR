@@ -350,7 +350,7 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(run.status, "target_agreement")
     self.assertEqual(
       [event["event"] for event in events],
-      ["start", "finish", "start", "finish"],
+      ["reserved", "start", "finish", "reserved", "start", "finish"],
     )
     self.assertEqual({event["mode"] for event in events}, {"interpret", "compiled"})
     self.assertTrue(all(event.get("status") == "completed" for event in events if event["event"] == "finish"))

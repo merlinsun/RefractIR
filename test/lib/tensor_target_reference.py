@@ -91,34 +91,46 @@ def observe(case, *, symiri, timeout_s=120.0, output_path=None, on_process=None)
     str(bundle / "program.sir"),
   ]
   if on_process is not None:
-    on_process({"event": "start", "mode": "reference", "command": list(command)})
+    on_process({"event": "reserved", "mode": "reference", "command": list(command)})
   try:
-    completed = subprocess.run(
+    process = subprocess.Popen(
       command,
-      capture_output=True,
+      stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE,
       text=True,
-      check=False,
-      timeout=timeout_s,
     )
-  except subprocess.TimeoutExpired as error:
+  except OSError as error:
+    if on_process is not None:
+      on_process(
+        {"event": "finish", "mode": "reference", "status": "spawn_failed", "reason": str(error)}
+      )
+    return ReferenceObservation(
+      UNAVAILABLE, reason=f"cannot start symiri: {error}", command=tuple(command)
+    )
+  if on_process is not None:
+    on_process({"event": "start", "mode": "reference", "pid": process.pid})
+  try:
+    stdout, stderr_text = process.communicate(timeout=timeout_s)
+  except subprocess.TimeoutExpired:
+    process.kill()
+    _, stderr_text = process.communicate()
     if on_process is not None:
       on_process({"event": "finish", "mode": "reference", "status": "timed_out"})
     return ReferenceObservation(
       TIMED_OUT,
-      stderr=_captured(error.stderr),
+      stderr=_captured(stderr_text),
       reason=f"timed out after {timeout_s:g}s",
       command=tuple(command),
     )
-  except OSError as error:
-    if on_process is not None:
-      on_process({"event": "finish", "mode": "reference", "status": "unavailable"})
-    return ReferenceObservation(
-      UNAVAILABLE, reason=f"cannot start symiri: {error}", command=tuple(command)
-    )
   except BaseException:
+    process.kill()
+    process.communicate()
     if on_process is not None:
       on_process({"event": "finish", "mode": "reference", "status": "interrupted"})
     raise
+  completed = subprocess.CompletedProcess(
+    command, process.returncode, stdout, stderr_text
+  )
   if on_process is not None:
     on_process(
       {
