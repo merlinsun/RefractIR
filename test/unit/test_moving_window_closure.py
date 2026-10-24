@@ -108,6 +108,9 @@ class QualificationCapabilityTests(unittest.TestCase):
       },
     )
 
+  def test_qualification_construction_forbids_multiplication(self):
+    self.assertEqual(study.QUALIFICATION.get("max_multiplications"), 0)
+
   def test_a_live_path_with_extrema_and_shape_qualifies(self):
     checks = study.qualification_capabilities(
       qualification_built("mw-g2c3"), ["extrema_shape_path"]
@@ -266,7 +269,7 @@ class BoundedDeviceValidation(unittest.TestCase):
       work, operations=operations, authority=authority
     )
     study.require_qualification(work, frozen)
-    processes = work / "qualification-processes.jsonl"
+    processes = work / "path-ledger.jsonl"
     before = processes.read_text().count('"event": "start"')
     study.run_qualification(work, operations=operations, authority=authority)
     after = processes.read_text().count('"event": "start"')

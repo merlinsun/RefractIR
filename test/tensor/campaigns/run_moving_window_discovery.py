@@ -143,6 +143,7 @@ SOURCE_SLOTS = source_slots()
 
 QUALIFICATION = {
   "version": 1,
+  "max_multiplications": 0,
   "cases": [
     {"case": "mw-g0c0", "checks": ["backing_storage"]},
     {"case": "mw-g0c1", "checks": ["changing_active_rows"]},
@@ -1991,7 +1992,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "--features", "extrema,transpose,expand",
       "--window-requirement", slot["requirement"],
       "--max-attempts", "1",
-      "--max-multiplications", "1",
+      "--max-multiplications", str(request.get("max_multiplications", 1)),
       "--require-computed-roots",
       "--num-warps", "1",
       "--out", str(directory / "export"),
@@ -2806,6 +2807,7 @@ def run_qualification(
             "attempt": attempt,
             "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
             "max_attempts": 1,
+            "max_multiplications": declaration.get("max_multiplications", 1),
             "directory": str(work / case / f"attempt-{attempt}"),
           }
         )
