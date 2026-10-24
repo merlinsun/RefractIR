@@ -300,38 +300,120 @@ class PathLedger:
     return event
 
 
-def path_counts(events):
-  """Launches, cached observations, failures, and statuses by path."""
+def path_counts(events, *, legacy=False):
+  """Launches, cached observations, failures, and statuses by path.
+
+  New runs count only recorded process starts. Historical records carry
+  launch events instead; `legacy=True` is their explicit compatibility mode.
+  """
   counts = {
-    path: {"launches": 0, "cached": 0, "failures": 0, "statuses": {}}
+    path: {
+      "launches": 0, "cached": 0, "failures": 0, "not_run": 0,
+      "spawn_failed": 0, "interrupted": 0, "statuses": {},
+    }
     for path in ("p0", "p1", "p2")
   }
+  if legacy:
+    for event in events:
+      if event.get("kind") == "launch":
+        path = event.get("path")
+        if path not in counts:
+          continue
+        counts[path]["launches"] += 1
+        status = event.get("status", "unknown")
+        counts[path]["statuses"][status] = counts[path]["statuses"].get(status, 0) + 1
+        if status != "completed":
+          counts[path]["failures"] += 1
+      elif event.get("kind") == "cached":
+        path = event.get("path")
+        if path in counts:
+          counts[path]["cached"] += 1
+    return counts
+  starts = {}
+  finishes = {}
   for event in events:
-    if event.get("kind") == "launch":
-      path = event.get("path")
-      if path not in counts:
-        continue
-      counts[path]["launches"] += 1
-      status = event.get("status", "unknown")
-      counts[path]["statuses"][status] = counts[path]["statuses"].get(status, 0) + 1
-      if status != "completed":
-        counts[path]["failures"] += 1
+    path = event.get("path")
+    if path not in counts:
+      continue
+    if event.get("kind") == "process":
+      if event.get("event") == "start":
+        counts[path]["launches"] += 1
+        starts[path] = starts.get(path, 0) + 1
+      elif event.get("event") == "finish":
+        status = event.get("status", "failed")
+        if status == "spawn_failed":
+          counts[path]["spawn_failed"] += 1
+        else:
+          finishes[path] = finishes.get(path, 0) + 1
+          counts[path]["statuses"][status] = counts[path]["statuses"].get(status, 0) + 1
+          if status != "completed":
+            counts[path]["failures"] += 1
     elif event.get("kind") == "cached":
-      path = event.get("path")
-      if path in counts:
-        counts[path]["cached"] += 1
+      counts[path]["cached"] += 1
     elif event.get("kind") == "not_run":
-      path = event.get("path")
-      if path in counts:
-        counts[path]["not_run"] = counts[path].get("not_run", 0) + 1
+      counts[path]["not_run"] += 1
+  for path in counts:
+    counts[path]["interrupted"] = max(0, starts.get(path, 0) - finishes.get(path, 0))
   return counts
+
+def parse_triage_ledger(data, source=None):
+  """Validate and normalize triage rows; arbitrary line counts never charge."""
+  try:
+    text = data.decode("utf-8") if isinstance(data, bytes) else str(data)
+  except UnicodeDecodeError as error:
+    raise StudyRefused(f"the triage ledger is not UTF-8: {error}") from error
+  entries = []
+  seen = {}
+  for number, line in enumerate(text.splitlines(), start=1):
+    if not line.strip():
+      continue
+    try:
+      row = json.loads(line)
+    except json.JSONDecodeError as error:
+      raise StudyRefused(
+        f"the triage ledger row {number} is not JSON: {error}"
+      ) from error
+    if not isinstance(row, dict):
+      raise StudyRefused(f"the triage ledger row {number} is not an object")
+    if not isinstance(row.get("case"), str) or not row["case"]:
+      raise StudyRefused(f"the triage ledger row {number} has no case")
+    if not isinstance(row.get("result"), str) or not row["result"]:
+      raise StudyRefused(f"the triage ledger row {number} has no result")
+    path = row.get("path", "p2")
+    allocation = row.get("allocation", "discovery")
+    if path not in ("p0", "p1", "p2"):
+      raise StudyRefused(f"the triage ledger row {number} has an unknown path")
+    if not isinstance(allocation, str) or not allocation:
+      raise StudyRefused(f"the triage ledger row {number} has no allocation")
+    identity = hashlib.sha256(
+      json.dumps(row, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    entry = {
+      "execution_id": "triage:" + identity[:16],
+      "case": row["case"],
+      "attempt": row.get("attempt"),
+      "result": row["result"],
+      "path": path,
+      "allocation": allocation,
+    }
+    if entry["execution_id"] in seen:
+      if seen[entry["execution_id"]] != entry:
+        raise StudyRefused(
+          f"the triage ledger has conflicting duplicate rows at {number}"
+        )
+      continue
+    seen[entry["execution_id"]] = entry
+    entries.append(entry)
+  if not entries:
+    raise StudyRefused("the triage ledger has no entries")
+  return entries
 
 
 class Study:
   """One run of the frozen study: selection, discovery, and accounting."""
 
   def __init__(self, work, frozen, *, build, screen, execute, controls_root=None,
-               triage_ledger=None):
+               triage_ledger=None, legacy_accounting=False):
     self.work = Path(work)
     self.frozen = frozen
     self.build = build
@@ -340,6 +422,7 @@ class Study:
     self.controls_root = None if controls_root is None else Path(controls_root)
     self.triage_ledger = None if triage_ledger is None else Path(triage_ledger)
     self._imports_override = None
+    self.legacy_accounting = bool(legacy_accounting)
     self.path_ledger = PathLedger(self.work / "path-ledger.jsonl")
     self.corpus_path = self.work / "corpus.jsonl"
     self.ledger = None
@@ -362,13 +445,7 @@ class Study:
       raise StudyRefused(f"the supplied triage ledger is missing: {self.triage_ledger}")
     data = self.triage_ledger.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
-    rows = [
-      json.loads(line)
-      for line in data.decode("utf-8").splitlines()
-      if line.strip()
-    ]
-    if not rows or any(not isinstance(row, dict) for row in rows):
-      raise StudyRefused("the supplied triage ledger is malformed")
+    entries = parse_triage_ledger(data, str(self.triage_ledger))
     imports = self.accepted_imports()
     if any(record.get("ledger_sha256") == digest for record in imports):
       return
@@ -376,12 +453,14 @@ class Study:
       raise StudyRefused(
         "a different triage ledger is already accepted for this study"
       )
+    paths = {}
+    for entry in entries:
+      paths[entry["path"]] = paths.get(entry["path"], 0) + 1
     imports.append(
       {
         "ledger_sha256": digest,
-        "charge": len(rows),
-        "path": "p2",
-        "allocation": "discovery",
+        "entries": entries,
+        "paths": paths,
         "source": str(self.triage_ledger),
       }
     )
@@ -391,8 +470,9 @@ class Study:
 
   def prepare(self):
     self.work.mkdir(parents=True, exist_ok=True)
-    self._accept_triage_ledger()
-    self._replay_decisions()
+    # Validate every existing identity before any import, decision, or ledger
+    # mutation. A request that is going to be refused must leave evidence
+    # byte-identical.
     study_path = self.work / "study.json"
     if study_path.is_file():
       existing = FrozenStudy.load(study_path)
@@ -406,6 +486,8 @@ class Study:
     self.ledger = tensor_tranche.Ledger.open(
       self.work / "tranche-ledger.jsonl", self.frozen.tranche
     )
+    self._accept_triage_ledger()
+    self._replay_decisions()
     for slot in self.frozen.tranche.slots:
       if self.ledger.state(slot.slot_id) == "running":
         self.ledger.finish(slot.slot_id, "failed", reason="interrupted")
@@ -429,9 +511,14 @@ class Study:
   def is_paused(self):
     return (self.work / "study-paused.json").is_file()
 
-  def pause(self, candidates, *, reason):
+  def pause(self, candidates, *, reason, phase="discovery"):
     """Persist candidates and stop routine dispatch until triage decides."""
+    pause_id = hashlib.sha256(
+      (reason + ":" + str(len(self.path_ledger.events))).encode("utf-8")
+    ).hexdigest()[:16]
     record = {
+      "pause_id": pause_id,
+      "phase": phase,
       "reason": reason,
       "candidates": candidates,
     }
@@ -441,9 +528,12 @@ class Study:
     self.path_ledger.append("paused", reason=reason, candidates=len(candidates))
 
   def record_triage_decision(self, decision):
-    """Apply a validated disposition and only then clear the pause."""
+    """Persist, apply, and mark one decision for the active pause."""
     if not self.is_paused():
       raise StudyRefused("the study is not paused")
+    pause = json.loads(
+      (self.work / "study-paused.json").read_text(encoding="utf-8")
+    )
     record = dict(decision) if isinstance(decision, dict) else {"action": decision}
     action = record.get("action")
     if action not in ("admit", "reject", "resume", "stop"):
@@ -457,11 +547,15 @@ class Study:
       )
     record = {
       **record,
+      "pause_id": pause.get("pause_id"),
+      "phase": pause.get("phase"),
       "case": (pending or {}).get("case"),
       "attempt": (pending or {}).get("attempt"),
     }
-    path = self.work / "triage-decisions.jsonl"
-    with path.open("a", encoding="utf-8") as handle:
+    record["decision_id"] = hashlib.sha256(
+      json.dumps(record, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    with (self.work / "triage-decisions.jsonl").open("a", encoding="utf-8") as handle:
       handle.write(json.dumps(record, sort_keys=True) + "\n")
     self.path_ledger.append("triage_decision", decision=record)
     if action == "admit":
@@ -474,6 +568,10 @@ class Study:
     elif action == "stop":
       (self.work / "study-stopped.json").write_text(
         json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+      )
+    with (self.work / "triage-applied.jsonl").open("a", encoding="utf-8") as handle:
+      handle.write(
+        json.dumps({"decision_id": record["decision_id"]}, sort_keys=True) + "\n"
       )
     (self.work / "study-paused.json").unlink()
     return record
@@ -553,31 +651,50 @@ class Study:
       if line.strip()
     ]
 
+  def _applied_decisions(self):
+    path = self.work / "triage-applied.jsonl"
+    if not path.is_file():
+      return set()
+    return {
+      json.loads(line).get("decision_id")
+      for line in path.read_text(encoding="utf-8").splitlines()
+      if line.strip()
+    }
+
   def _replay_decisions(self):
-    """Apply a recorded decision that an interruption left unapplied."""
-    pending = self._pending_admission()
-    if pending is None:
+    """Apply unapplied decisions for the active pause, if any."""
+    pause_path = self.work / "study-paused.json"
+    if not pause_path.is_file():
       return False
+    pause = json.loads(pause_path.read_text(encoding="utf-8"))
+    pause_id = pause.get("pause_id")
+    applied = self._applied_decisions()
     decisions = [
       decision for decision in self._decisions()
-      if decision.get("case") == pending.get("case")
-      and decision.get("attempt") == pending.get("attempt")
+      if decision.get("pause_id") == pause_id
+      and decision.get("decision_id") not in applied
     ]
     if not decisions:
       return False
-    action = decisions[-1].get("action")
-    if action == "admit":
-      self._admit_pending()
-    elif action == "reject":
-      self._clear_pending()
+    decision = decisions[-1]
+    action = decision.get("action")
+    pending = self._pending_admission()
+    if action in ("admit", "reject") and pending is not None:
+      if action == "admit":
+        self._admit_pending()
+      else:
+        self._clear_pending()
     elif action == "stop":
       (self.work / "study-stopped.json").write_text(
-        json.dumps(decisions[-1], indent=1, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(decision, indent=1, sort_keys=True) + "\n", encoding="utf-8"
       )
-      self._clear_pending()
-    else:
+    elif action != "resume":
       return False
-    (self.work / "study-paused.json").unlink(missing_ok=True)
+    with (self.work / "triage-applied.jsonl").open("a", encoding="utf-8") as handle:
+      handle.write(
+        json.dumps({"decision_id": decision["decision_id"]}, sort_keys=True) + "\n"
+      )
+    pause_path.unlink(missing_ok=True)
     return True
 
   def _reconcile_pending(self):
@@ -591,6 +708,45 @@ class Study:
 
   def is_stopped(self):
     return (self.work / "study-stopped.json").is_file()
+
+  PROCESS_BUDGETS = {
+    ("screening", "p0"): "selection_p0",
+    ("screening", "p1"): "selection_interpreter",
+    ("discovery", "p0"): "discovery_p0",
+    ("discovery", "p1"): "discovery_interpreter",
+    ("discovery", "p2"): "discovery_gpu",
+  }
+
+  def _reserve_process_budget(self, phase, event):
+    """Hold capacity before a spawn; an over-budget reservation never starts."""
+    if event.get("event") != "reserved":
+      return
+    path = event.get("path")
+    key = self.PROCESS_BUDGETS.get((phase, path))
+    if key is None:
+      return
+    limit = self.frozen.spec["budgets"][key]
+    matching = [
+      recorded for recorded in self.path_ledger.events
+      if recorded.get("kind") == "process"
+      and recorded.get("phase") == phase
+      and recorded.get("path") == path
+    ]
+    reserved = sum(1 for recorded in matching if recorded.get("event") == "reserved")
+    started = sum(1 for recorded in matching if recorded.get("event") == "start")
+    spawn_failed = sum(
+      1 for recorded in matching
+      if recorded.get("event") == "finish"
+      and recorded.get("status") == "spawn_failed"
+    )
+    used = (reserved - spawn_failed) if reserved else started
+    if used >= limit:
+      self.path_ledger.append(
+        "launch_refused", phase=phase, path=path, reason="budget_exhausted",
+      )
+      raise StudyRefused(
+        f"the {phase} {path} allocation is exhausted ({used}/{limit})"
+      )
 
   def _disk_guard(self):
     free = shutil.disk_usage(self.work).free
@@ -682,9 +838,13 @@ class Study:
         )
         if outcome.get("kind") != "admitted":
           continue
-        outcome["on_process"] = lambda event, case=slot["id"], attempt=attempt:           self.path_ledger.append(
+        def screening_account(event, case=slot["id"], attempt=attempt):
+          self._reserve_process_budget("screening", event)
+          self.path_ledger.append(
             "process", phase="screening", case=case, attempt=attempt, **event
           )
+
+        outcome["on_process"] = screening_account
         screened = self.screen(outcome)
         self.path_ledger.append(
           "selection_screen",
@@ -719,6 +879,7 @@ class Study:
           self.pause(
             candidates,
             reason=f"screening candidates for {slot['id']}",
+            phase="selection",
           )
           return self
         if screened.get("unavailable"):
@@ -972,6 +1133,7 @@ class Study:
         directory=str(directory),
       )
       def account(event):
+        self._reserve_process_budget("discovery", event)
         self.path_ledger.append(
           "process", phase="discovery", slot=slot.slot_id, case=slot.case_id,
           attempt=attempt, directory=str(directory), **event,
@@ -1027,7 +1189,7 @@ class Study:
             "cached", path=path, slot=slot.slot_id, case=slot.case_id,
             attempt=attempt, key=info.get("key"),
           )
-        elif slot_processes:
+        elif slot_processes or not self.legacy_accounting:
           # New runs trust lifecycle evidence: no start means no launch.
           if path in started:
             self.path_ledger.append(
@@ -1067,12 +1229,16 @@ class Study:
     return self
 
   def triage_charge(self, path=None):
-    """Charges from accepted imports, each assigned to one execution path."""
-    return sum(
-      record.get("charge", 0)
-      for record in self.accepted_imports()
-      if path is None or record.get("path") == path
-    )
+    """Charges from validated imports, counted by their execution path."""
+    total = 0
+    for record in self.accepted_imports():
+      if "paths" in record:
+        paths = record["paths"]
+        total += sum(paths.values()) if path is None else paths.get(path, 0)
+      else:  # accepted-imports from the earlier scalar format
+        if path is None or record.get("path") == path:
+          total += record.get("charge", 0)
+    return total
 
   def reserve_spent(self, path=None):
     retries = sum(1 for e in self.path_ledger.events if e.get("kind") == "retry")
@@ -1214,7 +1380,7 @@ class Study:
           else {}
         ),
       },
-      "paths": path_counts(events),
+      "paths": path_counts(events, legacy=self.legacy_accounting),
       "candidates": candidates,
       **({"invalid_executions": invalid_executions} if invalid_executions else {}),
       "unavailable": unavailable,
@@ -1256,25 +1422,33 @@ def report_from_records(work, *, triage_ledger=None):
   frozen = FrozenStudy.load(work / "study.json")
   study = Study(
     work, frozen, build=None, screen=None, execute=None,
-    triage_ledger=triage_ledger,
+    triage_ledger=triage_ledger, legacy_accounting=True,
   )
   if triage_ledger is not None:
     ledger = Path(triage_ledger)
     if not ledger.is_file():
       raise StudyRefused(f"the triage ledger is missing: {ledger}")
     data = ledger.read_bytes()
-    rows = [line for line in data.decode("utf-8").splitlines() if line.strip()]
-    if not rows:
-      raise StudyRefused("the triage ledger is malformed")
-    study._imports_override = [
-      {
-        "ledger_sha256": hashlib.sha256(data).hexdigest(),
-        "charge": len(rows),
-        "path": "p2",
-        "allocation": "discovery",
-        "source": str(ledger),
-      }
-    ]
+    digest = hashlib.sha256(data).hexdigest()
+    entries = parse_triage_ledger(data, str(ledger))
+    accepted = study.accepted_imports()
+    if accepted:
+      if not any(record.get("ledger_sha256") == digest for record in accepted):
+        raise StudyRefused(
+          "the supplied triage ledger is not the accepted import for this study"
+        )
+    else:
+      paths = {}
+      for entry in entries:
+        paths[entry["path"]] = paths.get(entry["path"], 0) + 1
+      study._imports_override = [
+        {
+          "ledger_sha256": digest,
+          "entries": entries,
+          "paths": paths,
+          "source": str(ledger),
+        }
+      ]
   study.path_ledger.load()
   study.ledger = tensor_tranche.Ledger.open(
     work / "tranche-ledger.jsonl", frozen.tranche
@@ -1948,7 +2122,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
   return {"build": build, "screen": screen, "execute": execute, "toolchain": toolchain}
 
 
-def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
+def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None):
   """Four integration cases under two warp settings, reusing each P0."""
   frozen = freeze_study()
   chosen = frozen.spec["sources"][:slots]
@@ -1968,29 +2142,77 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
       continue
     case_record = {"case": slot["id"], "padded": slot["padded"], "configurations": {}}
     case_record["configurations"] = dict((stored or {}).get("outcomes", {}))
-    built = None
-    for attempt in range(4):
-      candidate = operations["build"](
-        {
-          "slot": slot,
-          "attempt": attempt,
-          "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
-          "max_attempts": 1,
-          "directory": str(work / slot["id"] / f"attempt-{attempt}"),
-        }
-      )
-      if candidate.get("kind") == "admitted":
-        built = candidate
-        case_record["attempt"] = attempt
-        break
-      case_record.setdefault("refusals", []).append(candidate.get("reason"))
+    case_progress = progress["cases"].get(slot["id"], {})
+    attempts = dict(case_progress.get("attempts", {}))
+    retries = int(case_progress.get("retries", 0))
+    build_path = work / slot["id"] / "build.json"
+    if build_path.is_file():
+      built = json.loads(build_path.read_text(encoding="utf-8"))
+      case_record["attempt"] = built.get("attempt", 0)
+    elif (work / slot["id"]).exists() and any((work / slot["id"]).glob("attempt-*")):
+      case_record["interrupted"] = "an earlier qualification build is incomplete"
+      record["cases"].append(case_record)
+      continue
+    else:
+      built = None
+      for attempt in range(4):
+        candidate = operations["build"](
+          {
+            "slot": slot,
+            "attempt": attempt,
+            "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
+            "max_attempts": 1,
+            "directory": str(work / slot["id"] / f"attempt-{attempt}"),
+          }
+        )
+        if candidate.get("kind") == "admitted":
+          built = candidate
+          built["attempt"] = attempt
+          case_record["attempt"] = attempt
+          (work / slot["id"]).mkdir(parents=True, exist_ok=True)
+          build_path.write_text(
+            json.dumps(built, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          break
+        case_record.setdefault("refusals", []).append(candidate.get("reason"))
     if built is None:
       record["cases"].append(case_record)
       continue
+    p0_bin = work / slot["id"] / "p0.bin"
+    p0_meta = work / slot["id"] / "p0.json"
     p0_reference = None
+    if p0_bin.is_file() and p0_meta.is_file():
+      meta = json.loads(p0_meta.read_text(encoding="utf-8"))
+      data = p0_bin.read_bytes()
+      if hashlib.sha256(data).hexdigest() == meta.get("output_sha256"):
+        from test.lib.tensor_target_reference import ReferenceObservation, COMPLETED
+        p0_reference = ReferenceObservation(COMPLETED, output=data, path="qualification-cache")
     for configuration in frozen.spec["configurations"]:
       if configuration in case_record["configurations"]:
         continue
+      record_key = f"{slot['id']}/{configuration}"
+      attempt_state = attempts.get(configuration)
+      if attempt_state and attempt_state.get("status") in ("running", "interrupted"):
+        attempts[configuration] = {**attempt_state, "status": "interrupted"}
+        progress["cases"][slot["id"]] = {
+          "outcomes": case_record["configurations"],
+          "attempts": attempts, "retries": retries,
+        }
+        progress_path.write_text(
+          json.dumps(progress, indent=1, sort_keys=True) + "\n",
+          encoding="utf-8",
+        )
+        if retry != record_key:
+          case_record["interrupted"] = (
+            f"configuration {configuration} needs an explicit retry"
+          )
+          continue
+        retries += 1
+        if retries > 8:
+          case_record.setdefault("refusals", []).append(
+            "qualification retry budget exhausted"
+          )
+          continue
       events = []
 
       def account(event, events=events, configuration=configuration):
@@ -2005,6 +2227,18 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
       while (work / slot["id"] / f"{configuration}-run-{run_index}").exists():
         run_index += 1
       directory = work / slot["id"] / f"{configuration}-run-{run_index}"
+      attempts[configuration] = {
+        "status": "running",
+        "directory": str(directory),
+        "attempt": run_index,
+      }
+      progress["cases"][slot["id"]] = {
+        "outcomes": case_record["configurations"],
+        "attempts": attempts, "retries": retries,
+      }
+      progress_path.write_text(
+        json.dumps(progress, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+      )
       with process_ledger.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({
           "case": slot["id"], "configuration": configuration,
@@ -2024,8 +2258,21 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
           "on_process": account,
         }
       )
+      reference = outcome.get("reference")
       if p0_reference is None:
-        p0_reference = outcome.get("reference")
+        p0_reference = reference
+      if (getattr(reference, "status", None) == "completed"
+          and getattr(reference, "output", None) is not None):
+        (work / slot["id"]).mkdir(parents=True, exist_ok=True)
+        p0_bin.write_bytes(reference.output)
+        p0_meta.write_text(
+          json.dumps({
+            "output_sha256": hashlib.sha256(reference.output).hexdigest(),
+            "status": reference.status,
+            "configuration": configuration,
+          }, indent=1, sort_keys=True) + "\n",
+          encoding="utf-8",
+        )
       case_record["configurations"][configuration] = {
         "status": outcome.get("status"),
         "paths": outcome.get("paths"),
@@ -2033,17 +2280,30 @@ def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
         "compiler": outcome.get("compiler"),
         "processes": events,
       }
+      attempts[configuration] = {
+        "status": "completed",
+        "directory": str(directory),
+        "attempt": run_index,
+      }
       progress["cases"][slot["id"]] = {
         "outcomes": case_record["configurations"],
+        "attempts": attempts, "retries": retries,
         "complete": False,
       }
       progress_path.write_text(
         json.dumps(progress, indent=1, sort_keys=True) + "\n", encoding="utf-8"
       )
+    complete_case = all(
+      configuration in case_record["configurations"]
+      for configuration in frozen.spec["configurations"]
+    )
+    if not complete_case:
+      case_record["interrupted"] = "a configuration still needs an explicit retry"
     progress["cases"][slot["id"]] = {
       "outcomes": case_record["configurations"],
-      "complete": True,
-      "case_record": case_record,
+      "attempts": attempts, "retries": retries,
+      "complete": complete_case,
+      **({"case_record": case_record} if complete_case else {}),
     }
     progress_path.write_text(
       json.dumps(progress, indent=1, sort_keys=True) + "\n", encoding="utf-8"

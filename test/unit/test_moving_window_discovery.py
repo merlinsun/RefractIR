@@ -1,5 +1,6 @@
 """Contract tests for the frozen moving-window study driver."""
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -233,7 +234,7 @@ class DiscoveryTests(unittest.TestCase):
     admitted = [slot["id"] for slot in frozen.spec["sources"]]
     run = study.Study(
       work, frozen, build=fake_builder(admitted), screen=fake_screen(),
-      execute=fake_execute(**execute_kwargs)[0],
+      execute=fake_execute(**execute_kwargs)[0], legacy_accounting=True,
     ).prepare()
     run.select_sources()
     run.freeze_corpus()
@@ -387,13 +388,16 @@ class DiscoveryTests(unittest.TestCase):
       ).prepare()
       run.select_sources()
       pending = run._pending_admission()
+      pause = json.loads((work / "study-paused.json").read_text(encoding="utf-8"))
+      decision = {
+        "action": "admit", "case": pending["case"], "attempt": pending["attempt"],
+        "pause_id": pause["pause_id"], "phase": pause["phase"],
+      }
+      decision["decision_id"] = hashlib.sha256(
+        json.dumps(decision, sort_keys=True).encode("utf-8")
+      ).hexdigest()[:16]
       path = work / "triage-decisions.jsonl"
-      path.write_text(
-        json.dumps({
-          "action": "admit", "case": pending["case"], "attempt": pending["attempt"],
-        }) + "\n",
-        encoding="utf-8",
-      )
+      path.write_text(json.dumps(decision) + "\n", encoding="utf-8")
       # The pause and pending admission remain; a new process replays the decision.
       resumed = study.Study(
         work, study.FrozenStudy.load(work / "study.json"),
@@ -450,12 +454,55 @@ class DiscoveryTests(unittest.TestCase):
       study.run_qualification(work, operations={"build": build, "execute": execute})
       self.assertEqual(calls, [])
 
+  def test_an_interrupted_discovery_stop_is_replayed(self):
+    def execute(request):
+      return {
+        "status": "completed",
+        "paths": {
+          "p0": {"status": "completed", "cached": False},
+          "p1": {"status": "completed"},
+          "p2": {"status": "completed"},
+        },
+        "candidate": True,
+        "unavailable": [], "compiler": {"status": "unavailable"},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      run = study.Study(
+        work, frozen,
+        build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
+        screen=fake_screen(), execute=execute,
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      run.run_discovery()
+      self.assertTrue(run.is_paused())
+      pause = json.loads((work / "study-paused.json").read_text(encoding="utf-8"))
+      decision = {
+        "action": "stop", "pause_id": pause["pause_id"], "phase": pause["phase"],
+      }
+      decision["decision_id"] = hashlib.sha256(
+        json.dumps(decision, sort_keys=True).encode("utf-8")
+      ).hexdigest()[:16]
+      with (work / "triage-decisions.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(decision) + "\n")
+      resumed = study.Study(
+        work, study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(), screen=fake_screen(), execute=execute,
+      ).prepare()
+      self.assertTrue(resumed.is_stopped())
+      self.assertFalse(resumed.is_paused())
+      with self.assertRaises(study.StudyRefused):
+        resumed.run_discovery()
+
   def test_an_accepted_triage_import_survives_without_the_option(self):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       ledger = Path(directory) / "triage-ledger.jsonl"
-      ledger.write_text("\n".join("{}" for _ in range(10)) + "\n", encoding="utf-8")
+      ledger.write_text(triage_rows(10), encoding="utf-8")
       study.Study(
         work, frozen, build=fake_builder(), screen=fake_screen(),
         execute=fake_execute()[0], triage_ledger=ledger,
@@ -480,12 +527,12 @@ class DiscoveryTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       ledger = Path(directory) / "triage-ledger.jsonl"
-      ledger.write_text("{}\n", encoding="utf-8")
+      ledger.write_text(triage_rows(1), encoding="utf-8")
       study.Study(
         work, frozen, build=fake_builder(), screen=fake_screen(),
         execute=fake_execute()[0], triage_ledger=ledger,
       ).prepare()
-      ledger.write_text("{}\n{}\n", encoding="utf-8")
+      ledger.write_text(triage_rows(2), encoding="utf-8")
       with self.assertRaises(study.StudyRefused):
         study.Study(
           work, frozen, build=fake_builder(), screen=fake_screen(),
@@ -592,6 +639,54 @@ class QualificationTests(unittest.TestCase):
       self.assertTrue((Path(directory) / "qualification" / "qualification.json").is_file())
 
 
+  def test_an_interrupted_qualification_needs_an_explicit_retry(self):
+    calls = []
+
+    def build(request):
+      return built
+
+    def failing(request):
+      calls.append(request["configuration"])
+      request["on_process"]({"event": "start", "mode": "x", "pid": 1})
+      raise RuntimeError("interrupted")
+
+    def execute(request):
+      calls.append(request["configuration"])
+      return {
+        "status": "completed",
+        "paths": {
+          "p0": {"status": "completed", "cached": request.get("reference") is not None},
+          "p1": {"status": "completed"}, "p2": {"status": "completed"},
+        },
+        "candidate": False, "compiler": {"status": "unavailable"},
+        "reference": {"kind": "ref"},
+      }
+
+    built = {
+      "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
+      "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
+      "trip_variant": "sir", "probe_values": {}, "bundles": {}, "compiler_identity": {},
+    }
+    with tempfile.TemporaryDirectory() as directory:
+      work = Path(directory) / "qualification"
+      with self.assertRaises(RuntimeError):
+        study.run_qualification(
+          work, slots=1, operations={"build": build, "execute": failing}
+        )
+      calls.clear()
+      record = study.run_qualification(
+        work, slots=1, operations={"build": build, "execute": execute}
+      )
+      self.assertEqual(calls, ["warps-4"])
+      self.assertTrue(record["cases"][0].get("interrupted"))
+      calls.clear()
+      study.run_qualification(
+        work, slots=1, operations={"build": build, "execute": execute},
+        retry=f"{record['cases'][0]['case']}/warps-1",
+      )
+      self.assertEqual(calls, ["warps-1"])
+
+
 class EvidenceTests(unittest.TestCase):
   def test_screening_candidates_pause_and_stop_selection(self):
     triggered = []
@@ -678,7 +773,7 @@ class EvidenceTests(unittest.TestCase):
       work = Path(directory) / "work"
       run = study.Study(
         work, frozen, build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
-        screen=fake_screen(), execute=fake_execute()[0],
+        screen=fake_screen(), execute=fake_execute()[0], legacy_accounting=True,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -742,6 +837,13 @@ class EvidenceTests(unittest.TestCase):
       self.assertIn("ttir", observed["stages"])
       self.assertIn("ptx", observed["artifact_sha256"])
       self.assertEqual(observed["predicate_attribution"], "unavailable")
+
+
+def triage_rows(count):
+  return "\n".join(
+    json.dumps({"case": f"c{index}", "result": "timed_out"})
+    for index in range(count)
+  ) + "\n"
 
 
 DEVICE_TESTS = os.environ.get("REFRACTIR_DEVICE_TESTS") == "1"
@@ -895,19 +997,39 @@ class TriageAndAccountingTests(unittest.TestCase):
       run = DiscoveryTests()._frozen_run(directory)
       final = run.finalize()
       ledger = Path(directory) / "triage-ledger.jsonl"
-      ledger.write_text("{}\n", encoding="utf-8")
+      ledger.write_text(triage_rows(1), encoding="utf-8")
       plain = study.report_from_records(run.work)
       reconciled = study.report_from_records(run.work, triage_ledger=ledger)
       self.assertEqual(plain, final)
       self.assertEqual(reconciled["reserve"]["spent"], 1)
       self.assertEqual(reconciled["reserve"]["remaining"], 31)
 
+  def test_a_path_allocation_is_exhausted_before_a_spawn(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      run = study.Study(
+        Path(directory) / "work", frozen, build=fake_builder(),
+        screen=fake_screen(), execute=fake_execute()[0],
+      ).prepare()
+      for _ in range(frozen.spec["budgets"]["discovery_p0"]):
+        run.path_ledger.append(
+          "process", phase="discovery", path="p0", event="reserved",
+          slot="s", attempt=0,
+        )
+      with self.assertRaises(study.StudyRefused):
+        run._reserve_process_budget(
+          "discovery", {"event": "reserved", "path": "p0"}
+        )
+      self.assertTrue(
+        any(e.get("kind") == "launch_refused" for e in run.path_ledger.events)
+      )
+
   def test_the_triage_ledger_is_charged_to_the_executable_reserve(self):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       ledger = Path(directory) / "triage-ledger.jsonl"
-      ledger.write_text("\n".join("{}" for _ in range(10)) + "\n", encoding="utf-8")
+      ledger.write_text(triage_rows(10), encoding="utf-8")
       run = study.Study(
         work, frozen, build=fake_builder(), screen=fake_screen(),
         execute=fake_execute()[0], triage_ledger=ledger,
