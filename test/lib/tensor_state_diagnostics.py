@@ -180,7 +180,12 @@ WINDOW_PROBE_SEQUENCE = (
   ("i2-late-row", -1, "combined", "trip-comparison"),
 )
 MAX_WINDOW_PROBE_RUNS = 10
-UNAVAILABLE_STATUSES = ("unavailable", "unsupported", "environment_unavailable")
+UNAVAILABLE_STATUSES = (
+  "unavailable",
+  "unsupported",
+  "environment_unavailable",
+  "not_run",
+)
 WINDOW_SCREEN_SCHEMA = "refractir.free-form-window-screen.v1"
 NOT_SELECTED_INVARIANT = "invariant_to_read_probes"
 NOT_SELECTED_UNUSED = "unused_rows_changed"
@@ -213,10 +218,25 @@ def window_screen(*, trip_count, run_probe):
   conditional state-variant runs follow when the base observations do not
   select the body, so the schedule never exceeds ten interpreter launches.
   """
+  from test.lib.tensor_execution import DispatchRefused
+
+  dispatch_refused = None
+
+  def call_probe(probe, trips, variant):
+    nonlocal dispatch_refused
+    try:
+      status, actual = run_probe(probe, trips, variant)
+    except DispatchRefused as error:
+      dispatch_refused = str(error)
+      return "not_run", None
+    if status == "not_run":
+      dispatch_refused = "interpreter dispatch refused"
+    return status, actual
+
   base_schedule = window_probe_schedule(trip_count)
   runs = []
   for item in base_schedule:
-    status, actual = run_probe(item["probe"], item["trip_count"], item["variant"])
+    status, actual = call_probe(item["probe"], item["trip_count"], item["variant"])
     finite = status == COMPLETED and actual is not None and _finite_actual(actual)
     if status == COMPLETED and actual is None:
       status = "runtime_failure"
@@ -232,11 +252,17 @@ def window_screen(*, trip_count, run_probe):
         "unavailable": status in UNAVAILABLE_STATUSES,
       }
     )
+    if dispatch_refused:
+      break
 
   def find(probe, delta):
     return next(
-      run for run in runs
-      if run["probe"] == probe and run["trip_count"] == trip_count + delta
+      (
+        run
+        for run in runs
+        if run["probe"] == probe and run["trip_count"] == trip_count + delta
+      ),
+      {"status": "not_run", "finite": False, "actual": None},
     )
 
   usable = {
@@ -279,7 +305,9 @@ def window_screen(*, trip_count, run_probe):
       reason = NOT_SELECTED_TRIP
     # Identify a hidden state contribution: compare per-state outputs for the
     # base and the probe that failed (or the unused control, or the trip).
-    if reason == NOT_SELECTED_UNUSED:
+    if reason == NOT_SELECTED_INCOMPLETE:
+      probes = []
+    elif reason == NOT_SELECTED_UNUSED:
       probes = [("i0-base", 0), ("i3-unused-rows", 0)]
     elif not (sensitive_broad and sensitive_late):
       failing = (
@@ -291,9 +319,11 @@ def window_screen(*, trip_count, run_probe):
     else:
       probes = []
     for probe, delta in probes:
+      if dispatch_refused:
+        break
       for state in range(2):
         variant = f"state-{state}"
-        status, actual = run_probe(probe, trip_count + delta, variant)
+        status, actual = call_probe(probe, trip_count + delta, variant)
         finite = status == COMPLETED and actual is not None and _finite_actual(actual)
         if status == COMPLETED and actual is None:
           status = "runtime_failure"
@@ -312,6 +342,9 @@ def window_screen(*, trip_count, run_probe):
             "unavailable": status in UNAVAILABLE_STATUSES,
           }
         )
+        if dispatch_refused:
+          reason = NOT_SELECTED_INCOMPLETE
+          break
   else:
     reason = None
 
@@ -346,10 +379,21 @@ def window_screen(*, trip_count, run_probe):
     raise DiagnosticsError("window screening exceeded its interpreter cap")
   return {
     "schema": WINDOW_SCREEN_SCHEMA,
+    "dispatch_refused": dispatch_refused,
     "trip_count": trip_count,
     "runs": [
-      {key: run[key] for key in
-       ("probe", "trip_count", "variant", "purpose", "status", "finite", "actual_sha256")}
+      {
+        key: run[key]
+        for key in (
+          "probe",
+          "trip_count",
+          "variant",
+          "purpose",
+          "status",
+          "finite",
+          "actual_sha256",
+        )
+      }
       for run in all_runs
     ],
     "selection": {
@@ -361,21 +405,41 @@ def window_screen(*, trip_count, run_probe):
       "reason": reason,
     },
     "candidates": [
-      {key: run[key] for key in
-       ("probe", "trip_count", "variant", "status", "finite", "actual_sha256")}
+      {
+        key: run[key]
+        for key in (
+          "probe",
+          "trip_count",
+          "variant",
+          "status",
+          "finite",
+          "actual_sha256",
+        )
+      }
       for run in all_runs
       if run["status"] != COMPLETED and not run.get("unavailable")
-    ] + relationship_candidates,
+    ]
+    + relationship_candidates,
     "unavailable": [
-      {key: run[key] for key in
-       ("probe", "trip_count", "variant", "status", "finite", "actual_sha256")}
+      {
+        key: run[key]
+        for key in (
+          "probe",
+          "trip_count",
+          "variant",
+          "status",
+          "finite",
+          "actual_sha256",
+        )
+      }
       for run in all_runs
       if run.get("unavailable")
     ],
     "labels": {
       "hidden_contribution": hidden,
-      "unused_rows_changed": bool(usable["base"] and usable["unused"] and
-                                  base["actual"] != unused["actual"]),
+      "unused_rows_changed": bool(
+        usable["base"] and usable["unused"] and base["actual"] != unused["actual"]
+      ),
     },
     "conditional_runs": len(conditional),
     "note": (

@@ -416,44 +416,22 @@ class DiscoveryTests(unittest.TestCase):
 
 
   def test_qualification_persists_events_and_skips_completed_configurations(self):
-    calls = []
-
-    def build(request):
-      return {
-        "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
-        "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
-        "trip_variant": "sir", "probe_values": {}, "bundles": {},
-        "compiler_identity": {},
-      }
-
-    def execute(request):
-      request["on_process"]({"event": "reserved", "mode": "x"})
-      request["on_process"]({"event": "start", "mode": "x", "pid": 1})
-      request["on_process"]({"event": "finish", "mode": "x", "status": "completed"})
-      calls.append(request["configuration"])
-      return {
-        "status": "completed",
-        "paths": {
-          "p0": {"status": "completed", "cached": request.get("reference") is not None},
-          "p1": {"status": "completed"},
-          "p2": {"status": "completed"},
-        },
-        "candidate": False, "compiler": {"status": "unavailable"},
-        "reference": {"kind": "ref"},
-      }
+    from test.unit.test_moving_window_repairs import QualificationFixture
 
     with tempfile.TemporaryDirectory() as directory:
-      work = Path(directory) / "qualification"
-      record = study.run_qualification(
-        work, operations={"build": build, "execute": execute}
-      )
+      fixture = QualificationFixture(Path(directory) / "qualification")
+      record = study.run_qualification(fixture.root, operations=fixture.operations)
       self.assertEqual(len(record["cases"]), 4)
-      self.assertEqual(len(calls), 8)
-      lines = (work / "qualification-processes.jsonl").read_text().splitlines()
-      self.assertTrue(any('"event": "start"' in line for line in lines))
-      calls.clear()
-      study.run_qualification(work, operations={"build": build, "execute": execute})
-      self.assertEqual(calls, [])
+      self.assertEqual(len(fixture.calls), 8)
+      events = study.PathLedger(fixture.root / "path-ledger.jsonl").load().events
+      self.assertEqual(
+        sum(e.get("event") == "start" and e.get("path") == "p2" for e in events), 8
+      )
+      fixture.calls.clear()
+      fixture.builds.clear()
+      study.run_qualification(fixture.root, operations=fixture.operations)
+      self.assertEqual(fixture.calls, [])
+      self.assertEqual(fixture.builds, [])
 
   def test_an_applied_decision_still_clears_its_pause(self):
     with tempfile.TemporaryDirectory() as directory:
@@ -592,11 +570,13 @@ class DiscoveryTests(unittest.TestCase):
   def test_unversioned_process_studies_need_an_explicit_mode(self):
     with tempfile.TemporaryDirectory() as directory:
       run = DiscoveryTests()._frozen_run(directory)
+      # This fixture models an archive from before adoption records existed.
+      (run.work / "accounting-adoption.json").unlink()
       run.path_ledger.append(
         "process", phase="discovery", path="p1", event="start", slot="s", attempt=0,
       )
       run.run_discovery()
-      final = run.finalize()
+      run.finalize()
       with self.assertRaises(study.StudyRefused):
         study.report_from_records(run.work)
       reconstructed = study.report_from_records(
@@ -757,105 +737,54 @@ class DiscoveryTests(unittest.TestCase):
       self.assertIsNotNone(directory_path)
       self.assertTrue(str(directory_path).endswith("attempt-1"))
       self.assertFalse((resumed.work / "discovery" / "mw-g0c0" / "i0-base" / "warps-1" / "attempt-0").exists())
-      self.assertEqual(resumed.reserve_spent(), 1)
+      self.assertEqual(resumed.reserve_spent(), 0)
+      account = resumed.process_observer(
+        "triage", slot="mw-g0c0/i0-base/warps-1", directory=str(directory_path)
+      )
+      account({"event": "reserved", "path": "p2"})
+      self.assertEqual(resumed.reserve_spent("p2"), 1)
+      self.assertEqual(resumed.reserve_spent("p0"), 0)
 
 
 class QualificationTests(unittest.TestCase):
   def test_qualification_runs_four_cases_under_two_warps_and_reuses_p0(self):
-    calls = []
-    built = {
-      "kind": "admitted",
-      "source_sha256": "source",
-      "inputs_sha256": "inputs",
-      "layouts": {},
-      "witnesses": [],
-      "region": {"shape": [2, 8]},
-      "source": "fun @kernel() {}",
-      "probe_values": {"i0-base": []},
-    }
-
-    def build(request):
-      return built
-
-    def execute(request):
-      calls.append(request)
-      return {
-        "status": "target_agreement",
-        "paths": {
-          "p0": {"status": "completed", "cached": request.get("reference") is not None},
-          "p1": {"status": "completed"},
-          "p2": {"status": "completed"},
-        },
-        "candidate": False,
-        "compiler": {"status": "observed"},
-        "reference": {"kind": "ref"},
-      }
+    from test.unit.test_moving_window_repairs import QualificationFixture
 
     with tempfile.TemporaryDirectory() as directory:
-      record = study.run_qualification(
-        Path(directory) / "qualification",
-        operations={"build": build, "execute": execute},
-      )
+      fixture = QualificationFixture(directory)
+      record = study.run_qualification(fixture.root, operations=fixture.operations)
       self.assertEqual(len(record["cases"]), 4)
-      self.assertEqual(len(calls), 8)
+      self.assertEqual(len(fixture.calls), 8)
+      self.assertEqual(fixture.events.count(("p0", "start")), 4)
       for case in record["cases"]:
         self.assertEqual(sorted(case["configurations"]), ["warps-1", "warps-4"])
         self.assertFalse(case["configurations"]["warps-1"]["paths"]["p0"]["cached"])
         self.assertTrue(case["configurations"]["warps-4"]["paths"]["p0"]["cached"])
-      self.assertTrue((Path(directory) / "qualification" / "qualification.json").is_file())
-
+        self.assertTrue(case["validated"])
 
   def test_an_interrupted_qualification_needs_an_explicit_retry(self):
-    calls = []
+    from test.unit.test_moving_window_repairs import QualificationFixture
 
-    def build(request):
-      return built
-
-    def failing(request):
-      calls.append(request["configuration"])
-      request["on_process"]({"event": "start", "mode": "x", "pid": 1})
-      raise RuntimeError("interrupted")
-
-    def execute(request):
-      calls.append(request["configuration"])
-      return {
-        "status": "completed",
-        "paths": {
-          "p0": {"status": "completed", "cached": request.get("reference") is not None},
-          "p1": {"status": "completed"}, "p2": {"status": "completed"},
-        },
-        "candidate": False, "compiler": {"status": "unavailable"},
-        "reference": {"kind": "ref"},
-      }
-
-    built = {
-      "kind": "admitted", "source_sha256": "s", "inputs_sha256": "i",
-      "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
-      "trip_variant": "sir", "probe_values": {}, "bundles": {}, "compiler_identity": {},
-    }
     with tempfile.TemporaryDirectory() as directory:
-      work = Path(directory) / "qualification"
-      with self.assertRaises(RuntimeError):
-        study.run_qualification(
-          work, slots=1, operations={"build": build, "execute": failing}
-        )
-      calls.clear()
-      record = study.run_qualification(
-        work, slots=1, operations={"build": build, "execute": execute}
-      )
-      self.assertEqual(calls, ["warps-4"])
+      fixture = QualificationFixture(directory)
+      fixture.fail_at = ("warps-1", "p2", "start")
+      with self.assertRaises(KeyboardInterrupt):
+        fixture.run()
+      fixture.calls.clear()
+      fixture.events.clear()
+      fixture.fail_at = None
+      record = fixture.run()
+      self.assertEqual([r["configuration"] for r in fixture.calls], ["warps-4"])
       self.assertTrue(record["cases"][0].get("interrupted"))
-      calls.clear()
-      study.run_qualification(
-        work, slots=1, operations={"build": build, "execute": execute},
-        retry=f"{record['cases'][0]['case']}/warps-1",
-      )
-      self.assertEqual(calls, ["warps-1"])
-      progress = json.loads(
-        (work / "qualification-progress.json").read_text(encoding="utf-8")
-      )
-      self.assertGreaterEqual(progress["retry_charges"], 1)
-      self.assertGreaterEqual(progress["initial"]["p0"], 1)
+      fixture.calls.clear()
+      fixture.run(retry=f"{fixture.case}/warps-1/attempt-0")
+      self.assertEqual([r["configuration"] for r in fixture.calls], ["warps-1"])
+      frozen = study.FrozenStudy.load(fixture.root / "study.json")
+      runner = study.Study(
+        fixture.root, frozen, build=None, screen=None, execute=None
+      ).prepare()
+      self.assertEqual(runner.reserve_spent("p2"), 1)
+      self.assertEqual(runner.reserve_spent("p0"), 0)
 
 
 class EvidenceTests(unittest.TestCase):
@@ -1239,18 +1168,21 @@ class TriageAndAccountingTests(unittest.TestCase):
     seen = []
 
     def execute(request):
-      request["on_process"]({"event": "reserved", "mode": "reference"})
-      request["on_process"]({"event": "start", "mode": "reference", "pid": 1})
-      request["on_process"]({"event": "finish", "mode": "reference", "status": "completed"})
+      for path in ("p1", "p2"):
+        request["on_process"]({"event": "reserved", "path": path})
+        request["on_process"]({"event": "start", "path": path, "pid": 1})
+        request["on_process"]({"event": "finish", "path": path, "status": "completed"})
       seen.append(True)
       return {
         "status": "completed",
         "paths": {
-          "p0": {"status": "completed", "cached": False},
+          "p0": {"status": "completed", "cached": True},
           "p1": {"status": "completed"},
           "p2": {"status": "completed"},
         },
-        "candidate": False, "unavailable": [], "compiler": {"status": "unavailable"},
+        "candidate": False,
+        "unavailable": [],
+        "compiler": {"status": "unavailable"},
       }
 
     with tempfile.TemporaryDirectory() as directory:
@@ -1264,7 +1196,9 @@ class TriageAndAccountingTests(unittest.TestCase):
       run.freeze_corpus()
       run.run_discovery()
       final = run.finalize()
-      self.assertEqual(final["execution"]["processes"]["started"], 96)
+      self.assertEqual(final["execution"]["processes"]["started"], 192)
+      self.assertEqual(final["paths"]["p0"]["launches"], 0)
+      self.assertEqual(final["paths"]["p0"]["cached"], 96)
       self.assertTrue(seen)
 
 

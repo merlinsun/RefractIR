@@ -14,12 +14,15 @@ import hashlib
 import subprocess
 from pathlib import Path
 
+from test.lib.tensor_execution import DispatchRefused
+
 COMPLETED = "completed"
+NOT_RUN = "not_run"
 UB = "ub"
 UNAVAILABLE = "unavailable"
 FAILED = "failed"
 TIMED_OUT = "timed_out"
-STATUSES = frozenset({COMPLETED, UB, UNAVAILABLE, FAILED, TIMED_OUT})
+STATUSES = frozenset({COMPLETED, UB, UNAVAILABLE, FAILED, TIMED_OUT, NOT_RUN})
 
 PROFILE_VERSIONS = {"tensor-v2": "v2", "tensor-v3": "v3", "tensor-v4": "v4"}
 UB_EXIT_CODE = 5
@@ -43,7 +46,7 @@ class ReferenceObservation:
 
   @property
   def available(self):
-    return self.status != UNAVAILABLE
+    return self.status not in (UNAVAILABLE, NOT_RUN)
 
   def as_record(self):
     return {
@@ -91,7 +94,10 @@ def observe(case, *, symiri, timeout_s=120.0, output_path=None, on_process=None)
     str(bundle / "program.sir"),
   ]
   if on_process is not None:
-    on_process({"event": "reserved", "mode": "reference", "command": list(command)})
+    try:
+      on_process({"event": "reserved", "mode": "reference", "command": list(command)})
+    except DispatchRefused as error:
+      return ReferenceObservation(NOT_RUN, reason=str(error), command=tuple(command))
   try:
     process = subprocess.Popen(
       command,

@@ -27,7 +27,8 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
   sys.path.insert(0, str(_ROOT))
 
-from test.lib import tensor_execution, tensor_tranche
+from test.lib import tensor_execution, tensor_tranche  # noqa: E402
+from test.lib import tensor_study_accounting as accounting  # noqa: E402
 
 MIN_FREE_BYTES = 2 * 1024**3
 SCHEMA = "refractir.moving-window-study.v1"
@@ -450,8 +451,19 @@ def parse_triage_ledger(data, source=None):
 class Study:
   """One run of the frozen study: selection, discovery, and accounting."""
 
-  def __init__(self, work, frozen, *, build, screen, execute, controls_root=None,
-               triage_ledger=None, legacy_accounting=None):
+  def __init__(
+    self,
+    work,
+    frozen,
+    *,
+    build,
+    screen,
+    execute,
+    controls_root=None,
+    triage_ledger=None,
+    legacy_accounting=None,
+    accounting_mode=None,
+  ):
     self.work = Path(work)
     self.frozen = frozen
     self.build = build
@@ -460,12 +472,46 @@ class Study:
     self.controls_root = None if controls_root is None else Path(controls_root)
     self.triage_ledger = None if triage_ledger is None else Path(triage_ledger)
     self._imports_override = None
-    if legacy_accounting is None:
-      legacy_accounting = (frozen.spec.get("accounting") or {}).get("version", 1) < 2
-    self.legacy_accounting = bool(legacy_accounting)
+    if legacy_accounting is not None:
+      legacy_mode = "legacy" if legacy_accounting else "process"
+      if accounting_mode is not None and accounting_mode != legacy_mode:
+        raise StudyRefused("conflicting accounting arguments")
+      accounting_mode = legacy_mode
+    self.accounting_mode = accounting_mode
+    self.legacy_accounting = frozen.spec.get("accounting") is None
     self.path_ledger = PathLedger(self.work / "path-ledger.jsonl")
     self.corpus_path = self.work / "corpus.jsonl"
     self.ledger = None
+
+  def _resolve_accounting(self, *, persist=False):
+    path = self.work / "accounting-adoption.json"
+    adoption = json.loads(path.read_text()) if path.is_file() else None
+    try:
+      mode = accounting.resolve_mode(
+        self.frozen.spec,
+        self.path_ledger.events,
+        requested=self.accounting_mode,
+        adoption=adoption,
+        digest=self.frozen.digest,
+      )
+    except ValueError as error:
+      raise StudyRefused(str(error)) from error
+    self.legacy_accounting = mode == "legacy"
+    if (
+      persist
+      and self.frozen.spec.get("accounting") is None
+      and adoption is None
+      and self.accounting_mode is not None
+    ):
+      tensor_execution.write_atomic(
+        path,
+        _canonical(
+          {
+            "study_digest": self.frozen.digest,
+            "mode": mode,
+          }
+        ).encode("utf-8"),
+      )
 
   def _accepted_imports_path(self):
     return self.work / "accepted-imports.json"
@@ -520,12 +566,14 @@ class Study:
         raise tensor_tranche.ManifestRefused(
           "the work directory belongs to another frozen study"
         )
-    else:
-      self.frozen.write(study_path)
     self.path_ledger.load()
+    self._resolve_accounting()
+    if not study_path.is_file():
+      self.frozen.write(study_path)
     self.ledger = tensor_tranche.Ledger.open(
       self.work / "tranche-ledger.jsonl", self.frozen.tranche
     )
+    self._resolve_accounting(persist=True)
     self._accept_triage_ledger()
     self._replay_decisions()
     for slot in self.frozen.tranche.slots:
@@ -581,6 +629,14 @@ class Study:
     pending = self._pending_admission()
     if action in ("admit", "reject") and pending is None:
       raise StudyRefused("no pending admission to decide")
+    if (
+      action == "admit"
+      and pending is not None
+      and pending.get("screening_complete") is False
+    ):
+      raise StudyRefused(
+        "an incomplete screen cannot be admitted; reject or stop this attempt"
+      )
     if action == "resume" and pending is not None:
       raise StudyRefused(
         "resume cannot resolve a pending admission; use admit, reject, or stop"
@@ -669,6 +725,8 @@ class Study:
     pending = self._pending_admission()
     if pending is None:
       return False
+    if pending.get("screening_complete") is False:
+      raise StudyRefused("an incomplete screen cannot be admitted")
     entry = pending["entry"]
     if entry["case"] not in self._selected_ids():
       self.path_ledger.append(
@@ -757,44 +815,72 @@ class Study:
   def is_stopped(self):
     return (self.work / "study-stopped.json").is_file()
 
-  PROCESS_BUDGETS = {
-    ("screening", "p0"): "selection_p0",
-    ("screening", "p1"): "selection_interpreter",
-    ("discovery", "p0"): "discovery_p0",
-    ("discovery", "p1"): "discovery_interpreter",
-    ("discovery", "p2"): "discovery_gpu",
-  }
-
   def _reserve_process_budget(self, phase, event):
-    """Hold capacity before a spawn; an over-budget reservation never starts."""
     if event.get("event") != "reserved":
       return
     path = event.get("path")
-    key = self.PROCESS_BUDGETS.get((phase, path))
-    if key is None:
-      return
-    limit = self.frozen.spec["budgets"][key]
-    matching = [
-      recorded for recorded in self.path_ledger.events
-      if recorded.get("kind") == "process"
-      and recorded.get("phase") == phase
-      and recorded.get("path") == path
-    ]
-    reserved = sum(1 for recorded in matching if recorded.get("event") == "reserved")
-    started = sum(1 for recorded in matching if recorded.get("event") == "start")
-    spawn_failed = sum(
-      1 for recorded in matching
-      if recorded.get("event") == "finish"
-      and recorded.get("status") == "spawn_failed"
-    )
-    used = (reserved - spawn_failed) if reserved else started
+    try:
+      key = accounting.budget_key(phase, path)
+      used = accounting.used(
+        self.path_ledger.events, phase, path, self.accepted_imports()
+      )
+    except ValueError as error:
+      raise StudyRefused(str(error)) from error
+    limit = 0 if key is None else self.frozen.spec["budgets"][key]
     if used >= limit:
       self.path_ledger.append(
-        "launch_refused", phase=phase, path=path, reason="budget_exhausted",
+        "launch_refused", phase=phase, path=path, reason="budget_exhausted"
       )
       raise DispatchRefused(
         f"the {phase} {path} allocation is exhausted ({used}/{limit})"
       )
+
+  def process_observer(self, phase, **context):
+    """Reserve and record one sequential callback stream, before each Popen."""
+    ordinals = {path: 0 for path in accounting.PATHS}
+    active = {}
+
+    def account(event):
+      path = event.get("path")
+      if path not in accounting.PATHS:
+        raise StudyRefused("process callback is missing its execution path")
+      kind = event.get("event")
+      if kind == "reserved":
+        identity = _digest(
+          {"phase": phase, **context, "path": path, "ordinal": ordinals[path]}
+        )
+        if any(e.get("execution_id") == identity for e in self.path_ledger.events):
+          raise StudyRefused(
+            "a process reservation already exists; use a fresh explicit attempt"
+          )
+        self._reserve_process_budget(phase, event)
+        active[path] = identity
+        ordinals[path] += 1
+      else:
+        identity = active.get(path)
+        if identity is None:
+          raise StudyRefused("a process event has no reservation")
+        history = [
+          e for e in self.path_ledger.events if e.get("execution_id") == identity
+        ]
+        if any(e.get("event") == "finish" for e in history):
+          if kind == "finish" and all(
+            history[-1].get(k) == v for k, v in event.items()
+          ):
+            return
+          raise StudyRefused("process already finished")
+        started = any(e.get("event") == "start" for e in history)
+        if kind == "start" and started:
+          raise StudyRefused("duplicate process start")
+        if kind not in ("start", "finish") or (
+          kind == "finish" and not started and event.get("status") != "spawn_failed"
+        ):
+          raise StudyRefused("invalid process lifecycle transition")
+      self.path_ledger.append(
+        "process", **context, **event, phase=phase, execution_id=identity
+      )
+
+    return account
 
   def _disk_guard(self):
     free = shutil.disk_usage(self.work).free
@@ -886,11 +972,11 @@ class Study:
         )
         if outcome.get("kind") != "admitted":
           continue
-        def screening_account(event, case=slot["id"], attempt=attempt):
-          self._reserve_process_budget("screening", event)
-          self.path_ledger.append(
-            "process", phase="screening", case=case, attempt=attempt, **event
-          )
+        screening_account = self.process_observer(
+          "screening",
+          case=slot["id"],
+          attempt=attempt,
+        )
 
         outcome["on_process"] = screening_account
         try:
@@ -899,6 +985,16 @@ class Study:
           self.path_ledger.append(
             "dispatch_refused", case=slot["id"], attempt=attempt,
             phase="screening", reason=str(error),
+          )
+          self._save_pending(
+            {
+              "case": slot["id"],
+              "attempt": attempt,
+              "seed": seed,
+              "entry": self._corpus_entry(slot, outcome, {}),
+              "candidates": [],
+              "screening_complete": False,
+            }
           )
           self.pause(
             [{"kind": "dispatch_refused", "phase": "screening", "reason": str(error)}],
@@ -913,6 +1009,7 @@ class Study:
           reason=screened.get("reason"),
           launches=screened.get("launches", 0),
           p0=screened.get("p0", 0),
+          record=screened.get("record", {}),
         )
         candidates = list(screened.get("candidates", []))
         invalid = [c for c in candidates if c.get("kind") == "invalid_execution"]
@@ -921,6 +1018,23 @@ class Study:
             "selection_invalid_execution", case=slot["id"], candidates=invalid
           )
           candidates = [c for c in candidates if c.get("kind") != "invalid_execution"]
+        if screened.get("dispatch_refused"):
+          if candidates:
+            self.path_ledger.append(
+              "selection_candidates", case=slot["id"], candidates=candidates
+            )
+          self._save_pending(
+            {
+              "case": slot["id"],
+              "attempt": attempt,
+              "seed": seed,
+              "entry": self._corpus_entry(slot, outcome, screened),
+              "candidates": candidates,
+              "screening_complete": False,
+            }
+          )
+          self.pause(candidates, reason=screened["dispatch_refused"], phase="selection")
+          return self
         if candidates:
           self.path_ledger.append(
             "selection_candidates",
@@ -1192,12 +1306,13 @@ class Study:
         attempt=attempt,
         directory=str(directory),
       )
-      def account(event):
-        self._reserve_process_budget("discovery", event)
-        self.path_ledger.append(
-          "process", phase="discovery", slot=slot.slot_id, case=slot.case_id,
-          attempt=attempt, directory=str(directory), **event,
-        )
+      account = self.process_observer(
+        "discovery",
+        slot=slot.slot_id,
+        case=slot.case_id,
+        attempt=attempt,
+        directory=str(directory),
+      )
 
       request = {
         "slot": slot.slot_id,
@@ -1343,13 +1458,21 @@ class Study:
     return total
 
   def reserve_spent(self, path=None):
+    if not self.legacy_accounting:
+      return accounting.used(
+        self.path_ledger.events, "triage", path or "p2", self.accepted_imports()
+      )
     retries = sum(1 for e in self.path_ledger.events if e.get("kind") == "retry")
     if path is None:
       return retries + self.triage_charge()
     return retries + self.triage_charge(path)
 
   def retry(self, slot_id, *, case_id, input, configuration, reason):
-    """Reserve a unique retry directory, charging every paired-path reserve."""
+    """Reserve a fresh directory; process-mode retries charge only actual paths.
+
+    Pass process_observer("triage", slot=slot_id, directory=str(directory))
+    to the executor. Directory creation alone authorizes no subprocess.
+    """
     if not self._disk_guard():
       return None
     budgets = self.frozen.spec["budgets"]
@@ -1359,7 +1482,8 @@ class Study:
       "p1": budgets["reserve_interpreter"],
       "p0": budgets["reserve_p0"],
     }
-    if any(self.reserve_spent(path) >= limit for path, limit in limits.items()):
+    needed = limits if self.legacy_accounting else {p: limits[p] for p in ("p1", "p2")}
+    if any(self.reserve_spent(path) >= limit for path, limit in needed.items()):
       self.path_ledger.append(
         "launch_refused", slot=slot_id, case=case_id, reason="reserve_spent"
       )
@@ -1377,7 +1501,8 @@ class Study:
       case=case_id,
       attempt=attempt,
       directory=str(directory),
-      reserve=spent + 1,
+      reserve=spent + int(self.legacy_accounting),
+      process_accounting=not self.legacy_accounting,
       reason=reason,
     )
     return directory
@@ -1454,21 +1579,27 @@ class Study:
           {
             "processes": {
               "started": sum(
-                1 for e in events if e.get("kind") == "process" and e.get("event") == "start"
+                1
+                for e in events
+                if e.get("kind") == "process" and e.get("event") == "start"
               ),
               "finished": sum(
-                1 for e in events if e.get("kind") == "process" and e.get("event") == "finish"
+                1
+                for e in events
+                if e.get("kind") == "process" and e.get("event") == "finish"
               ),
               "by_path": {
                 path: {
                   "started": sum(
-                    1 for e in events
+                    1
+                    for e in events
                     if e.get("kind") == "process"
                     and e.get("event") == "start"
                     and e.get("path") == path
                   ),
                   "finished": sum(
-                    1 for e in events
+                    1
+                    for e in events
                     if e.get("kind") == "process"
                     and e.get("event") == "finish"
                     and e.get("path") == path
@@ -1494,6 +1625,24 @@ class Study:
         "spent": self.reserve_spent(),
         "remaining": max(
           0, self.frozen.spec["budgets"]["reserve_gpu"] - self.reserve_spent()
+        ),
+        **(
+          {
+            "accounting": "reserved-or-started",
+            "by_path": {
+              path: {
+                "spent": self.reserve_spent(path),
+                "remaining": max(
+                  0,
+                  self.frozen.spec["budgets"][accounting.budget_key("triage", path)]
+                  - self.reserve_spent(path),
+                ),
+              }
+              for path in accounting.PATHS
+            },
+          }
+          if not self.legacy_accounting
+          else {}
         ),
       },
       "refusals": [
@@ -1523,8 +1672,13 @@ def report_from_records(work, *, triage_ledger=None, accounting_mode=None):
   work = Path(work)
   frozen = FrozenStudy.load(work / "study.json")
   study = Study(
-    work, frozen, build=None, screen=None, execute=None,
+    work,
+    frozen,
+    build=None,
+    screen=None,
+    execute=None,
     triage_ledger=triage_ledger,
+    accounting_mode=accounting_mode,
   )
   if triage_ledger is not None:
     ledger = Path(triage_ledger)
@@ -1552,21 +1706,7 @@ def report_from_records(work, *, triage_ledger=None, accounting_mode=None):
         }
       ]
   study.path_ledger.load()
-  process_events = any(
-    event.get("kind") == "process" for event in study.path_ledger.events
-  )
-  accounted = frozen.spec.get("accounting")
-  if accounting_mode == "legacy" and accounted is not None:
-    raise StudyRefused("a versioned process study cannot be reinterpreted as legacy")
-  if accounting_mode == "process":
-    study.legacy_accounting = False
-  elif accounted is None and process_events:
-    raise StudyRefused(
-      "the study has process events but no accounting version; pass the "
-      "explicit process interpretation"
-    )
-  elif accounted is None:
-    study.legacy_accounting = True
+  study._resolve_accounting()
   study.ledger = tensor_tranche.Ledger.open(
     work / "tranche-ledger.jsonl", frozen.tranche
   )
@@ -1691,7 +1831,6 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     probe_triton_env,
     tensor_free_form_case,
     tensor_free_form_inputs,
-    tensor_compiler_observation,
     tensor_state_diagnostics,
     tensor_target_case,
     tensor_target_reference,
@@ -1886,14 +2025,19 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     """Use the shared window schedule; keep candidates and P0 separate."""
     process = outcome.get("on_process")
     trip_count = outcome["trip_count"]
+    starts = {"p0": 0, "p1": 0}
 
     def p1_process(event):
       if process is not None:
         process({**event, "path": "p1"})
+      if event.get("event") == "start":
+        starts["p1"] += 1
 
     def p0_process(event):
       if process is not None:
         process({**event, "path": "p0"})
+      if event.get("event") == "start":
+        starts["p0"] += 1
 
     def run_probe(probe, trips, variant):
       if variant != "combined":
@@ -1942,6 +2086,12 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
             "agreement": agreement,
           }
         )
+        if observation.status == tensor_target_reference.NOT_RUN:
+          result["dispatch_refused"] = observation.reason
+          result["selection"]["reason"] = "incomplete_observation"
+          result["selection"]["selected"] = False
+          selected = False
+          break
         if observation.status == tensor_target_reference.UB:
           selected = False
           candidates.append(
@@ -1965,15 +2115,23 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
           unavailable.append(
             {"probe": probe, "status": observation.status, "reason": observation.reason}
           )
-    launches = 6 + sum(
-      1 for run in result["runs"]
-      if run["variant"] != "combined" and run["status"] not in ("unsupported",)
+    result = {
+      **result,
+      "p0": p0,
+      "candidates": candidates,
+      "unavailable": unavailable,
+      "admission_selected": selected,
+    }
+    tensor_execution.write_atomic(
+      Path(outcome["directory"]) / "screening.json",
+      tensor_execution.canonical_json(result).encode("utf-8"),
     )
     return {
       "selected": selected,
+      "dispatch_refused": result.get("dispatch_refused"),
       "reason": result["selection"]["reason"],
-      "launches": launches,
-      "p0": len(p0),
+      "launches": starts["p1"],
+      "p0": starts["p0"],
       "candidates": candidates,
       "unavailable": unavailable,
       "record": {**result, "p0": p0},
@@ -1982,7 +2140,6 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
   reference_cache = {}
 
   def execute(request):
-    slot = request["slot"]
     corpus = request["corpus"]
     probe = request["input"]
     configuration = request["configuration"]
@@ -2057,6 +2214,9 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         symirc=symirc,
         symiri=symiri,
         reference=reference,
+        dispatch_refused=reference.reason
+        if reference.status == tensor_target_reference.NOT_RUN
+        else None,
         timeout_s=timeout_s,
         artifact_dir=directory / "target-runs",
         compiler_identity=identity,
@@ -2145,11 +2305,11 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "interpret",
       toolchain["symiri_sha256"],
     )
-    if reference is None:
+    if reference is None and not request.get("force_reference"):
       reference = reference_cache.get(cache_key)
       cached = reference is not None
       cache_state = "hit" if cached else "miss"
-    if reference is None:
+    if reference is None and not request.get("force_reference"):
       selection_p0 = [
         entry
         for entry in ((corpus.get("screen") or {}).get("p0") or [])
@@ -2190,15 +2350,24 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
           tensor_target_reference.UNAVAILABLE,
           reason=f"cached P0 output for {probe} is missing or fails identity validation",
         )
-      if reference is None:
-        reference = tensor_target_reference.observe(
-          case, symiri=symiri, timeout_s=timeout_s, on_process=p0_process
-        )
+    if reference is None:
+      reference = tensor_target_reference.observe(
+        case,
+        symiri=symiri,
+        timeout_s=timeout_s,
+        on_process=p0_process,
+        output_path=request.get("reference_output_path"),
+      )
+    if request.get("on_reference") is not None:
+      request["on_reference"](reference)
     run = tensor_target_run.run(
       bundle,
       symirc=symirc,
       symiri=symiri,
       reference=reference,
+      dispatch_refused=reference.reason
+      if reference.status == tensor_target_reference.NOT_RUN
+      else None,
       timeout_s=timeout_s,
       compiler_identity=identity,
       on_process=run_process,
@@ -2218,8 +2387,8 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         "directory": str(bundle / "target-runs" / "interpret"),
       },
       "p2": {
-        "status": "not_run" if run.dispatch_refused else run.compiled.status,
-        "reason": run.dispatch_refused,
+        "status": run.compiled.status,
+        "reason": run.compiled.reason,
         "directory": str(bundle / "target-runs" / "compiled"),
       },
     }
@@ -2242,250 +2411,475 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
   return {"build": build, "screen": screen, "execute": execute, "toolchain": toolchain}
 
 
-def run_qualification(work, *, operations, slots=4, timeout_s=300.0, retry=None):
-  """Four integration cases under two warp settings, reusing each P0."""
-  frozen = freeze_study()
-  chosen = frozen.spec["sources"][:slots]
+def _qualification_toolchain(toolchain):
+  required = (
+    "exporter_sha256",
+    "symirc_sha256",
+    "symiri_sha256",
+    "triton_library_sha256",
+    "triton",
+    "python",
+    "device",
+  )
+  if not all(toolchain.get(key) for key in required):
+    raise StudyRefused(
+      "qualification requires the complete qualified toolchain identity"
+    )
+
+
+def _qualification_identity(built, frozen, toolchain):
+  """Bind the build record and actual bundle payloads before reusing a result."""
+  _qualification_toolchain(toolchain)
+  region = built.get("region") or {}
+  probes = built.get("probe_values") or {}
+  if (
+    not built.get("source")
+    or "i0-base" not in probes
+    or not region.get("profile")
+    or not region.get("entry")
+  ):
+    raise StudyRefused(
+      "qualification build has incomplete source/input/profile/entry identity"
+    )
+  bundles = built.get("bundles") or {}
+  if "i0-base" not in bundles:
+    raise StudyRefused("qualification build has no base input bundle")
+  payloads = {}
+  for name, directory in sorted(bundles.items()):
+    for filename in ("program.sir", "inputs.bin", "case.json"):
+      path = Path(directory) / filename
+      if not path.is_file():
+        raise StudyRefused(f"qualification artifact is missing: {path}")
+      payloads[f"{name}/{filename}"] = _sha256_bytes(path.read_bytes())
+  if payloads["i0-base/program.sir"] != _sha256_bytes(built["source"].encode("utf-8")):
+    raise StudyRefused("qualification source payload differs from the build")
+  if payloads["i0-base/inputs.bin"] != _sha256_bytes(bytes(probes["i0-base"])):
+    raise StudyRefused("qualification input payload differs from the build")
+  return {
+    "study_digest": frozen.digest,
+    "toolchain": toolchain,
+    "build_digest": _digest(built),
+    "payloads": payloads,
+    "source_sha256": payloads["i0-base/program.sir"],
+    "input_sha256": payloads["i0-base/inputs.bin"],
+    "profile": region["profile"],
+    "entry": region["entry"],
+    "layouts": built.get("layouts"),
+    "configurations": frozen.spec["configurations"],
+  }
+
+
+def _qualification_artifacts(directory):
+  # P0 is a diagnostic cache with its own availability/identity handling. A
+  # lost cache must not make a completed target look as if it never ran.
+  directory = Path(directory)
+  return {
+    str(path.relative_to(directory)): _sha256_bytes(path.read_bytes())
+    for path in sorted(directory.rglob("*"))
+    if path.is_file()
+    and path.name not in ("p0.bin", "p0.json", "reference.bin")
+    and "reference" not in path.relative_to(directory).parts
+  }
+
+
+def _qualification_retry(token, chosen, progress):
+  if token is None:
+    return None
+  valid = {}
+  for slot in chosen:
+    for configuration, attempt in (
+      progress["cases"].get(slot["id"], {}).get("attempts", {}).items()
+    ):
+      if attempt.get("status") in ("running", "interrupted", "refused"):
+        key = f"{slot['id']}/{configuration}/attempt-{attempt['attempt']}"
+        valid[key] = (slot["id"], configuration, attempt["attempt"])
+  if token not in valid:
+    raise StudyRefused(
+      "qualification retry must name an existing unfinished case/configuration/attempt-N"
+    )
+  return valid[token]
+
+
+def _qualification_reference(work, case, progress, identity):
+  from test.lib.tensor_target_reference import (
+    COMPLETED,
+    STATUSES,
+    UNAVAILABLE,
+    ReferenceObservation,
+  )
+
+  stored = progress["cases"].get(case, {})
+  meta_path = Path(stored.get("reference_record", work / case / "p0.json"))
+  missing_meta = (
+    {"observation_id": stored["reference_observation_id"]}
+    if stored.get("reference_observation_id")
+    else None
+  )
+  if not meta_path.is_file():
+    if stored.get("p0_attempted") or stored.get("attempts"):
+      return ReferenceObservation(
+        UNAVAILABLE, reason="qualification P0 record is missing"
+      ), missing_meta
+    return None, None
+  try:
+    meta = json.loads(meta_path.read_text())
+  except (ValueError, OSError):
+    return ReferenceObservation(
+      UNAVAILABLE, reason="qualification P0 record is corrupt"
+    ), missing_meta
+  if stored.get("reference_digest") != _digest(meta):
+    return ReferenceObservation(
+      UNAVAILABLE, reason="qualification P0 record digest differs"
+    ), missing_meta
+  if meta.get("identity") != identity:
+    raise StudyRefused("qualification P0 identity differs from its build")
+  if meta.get("status") not in STATUSES:
+    return ReferenceObservation(
+      UNAVAILABLE, reason="qualification P0 status is invalid"
+    ), meta
+  if meta["status"] != COMPLETED:
+    return ReferenceObservation(meta["status"], reason=meta.get("reason", "")), meta
+  output = meta_path.with_name("p0.bin")
+  data = output.read_bytes() if output.is_file() else None
+  if data is None or _sha256_bytes(data) != meta.get("output_sha256"):
+    return ReferenceObservation(
+      UNAVAILABLE, reason="qualification P0 output is missing or corrupt"
+    ), meta
+  return ReferenceObservation(COMPLETED, output=data, path="qualification-cache"), meta
+
+
+def run_qualification(
+  work,
+  *,
+  operations,
+  slots=4,
+  timeout_s=300.0,
+  retry=None,
+  authority=None,
+  reference_recheck=None,
+  accounting_mode=None,
+):
+  """Qualify four cases using the same per-process authority as discovery.
+
+  A retry names case/configuration/attempt-N. It never implies a fresh P0.
+  Re-observation additionally names case/observation-id, is charged to P0
+  triage, and preserves the previous observation and all target attempts.
+  """
+  from test.lib.tensor_target_reference import (
+    COMPLETED,
+    ReferenceObservation,
+  )
+
   work = Path(work)
-  work.mkdir(parents=True, exist_ok=True)
-  record = {"schema": "refractir.moving-window-qualification.v1", "cases": []}
-  process_ledger = work / "qualification-processes.jsonl"
+  toolchain = operations.get("toolchain") or {}
+  _qualification_toolchain(toolchain)
+  study_path = work / "study.json"
+  frozen = (
+    FrozenStudy.load(study_path)
+    if study_path.is_file()
+    else freeze_study(toolchain=toolchain)
+  )
+  require_toolchain(frozen, toolchain)
+  if authority is None:
+    authority = Study(
+      work,
+      frozen,
+      build=None,
+      screen=None,
+      execute=None,
+      accounting_mode=accounting_mode,
+    )
+  if (
+    authority.work.resolve() != work.resolve()
+    or authority.frozen.digest != frozen.digest
+  ):
+    raise StudyRefused("qualification must use the study's accounting authority")
+  if type(slots) is not int or not 1 <= slots <= 4:
+    raise StudyRefused("qualification has at most four frozen cases")
+  chosen = frozen.spec["sources"][:slots]
   progress_path = work / "qualification-progress.json"
   progress = (
-    json.loads(progress_path.read_text(encoding="utf-8"))
-    if progress_path.is_file() else {"cases": {}}
+    json.loads(progress_path.read_text())
+    if progress_path.is_file()
+    else {
+      "schema": "refractir.moving-window-qualification-progress.v2",
+      "cases": {},
+    }
   )
+  if progress.get("schema") != "refractir.moving-window-qualification-progress.v2":
+    raise StudyRefused(
+      "legacy qualification progress needs explicit evidence migration"
+    )
+  retry_request = _qualification_retry(retry, chosen, progress)
+  recheck_request = None
+  builds = {}
+  identities = {}
+  references = {}
+  # Validate every reusable case before prepare() can import charges, recover
+  # decisions, or reconcile running slots. Rejection leaves all files intact.
   for slot in chosen:
-    stored = progress["cases"].get(slot["id"])
-    case_record = {"case": slot["id"], "padded": slot["padded"], "configurations": {}}
-    case_record["configurations"] = dict((stored or {}).get("outcomes", {}))
-    case_progress = progress["cases"].get(slot["id"], {})
-    attempts = dict(case_progress.get("attempts", {}))
-    retries = int(case_progress.get("retries", 0))
-    build_path = work / slot["id"] / "build.json"
-    if build_path.is_file():
-      built = json.loads(build_path.read_text(encoding="utf-8"))
-      case_record["attempt"] = built.get("attempt", 0)
-    elif (work / slot["id"]).exists() and any((work / slot["id"]).glob("attempt-*")):
-      case_record["interrupted"] = "an earlier qualification build is incomplete"
-      record["cases"].append(case_record)
+    case = slot["id"]
+    path = work / case / "build.json"
+    stored = progress["cases"].get(case)
+    if not path.is_file():
+      if stored:
+        raise StudyRefused("a persisted qualification build is missing")
       continue
-    else:
-      built = None
+    built = json.loads(path.read_text())
+    identity = _qualification_identity(built, frozen, toolchain)
+    if stored is None or stored.get("identity") != identity:
+      raise StudyRefused(
+        "qualification build identity differs or was not durably frozen"
+      )
+    for attempt in stored.get("attempts", {}).values():
+      if attempt.get("status") == "completed":
+        actual = _qualification_artifacts(attempt["directory"])
+        if not attempt.get("artifacts") or actual != attempt["artifacts"]:
+          raise StudyRefused("completed qualification artifacts changed or are missing")
+    observed, meta = _qualification_reference(work, case, progress, identity)
+    builds[case], identities[case], references[case] = built, identity, observed
+    if reference_recheck is not None and meta is not None:
+      if reference_recheck == f"{case}/{meta.get('observation_id')}":
+        recheck_request = case
+  if reference_recheck is not None:
+    if (
+      recheck_request is None
+      or retry_request is None
+      or recheck_request != retry_request[0]
+    ):
+      raise StudyRefused(
+        "reference recheck must match the retried case and its prior observation identity"
+      )
+  authority.prepare()
+  if authority.is_stopped() or authority.is_paused():
+    raise StudyRefused(
+      "qualification cannot dispatch while the study is paused or stopped"
+    )
+  if authority.legacy_accounting:
+    raise StudyRefused("new qualification needs process accounting")
+  record = {"schema": "refractir.moving-window-qualification.v2", "cases": []}
+
+  def save_progress():
+    tensor_execution.write_atomic(
+      progress_path, (json.dumps(progress, indent=1, sort_keys=True) + "\n").encode()
+    )
+
+  for slot in chosen:
+    case = slot["id"]
+    built = builds.get(case)
+    if built is None:
+      if (work / case).is_dir() and any((work / case).glob("attempt-*")):
+        record["cases"].append(
+          {"case": case, "interrupted": "uncommitted qualification build"}
+        )
+        continue
       for attempt in range(4):
+        if not authority._disk_guard():
+          break
         candidate = operations["build"](
           {
             "slot": slot,
             "attempt": attempt,
             "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
             "max_attempts": 1,
-            "directory": str(work / slot["id"] / f"attempt-{attempt}"),
+            "directory": str(work / case / f"attempt-{attempt}"),
           }
         )
-        if candidate.get("kind") == "admitted":
-          built = candidate
-          built["attempt"] = attempt
-          case_record["attempt"] = attempt
-          (work / slot["id"]).mkdir(parents=True, exist_ok=True)
-          build_path.write_text(
-            json.dumps(built, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+        if candidate.get("kind") != "admitted":
+          authority.path_ledger.append(
+            "qualification_build_refused",
+            case=case,
+            attempt=attempt,
+            reason=candidate.get("reason"),
           )
-          break
-        case_record.setdefault("refusals", []).append(candidate.get("reason"))
+          continue
+        built = {**candidate, "attempt": attempt}
+        identities[case] = _qualification_identity(built, frozen, toolchain)
+        tensor_execution.write_atomic(
+          work / case / "build.json",
+          (json.dumps(built, indent=1, sort_keys=True) + "\n").encode(),
+        )
+        progress["cases"][case] = {
+          "identity": identities[case],
+          "outcomes": {},
+          "attempts": {},
+          "p0_attempted": False,
+        }
+        save_progress()
+        break
     if built is None:
-      record["cases"].append(case_record)
+      record["cases"].append({"case": case, "refused": "no admitted build"})
       continue
-    p0_bin = work / slot["id"] / "p0.bin"
-    p0_meta = work / slot["id"] / "p0.json"
-    toolchain = operations.get("toolchain") or {}
-    identity = {
-      "source_sha256": hashlib.sha256(str(built.get("source", "")).encode("utf-8")).hexdigest(),
-      "input_sha256": hashlib.sha256(bytes((built.get("probe_values") or {}).get("i0-base", b""))).hexdigest(),
-      "profile": (built.get("region") or {}).get("profile"),
-      "entry": (built.get("region") or {}).get("entry"),
-      "symiri_sha256": toolchain.get("symiri_sha256"),
-    }
-    initial = progress.setdefault("initial", {"p0": 0, "p1": 0, "p2": 0})
-    retry_charges = progress.setdefault("retry_charges", 0)
-    if stored and stored.get("complete"):
-      if stored.get("identity") != identity:
-        case_record["identity_mismatch"] = True
-        record["cases"].append(case_record)
-        continue
-      record["cases"].append(stored["case_record"])
-      continue
-    p0_reference = None
-    if p0_bin.is_file() and p0_meta.is_file():
-      meta = json.loads(p0_meta.read_text(encoding="utf-8"))
-      data = p0_bin.read_bytes()
-      if (hashlib.sha256(data).hexdigest() == meta.get("output_sha256")
-          and all(meta.get(key) == value for key, value in identity.items())):
-        from test.lib.tensor_target_reference import ReferenceObservation, COMPLETED
-        p0_reference = ReferenceObservation(COMPLETED, output=data, path="qualification-cache")
-      else:
-        case_record["p0_identity_mismatch"] = True
-        record["cases"].append(case_record)
-        continue
-    elif case_record["configurations"] and retry is None:
-      case_record["p0_unavailable"] = "the cached qualification P0 is missing"
-      record["cases"].append(case_record)
-      continue
+    state = progress["cases"][case]
+    observed = references.get(case)
     for configuration in frozen.spec["configurations"]:
-      if configuration in case_record["configurations"]:
-        continue
-      record_key = f"{slot['id']}/{configuration}"
-      attempt_state = attempts.get(configuration)
-      if attempt_state and attempt_state.get("status") in ("running", "interrupted"):
-        attempts[configuration] = {**attempt_state, "status": "interrupted"}
-        progress["cases"][slot["id"]] = {
-          "outcomes": case_record["configurations"],
-          "attempts": attempts, "retries": retries,
-        }
-        progress_path.write_text(
-          json.dumps(progress, indent=1, sort_keys=True) + "\n",
-          encoding="utf-8",
-        )
-        if retry != record_key:
-          case_record["interrupted"] = (
-            f"configuration {configuration} needs an explicit retry"
-          )
+      previous = state["attempts"].get(configuration)
+      if previous is not None:
+        if previous["status"] == "completed":
           continue
-        retries += 1
-        retry_charges += 1
-        imported = 0
-        imports_path = work / "accepted-imports.json"
-        if imports_path.is_file():
-          for record_entry in json.loads(imports_path.read_text(encoding="utf-8")):
-            imported += (record_entry.get("paths") or {}).get("p2", 0)
-        if retry_charges + imported > min(
-          frozen.spec["budgets"]["triage_gpu"],
-          frozen.spec["budgets"]["triage_interpreter"],
-          frozen.spec["budgets"]["triage_p0"],
-        ):
-          case_record.setdefault("refusals", []).append(
-            "qualification retry reserve is exhausted"
-          )
+        if retry_request != (case, configuration, previous["attempt"]):
           continue
-      else:
-        if (initial["p2"] >= frozen.spec["budgets"]["qualification_gpu"]
-            or initial["p1"] >= frozen.spec["budgets"]["qualification_interpreter"]
-            or (p0_reference is None
-                and initial["p0"] >= frozen.spec["budgets"]["qualification_p0"])):
-          case_record.setdefault("refusals", []).append(
-            "qualification allocation is exhausted"
-          )
-          continue
-        initial["p1"] += 1
-        initial["p2"] += 1
-        if p0_reference is None:
-          initial["p0"] += 1
-      progress["initial"] = initial
-      progress["retry_charges"] = retry_charges
+      if not authority._disk_guard():
+        break
+      run_index = 0 if previous is None else previous["attempt"] + 1
+      directory = work / case / f"{configuration}-run-{run_index}"
+      if directory.exists():
+        raise StudyRefused("qualification attempt directory already exists")
+      directory.mkdir(parents=True)
+      phase = "qualification" if previous is None else "triage"
+      accountant = authority.process_observer(
+        phase,
+        case=case,
+        configuration=configuration,
+        attempt=run_index,
+        directory=str(directory),
+      )
       events = []
-
-      def account(event, events=events, configuration=configuration):
-        events.append(event)
-        with process_ledger.open("a", encoding="utf-8") as handle:
-          handle.write(json.dumps({
-            "case": slot["id"], "configuration": configuration, **event,
-          }, sort_keys=True) + "\n")
-          handle.flush()
-
-      run_index = 0
-      while (work / slot["id"] / f"{configuration}-run-{run_index}").exists():
-        run_index += 1
-      directory = work / slot["id"] / f"{configuration}-run-{run_index}"
-      attempts[configuration] = {
-        "status": "running",
-        "directory": str(directory),
-        "attempt": run_index,
-      }
-      progress["cases"][slot["id"]] = {
-        "outcomes": case_record["configurations"],
-        "attempts": attempts, "retries": retries,
-        "initial": initial, "retry_charges": retry_charges,
-      }
-      progress_path.write_text(
-        json.dumps(progress, indent=1, sort_keys=True) + "\n", encoding="utf-8"
-      )
-      with process_ledger.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({
-          "case": slot["id"], "configuration": configuration,
-          "event": "reserved", "directory": str(directory),
-        }, sort_keys=True) + "\n")
-        handle.flush()
-      outcome = operations["execute"](
-        {
-          "slot": f"{slot['id']}/i0-base/{configuration}",
-          "case": slot["id"],
-          "corpus": {"kind": "source", **built, "case": slot["id"]},
-          "input": "i0-base",
-          "configuration": configuration,
-          "attempt": case_record.get("attempt", 0),
-          "directory": str(directory),
-          "reference": p0_reference,
-          "on_process": account,
-        }
-      )
-      reference = outcome.get("reference")
-      if p0_reference is None:
-        p0_reference = reference
-      if (getattr(reference, "status", None) == "completed"
-          and getattr(reference, "output", None) is not None):
-        (work / slot["id"]).mkdir(parents=True, exist_ok=True)
-        p0_bin.write_bytes(reference.output)
-        p0_meta.write_text(
-          json.dumps({
-            **identity,
-            "output_sha256": hashlib.sha256(reference.output).hexdigest(),
-            "status": reference.status,
-            "configuration": configuration,
-          }, indent=1, sort_keys=True) + "\n",
-          encoding="utf-8",
+      reference_destination = work / case / "p0.json"
+      if recheck_request == case and previous is not None:
+        observed = None
+        reference_destination = (
+          work
+          / case
+          / "reference-rechecks"
+          / f"{configuration}-run-{run_index}"
+          / "p0.json"
         )
-      progress["initial"] = initial
-      progress["retry_charges"] = retry_charges
-      case_record["configurations"][configuration] = {
+      needs_reference = observed is None
+      state["attempts"][configuration] = {
+        "status": "running",
+        "attempt": run_index,
+        "directory": str(directory),
+      }
+      state["p0_attempted"] |= needs_reference
+      save_progress()
+
+      def account(event):
+        accountant(event)
+        events.append(event)
+
+      def retain_reference(value):
+        # An observation is saved immediately after P0, before P1/P2 can fail.
+        nonlocal observed
+        if not isinstance(value, ReferenceObservation):
+          raise StudyRefused(
+            "qualification executor did not return a typed P0 observation"
+          )
+        observed = value
+        if not needs_reference:
+          return
+        meta = {**value.as_record(), "identity": identities[case]}
+        meta["observation_id"] = _digest({**meta, "attempt": str(directory)})
+        if reference_destination.is_file():
+          if json.loads(reference_destination.read_text()) != meta:
+            raise StudyRefused("refusing to overwrite an earlier P0 observation")
+        else:
+          if value.output is not None:
+            tensor_execution.write_atomic(
+              reference_destination.with_name("p0.bin"), value.output
+            )
+          tensor_execution.write_atomic(
+            reference_destination,
+            (json.dumps(meta, indent=1, sort_keys=True) + "\n").encode(),
+          )
+        state["reference_record"] = str(reference_destination)
+        state["reference_observation_id"] = meta["observation_id"]
+        state["reference_digest"] = _digest(meta)
+        save_progress()
+
+      try:
+        outcome = operations["execute"](
+          {
+            "slot": f"{case}/i0-base/{configuration}",
+            "case": case,
+            "corpus": {"kind": "source", **built, "case": case},
+            "input": "i0-base",
+            "configuration": configuration,
+            "attempt": run_index,
+            "directory": str(directory),
+            "reference": observed,
+            "on_process": account,
+            "on_reference": retain_reference,
+            "reference_output_path": str(reference_destination.with_name("p0.bin")),
+            "force_reference": needs_reference,
+          }
+        )
+      except DispatchRefused as error:
+        outcome = {
+          "status": "dispatch_refused",
+          "dispatch_refused": str(error),
+          "paths": {},
+          "candidate": False,
+          "compiler": {"status": "unavailable"},
+        }
+      except BaseException:
+        state["attempts"][configuration]["status"] = "interrupted"
+        save_progress()
+        raise
+      if isinstance(outcome.get("reference"), ReferenceObservation):
+        retain_reference(outcome["reference"])
+      paths = outcome.get("paths", {})
+      complete = not outcome.get("dispatch_refused")
+      entry = {
         "status": outcome.get("status"),
-        "paths": outcome.get("paths"),
-        "candidate": outcome.get("candidate"),
+        "paths": paths,
+        "candidate": outcome.get("candidate", False),
         "compiler": outcome.get("compiler"),
         "processes": events,
+        "reference_status": getattr(observed, "status", "unavailable"),
       }
-      attempts[configuration] = {
-        "status": "completed",
-        "directory": str(directory),
-        "attempt": run_index,
-      }
-      progress["cases"][slot["id"]] = {
-        "outcomes": case_record["configurations"],
-        "attempts": attempts, "retries": retries,
-        "complete": False,
-      }
-      progress_path.write_text(
-        json.dumps(progress, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+      state["outcomes"][configuration] = entry
+      state["attempts"][configuration].update(
+        {
+          "status": "completed" if complete else "refused",
+          "artifacts": _qualification_artifacts(directory),
+        }
       )
-    complete_case = all(
-      configuration in case_record["configurations"]
-      for configuration in frozen.spec["configurations"]
+      save_progress()
+      if outcome.get("dispatch_refused"):
+        break
+    configurations = state["outcomes"]
+    complete = all(
+      state["attempts"].get(c, {}).get("status") == "completed"
+      for c in frozen.spec["configurations"]
     )
-    if not complete_case:
-      case_record["interrupted"] = "a configuration still needs an explicit retry"
-    progress["cases"][slot["id"]] = {
-      "outcomes": case_record["configurations"],
-      "attempts": attempts, "retries": retries,
-      "initial": initial, "retry_charges": retry_charges,
-      "identity": identity,
-      "complete": complete_case,
-      **({"case_record": case_record} if complete_case else {}),
+    validated = (
+      complete
+      and getattr(observed, "status", None) == COMPLETED
+      and all(
+        not value.get("candidate")
+        and all(
+          value.get("paths", {}).get(p, {}).get("status") == "completed"
+          for p in ("p1", "p2")
+        )
+        for value in configurations.values()
+      )
+    )
+    case_record = {
+      "case": case,
+      "padded": slot["padded"],
+      "configurations": configurations,
+      "complete": complete,
+      "validated": validated,
     }
-    progress_path.write_text(
-      json.dumps(progress, indent=1, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    if not complete:
+      case_record["interrupted"] = (
+        "an unfinished configuration needs an explicit attempt retry"
+      )
+    if getattr(observed, "status", None) != COMPLETED:
+      case_record["p0_unavailable"] = getattr(observed, "reason", "no P0 observation")
+    state["complete"], state["validated"] = complete, validated
+    save_progress()
     record["cases"].append(case_record)
+  record["validated"] = (
+    slots == 4
+    and len(record["cases"]) == 4
+    and all(case.get("validated", False) for case in record["cases"])
+  )
   record["digest"] = _digest(record)
-  (work / "qualification.json").write_text(
-    json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+  tensor_execution.write_atomic(
+    work / "qualification.json",
+    (json.dumps(record, indent=1, sort_keys=True) + "\n").encode(),
   )
   return record
 
@@ -2501,7 +2895,16 @@ def main(argv=None):
   parser.add_argument("--mode", choices=("qualification", "select", "discover", "close", "reconcile"),
                       required=True)
   parser.add_argument("--triage-ledger", default=None)
-  parser.add_argument("--qualification-retry", default=None)
+  parser.add_argument(
+    "--qualification-retry",
+    default=None,
+    help="case/configuration/attempt-N of an unfinished attempt",
+  )
+  parser.add_argument(
+    "--qualification-reference-recheck",
+    default=None,
+    help="case/observation-id; requires a matching explicit retry",
+  )
   parser.add_argument("--accounting-mode", choices=("legacy", "process"), default=None)
   parser.add_argument("--accept-current-toolchain", action="store_true")
   parser.add_argument("--triage-decision", default=None)
@@ -2524,14 +2927,7 @@ def main(argv=None):
     controls_root=Path(arguments.controls_root) if arguments.controls_root else None,
     timeout_s=arguments.timeout,
   )
-  if arguments.mode == "qualification":
-    record = run_qualification(
-      arguments.work, operations=operations,
-      retry=arguments.qualification_retry,
-    )
-    print(json.dumps({"cases": len(record["cases"]), "digest": record["digest"]}))
-    return 0
-  toolchain = operations.pop("toolchain")
+  toolchain = operations["toolchain"]
   work = Path(arguments.work)
   study_path = work / "study.json"
   frozen = FrozenStudy.load(study_path) if study_path.is_file() else freeze_study(toolchain=toolchain)
@@ -2539,10 +2935,32 @@ def main(argv=None):
     frozen, toolchain, accept_current=arguments.accept_current_toolchain
   )
   study = Study(
-    work, frozen, controls_root=Path(arguments.controls_root) if arguments.controls_root else None,
+    work,
+    frozen,
+    controls_root=Path(arguments.controls_root) if arguments.controls_root else None,
     triage_ledger=Path(arguments.triage_ledger) if arguments.triage_ledger else None,
-    **operations,
-  ).prepare()
+    accounting_mode=arguments.accounting_mode,
+    **{key: value for key, value in operations.items() if key != "toolchain"},
+  )
+  if arguments.mode == "qualification":
+    record = run_qualification(
+      work,
+      operations=operations,
+      retry=arguments.qualification_retry,
+      reference_recheck=arguments.qualification_reference_recheck,
+      authority=study,
+    )
+    print(
+      json.dumps(
+        {
+          "cases": len(record["cases"]),
+          "digest": record["digest"],
+          "validated": record["validated"],
+        }
+      )
+    )
+    return 0 if record["validated"] else 2
+  study.prepare()
   if study.is_paused():
     if arguments.triage_decision is None:
       raise StudyRefused(

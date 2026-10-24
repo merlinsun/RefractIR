@@ -31,6 +31,7 @@ SCHEMA = "refractir.tensor-target-run.v1"
 # Where a run ended. These are separate facts: a compile failure is not a
 # runtime failure, and an unavailable comparison is not an agreement.
 COMPLETED = "completed"
+NOT_RUN = "not_run"
 COMPILE_FAILURE = "compile_failure"
 RUNTIME_FAILURE = "runtime_failure"
 TIMED_OUT = "timed_out"
@@ -324,17 +325,20 @@ def run_interpreter(
     )
     _save_screen(artifacts, screen)
     return screen
-  interpreter = _run_mode(
-    case,
-    "interpret",
-    artifacts=artifacts,
-    emission_dir=emission_dir,
-    emission=emission,
-    timeout_s=timeout_s,
-    worker_command=worker_command,
-    expected_output_bytes=case.record["output"]["byte_length"],
-    on_process=on_process,
-  )
+  try:
+    interpreter = _run_mode(
+      case,
+      "interpret",
+      artifacts=artifacts,
+      emission_dir=emission_dir,
+      emission=emission,
+      timeout_s=timeout_s,
+      worker_command=worker_command,
+      expected_output_bytes=case.record["output"]["byte_length"],
+      on_process=on_process,
+    )
+  except tensor_execution.DispatchRefused as error:
+    interpreter = _not_run("interpret", str(error))
   status = interpreter.status
   finite = None
   if status == COMPLETED and interpreter.actual is not None:
@@ -375,6 +379,68 @@ def _save_screen(artifacts, screen):
   )
 
 
+def _not_run(mode, reason):
+  return ModeRun(mode, NOT_RUN, None, "dispatch_refused", None, "", "", reason=reason)
+
+
+def _run_pair(
+  case,
+  *,
+  artifacts,
+  emission_dir,
+  emission,
+  timeout_s,
+  worker_command,
+  device_id,
+  cache_dir,
+  gpu_probe,
+  on_process,
+  dispatch_refused=None,
+):
+  """Stop dispatch after a refusal, retaining every earlier path result."""
+  common = dict(
+    artifacts=artifacts,
+    emission_dir=emission_dir,
+    emission=emission,
+    timeout_s=timeout_s,
+    worker_command=worker_command,
+    expected_output_bytes=case.record["output"]["byte_length"],
+    on_process=on_process,
+  )
+  if dispatch_refused is not None:
+    return (
+      _not_run("interpret", dispatch_refused),
+      _not_run("compiled", dispatch_refused),
+      dispatch_refused,
+    )
+  try:
+    interpreter = _run_mode(case, "interpret", **common)
+  except tensor_execution.DispatchRefused as error:
+    reason = str(error)
+    return _not_run("interpret", reason), _not_run("compiled", reason), reason
+  visible = (
+    gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
+  )
+  if not visible:
+    compiled = ModeRun(
+      "compiled",
+      ENVIRONMENT_UNAVAILABLE,
+      None,
+      "unavailable",
+      None,
+      f"CUDA device {device_id} unavailable",
+      "",
+    )
+    return interpreter, compiled, None
+  try:
+    compiled = _run_mode(
+      case, "compiled", device_id=device_id, cache_dir=cache_dir, **common
+    )
+  except tensor_execution.DispatchRefused as error:
+    return interpreter, _not_run("compiled", str(error)), str(error)
+  return interpreter, compiled, None
+
+
 def run(
   bundle_dir,
   *,
@@ -389,6 +455,7 @@ def run(
   reference=None,
   compiler_identity=None,
   on_process=None,
+  dispatch_refused=None,
 ):
   """Emit once, run both modes, and record what each produced.
 
@@ -416,57 +483,19 @@ def run(
     _save(artifacts, target)
     return target
 
-  expected_output_bytes = case.record["output"]["byte_length"]
-  interpreter = _run_mode(
+  interpreter, compiled, dispatch_refused = _run_pair(
     case,
-    "interpret",
     artifacts=artifacts,
     emission_dir=emission_dir,
     emission=emission,
     timeout_s=timeout_s,
     worker_command=worker_command,
-    expected_output_bytes=expected_output_bytes,
+    device_id=device_id,
+    cache_dir=cache_dir,
+    gpu_probe=gpu_probe,
     on_process=on_process,
+    dispatch_refused=dispatch_refused,
   )
-  dispatch_refused = None
-  visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
-  if not visible:
-    compiled = ModeRun(
-      mode="compiled",
-      status=ENVIRONMENT_UNAVAILABLE,
-      exit_code=None,
-      phase="unavailable",
-      actual=None,
-      stderr=f"CUDA device {device_id} unavailable",
-      log="",
-    )
-  else:
-    try:
-      compiled = _run_mode(
-        case,
-        "compiled",
-        artifacts=artifacts,
-        emission_dir=emission_dir,
-        emission=emission,
-        timeout_s=timeout_s,
-        worker_command=worker_command,
-        device_id=device_id,
-        cache_dir=cache_dir,
-        expected_output_bytes=expected_output_bytes,
-        on_process=on_process,
-      )
-      dispatch_refused = None
-    except tensor_execution.DispatchRefused as error:
-      compiled = ModeRun(
-        mode="compiled",
-        status=COMPARISON_UNAVAILABLE,
-        exit_code=None,
-        phase="dispatch_refused",
-        actual=None,
-        stderr=str(error),
-        log="",
-      )
-      dispatch_refused = str(error)
 
   status, mismatches = _classify(interpreter, compiled)
   diagnosis = (
@@ -557,7 +586,7 @@ def diagnose_with_optional_reference(*, reference, interpreter, compiled):
     path
     for path, run in (("P1", interpreter), ("P2", compiled))
     if run is not None
-    and run.status in {ENVIRONMENT_UNAVAILABLE, INTERPRETER_UNSUPPORTED}
+    and run.status in {NOT_RUN, ENVIRONMENT_UNAVAILABLE, INTERPRETER_UNSUPPORTED}
   ]
   # An unavailable path must not erase a comparison that did complete: a
   # completed pair that differs stays a numerical candidate, because the
@@ -692,48 +721,24 @@ def run_native(
       native=True,
       triton=triton,
     )
-  expected_output_bytes = case.record["output"]["byte_length"]
-  interpreter = _run_mode(
+  interpreter, compiled, dispatch_refused = _run_pair(
     case,
-    "interpret",
     artifacts=artifacts,
     emission_dir=emission_dir,
     emission=emission,
     timeout_s=timeout_s,
     worker_command=worker_command,
-    expected_output_bytes=expected_output_bytes,
+    device_id=device_id,
+    cache_dir=cache_dir,
+    gpu_probe=gpu_probe,
     on_process=on_process,
   )
-  dispatch_refused = None
-  visible = gpu_probe() if gpu_probe is not None else tensor_execution.gpu_available(device_id)
-  if not visible:
-    compiled = ModeRun(
-      mode="compiled",
-      status=ENVIRONMENT_UNAVAILABLE,
-      exit_code=None,
-      phase="unavailable",
-      actual=None,
-      stderr=f"CUDA device {device_id} unavailable",
-      log="",
-    )
-  else:
-    compiled = _run_mode(
-      case,
-      "compiled",
-      artifacts=artifacts,
-      emission_dir=emission_dir,
-      emission=emission,
-      timeout_s=timeout_s,
-      worker_command=worker_command,
-      device_id=device_id,
-      cache_dir=cache_dir,
-      expected_output_bytes=expected_output_bytes,
-      on_process=on_process,
-    )
+
   status, mismatches = _classify(interpreter, compiled)
   target = TargetRun(
     bundle=root,
     status=status,
+    dispatch_refused=dispatch_refused,
     emission=emission,
     interpreter=interpreter,
     compiled=compiled,
