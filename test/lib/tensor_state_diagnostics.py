@@ -180,6 +180,7 @@ WINDOW_PROBE_SEQUENCE = (
   ("i2-late-row", -1, "combined", "trip-comparison"),
 )
 MAX_WINDOW_PROBE_RUNS = 10
+UNAVAILABLE_STATUSES = ("unavailable", "unsupported", "environment_unavailable")
 WINDOW_SCREEN_SCHEMA = "refractir.free-form-window-screen.v1"
 NOT_SELECTED_INVARIANT = "invariant_to_read_probes"
 NOT_SELECTED_UNUSED = "unused_rows_changed"
@@ -228,6 +229,7 @@ def window_screen(*, trip_count, run_probe):
         "finite": finite,
         "actual": actual,
         "actual_sha256": _sha256(actual),
+        "unavailable": status in UNAVAILABLE_STATUSES,
       }
     )
 
@@ -248,6 +250,7 @@ def window_screen(*, trip_count, run_probe):
       "trip_late": find("i2-late-row", -1),
     }.items()
   }
+  all_completed = all(usable.values())
   base = find("i0-base", 0)
   broad = find("i1-read-plus-one", 0)
   late = find("i2-late-row", 0)
@@ -260,13 +263,13 @@ def window_screen(*, trip_count, run_probe):
     usable["base"] and usable["trip_base"] and base["actual"] != trip_base["actual"]
   )
   selected = (
-    sensitive_broad and sensitive_late and unused_agrees and trip_changes
+    all_completed and sensitive_broad and sensitive_late and unused_agrees and trip_changes
   )
 
   conditional = []
   if not selected:
     reason = None
-    if not (usable["base"] and usable["broad"] and usable["late"]):
+    if not all_completed:
       reason = NOT_SELECTED_INCOMPLETE
     elif not unused_agrees:
       reason = NOT_SELECTED_UNUSED
@@ -306,6 +309,7 @@ def window_screen(*, trip_count, run_probe):
             "finite": finite,
             "actual": actual,
             "actual_sha256": _sha256(actual),
+            "unavailable": status in UNAVAILABLE_STATUSES,
           }
         )
   else:
@@ -349,7 +353,13 @@ def window_screen(*, trip_count, run_probe):
       {key: run[key] for key in
        ("probe", "trip_count", "variant", "status", "finite", "actual_sha256")}
       for run in all_runs
-      if run["status"] != COMPLETED
+      if run["status"] != COMPLETED and not run.get("unavailable")
+    ],
+    "unavailable": [
+      {key: run[key] for key in
+       ("probe", "trip_count", "variant", "status", "finite", "actual_sha256")}
+      for run in all_runs
+      if run.get("unavailable")
     ],
     "labels": {
       "hidden_contribution": hidden,

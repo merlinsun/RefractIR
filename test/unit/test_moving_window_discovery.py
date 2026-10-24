@@ -250,12 +250,12 @@ class DiscoveryTests(unittest.TestCase):
       self.assertEqual(final["paths"]["p1"]["launches"], 128)
       self.assertEqual(final["paths"]["p2"]["launches"], 128)
       for _ in range(32):
-        run.retry("slot", case_id="mw-g0c0", input="i0-base", configuration="warps-1",
-                  reason="repeat")
+        run.retry("mw-g0c0/i0-base/warps-1", case_id="mw-g0c0", input="i0-base",
+                  configuration="warps-1", reason="repeat")
       self.assertEqual(run.reserve_spent(), 32)
       self.assertIsNone(
-        run.retry("slot", case_id="mw-g0c0", input="i0-base", configuration="warps-1",
-                  reason="repeat")
+        run.retry("mw-g0c0/i0-base/warps-1", case_id="mw-g0c0", input="i0-base",
+                  configuration="warps-1", reason="repeat")
       )
       self.assertTrue(
         any(event.get("kind") == "launch_refused" for event in run.path_ledger.events)
@@ -318,12 +318,20 @@ class DiscoveryTests(unittest.TestCase):
       self.assertEqual(resumed.ledger.state("mw-g0c0/i0-base/warps-1"), "failed")
       reconciled = [e for e in resumed.path_ledger.events if e.get("kind") == "reconciled"]
       self.assertEqual(len(reconciled), 1)
+      resumed.path_ledger.append(
+        "slot_started",
+        slot="mw-g0c0/i0-base/warps-1",
+        case="mw-g0c0",
+        attempt=0,
+        directory=str(resumed.work / "interrupted-attempt"),
+      )
       directory_path = resumed.retry(
         "mw-g0c0/i0-base/warps-1", case_id="mw-g0c0", input="i0-base",
         configuration="warps-1", reason="interrupted",
       )
       self.assertIsNotNone(directory_path)
       self.assertTrue(str(directory_path).endswith("attempt-1"))
+      self.assertFalse((resumed.work / "discovery" / "mw-g0c0" / "i0-base" / "warps-1" / "attempt-0").exists())
       self.assertEqual(resumed.reserve_spent(), 1)
 
 
@@ -370,6 +378,151 @@ class QualificationTests(unittest.TestCase):
         self.assertFalse(case["configurations"]["warps-1"]["paths"]["p0"]["cached"])
         self.assertTrue(case["configurations"]["warps-4"]["paths"]["p0"]["cached"])
       self.assertTrue((Path(directory) / "qualification" / "qualification.json").is_file())
+
+
+class EvidenceTests(unittest.TestCase):
+  def test_screening_candidates_pause_and_stop_selection(self):
+    triggered = []
+
+    def candidate_screen(outcome):
+      triggered.append(outcome["source_sha256"])
+      return {
+        "selected": True,
+        "reason": "selected-but-candidate",
+        "launches": 6,
+        "p0": 4,
+        "candidates": [{"kind": "p0_p1_disagreement", "probe": "i0-base"}],
+        "record": {},
+      }
+
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      run = study.Study(
+        work, frozen, build=fake_builder(["mw-g0c0"]), screen=candidate_screen,
+        execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      self.assertTrue(run.is_paused())
+      self.assertIn("screening candidates", run._paused_reason())
+      self.assertEqual(len(triggered), 1)
+      self.assertEqual(run.corpus(), [])
+      with self.assertRaises(study.StudyRefused):
+        run.run_discovery()
+
+  def test_an_interrupted_selection_attempt_consumes_its_ordinal(self):
+    resumed_log = []
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      first = study.Study(
+        work, frozen, build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      first.select_sources(max_slots=1)
+      self.assertEqual(len(first.corpus()), 1)
+      # Simulate a crash after reserving attempt 0 for the next slot.
+      slot = frozen.spec["sources"][1]
+      first.path_ledger.append(
+        "selection_attempt_reserved", case=slot["id"], attempt=0,
+        seed=123, directory=str(first.work / "selection" / slot["id"] / "attempt-0"),
+      )
+      (first.work / "selection" / slot["id"] / "attempt-0").mkdir(parents=True)
+      resumed = study.Study(
+        work, study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder([slot["id"]], resumed_log), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      resumed.select_sources()
+      ordinals = [
+        event["attempt"] for event in resumed.path_ledger.events
+        if event.get("case") == slot["id"] and event.get("kind") == "selection_attempt"
+      ]
+      self.assertEqual(ordinals, [0, 1])
+      self.assertEqual(resumed_log[0]["attempt"], 1)
+      self.assertLessEqual(len(ordinals), 8)
+      self.assertEqual(len(resumed.corpus()), 2)
+
+  def test_successive_retries_get_distinct_directories(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      run = study.Study(
+        Path(directory) / "work", frozen, build=fake_builder(), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      first = run.retry("s", case_id="mw-g0c0", input="i0-base",
+                        configuration="warps-1", reason="first")
+      second = run.retry("s", case_id="mw-g0c0", input="i0-base",
+                         configuration="warps-1", reason="second")
+      self.assertIsNotNone(first)
+      self.assertIsNotNone(second)
+      self.assertNotEqual(first, second)
+      self.assertTrue(first.is_dir() and second.is_dir())
+
+  def test_the_report_reconstructs_the_corpus_without_selection_history(self):
+    with tempfile.TemporaryDirectory() as directory:
+      run = DiscoveryTests()._frozen_run(directory) if False else None
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      run = study.Study(
+        work, frozen, build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
+        screen=fake_screen(), execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      run.run_discovery()
+      final = run.finalize()
+      packaged = Path(directory) / "packaged"
+      packaged.mkdir()
+      for name in ("study.json", "corpus-frozen.json", "path-ledger.jsonl",
+                   "tranche-ledger.jsonl", "final.json"):
+        (packaged / name).write_bytes((work / name).read_bytes())
+      reproduced = study.report_from_records(packaged)
+      self.assertEqual(reproduced, final)
+
+  def test_a_conflicting_selection_history_is_refused(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      work = Path(directory) / "work"
+      run = study.Study(
+        work, frozen, build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      run.freeze_corpus()
+      entry = run.corpus()[0]
+      entry["source_sha256"] = "contradiction"
+      run.corpus_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+      with self.assertRaises(study.StudyRefused):
+        run.corpus_for_report()
+
+  def test_toolchain_identity_is_enforced(self):
+    frozen = study.freeze_study(toolchain={"symirc_sha256": "a"})
+    study.require_toolchain(frozen, {"symirc_sha256": "a"})
+    with self.assertRaises(study.StudyRefused):
+      study.require_toolchain(frozen, {"symirc_sha256": "b"})
+    historical = study.freeze_study()
+    with self.assertRaises(study.StudyRefused):
+      study.require_toolchain(historical, {"symirc_sha256": "a"})
+    study.require_toolchain(historical, {"symirc_sha256": "a"}, accept_current=True)
+
+  def test_compiler_observation_reports_stages_or_unavailable(self):
+    with tempfile.TemporaryDirectory() as directory:
+      compiled = Path(directory)
+      missing = study.compiler_stage_observation(compiled)
+      self.assertEqual(missing["status"], "unavailable")
+      (compiled / "compiler-ttir.ir").write_text(
+        "module {\n  scf.for %i = %c0 to %c1 step %c1 {\n    %v = tt.load %p : !tt.ptr<f32>\n  }\n}\n",
+        encoding="utf-8",
+      )
+      (compiled / "compiler-ptx.ir").write_text(
+        "%r1 = ld.global.b32 { %r2 }, [ %rd1 + 0 ];\n", encoding="utf-8"
+      )
+      observed = study.compiler_stage_observation(compiled)
+      self.assertEqual(observed["status"], "observed")
+      self.assertIn("ttir", observed["stages"])
+      self.assertIn("ptx", observed["artifact_sha256"])
+      self.assertEqual(observed["predicate_attribution"], "unavailable")
 
 
 if __name__ == "__main__":

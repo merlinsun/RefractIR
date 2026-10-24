@@ -239,8 +239,10 @@ class FrozenStudy:
     return cls(spec=spec, digest=digest, tranche=tranche)
 
 
-def freeze_study(spec=None):
+def freeze_study(spec=None, *, toolchain=None):
   spec = study_spec() if spec is None else spec
+  if toolchain is not None:
+    spec = {**spec, "toolchain": dict(toolchain)}
   _validate_spec(spec)
   cases = [
     {
@@ -322,12 +324,13 @@ def path_counts(events):
 class Study:
   """One run of the frozen study: selection, discovery, and accounting."""
 
-  def __init__(self, work, frozen, *, build, screen, execute):
+  def __init__(self, work, frozen, *, build, screen, execute, controls_root=None):
     self.work = Path(work)
     self.frozen = frozen
     self.build = build
     self.screen = screen
     self.execute = execute
+    self.controls_root = None if controls_root is None else Path(controls_root)
     self.path_ledger = PathLedger(self.work / "path-ledger.jsonl")
     self.corpus_path = self.work / "corpus.jsonl"
     self.ledger = None
@@ -367,6 +370,34 @@ class Study:
   def _selected_ids(self):
     return {entry["case"] for entry in self.corpus()}
 
+  def is_paused(self):
+    return (self.work / "study-paused.json").is_file()
+
+  def pause(self, candidates, *, reason):
+    """Persist candidates and stop routine dispatch until triage decides."""
+    record = {
+      "reason": reason,
+      "candidates": candidates,
+    }
+    (self.work / "study-paused.json").write_text(
+      json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    self.path_ledger.append("paused", reason=reason, candidates=len(candidates))
+
+  def record_triage_decision(self, decision):
+    """Clear a pause only with an explicit triage decision in the record."""
+    if not self.is_paused():
+      raise StudyRefused("the study is not paused")
+    self.path_ledger.append("triage_decision", decision=decision)
+    (self.work / "study-paused.json").rename(self.work / "study-triage.json")
+    return decision
+
+  def _paused_reason(self):
+    path = self.work / "study-paused.json"
+    if not path.is_file():
+      return None
+    return json.loads(path.read_text(encoding="utf-8")).get("reason")
+
   def _shortfalls(self):
     return [e["case"] for e in self.path_ledger.events if e.get("kind") == "shortfall"]
 
@@ -394,11 +425,36 @@ class Study:
         break
       processed += 1
       admitted = None
+      # An interrupted reservation already consumed its ordinal. It is never
+      # retried automatically; the next ordinal continues the bounded search.
+      for reservation in self._unfinished_reservations(slot["id"]):
+        self.path_ledger.append(
+          "selection_attempt",
+          case=slot["id"],
+          attempt=reservation["attempt"],
+          seed=reservation.get("seed"),
+          outcome="interrupted",
+          reason="reservation has no terminal outcome",
+        )
+      used = self._attempts_used(slot["id"])
       for attempt in range(self.frozen.spec["attempts"]["per_slot"]):
+        if attempt in used:
+          continue
         seed = (
           self.frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt
         )
         directory = self.work / "selection" / slot["id"] / f"attempt-{attempt}"
+        if directory.exists():
+          raise StudyRefused(f"selection attempt directory already exists: {directory}")
+        self.path_ledger.append(
+          "selection_attempt_reserved",
+          case=slot["id"],
+          attempt=attempt,
+          seed=seed,
+          directory=str(directory),
+        )
+        directory.mkdir(parents=True)
+        used.add(attempt)
         request = {
           "slot": dict(slot),
           "attempt": attempt,
@@ -429,6 +485,29 @@ class Study:
           launches=screened.get("launches", 0),
           p0=screened.get("p0", 0),
         )
+        candidates = list(screened.get("candidates", []))
+        invalid = [c for c in candidates if c.get("kind") == "invalid_execution"]
+        if invalid:
+          self.path_ledger.append(
+            "selection_invalid_execution", case=slot["id"], candidates=invalid
+          )
+          candidates = [c for c in candidates if c.get("kind") != "invalid_execution"]
+        if candidates:
+          self.path_ledger.append(
+            "selection_candidates",
+            case=slot["id"],
+            candidates=candidates,
+          )
+          self.pause(
+            candidates,
+            reason=f"screening candidates for {slot['id']}",
+          )
+          return self
+        if screened.get("unavailable"):
+          self.path_ledger.append(
+            "selection_unavailable", case=slot["id"],
+            unavailable=screened["unavailable"],
+          )
         if screened.get("selected"):
           admitted = {
             "case": slot["id"],
@@ -498,15 +577,42 @@ class Study:
       raise StudyRefused("the corpus has no admitted source")
     controls = []
     for control in self.frozen.spec["controls"]:
-      controls.append(
-        {
-          "case": control["id"],
-          "lane": "control",
-          "kind": "control",
-          "source": control["source"],
-          "patterns": dict(CONTROL_PATTERNS),
-        }
-      )
+      entry = {
+        "case": control["id"],
+        "lane": "control",
+        "kind": "control",
+        "source": control["source"],
+        "patterns": dict(CONTROL_PATTERNS),
+      }
+      if self.controls_root is not None:
+        hashes = {}
+        for probe, pattern in CONTROL_PATTERNS.items():
+          bundles = [
+            self.controls_root / control["source"] / f"{pattern}-warps-{warps}"
+            for warps in (1, 4)
+          ]
+          if not all(bundle.is_dir() for bundle in bundles):
+            raise StudyRefused(
+              f"archived control is missing: {control['source']}/{pattern}"
+            )
+          program_sha = hashlib.sha256(
+            (bundles[0] / "program.sir").read_bytes()
+          ).hexdigest()
+          inputs_sha = hashlib.sha256(
+            (bundles[0] / "inputs.bin").read_bytes()
+          ).hexdigest()
+          for bundle in bundles[1:]:
+            if hashlib.sha256((bundle / "program.sir").read_bytes()).hexdigest() != program_sha:
+              raise StudyRefused(f"archived control program changed across warps: {bundle}")
+            if hashlib.sha256((bundle / "inputs.bin").read_bytes()).hexdigest() != inputs_sha:
+              raise StudyRefused(f"archived control input changed across warps: {bundle}")
+          hashes[probe] = {
+            "pattern": pattern,
+            "program_sha256": program_sha,
+            "inputs_sha256": inputs_sha,
+          }
+        entry["hashes"] = hashes
+      controls.append(entry)
     record = {
       "schema": CORPUS_SCHEMA,
       "sources": entries,
@@ -531,11 +637,61 @@ class Study:
     record["digest"] = digest
     return record
 
+  ATTEMPT_KINDS = (
+    "selection_attempt", "selection_attempt_reserved", "launch",
+    "launch_reserved", "retry", "slot_started",
+  )
+
+  def _attempts_used(self, case_id):
+    return {
+      event["attempt"]
+      for event in self.path_ledger.events
+      if event.get("case") == case_id
+      and event.get("kind") in self.ATTEMPT_KINDS
+      and type(event.get("attempt")) is int
+    }
+
+  def _unfinished_reservations(self, case_id):
+    finished = {
+      event["attempt"]
+      for event in self.path_ledger.events
+      if event.get("case") == case_id and event.get("kind") == "selection_attempt"
+    }
+    return [
+      event for event in self.path_ledger.events
+      if event.get("case") == case_id
+      and event.get("kind") == "selection_attempt_reserved"
+      and event["attempt"] not in finished
+    ]
+
+  def corpus_for_report(self):
+    """The frozen corpus, cross-checked against selection history if present."""
+    frozen = self.frozen_corpus()
+    selected = self.corpus()
+    if not selected:
+      return frozen["sources"]
+    frozen_by = {entry["case"]: entry for entry in frozen["sources"]}
+    for entry in selected:
+      frozen_entry = frozen_by.get(entry.get("case"))
+      if frozen_entry is None:
+        raise StudyRefused(
+          f"selection history names a case outside the frozen corpus: {entry.get('case')}"
+        )
+      if entry.get("source_sha256") != frozen_entry.get("source_sha256"):
+        raise StudyRefused(
+          f"selection history contradicts the frozen source for {entry['case']}"
+        )
+    if len(selected) != len(frozen["sources"]):
+      raise StudyRefused("selection history and the frozen corpus disagree on source count")
+    return selected
+
   def _next_attempt(self, slot_id):
     used = [
       event["attempt"]
       for event in self.path_ledger.events
-      if event.get("slot") == slot_id and event.get("kind") == "launch"
+      if event.get("slot") == slot_id
+      and event.get("kind") in self.ATTEMPT_KINDS
+      and type(event.get("attempt")) is int
     ]
     return max(used, default=-1) + 1
 
@@ -543,6 +699,8 @@ class Study:
     """Execute every frozen paired slot that has a corpus entry."""
     if self.ledger is None:
       raise StudyRefused("prepare the study before dispatch")
+    if self.is_paused():
+      raise StudyRefused(f"the study is paused: {self._paused_reason()}")
     corpus = self.frozen_corpus()
     if not corpus.get("diversity", {}).get("sufficient", False):
       raise StudyRefused("the generator diversity minimum is not met")
@@ -565,6 +723,16 @@ class Study:
         / slot.input
         / slot.configuration
         / f"attempt-{attempt}"
+      )
+      if directory.exists():
+        raise StudyRefused(f"discovery attempt directory exists: {directory}")
+      directory.mkdir(parents=True)
+      self.path_ledger.append(
+        "slot_started",
+        slot=slot.slot_id,
+        case=slot.case_id,
+        attempt=attempt,
+        directory=str(directory),
       )
       request = {
         "slot": slot.slot_id,
@@ -606,45 +774,62 @@ class Study:
             attempt=attempt, directory=info.get("directory", str(directory)),
             status=info.get("status", "completed"),
           )
-      self.path_ledger.append(
-        "classification",
-        slot=slot.slot_id,
-        status=outcome.get("status", "completed"),
-        candidate=bool(outcome.get("candidate")),
-        unavailable=list(outcome.get("unavailable", [])),
-        compiler=outcome.get("compiler", {"status": "unavailable"}),
-      )
+      classification = {
+        "slot": slot.slot_id,
+        "case": slot.case_id,
+        "status": outcome.get("status", "completed"),
+        "candidate": bool(outcome.get("candidate")),
+        "unavailable": list(outcome.get("unavailable", [])),
+        "compiler": outcome.get("compiler", {"status": "unavailable"}),
+      }
+      self.path_ledger.append("classification", **classification)
       self.ledger.finish(slot.slot_id, "completed", detail={"status": outcome.get("status")})
+      if classification["candidate"]:
+        self.pause(
+          [classification],
+          reason=f"candidate during discovery at {slot.slot_id}",
+        )
+        return self
     return self
 
   def reserve_spent(self):
     return sum(1 for e in self.path_ledger.events if e.get("kind") == "retry")
 
   def retry(self, slot_id, *, case_id, input, configuration, reason):
-    """Charge the reserve for a fresh attempt, or refuse and keep evidence."""
-    limit = self.frozen.spec["budgets"]["reserve_gpu"]
-    if self.reserve_spent() >= limit:
+    """Reserve a unique retry directory, charging every paired-path reserve."""
+    budgets = self.frozen.spec["budgets"]
+    spent = self.reserve_spent()
+    limits = {
+      "gpu": budgets["reserve_gpu"],
+      "interpreter": budgets["reserve_interpreter"],
+      "p0": budgets["reserve_p0"],
+    }
+    if any(spent >= limit for limit in limits.values()):
       self.path_ledger.append(
         "launch_refused", slot=slot_id, case=case_id, reason="reserve_spent"
       )
       return None
-    attempt = self._next_attempt(slot_id) + 1
+    attempt = self._next_attempt(slot_id)
     directory = (
       self.work / "discovery" / case_id / input / configuration / f"attempt-{attempt}"
     )
+    if directory.exists():
+      raise StudyRefused(f"retry directory exists: {directory}")
+    directory.mkdir(parents=True)
     self.path_ledger.append(
       "retry",
       slot=slot_id,
       case=case_id,
       attempt=attempt,
-      reserve=self.reserve_spent() + 1,
+      directory=str(directory),
+      reserve=spent + 1,
       reason=reason,
     )
     return directory
 
   def _final_record(self, counts):
     events = self.path_ledger.events
-    sources = self.corpus()
+    sources = self.corpus_for_report()
     classifications = [e for e in events if e.get("kind") == "classification"]
     candidates = [e for e in classifications if e.get("candidate")]
     unavailable = [
@@ -734,6 +919,74 @@ def report_from_records(work):
   return study._final_record(study.ledger.counts())
 
 
+def compiler_stage_observation(compiled):
+  """Run the existing observer over the retained stages and summarize it."""
+  from test.lib import tensor_compiler_observation
+
+  compiled = Path(compiled)
+  artifacts = {}
+  hashes = {}
+  for stage, name in (
+    ("ttir", "compiler-ttir.ir"),
+    ("ttgir", "compiler-ttgir.ir"),
+    ("ptx", "compiler-ptx.ir"),
+  ):
+    path = compiled / name
+    if path.is_file():
+      artifacts[stage] = path.read_text(encoding="utf-8")
+      hashes[stage] = hashlib.sha256(path.read_bytes()).hexdigest()
+  if not artifacts:
+    return {"status": "unavailable", "reason": "no compiler IR artifacts", "artifact_sha256": hashes}
+  try:
+    observation = tensor_compiler_observation.observe_compiler_ir(
+      artifacts,
+      expected_loop=True,
+      loop_required_stages=("ttir",),
+    )
+  except ValueError as error:
+    return {
+      "status": "unavailable",
+      "reason": str(error),
+      "artifact_sha256": hashes,
+    }
+  stages = {
+    stage: {
+      "loop_construct_count": data.get("loop_construct_count"),
+      "layout_conversion_count": len(data.get("layout_conversions") or []),
+      "duplicate_work_count": len(data.get("duplicate_work") or []),
+    }
+    for stage, data in (observation.get("stages") or {}).items()
+  }
+  return {
+    "status": "observed",
+    "observer": "tensor_compiler_observation.observe_compiler_ir",
+    "artifact_sha256": hashes,
+    "stages": stages,
+    "loop_evidence": observation.get("loop_evidence"),
+    "predicate_attribution": "unavailable",
+    "predicate_reason": (
+      "the retained IR does not identify the window load's predicate apart "
+      "from other predicated loads"
+    ),
+    "later_loop_retention": "unavailable",
+  }
+
+
+
+def require_toolchain(frozen, current, *, accept_current=False):
+  """Refuse execution unless the current toolchain matches the frozen one."""
+  frozen_toolchain = frozen.spec.get("toolchain")
+  if frozen_toolchain is None:
+    if not accept_current:
+      raise StudyRefused(
+        "the frozen study carries no toolchain identity; an explicit "
+        "acceptance is required before execution"
+      )
+    return
+  if frozen_toolchain != current:
+    raise StudyRefused("the current toolchain differs from the frozen study identity")
+
+
 def _trip_variant(source, trips):
   """The same body at a smaller trip count, with the window witness checked."""
   marker = "br %i < "
@@ -746,6 +999,13 @@ def _trip_variant(source, trips):
   return source[:start] + marker + str(trips) + source[end:]
 
 
+def _file_sha256(path):
+  try:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+  except OSError:
+    return None
+
+
 def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s=300.0):
   """Bind the driver to the exporter, the interpreter screen, and the runner."""
   from pathlib import Path as _Path
@@ -755,6 +1015,8 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     probe_triton_env,
     tensor_free_form_case,
     tensor_free_form_inputs,
+    tensor_compiler_observation,
+    tensor_state_diagnostics,
     tensor_target_case,
     tensor_target_reference,
     tensor_target_run,
@@ -765,6 +1027,20 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
   symiri = Path(symiri).resolve()
   environment = probe_triton_env.collect_environment()
   identity = native_triton_family.triton_identity(environment)
+  try:
+    import triton as _triton
+    triton_library = Path(_triton.__file__).parent / "_C" / "libtriton.so"
+  except Exception:
+    triton_library = None
+  toolchain = {
+    "exporter_sha256": _file_sha256(exporter),
+    "symirc_sha256": _file_sha256(symirc),
+    "symiri_sha256": _file_sha256(symiri),
+    "triton": identity,
+    "triton_library_sha256": None if triton_library is None else _file_sha256(triton_library),
+    "python": sys.version.split()[0],
+    "device": identity.get("device"),
+  }
 
   def build(request):
     slot = request["slot"]
@@ -786,6 +1062,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "--window-requirement", slot["requirement"],
       "--max-attempts", "1",
       "--max-multiplications", "1",
+      "--require-computed-roots",
       "--num-warps", "1",
       "--out", str(directory / "export"),
     ]
@@ -849,6 +1126,8 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "probe_values": {probe.probe: list(probe.data) for probe in probes},
       "layouts": layouts or {},
       "bundles": bundles,
+      "case": slot["id"],
+      "trip_count": slot["trips"],
       "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
       "inputs_sha256": hashlib.sha256(probes[0].data).hexdigest(),
       "witnesses": region.get("requirements", []),
@@ -865,72 +1144,93 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     )
 
   def screen(outcome):
-    runs = {}
-    for probe in ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows"):
-      runs[probe] = _screen_bundle(outcome["bundles"][probe])
-    tminus = {
-      probe: _screen_bundle(outcome["bundles"][f"{probe}-tminus"])
-      for probe in ("i0-base", "i2-late-row")
-    }
+    """Use the shared window schedule; keep candidates and P0 separate."""
+    trip_count = outcome["trip_count"]
 
-    def value(run):
-      return run.interpreter.actual if run.status == "completed" else None
+    def run_probe(probe, trips, variant):
+      if variant != "combined":
+        return "unsupported", None
+      key = probe if trips == trip_count else f"{probe}-tminus"
+      bundle = outcome["bundles"].get(key)
+      if bundle is None:
+        return "unsupported", None
+      screened = _screen_bundle(bundle)
+      return screened.status, screened.interpreter.actual
 
-    base = value(runs["i0-base"])
-    broad = value(runs["i1-read-plus-one"])
-    late = value(runs["i2-late-row"])
-    unused = value(runs["i3-unused-rows"])
-    trip_base = value(tminus["i0-base"])
-    finished = all(part is not None for part in (base, broad, late, unused, trip_base))
-    selected = bool(
-      finished and base != broad and base != late and base == unused and base != trip_base
+    result = tensor_state_diagnostics.window_screen(
+      trip_count=trip_count, run_probe=run_probe
     )
-    reason = None
-    if not finished:
-      reason = "incomplete_observation"
-    elif base == unused and not (base != broad and base != late):
-      reason = "insensitive_to_window_probes"
-    elif base != unused:
-      reason = "unused_rows_changed"
-    elif base == trip_base:
-      reason = "trip_invariant"
-    record = {
-      "runs": {
-        name: {
-          "status": run.status,
-          "output_sha256": run.as_record()["output_sha256"],
-        }
-        for name, run in {**runs, **{f"{k}-tminus": v for k, v in tminus.items()}}.items()
-      },
-      "selected": selected,
-      "reason": reason,
-    }
+    selected = bool(result["selection"]["selected"])
+    candidates = list(result["candidates"])
+    unavailable = list(result["unavailable"])
     p0 = []
     if selected:
       for probe in ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows"):
-        case = tensor_target_case.load(outcome["bundles"][probe], symiri=symiri)
+        bundle = outcome["bundles"][probe]
+        case = tensor_target_case.load(bundle, symiri=symiri)
+        output_path = _Path(outcome["directory"]) / f"p0-{probe}.bin"
         observation = tensor_target_reference.observe(
-          case, symiri=symiri, timeout_s=timeout_s
+          case, symiri=symiri, timeout_s=timeout_s, output_path=output_path
+        )
+        record = observation.as_record()
+        base_run = next(
+          run for run in result["runs"]
+          if run["probe"] == probe and run["trip_count"] == trip_count
+          and run["variant"] == "combined"
+        )
+        p1_sha = base_run.get("actual_sha256")
+        p0_sha = record.get("output_sha256")
+        agreement = (
+          None if p0_sha is None or p1_sha is None else p0_sha == p1_sha
         )
         p0.append(
           {
             "probe": probe,
             "status": observation.status,
-            "output_sha256": getattr(observation, "output_sha256", None),
+            "output_sha256": p0_sha,
+            "output_path": str(output_path),
+            "p1_sha256": p1_sha,
+            "agreement": agreement,
           }
         )
         if observation.status == tensor_target_reference.UB:
           selected = False
-          reason = "invalid_execution"
-          record["selected"] = False
-          record["reason"] = reason
+          candidates.append(
+            {
+              "kind": "invalid_execution",
+              "probe": probe,
+              "status": observation.status,
+            }
+          )
+        elif observation.status == tensor_target_reference.COMPLETED:
+          if agreement is False:
+            candidates.append(
+              {
+                "kind": "p0_p1_disagreement",
+                "probe": probe,
+                "p0_sha256": p0_sha,
+                "p1_sha256": p1_sha,
+              }
+            )
+        else:
+          unavailable.append(
+            {"probe": probe, "status": observation.status, "reason": observation.reason}
+          )
+    launches = 6 + sum(
+      1 for run in result["runs"]
+      if run["variant"] != "combined" and run["status"] not in ("unsupported",)
+    )
     return {
       "selected": selected,
-      "reason": reason,
-      "launches": len(runs) + len(tminus),
+      "reason": result["selection"]["reason"],
+      "launches": launches,
       "p0": len(p0),
-      "record": {**record, "p0": p0},
+      "candidates": candidates,
+      "unavailable": unavailable,
+      "record": {**result, "p0": p0},
     }
+
+  reference_cache = {}
 
   def execute(request):
     slot = request["slot"]
@@ -963,11 +1263,23 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         }
       archived_program = (bundle / "program.sir").read_bytes()
       archived_inputs = (bundle / "inputs.bin").read_bytes()
+      frozen_hashes = (corpus.get("hashes") or {}).get(probe)
+      if frozen_hashes:
+        if hashlib.sha256(archived_program).hexdigest() != frozen_hashes.get("program_sha256"):
+          raise StudyRefused(f"archived control program changed: {corpus.get('source')}")
+        if hashlib.sha256(archived_inputs).hexdigest() != frozen_hashes.get("inputs_sha256"):
+          raise StudyRefused(f"archived control input changed: {corpus.get('source')}")
       case = tensor_target_case.load(bundle, symiri=symiri)
-      reference = tensor_target_reference.observe(
-        case, symiri=symiri, timeout_s=timeout_s,
-        output_path=directory / "p0.bin",
-      )
+      cache_key = ("control", corpus["source"], probe)
+      reference = reference_cache.get(cache_key)
+      cached = reference is not None
+      if reference is None:
+        reference = tensor_target_reference.observe(
+          case, symiri=symiri, timeout_s=timeout_s,
+          output_path=directory / "p0.bin",
+        )
+        if reference.status == tensor_target_reference.COMPLETED:
+          reference_cache[cache_key] = reference
       run = tensor_target_run.run(
         bundle,
         symirc=symirc,
@@ -980,8 +1292,9 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       paths = {
         "p0": {
           "status": reference.status,
-          "cached": False,
+          "cached": cached,
           "directory": str(directory / "p0.bin"),
+          "cache_key": "|".join(cache_key),
         },
         "p1": {
           "status": run.interpreter.status,
@@ -993,15 +1306,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         },
       }
       compiled = directory / "target-runs" / "compiled"
-      compiler = {"status": "unavailable"}
-      ttir = compiled / "compiler-ttir.ir"
-      ptx = compiled / "compiler-ptx.ir"
-      if ttir.is_file() and ptx.is_file():
-        compiler = {
-          "status": "observed",
-          "ttir_sha256": hashlib.sha256(ttir.read_bytes()).hexdigest(),
-          "ptx_sha256": hashlib.sha256(ptx.read_bytes()).hexdigest(),
-        }
+      compiler = compiler_stage_observation(compiled)
       return {
         "status": run.status,
         "paths": paths,
@@ -1019,9 +1324,16 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         "reference": reference,
         "record": run.as_record(),
       }
+    if corpus.get("compiler_identity") not in (None, identity):
+      raise StudyRefused("the corpus compiler identity differs from the current environment")
     region = corpus["region"]
     source = corpus["source"]
+    if corpus.get("source_sha256") and hashlib.sha256(source.encode("utf-8")).hexdigest() != corpus["source_sha256"]:
+      raise StudyRefused("the corpus source changed after the freeze")
     probe_bytes = bytes(corpus["probe_values"][probe])
+    stored_probe = (corpus.get("probes") or {}).get(probe) or {}
+    if stored_probe.get("sha256") and hashlib.sha256(probe_bytes).hexdigest() != stored_probe["sha256"]:
+      raise StudyRefused("the corpus probe inputs changed after the freeze")
     proposal = tensor_free_form_inputs.Proposal(
       schema=tensor_free_form_inputs.WINDOW_PROBE_SCHEMA,
       pattern=probe,
@@ -1048,10 +1360,50 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     )
     case = tensor_target_case.load(bundle, symiri=symiri)
     reference = request.get("reference")
+    cached = reference is not None
+    cache_state = "hit" if cached else "miss"
+    cache_key = ("source", corpus.get("case"), probe)
     if reference is None:
-      reference = tensor_target_reference.observe(
-        case, symiri=symiri, timeout_s=timeout_s
-      )
+      reference = reference_cache.get(cache_key)
+      cached = reference is not None
+      cache_state = "hit" if cached else "miss"
+    if reference is None:
+      selection_p0 = [
+        entry
+        for entry in ((corpus.get("screen") or {}).get("p0") or [])
+        if entry.get("probe") == probe
+      ]
+      if selection_p0:
+        entry = selection_p0[0]
+        if entry.get("status") == tensor_target_reference.COMPLETED and entry.get("output_sha256"):
+          output_path = entry.get("output_path")
+          data = None
+          if output_path and _Path(output_path).is_file():
+            data = _Path(output_path).read_bytes()
+          if data is not None and hashlib.sha256(data).hexdigest() == entry["output_sha256"]:
+            reference = tensor_target_reference.ReferenceObservation(
+              tensor_target_reference.COMPLETED,
+              output=data,
+              path="selection-cache",
+            )
+            cached = True
+            cache_state = "selection-hit"
+          else:
+            cache_state = "selection-corrupt"
+        else:
+          cache_state = "selection-incomplete"
+      if reference is None and cache_state in ("selection-corrupt",):
+        return {
+          "status": "unavailable",
+          "paths": {},
+          "candidate": False,
+          "unavailable": [f"cached P0 for {probe} is corrupt"],
+          "compiler": {"status": "unavailable"},
+        }
+      if reference is None:
+        reference = tensor_target_reference.observe(
+          case, symiri=symiri, timeout_s=timeout_s
+        )
     run = tensor_target_run.run(
       bundle,
       symirc=symirc,
@@ -1060,10 +1412,14 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       timeout_s=timeout_s,
       compiler_identity=identity,
     )
+    if reference.status == tensor_target_reference.COMPLETED and not cached:
+      reference_cache[cache_key] = reference
+      cache_state = "cached-for-later-warps"
     paths = {
       "p0": {
         "status": reference.status,
-        "cached": request.get("reference") is not None,
+        "cached": cached,
+        "cache_state": cache_state,
         "directory": str(bundle / "runs" / "reference"),
       },
       "p1": {
@@ -1076,15 +1432,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       },
     }
     compiled = bundle / "target-runs" / "compiled"
-    compiler = {"status": "unavailable"}
-    ttir = compiled / "compiler-ttir.ir"
-    ptx = compiled / "compiler-ptx.ir"
-    if ttir.is_file() and ptx.is_file():
-      compiler = {
-        "status": "observed",
-        "ttir_sha256": hashlib.sha256(ttir.read_bytes()).hexdigest(),
-        "ptx_sha256": hashlib.sha256(ptx.read_bytes()).hexdigest(),
-      }
+    compiler = compiler_stage_observation(compiled)
     unavailable = []
     if reference.status != tensor_target_reference.COMPLETED:
       unavailable.append(f"p0:{reference.status}")
@@ -1098,7 +1446,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "record": run.as_record(),
     }
 
-  return {"build": build, "screen": screen, "execute": execute}
+  return {"build": build, "screen": screen, "execute": execute, "toolchain": toolchain}
 
 
 def run_qualification(work, *, operations, slots=4, timeout_s=300.0):
@@ -1169,6 +1517,7 @@ def main(argv=None):
   parser.add_argument("--controls-root", default=None)
   parser.add_argument("--mode", choices=("qualification", "select", "discover"),
                       required=True)
+  parser.add_argument("--accept-current-toolchain", action="store_true")
   arguments = parser.parse_args(argv)
   operations = device_operations(
     exporter=Path(arguments.exporter),
@@ -1181,8 +1530,17 @@ def main(argv=None):
     record = run_qualification(arguments.work, operations=operations)
     print(json.dumps({"cases": len(record["cases"]), "digest": record["digest"]}))
     return 0
-  frozen = freeze_study()
-  study = Study(Path(arguments.work), frozen, **operations).prepare()
+  toolchain = operations.pop("toolchain")
+  work = Path(arguments.work)
+  study_path = work / "study.json"
+  frozen = FrozenStudy.load(study_path) if study_path.is_file() else freeze_study(toolchain=toolchain)
+  require_toolchain(
+    frozen, toolchain, accept_current=arguments.accept_current_toolchain
+  )
+  study = Study(
+    work, frozen, controls_root=Path(arguments.controls_root) if arguments.controls_root else None,
+    **operations,
+  ).prepare()
   if arguments.mode == "select":
     study.select_sources()
     corpus = study.freeze_corpus()
