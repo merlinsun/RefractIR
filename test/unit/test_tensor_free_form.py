@@ -666,6 +666,80 @@ class FreeFormExportTests(unittest.TestCase):
       self.assertNotEqual(witness["consumers"][0], witness["consumers"][1])
       self.assertEqual(len(set(witness["consumer_results"])), 2)
 
+  def g2c0_export(self, directory, attempt):
+      return self.export(
+        "--policy", "wide", "--seed", str(20261087 + attempt),
+        "--shape", "2,8", "--states", "2", "--trip-count", "4",
+        "--window", "2,1,5", "--window-buffer-rows", "7",
+        "--profile", "v3", "--features", "extrema,transpose,expand",
+        "--max-attempts", "16", "--max-multiplications", "1",
+        "--require-computed-roots", "--num-warps", "1",
+        "--window-requirement", "extrema-transpose", "--out", directory,
+      )
+
+  def test_non_square_extrema_transpose_admits_attempt_zero(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.g2c0_export(directory, 0)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+  def test_non_square_extrema_transpose_witness_has_both_operations(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.g2c0_export(directory, 1)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      witness = next(item for item in record["requirements"] if item["input"] == "%tile")
+      self.assertTrue(
+        any(operation in witness["operations"] for operation in ("rmin", "rmax", "min", "max")),
+        witness["operations"],
+      )
+      self.assertIn("transpose", witness["operations"])
+
+  def test_non_square_extrema_transpose_stays_within_the_node_budget(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.g2c0_export(directory, 2)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertLessEqual(record["structure"]["nodes"], record["max_nodes"])
+      self.assertEqual(record["max_nodes"], 12)
+
+  def test_non_square_extrema_transpose_roots_are_computed(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.g2c0_export(directory, 3)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      parameters = {parameter["name"] for parameter in record["parameters"]}
+      self.assertFalse(set(record["results"]) & parameters)
+      self.assertTrue(
+        all(update["state"] != update["result"] for update in record["updates"])
+      )
+
+  def test_non_square_extrema_transpose_path_reaches_result_zero(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.g2c0_export(directory, 7)
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      witness = next(item for item in record["requirements"] if item["input"] == "%tile")
+      self.assertEqual(witness["results"], [record["results"][0]])
+      self.assertEqual(witness["path"][0], "%tile")
+      self.assertEqual(witness["path"][-1], record["results"][0])
+
+  def test_square_extrema_transpose_control_remains_short(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "reduction-heavy", "--seed", "20261103",
+        "--shape", "4,4", "--states", "2", "--trip-count", "8",
+        "--window", "4,2,18", "--window-buffer-rows", "20",
+        "--profile", "v3", "--features", "extrema,transpose,expand",
+        "--max-attempts", "16", "--max-multiplications", "1",
+        "--require-computed-roots", "--num-warps", "1",
+        "--window-requirement", "extrema-transpose", "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      witness = next(item for item in record["requirements"] if item["input"] == "%tile")
+      self.assertIn("transpose", witness["operations"])
+      self.assertLessEqual(record["structure"]["nodes"], record["max_nodes"])
+
   def test_an_extrema_transpose_requirement_shares_a_path(self):
     with tempfile.TemporaryDirectory() as directory:
       output = self._requirement_export(directory, "extrema-transpose")

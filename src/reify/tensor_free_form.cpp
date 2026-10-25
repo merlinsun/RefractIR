@@ -1290,6 +1290,27 @@ namespace refractir::reify {
 
   } // namespace
 
+  namespace {
+    /// A transpose changes a non-square type, so the required path needs a
+    /// bounded return bridge before it can land on the result type again.
+    std::uint32_t bridgeLimitFor(
+        const FreeFormRequirement &requirement, const TensorTypeInfo &type
+    ) {
+      const bool transposes = std::find(
+          requirement.shapeOps.begin(), requirement.shapeOps.end(),
+          TensorOp::Transpose
+      ) != requirement.shapeOps.end();
+      const bool nonSquare = type.shape.size() > 1 &&
+          std::any_of(
+              type.shape.begin(), type.shape.end(),
+              [first = type.shape.front()](std::int64_t extent) {
+                return extent != first;
+              }
+          );
+      return transposes && nonSquare ? 6 : 3;
+    }
+  } // namespace
+
   FreeFormRegion buildFreeFormRegion(const FreeFormRequest &request) {
     validateRequest(request);
     const auto resultCount = static_cast<std::uint32_t>(request.results.size());
@@ -1302,9 +1323,17 @@ namespace refractir::reify {
     // distinct-consumer requirement is construction bias, not a type bridge,
     // and takes no reservation.
     std::uint32_t bridgeReserve = 0;
-    for (const auto &requirement: request.requirements)
-      if (!requirement.pathOps.empty() || !requirement.shapeOps.empty())
-        bridgeReserve += 3 * static_cast<std::uint32_t>(requirement.results.size());
+    for (const auto &requirement: request.requirements) {
+      if (requirement.pathOps.empty() && requirement.shapeOps.empty())
+        continue;
+      for (const auto result: requirement.results) {
+        if (result >= request.results.size())
+          throw std::invalid_argument(
+              "free-form requirement names a result outside the request"
+          );
+        bridgeReserve += bridgeLimitFor(requirement, request.results[result].type);
+      }
+    }
     if (request.limits.maxNodes < resultCount + bridgeReserve)
       throw std::runtime_error(
           "free_form_exhaustion: node_budget_exhausted: the node budget cannot reserve the "
@@ -1380,7 +1409,9 @@ namespace refractir::reify {
             continue;
           if (growth.nodesPlaced() >= request.limits.maxNodes)
             break;
-          if (!growth.bridgeForRequirement(*requirement, type, 3))
+          if (!growth.bridgeForRequirement(
+                  *requirement, type, bridgeLimitFor(*requirement, type)
+              ))
             break;
           choose();
         }
