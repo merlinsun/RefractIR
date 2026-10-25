@@ -271,6 +271,7 @@ def study_spec():
     "probe_rules": PROBE_RULES,
     "budgets": dict(BUDGETS),
     "accounting": {"version": 2, "mode": "process-events"},
+    "limits": {"max_nodes": 16},
     "qualification": QUALIFICATION,
   }
 
@@ -309,6 +310,8 @@ def _validate_spec(spec):
     raise tensor_tranche.ManifestRefused("the study accounting version is unknown")
   if "qualification" in spec and spec["qualification"] != QUALIFICATION:
     raise tensor_tranche.ManifestRefused("the qualification declaration changed")
+  if "limits" in spec and spec["limits"] != {"max_nodes": 16}:
+    raise tensor_tranche.ManifestRefused("the study node limit changed")
   seen = set()
   for slot in sources:
     if slot.get("id") in seen:
@@ -1072,6 +1075,7 @@ class Study:
           "attempt": attempt,
           "seed": seed,
           "max_attempts": self.frozen.spec["attempts"]["internal_max_attempts"],
+          "max_nodes": self.frozen.spec.get("limits", {}).get("max_nodes", 12),
           "directory": str(directory),
         }
         try:
@@ -2812,6 +2816,7 @@ def run_qualification(
             "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
             "max_attempts": 1,
             "max_multiplications": declaration.get("max_multiplications", 1),
+            "max_nodes": frozen.spec.get("limits", {}).get("max_nodes", 12),
             "directory": str(work / case / f"attempt-{attempt}"),
           }
         )

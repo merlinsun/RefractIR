@@ -818,6 +818,18 @@ class EvidenceTests(unittest.TestCase):
       with self.assertRaises(study.StudyRefused):
         run.run_discovery()
 
+  def test_selection_requests_the_frozen_node_limit(self):
+    with tempfile.TemporaryDirectory() as directory:
+      frozen = study.freeze_study()
+      log = []
+      run = study.Study(
+        Path(directory) / "work", frozen,
+        build=fake_builder([slot["id"] for slot in frozen.spec["sources"]], log),
+        screen=fake_screen(), execute=fake_execute()[0],
+      ).prepare()
+      run.select_sources()
+      self.assertEqual(log[0]["max_nodes"], 16)
+
   def test_an_interrupted_selection_attempt_consumes_its_ordinal(self):
     resumed_log = []
     with tempfile.TemporaryDirectory() as directory:
