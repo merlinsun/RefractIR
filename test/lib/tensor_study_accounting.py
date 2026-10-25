@@ -53,55 +53,80 @@ def budget_key(phase, path):
   return PHASE_KEYS[phase][PATHS.index(path)]
 
 
-def used(events, phase, path, imports=()):
-  """Count held/started processes once, plus imported work in this allocation."""
-  identities = {}
-  old = []
+def _execution_records(events, imports):
+  """Merge explicit identities before counting any path or allocation."""
+  local = {}
   for event in events:
-    if (
-      event.get("kind") != "process"
-      or event.get("phase") != phase
-      or event.get("path") != path
-    ):
-      continue
-    identity = event.get("execution_id")
-    if identity is None:
-      old.append(event)
-    else:
-      identities.setdefault(identity, []).append(event)
-  total = 0
-  for history in identities.values():
+    if event.get("kind") == "process" and event.get("execution_id") is not None:
+      local.setdefault(event["execution_id"], []).append(event)
+  imported = {}
+  for record in imports:
+    if "entries" not in record:
+      raise ValueError("process accounting requires normalized import entries")
+    for entry in record["entries"]:
+      key = entry["execution_id"]
+      if key in imported and imported[key] != entry:
+        raise ValueError("conflicting imported execution identity")
+      imported[key] = entry
+
+  records = []
+  for key, history in local.items():
+    first = history[0]
+    phase, path = first["phase"], first["path"]
+    if any(e["phase"] != phase or e["path"] != path for e in history):
+      raise ValueError("conflicting local execution identity")
     started = any(e.get("event") == "start" for e in history)
     reserved = any(e.get("event") == "reserved" for e in history)
-    spawn_failed = any(
-      e.get("event") == "finish" and e.get("status") == "spawn_failed" for e in history
+    finishes = {e.get("status") for e in history if e.get("event") == "finish"}
+    charged = started or (reserved and "spawn_failed" not in finishes)
+    entry = imported.pop(key, None)
+    if entry is not None:
+      allocation = "selection" if phase == "screening" else phase
+      if entry["allocation"] != allocation or entry["path"] != path:
+        raise ValueError("import path/allocation conflicts with local execution")
+      for field in ("case", "attempt"):
+        if first.get(field) is not None and entry.get(field) != first[field]:
+          raise ValueError("import provenance conflicts with local execution")
+      result = "timed_out" if entry["result"] == "hung" else entry["result"]
+      terminal = finishes - {"interrupted"}
+      if terminal and terminal != {result}:
+        raise ValueError("import outcome conflicts with local execution")
+      if started and result in ("spawn_failed", "refused"):
+        raise ValueError("an imported refusal cannot erase a recorded launch")
+      charged = started or result not in ("spawn_failed", "refused")
+    records.append((phase, path, int(charged)))
+  for entry in imported.values():
+    phase = "screening" if entry["allocation"] == "selection" else entry["allocation"]
+    records.append(
+      (phase, entry["path"], int(entry["result"] not in ("spawn_failed", "refused")))
     )
-    total += int(started or (reserved and not spawn_failed))
-  # Earlier process records have no execution IDs. Retain their conservative
-  # charge; new records never use this adapter.
+  return records
+
+
+def used(events, phase, path, imports=()):
+  """Count each held/started/imported execution once in its own allocation."""
+  total = sum(
+    charge
+    for p, target, charge in _execution_records(events, imports)
+    if p == phase and target == path
+  )
+  # Unidentified historical events cannot be deduplicated against an import.
+  # Retain their conservative charge; new records always carry identities.
+  old = [
+    e
+    for e in events
+    if e.get("kind") == "process"
+    and e.get("execution_id") is None
+    and e.get("phase") == phase
+    and e.get("path") == path
+  ]
   reserved = sum(e.get("event") == "reserved" for e in old)
   started = sum(e.get("event") == "start" for e in old)
   failed = sum(
     e.get("event") == "finish" and e.get("status") == "spawn_failed" for e in old
   )
   total += max(started, reserved - failed)
-  allocation = "selection" if phase == "screening" else phase
-  seen = {}
-  for record in imports:
-    if "entries" not in record:
-      raise ValueError("process accounting requires normalized import entries")
-    for entry in record["entries"]:
-      identity = entry["execution_id"]
-      if identity in seen and seen[identity] != entry:
-        raise ValueError("conflicting imported execution identity")
-      if identity in seen:
-        continue
-      seen[identity] = entry
-      if entry["path"] == path and entry["allocation"] == allocation:
-        if entry["result"] not in ("spawn_failed", "refused"):
-          total += 1
   if phase == "triage":
-    # Old retry records reserved all paths without per-process callbacks.
     total += sum(
       e.get("kind") == "retry" and not e.get("process_accounting") for e in events
     )

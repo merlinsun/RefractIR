@@ -319,7 +319,16 @@ class DiscoveryTests(unittest.TestCase):
       self.assertGreater(run.ledger.counts()["pending"], 0)
       with self.assertRaises(study.StudyRefused):
         run.finalize()
-      run.record_triage_decision("resume")
+      run.record_triage_decision(
+        {
+          "action": "resume",
+          "disposition": {
+            "classification": "unresolved",
+            "explanation": "Retain the fixture candidate while testing dispatch.",
+            "evidence": [],
+          },
+        }
+      )
       run.run_discovery()
       final = run.finalize()
       self.assertGreater(len(final["candidates"]), 0)
@@ -374,7 +383,16 @@ class DiscoveryTests(unittest.TestCase):
       run.select_sources()
       self.assertTrue(run.is_paused())
       with self.assertRaises(study.StudyRefused):
-        run.record_triage_decision("resume")
+        run.record_triage_decision(
+          {
+            "action": "resume",
+            "disposition": {
+              "classification": "unresolved",
+              "explanation": "Retain the fixture candidate while testing dispatch.",
+              "evidence": [],
+            },
+          }
+        )
       self.assertTrue(run.is_paused())
       self.assertIsNotNone(run._pending_admission())
 
@@ -394,6 +412,13 @@ class DiscoveryTests(unittest.TestCase):
         "action": "admit", "case": pending["case"], "attempt": pending["attempt"],
         "pause_id": pause["pause_id"], "phase": pause["phase"],
       }
+      if pause.get("candidates"):
+        decision["candidate_sha256"] = study._digest(pause["candidates"])
+        decision["disposition"] = {
+          "classification": "unresolved",
+          "explanation": "Retain the recovery fixture candidate.",
+          "evidence": [],
+        }
       decision["decision_id"] = hashlib.sha256(
         json.dumps(decision, sort_keys=True).encode("utf-8")
       ).hexdigest()[:16]
@@ -449,6 +474,13 @@ class DiscoveryTests(unittest.TestCase):
         "action": "admit", "pause_id": pause["pause_id"], "phase": pause["phase"],
         "case": "mw-g0c0", "attempt": 0,
       }
+      if pause.get("candidates"):
+        decision["candidate_sha256"] = study._digest(pause["candidates"])
+        decision["disposition"] = {
+          "classification": "unresolved",
+          "explanation": "Retain the recovery fixture candidate.",
+          "evidence": [],
+        }
       decision["decision_id"] = hashlib.sha256(
         json.dumps(decision, sort_keys=True).encode("utf-8")
       ).hexdigest()[:16]
@@ -630,6 +662,13 @@ class DiscoveryTests(unittest.TestCase):
       decision = {
         "action": "stop", "pause_id": pause["pause_id"], "phase": pause["phase"],
       }
+      if pause.get("candidates"):
+        decision["candidate_sha256"] = study._digest(pause["candidates"])
+        decision["disposition"] = {
+          "classification": "unresolved",
+          "explanation": "Retain the recovery fixture candidate.",
+          "evidence": [],
+        }
       decision["decision_id"] = hashlib.sha256(
         json.dumps(decision, sort_keys=True).encode("utf-8")
       ).hexdigest()[:16]
@@ -1018,7 +1057,16 @@ class TriageAndAccountingTests(unittest.TestCase):
       run.select_sources(max_slots=1)
       self.assertTrue(run.is_paused())
       self.assertIsNotNone(run._pending_admission())
-      run.record_triage_decision("admit")
+      run.record_triage_decision(
+        {
+          "action": "admit",
+          "disposition": {
+            "classification": "unresolved",
+            "explanation": "Retain the fixture candidate while testing dispatch.",
+            "evidence": [],
+          },
+        }
+      )
       self.assertEqual([entry["case"] for entry in run.corpus()], ["mw-g0c0"])
       self.assertNotIn(
         "mw-g0c0", [e.get("case") for e in run.path_ledger.events if e.get("kind") == "shortfall"]
@@ -1050,7 +1098,16 @@ class TriageAndAccountingTests(unittest.TestCase):
         screen=self.candidate_screen, execute=fake_execute()[0],
       ).prepare()
       run.select_sources(max_slots=1)
-      run.record_triage_decision("reject")
+      run.record_triage_decision(
+        {
+          "action": "reject",
+          "disposition": {
+            "classification": "unresolved",
+            "explanation": "Retain the fixture candidate while testing dispatch.",
+            "evidence": [],
+          },
+        }
+      )
       self.assertIsNone(run._pending_admission())
       run.select_sources(max_slots=1)
       attempts = [

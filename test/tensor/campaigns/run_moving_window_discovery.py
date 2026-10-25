@@ -27,7 +27,12 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
   sys.path.insert(0, str(_ROOT))
 
-from test.lib import tensor_execution, tensor_tranche  # noqa: E402
+from test.lib import (  # noqa: E402
+  tensor_campaign_evidence,  # noqa: E402
+  tensor_execution,
+  tensor_tranche,
+)
+from test.lib import tensor_candidate_triage as candidate_triage  # noqa: E402
 from test.lib import tensor_study_accounting as accounting  # noqa: E402
 
 MIN_FREE_BYTES = 2 * 1024**3
@@ -142,8 +147,8 @@ SOURCE_SLOTS = source_slots()
 
 
 QUALIFICATION = {
-  "version": 1,
-  "max_multiplications": 0,
+  "version": 2,
+  "max_multiplications": 1,
   "cases": [
     {"case": "mw-g0c0", "checks": ["backing_storage"]},
     {"case": "mw-g0c1", "checks": ["changing_active_rows"]},
@@ -153,60 +158,111 @@ QUALIFICATION = {
 }
 
 
+def _qualification_live_path(region):
+  """Check a window-to-result witness against the exported live DAG."""
+  dag = region.get("live_dag") or {}
+  values, ops, operands = (dag.get(key, []) for key in ("values", "ops", "operands"))
+  if not (len(values) > len(ops) == len(operands)) or len(set(values)) != len(values):
+    return False
+  # The export lists live inputs first, followed by live operation results.
+  input_count = len(values) - len(ops)
+  producers = {value: index for index, value in enumerate(values[input_count:])}
+  window = (region.get("window") or {}).get("result")
+  roots = set(dag.get("roots") or [])
+  for witness in region.get("requirements") or []:
+    path, operations = witness.get("path") or [], witness.get("operations") or []
+    if (
+      not window
+      or witness.get("input") != window
+      or len(path) < 3
+      or path[0] != window
+      or path[-1] not in roots
+      or path[-1] not in (witness.get("results") or [])
+      or len(operations) != len(path) - 1
+      or len(set(path)) != len(path)
+    ):
+      continue
+    ids = [producers.get(value) for value in path[1:]]
+    if any(index is None for index in ids) or witness.get("operation_ids") != ids:
+      continue
+    if not all(
+      ops[index] == op and source in operands[index]
+      for source, index, op in zip(path, ids, operations)
+    ):
+      continue
+    if set(operations) & {"max", "min", "rmin", "rmax"} and set(operations) & {
+      "transpose",
+      "expand",
+    }:
+      return True
+  return False
+
+
 def qualification_capabilities(built, required):
-  """Evaluate the declared capability checks on one admitted construction."""
+  """Check exported roles, connected witnesses, and the layout actually staged."""
+  from test.lib.tensor_free_form_inputs import SpecError, _window_roles
+
+  checks = {name: False for name in required}
   region = built.get("region") or {}
-  window = region.get("window") or {}
-  parameters = region.get("parameters") or []
-  backing = [
-    entry for entry in parameters
-    if entry.get("role") == "window_source" or entry.get("init") == "window_backing"
-  ]
-  states = [entry for entry in parameters if entry.get("role") == "state"]
-  checks = {}
-  if "backing_storage" in required:
+  try:
+    roles = _window_roles(region)
+  except (SpecError, TypeError, KeyError):
+    return checks
+  window, backing, states = roles["window"], roles["backing"], roles["states"]
+  if "backing_storage" in checks:
     checks["backing_storage"] = bool(
-      backing and len(states) >= 2
-      and backing[0].get("shape") and states[0].get("shape")
-      and backing[0]["shape"][0] > states[0]["shape"][0]
-      and window.get("source_kind") == "backing"
+      window.get("source_kind") == "backing"
+      and backing["shape"][0] > states[0]["shape"][0]
     )
-  if "changing_active_rows" in required:
-    active = (window.get("witness") or {}).get("per_trip_active") or []
-    changing = False
-    if active:
-      width = len(active[0])
-      changing = any(
-        len({trip[index] for trip in active}) > 1 for index in range(width)
-      )
+  if "changing_active_rows" in checks:
+    active = [
+      [
+        trip * window["stride"] + row < window["active"]
+        for row in range(window["rows"])
+      ]
+      for trip in range(roles["trips"])
+    ]
+    witness = window.get("witness") or {}
     checks["changing_active_rows"] = bool(
-      changing and not (window.get("witness") or {}).get("all_active", False)
+      active == witness.get("per_trip_active")
+      and any(len({trip[row] for trip in active}) > 1 for row in range(window["rows"]))
+      and witness.get("all_active") is False
     )
-  if "strided_backing_layout" in required:
-    layout = (built.get("layouts") or {}).get("%window_buffer") or {}
-    shape = layout.get("shape") or []
-    strides = layout.get("element_strides") or []
-    dense = []
-    for index in range(len(shape)):
+  if "strided_backing_layout" in checks:
+    bundles = built.get("bundles") or {}
+    staged = []
+    for bundle in bundles.values():
+      try:
+        manifest = json.loads((Path(bundle) / "case.json").read_text())
+        layouts = [
+          entry for entry in manifest["inputs"] if entry["name"] == backing["name"]
+        ]
+      except (OSError, ValueError, KeyError, TypeError):
+        return checks
+      if len(layouts) != 1:
+        return checks
+      layout = layouts[0]
+      shape, strides = layout.get("shape"), layout.get("element_strides")
+      dense = []
       product = 1
-      for extent in shape[index + 1:]:
+      for extent in reversed(backing["shape"]):
+        dense.insert(0, product)
         product *= extent
-      dense.append(product)
-    checks["strided_backing_layout"] = bool(
-      layout
-      and (
-        layout.get("element_offset", 0) > 0
-        or (shape and strides != [dense[index] for index in range(len(shape))])
+      staged.append(
+        bool(
+          shape == backing["shape"]
+          and isinstance(strides, list)
+          and len(strides) == len(dense)
+          and all(type(value) is int and value > 0 for value in strides)
+          and any(
+            extent > 1 and stride != contiguous
+            for extent, stride, contiguous in zip(shape, strides, dense)
+          )
+        )
       )
-    )
-  if "extrema_shape_path" in required:
-    extrema = {"max", "min", "rmin", "rmax"}
-    shape_ops = {"transpose", "expand", "broadcast", "reshape"}
-    checks["extrema_shape_path"] = any(
-      set(requirement.get("operations") or []) & extrema
-      and set(requirement.get("operations") or []) & shape_ops
-      for requirement in region.get("requirements") or []
-    )
+    checks["strided_backing_layout"] = bool(staged and all(staged))
+  if "extrema_shape_path" in checks:
+    checks["extrema_shape_path"] = _qualification_live_path(region)
   return checks
 
 
@@ -273,10 +329,11 @@ def study_spec():
     "accounting": {"version": 2, "mode": "process-events"},
     "limits": {"max_nodes": 16},
     "qualification": QUALIFICATION,
+    "triage_policy": candidate_triage.POLICY,
   }
 
 
-def _validate_spec(spec):
+def _validate_spec(spec, *, allow_legacy_qualification=False):
   if not isinstance(spec, dict):
     raise tensor_tranche.ManifestRefused("a study spec must be an object")
   if spec.get("schema") != SCHEMA:
@@ -309,9 +366,13 @@ def _validate_spec(spec):
   }:
     raise tensor_tranche.ManifestRefused("the study accounting version is unknown")
   if "qualification" in spec and spec["qualification"] != QUALIFICATION:
-    raise tensor_tranche.ManifestRefused("the qualification declaration changed")
+    legacy = {**QUALIFICATION, "version": 1}
+    if not allow_legacy_qualification or spec["qualification"] != legacy:
+      raise tensor_tranche.ManifestRefused("the qualification declaration changed")
   if "limits" in spec and spec["limits"] != {"max_nodes": 16}:
     raise tensor_tranche.ManifestRefused("the study node limit changed")
+  if "triage_policy" in spec and spec["triage_policy"] != candidate_triage.POLICY:
+    raise tensor_tranche.ManifestRefused("the candidate triage policy changed")
   seen = set()
   for slot in sources:
     if slot.get("id") in seen:
@@ -364,7 +425,8 @@ class FrozenStudy:
     digest = record.get("digest")
     if not isinstance(spec, dict) or digest != _digest(spec):
       raise tensor_tranche.ManifestRefused("the study spec changed after it was frozen")
-    _validate_spec(spec)
+    # Reading an archived declaration does not authorize current dispatch.
+    _validate_spec(spec, allow_legacy_qualification=True)
     tranche = tensor_tranche.FrozenTranche.from_payload(record.get("tranche"))
     return cls(spec=spec, digest=digest, tranche=tranche)
 
@@ -669,8 +731,13 @@ class Study:
         "source": str(self.triage_ledger),
       }
     )
-    self._accepted_imports_path().write_text(
-      json.dumps(imports, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    try:
+      accounting.used(self.path_ledger.events, "triage", "p2", imports)
+    except ValueError as error:
+      raise StudyRefused(str(error)) from error
+    tensor_execution.write_atomic(
+      self._accepted_imports_path(),
+      (json.dumps(imports, indent=1, sort_keys=True) + "\n").encode(),
     )
 
   def prepare(self):
@@ -718,7 +785,7 @@ class Study:
   def is_paused(self):
     return (self.work / "study-paused.json").is_file()
 
-  def pause(self, candidates, *, reason, phase="discovery"):
+  def pause(self, candidates, *, reason, phase="discovery", qualification_attempt=None):
     """Persist candidates and stop routine dispatch until triage decides."""
     pause_id = hashlib.sha256(
       (reason + ":" + str(len(self.path_ledger.events))).encode("utf-8")
@@ -728,11 +795,23 @@ class Study:
       "phase": phase,
       "reason": reason,
       "candidates": candidates,
+      **(
+        {"qualification_attempt": qualification_attempt}
+        if qualification_attempt is not None
+        else {}
+      ),
     }
     (self.work / "study-paused.json").write_text(
       json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
-    self.path_ledger.append("paused", reason=reason, candidates=len(candidates))
+    self.path_ledger.append(
+      "paused",
+      reason=reason,
+      candidates=len(candidates),
+      phase=phase,
+      pause_id=pause_id,
+      candidate_sha256=_digest(candidates) if candidates else None,
+    )
 
   def record_triage_decision(self, decision):
     """Persist, apply, and mark one decision for the active pause."""
@@ -760,10 +839,32 @@ class Study:
       raise StudyRefused(
         "resume cannot resolve a pending admission; use admit, reject, or stop"
       )
+    if (
+      self.frozen.spec.get("triage_policy") == candidate_triage.POLICY
+      and pause.get("candidates")
+      and action != "stop"
+    ):
+      try:
+        record["disposition"] = candidate_triage.validate(
+          self.work, record.get("disposition")
+        )
+      except ValueError as error:
+        raise StudyRefused(str(error)) from error
+      if (
+        action == "admit"
+        and record["disposition"]["classification"] == "invalid_execution"
+      ):
+        raise StudyRefused("an invalid execution cannot be admitted")
+      record["candidate_sha256"] = _digest(pause["candidates"])
     record = {
       **record,
       "pause_id": pause.get("pause_id"),
       "phase": pause.get("phase"),
+      **(
+        {"qualification_attempt": pause["qualification_attempt"]}
+        if "qualification_attempt" in pause
+        else {}
+      ),
       "case": (pending or {}).get("case"),
       "attempt": (pending or {}).get("attempt"),
     }
@@ -892,6 +993,17 @@ class Study:
     if not decisions:
       return False
     decision = decisions[-1]
+    if (
+      self.frozen.spec.get("triage_policy") == candidate_triage.POLICY
+      and pause.get("candidates")
+      and decision.get("action") != "stop"
+    ):
+      if decision.get("candidate_sha256") != _digest(pause["candidates"]):
+        raise StudyRefused("triage decision names different candidate evidence")
+      try:
+        candidate_triage.validate(self.work, decision.get("disposition"))
+      except ValueError as error:
+        raise StudyRefused(str(error)) from error
     applied = decision.get("decision_id") in self._applied_decisions()
     action = decision.get("action")
     pending = self._pending_admission()
@@ -968,7 +1080,14 @@ class Study:
         identity = _digest(
           {"phase": phase, **context, "path": path, "ordinal": ordinals[path]}
         )
-        if any(e.get("execution_id") == identity for e in self.path_ledger.events):
+        imported = (
+          entry
+          for record in self.accepted_imports()
+          for entry in record.get("entries", [])
+        )
+        if any(
+          e.get("execution_id") == identity for e in self.path_ledger.events
+        ) or any(e["execution_id"] == identity for e in imported):
           raise StudyRefused(
             "a process reservation already exists; use a fresh explicit attempt"
           )
@@ -1652,6 +1771,12 @@ class Study:
       candidates = screening_candidates + discovery_candidates
     else:
       candidates = [e for e in classifications if e.get("candidate")]
+    qualification = [e for e in events if e.get("kind") == "qualification_outcome"]
+    candidates += [
+      {"phase": "qualification", **e}
+      for e in qualification
+      if e["outcome"].get("candidate")
+    ]
     unavailable = [
       {"slot": e["slot"], "reason": reason}
       for e in classifications
@@ -1735,6 +1860,12 @@ class Study:
       },
       "paths": path_counts(events, legacy=self.legacy_accounting),
       "candidates": candidates,
+      **(
+        {"candidate_triage": candidate_triage.summary(self.work, events)}
+        if self.frozen.spec.get("triage_policy") == candidate_triage.POLICY
+        else {}
+      ),
+      **({"qualification": qualification} if qualification else {}),
       **({"invalid_executions": invalid_executions} if invalid_executions else {}),
       "unavailable": unavailable,
       "compiler": {
@@ -1791,6 +1922,8 @@ def report_from_records(work, *, triage_ledger=None, accounting_mode=None):
   """Recompute the final summary from the preserved records alone."""
   work = Path(work)
   frozen = FrozenStudy.load(work / "study.json")
+  if (work / tensor_campaign_evidence.NAME).is_file():
+    tensor_campaign_evidence.verify(work, study_digest=frozen.digest)
   study = Study(
     work,
     frozen,
@@ -1983,6 +2116,9 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     directory = _Path(request["directory"])
     directory.mkdir(parents=True, exist_ok=True)
     rows, columns = slot["shape"]
+    node_limit = request.get("max_nodes", 12)
+    if type(node_limit) is not int or node_limit <= 0:
+      raise StudyRefused("the requested node limit is invalid")
     command = [
       str(exporter),
       "--policy", slot["policy"],
@@ -1996,6 +2132,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       "--features", "extrema,transpose,expand",
       "--window-requirement", slot["requirement"],
       "--max-attempts", "1",
+      "--max-nodes", str(node_limit),
       "--max-multiplications", str(request.get("max_multiplications", 1)),
       "--require-computed-roots",
       "--num-warps", "1",
@@ -2012,6 +2149,11 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       }
     export = directory / "export"
     region = json.loads((export / "region.json").read_text(encoding="utf-8"))
+    if type(region.get("max_nodes")) is not int or region["max_nodes"] != node_limit:
+      raise StudyRefused("the exporter node limit differs from the frozen request")
+    nodes = (region.get("structure") or {}).get("nodes")
+    if type(nodes) is not int or not 0 <= nodes <= node_limit:
+      raise StudyRefused("the exported live node count exceeds the frozen limit")
     source = (export / "program.sir").read_text(encoding="utf-8")
     if (slot["trips"] - 1) * slot["stride"] + rows > slot["backing_rows"]:
       return {"kind": "refused", "reason": "window witness leaves the backing"}
@@ -2672,6 +2814,97 @@ def _qualification_reference(work, case, progress, identity):
   return ReferenceObservation(COMPLETED, output=data, path="qualification-cache"), meta
 
 
+def _qualification_outcome(
+  authority, case, configuration, attempt, outcome, record, *, provenance="execution"
+):
+  """Append one immutable outcome; progress.json is only the latest-state cache."""
+  key = _digest(
+    {
+      "study": authority.frozen.digest,
+      "case": case,
+      "configuration": configuration,
+      "attempt": attempt,
+    }
+  )
+  fields = {
+    "qualification_attempt": key,
+    "case": case,
+    "configuration": configuration,
+    "attempt": attempt,
+    "outcome": json.loads(_canonical(outcome)),
+    "attempt_record": json.loads(_canonical(record)),
+    "provenance": provenance,
+  }
+  previous = next(
+    (
+      e
+      for e in authority.path_ledger.events
+      if e.get("qualification_attempt") == key
+      and e.get("kind") == "qualification_outcome"
+    ),
+    None,
+  )
+  if previous is not None:
+    if any(previous.get(k) != fields[k] for k in fields if k != "provenance"):
+      raise StudyRefused("a qualification attempt has conflicting outcomes")
+    return previous
+  return authority.path_ledger.append("qualification_outcome", **fields)
+
+
+def _restore_qualification_outcomes(progress, events):
+  """Recover an outcome committed before its progress-cache update."""
+  for event in events:
+    if event.get("kind") != "qualification_outcome":
+      continue
+    state = progress["cases"].get(event["case"])
+    if state is None:
+      raise StudyRefused("qualification outcome has no persisted build")
+    record = event["attempt_record"]
+    if _qualification_artifacts(record["directory"]) != record["artifacts"]:
+      raise StudyRefused("qualification attempt evidence changed or is missing")
+    configuration = event["configuration"]
+    current = state["attempts"].get(configuration)
+    if current is None or current["attempt"] <= event["attempt"]:
+      state["attempts"][configuration] = dict(record)
+      state["outcomes"][configuration] = dict(event["outcome"])
+
+
+def _pause_qualification_outcomes(authority):
+  applied = authority._applied_decisions()
+  resolved = {
+    d.get("qualification_attempt")
+    for d in authority._decisions()
+    if d.get("decision_id") in applied
+  }
+  for event in authority.path_ledger.events:
+    if event.get("kind") != "qualification_outcome":
+      continue
+    outcome = event["outcome"]
+    if not (outcome.get("candidate") or outcome.get("dispatch_refused")):
+      continue
+    if event["qualification_attempt"] in resolved:
+      continue
+    if not authority.is_paused():
+      authority.pause(
+        [event] if outcome.get("candidate") else [],
+        reason="qualification candidate"
+        if outcome.get("candidate")
+        else "qualification dispatch refused",
+        phase="qualification",
+        qualification_attempt=event["qualification_attempt"],
+      )
+    return True
+  return False
+
+
+def _qualification_construction_stop(authority, case, reason, **details):
+  event = authority.path_ledger.append(
+    "qualification_construction_stopped", case=case, reason=reason, **details
+  )
+  authority.pause([], reason=reason, phase="qualification")
+  return event
+
+
 def run_qualification(
   work,
   *,
@@ -2682,6 +2915,7 @@ def run_qualification(
   authority=None,
   reference_recheck=None,
   accounting_mode=None,
+  triage_decision=None,
 ):
   """Qualify four cases using the same per-process authority as discovery.
 
@@ -2738,6 +2972,8 @@ def run_qualification(
     raise StudyRefused(
       "legacy qualification progress needs explicit evidence migration"
     )
+  authority.path_ledger.load()
+  _restore_qualification_outcomes(progress, authority.path_ledger.events)
   retry_request = _qualification_retry(retry, chosen, progress)
   recheck_request = None
   builds = {}
@@ -2779,6 +3015,35 @@ def run_qualification(
         "reference recheck must match the retried case and its prior observation identity"
       )
   authority.prepare()
+  # Migrate only preserved outcomes, never earlier overwritten attempts.
+  for case, state in progress["cases"].items():
+    for configuration, outcome in state["outcomes"].items():
+      attempt_record = state["attempts"][configuration]
+      if attempt_record["status"] in ("completed", "refused"):
+        _qualification_outcome(
+          authority,
+          case,
+          configuration,
+          attempt_record["attempt"],
+          outcome,
+          attempt_record,
+          provenance="progress-recovery",
+        )
+  construction_stops = [
+    e
+    for e in authority.path_ledger.events
+    if e.get("kind") == "qualification_construction_stopped"
+  ]
+  if construction_stops and not authority.is_paused() and not authority.is_stopped():
+    authority.pause([], reason=construction_stops[-1]["reason"], phase="qualification")
+  _pause_qualification_outcomes(authority)
+  if triage_decision is not None:
+    authority.record_triage_decision(triage_decision)
+    _pause_qualification_outcomes(authority)
+  if construction_stops:
+    raise StudyRefused(
+      "qualification construction failed; preserve it and use a new approved freeze"
+    )
   if authority.is_stopped() or authority.is_paused():
     raise StudyRefused(
       "qualification cannot dispatch while the study is paused or stopped"
@@ -2798,34 +3063,54 @@ def run_qualification(
     )
 
   for slot in chosen:
+    if authority.is_paused() or authority.is_stopped():
+      break
     case = slot["id"]
     built = builds.get(case)
     if built is None:
-      if (work / case).is_dir() and any((work / case).glob("attempt-*")):
-        record["cases"].append(
-          {"case": case, "interrupted": "uncommitted qualification build"}
-        )
-        continue
+      reserved = any(
+        e.get("kind") == "qualification_build_reserved" and e.get("case") == case
+        for e in authority.path_ledger.events
+      )
+      if reserved or ((work / case).is_dir() and any((work / case).glob("attempt-*"))):
+        reason = "uncommitted qualification build"
+        _qualification_construction_stop(authority, case, reason)
+        record["cases"].append({"case": case, "interrupted": reason})
+        break
       for attempt in range(4):
         if not authority._disk_guard():
           break
-        candidate = operations["build"](
-          {
-            "slot": slot,
-            "attempt": attempt,
-            "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
-            "max_attempts": 1,
-            "max_multiplications": declaration.get("max_multiplications", 1),
-            "max_nodes": frozen.spec.get("limits", {}).get("max_nodes", 12),
-            "directory": str(work / case / f"attempt-{attempt}"),
-          }
+        request = {
+          "slot": slot,
+          "attempt": attempt,
+          "seed": frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt,
+          "max_attempts": 1,
+          "max_multiplications": declaration.get("max_multiplications", 1),
+          "max_nodes": frozen.spec.get("limits", {}).get("max_nodes", 12),
+          "directory": str(work / case / f"attempt-{attempt}"),
+        }
+        authority.path_ledger.append(
+          "qualification_build_reserved", case=case, attempt=attempt, request=request
         )
+        try:
+          candidate = operations["build"](request)
+        except BaseException:
+          _qualification_construction_stop(
+            authority,
+            case,
+            "qualification builder interrupted",
+            attempt=attempt,
+            request=request,
+          )
+          raise
         if candidate.get("kind") != "admitted":
           authority.path_ledger.append(
             "qualification_build_refused",
             case=case,
             attempt=attempt,
             reason=candidate.get("reason"),
+            request=request,
+            outcome=candidate,
           )
           continue
         built = {**candidate, "attempt": attempt}
@@ -2843,16 +3128,25 @@ def run_qualification(
         save_progress()
         break
     if built is None:
-      record["cases"].append({"case": case, "refused": "no admitted build"})
-      continue
+      if authority.is_paused():
+        reason = json.loads((work / "study-paused.json").read_text())["reason"]
+      else:
+        reason = "qualification construction exhausted four attempts"
+        _qualification_construction_stop(authority, case, reason)
+      record["cases"].append({"case": case, "refused": reason})
+      break
     required = next(
       entry["checks"] for entry in declaration["cases"] if entry["case"] == case
     )
-    if built.get("synthetic"):
-      capabilities = {name: True for name in required}
-    else:
-      capabilities = qualification_capabilities(built, required)
+    capabilities = qualification_capabilities(built, required)
     if not all(capabilities.get(name) for name in required):
+      _qualification_construction_stop(
+        authority,
+        case,
+        "the declared qualification capability is missing",
+        capabilities=capabilities,
+        identity=identities[case],
+      )
       record["cases"].append(
         {
           "case": case,
@@ -2958,8 +3252,8 @@ def run_qualification(
       except DispatchRefused as error:
         if needs_reference and observed is None:
           from test.lib.tensor_target_reference import (
-            ReferenceObservation,
             UNAVAILABLE,
+            ReferenceObservation,
           )
           failed = ReferenceObservation(
             UNAVAILABLE, reason=f"P0 dispatch refused: {error}"
@@ -2984,23 +3278,24 @@ def run_qualification(
         "status": outcome.get("status"),
         "paths": paths,
         "candidate": outcome.get("candidate", False),
+        "dispatch_refused": outcome.get("dispatch_refused"),
         "compiler": outcome.get("compiler"),
         "processes": events,
         "reference_status": getattr(observed, "status", "unavailable"),
       }
-      state["outcomes"][configuration] = entry
-      state["attempts"][configuration].update(
-        {
-          "status": "completed" if complete else "refused",
-          "artifacts": _qualification_artifacts(directory),
-        }
+      attempt_record = {
+        **state["attempts"][configuration],
+        "status": "completed" if complete else "refused",
+        "artifacts": _qualification_artifacts(directory),
+      }
+      _qualification_outcome(
+        authority, case, configuration, run_index, entry, attempt_record
       )
+      state["outcomes"][configuration] = entry
+      state["attempts"][configuration] = attempt_record
       save_progress()
-      if outcome.get("dispatch_refused") or outcome.get("candidate"):
-        stop_batch = True
+      if _pause_qualification_outcomes(authority):
         break
-    else:
-      stop_batch = False
     configurations = state["outcomes"]
     complete = all(
       state["attempts"].get(c, {}).get("status") == "completed"
@@ -3018,11 +3313,7 @@ def run_qualification(
         for value in configurations.values()
       )
     )
-    capabilities = (
-      {name: True for name in required}
-      if built.get("synthetic")
-      else qualification_capabilities(built, required)
-    )
+    capabilities = qualification_capabilities(built, required)
     validated = bool(
       validated and all(capabilities.get(name) for name in required)
     )
@@ -3043,7 +3334,7 @@ def run_qualification(
     state["complete"], state["validated"] = complete, validated
     save_progress()
     record["cases"].append(case_record)
-    if locals().get("stop_batch"):
+    if authority.is_paused() or authority.is_stopped():
       break
   record["validated"] = (
     slots == 4
@@ -3082,7 +3373,13 @@ def main(argv=None):
   parser.add_argument("--accounting-mode", choices=("legacy", "process"), default=None)
   parser.add_argument("--accept-current-toolchain", action="store_true")
   parser.add_argument("--triage-decision", default=None)
+  parser.add_argument("--triage-disposition-file", type=Path, default=None)
   arguments = parser.parse_args(argv)
+  decision = arguments.triage_decision
+  if arguments.triage_disposition_file is not None:
+    if decision is None:
+      parser.error("--triage-disposition-file requires --triage-decision")
+    decision = {"action": decision, "disposition": json.loads(arguments.triage_disposition_file.read_text())}
   if arguments.mode == "reconcile":
     report = report_from_records(
       Path(arguments.work),
@@ -3124,6 +3421,7 @@ def main(argv=None):
       operations=operations,
       retry=arguments.qualification_retry,
       reference_recheck=arguments.qualification_reference_recheck,
+      triage_decision=decision,
       authority=study,
     )
     print(
@@ -3142,7 +3440,7 @@ def main(argv=None):
       raise StudyRefused(
         f"the study is paused ({study._paused_reason()}); pass --triage-decision"
       )
-    study.record_triage_decision(arguments.triage_decision)
+    study.record_triage_decision(decision)
     if arguments.triage_decision == "stop":
       print(json.dumps({"paused": "stopped"}))
       return 2

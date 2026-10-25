@@ -202,6 +202,68 @@ class PartialScreenTests(_TargetFixture, unittest.TestCase):
     self.assertFalse(saved["candidate"])
 
 
+def with_capabilities(built):
+  """Export-shaped metadata and a staged layout for host-only worker fixtures."""
+  built.pop("synthetic", None)
+  parameters = [
+    {
+      "name": "%window_buffer",
+      "role": "window_source",
+      "shape": [8, 8],
+      "dtype": "f32",
+    },
+    {"name": "%x", "role": "state", "shape": [3, 8], "dtype": "f32"},
+    {"name": "%y", "role": "state", "shape": [3, 8], "dtype": "f32"},
+  ]
+  layout = {
+    "name": "%window_buffer",
+    "shape": [8, 8],
+    "element_strides": [11, 1],
+    "element_offset": 1,
+  }
+  built["layouts"] = {"%window_buffer": dict(layout)}
+  built["region"].update(
+    {
+      "parameters": parameters,
+      "trip_count": 4,
+      "window_source": {"parameter": "%window_buffer"},
+      "results": ["%next_x", "%next_y"],
+      "window": {
+        "source_kind": "backing",
+        "result": "%tile",
+        "rows": 3,
+        "stride": 1,
+        "active": 5,
+        "witness": {
+          "all_active": False,
+          "per_trip_active": [[t + r < 5 for r in range(3)] for t in range(4)],
+        },
+      },
+      "requirements": [
+        {
+          "input": "%tile",
+          "results": ["%next_x"],
+          "path": ["%tile", "%r", "%e", "%next_x"],
+          "operations": ["rmin", "expand", "broadcast"],
+          "operation_ids": [0, 1, 2],
+        }
+      ],
+      "live_dag": {
+        "values": ["%acc_y", "%tile", "%r", "%e", "%next_x", "%next_y"],
+        "ops": ["rmin", "expand", "broadcast", "add"],
+        "operands": [["%tile"], ["%r"], ["%e"], ["%acc_y", "%acc_y"]],
+        "roots": ["%next_x", "%next_y"],
+      },
+    }
+  )
+  for bundle in built.get("bundles", {}).values():
+    manifest = Path(bundle) / "case.json"
+    record = read(manifest)
+    record["inputs"] = [layout]
+    manifest.write_text(json.dumps(record))
+  return built
+
+
 class QualificationFixture:
   def __init__(self, root):
     self.root = Path(root)
@@ -236,18 +298,20 @@ class QualificationFixture:
     (bundle / "program.sir").write_text(source)
     (bundle / "inputs.bin").write_bytes(data)
     (bundle / "case.json").write_text(json.dumps({"launch": {"num_warps": 1}}))
-    return {
-      "kind": "admitted",
-      "synthetic": True,
-      "directory": str(directory),
-      "source": source,
-      "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
-      "inputs_sha256": hashlib.sha256(data).hexdigest(),
-      "probe_values": {"i0-base": list(data)},
-      "layouts": {},
-      "region": {"profile": "v3", "entry": "kernel"},
-      "bundles": {"i0-base": str(bundle)},
-    }
+    return with_capabilities(
+      {
+        "kind": "admitted",
+        "synthetic": True,
+        "directory": str(directory),
+        "source": source,
+        "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+        "inputs_sha256": hashlib.sha256(data).hexdigest(),
+        "probe_values": {"i0-base": list(data)},
+        "layouts": {},
+        "region": {"profile": "v3", "entry": "kernel"},
+        "bundles": {"i0-base": str(bundle)},
+      }
+    )
 
   def execute(self, request):
     self.calls.append(request)
