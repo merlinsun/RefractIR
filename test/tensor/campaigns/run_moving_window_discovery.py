@@ -366,8 +366,16 @@ def _validate_spec(spec, *, allow_legacy_qualification=False):
   }:
     raise tensor_tranche.ManifestRefused("the study accounting version is unknown")
   if "qualification" in spec and spec["qualification"] != QUALIFICATION:
-    legacy = {**QUALIFICATION, "version": 1}
-    if not allow_legacy_qualification or spec["qualification"] != legacy:
+    legacy = {
+      json.dumps({**QUALIFICATION, "version": 1, "max_multiplications": value},
+                 sort_keys=True)
+      for value in (0, 1)
+    }
+    legacy.add(json.dumps({**QUALIFICATION, "version": 1}, sort_keys=True))
+    if (
+      not allow_legacy_qualification
+      or json.dumps(spec["qualification"], sort_keys=True) not in legacy
+    ):
       raise tensor_tranche.ManifestRefused("the qualification declaration changed")
   if "limits" in spec and spec["limits"] != {"max_nodes": 16}:
     raise tensor_tranche.ManifestRefused("the study node limit changed")

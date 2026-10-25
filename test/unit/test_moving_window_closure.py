@@ -130,6 +130,17 @@ class QualificationGateTests(unittest.TestCase):
       json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
 
+  def test_legacy_version_one_declarations_remain_readable(self):
+    for multiplication in (0, 1):
+      spec = study.study_spec()
+      spec["qualification"] = {
+        **study.QUALIFICATION, "version": 1,
+        "max_multiplications": multiplication,
+      }
+      study._validate_spec(spec, allow_legacy_qualification=True)
+      with self.assertRaises(Exception):
+        study._validate_spec(spec)
+
   def test_a_complete_matching_record_passes(self):
     self.write(valid_record(self.frozen))
     record = study.require_qualification(self.work, self.frozen)
