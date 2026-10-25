@@ -9,6 +9,7 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 ### Added
 
 - Tensor free-form assembly: window backing parameters (`windowSources`), `--window-buffer-rows`, bounded window requirements with live-graph witnesses, and the live-DAG record.
+- Free-form window requirements give a transpose on a non-square result a six-node bounded return bridge, while square and non-transpose requirements keep three; this admits the G2 `[2,8]` extrema-transpose slot within the unchanged node budget.
 - Moving-window study qualification gate: a frozen four-case capability declaration (separate backing, changing active rows, strided layout, composed extrema/shape) whose construction forbids multiplication so f32 recurrence divergence cannot masquerade as a capability failure, a `--require-computed-roots` construction option, append-only process accounting shared by qualification/selection/discovery/triage, and explicit qualification retries and P0 rechecks. A cached `not_run` P0 refusal stays diagnostic unavailability, so retries run targets without replaying P0 or fabricating a comparison. Production selection and discovery refuse a missing or mismatched qualification record; archived legacy reports remain reproducible.
 - Independent tensor boundary sampling uses versioned streams keyed by seed, parameter name, dtype, and shape. A frozen input-sensitivity study compares it with the legacy cycle under one program, domain, and comparison contract, retaining proposal, reference, and execution records.
 
