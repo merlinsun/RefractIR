@@ -185,6 +185,7 @@ def build_bundle(
   output_row_padding=0,
   output_offset=0,
   input_layouts=None,
+  num_stages=1,
 ):
   """Write the bundle for one region record and return the loaded case."""
   num_warps = region.get("num_warps")
@@ -208,7 +209,7 @@ def build_bundle(
     output=output,
     launch={
       "num_warps": num_warps,
-      "num_stages": 1,
+      "num_stages": num_stages,
       "enable_fp_fusion": False,
     },
     execution=execution_record(num_warps=num_warps, envelope=envelope),

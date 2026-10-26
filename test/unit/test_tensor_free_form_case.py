@@ -170,6 +170,21 @@ class FreeFormCaseTests(unittest.TestCase):
     self.assertEqual(case.record["launch"]["num_warps"], 4)
     self.assertEqual(case.record["execution"]["guard_envelope"], {"prefix": 1, "suffix": 1})
 
+  def test_a_bundle_states_the_requested_num_stages(self):
+    proposal = tensor_free_form_inputs.proposal(REGION, pattern="distinct-integer", seed=0)
+    default = tensor_free_form_case.build_bundle(
+      self.bundle, region=REGION, source=SOURCE, proposal=proposal
+    )
+    staged = tensor_free_form_case.build_bundle(
+      Path(self.directory.name) / "staged",
+      region=REGION,
+      source=SOURCE,
+      proposal=proposal,
+      num_stages=3,
+    )
+    self.assertEqual(default.record["launch"]["num_stages"], 1)
+    self.assertEqual(staged.record["launch"]["num_stages"], 3)
+
   def test_the_dense_layout_lists_axes_fastest_first(self):
     layout = tensor_free_form_case.dense_layout([2, 3])
     self.assertEqual(layout["element_strides"], [3, 1])
