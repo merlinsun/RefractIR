@@ -409,5 +409,110 @@ class DeviceBindingTests(unittest.TestCase):
     )
 
 
+COMPILE_PATH = DRIVER_PATH.with_name("compile_kernel_stages.py")
+
+KERNEL = """\
+import triton
+import triton.language as tl
+
+@triton.jit
+def kernel(x_ptr, out_ptr):
+    pass
+"""
+
+
+class FakeTriton:
+  """Just enough of the Triton API for a compile-only run without a GPU."""
+
+  def __init__(self, fail=None):
+    import types
+
+    self.calls = []
+    self.fail = fail
+    triton = types.ModuleType("triton")
+    compiler = types.ModuleType("triton.compiler")
+    language = types.ModuleType("triton.language")
+
+    class JITFunction:
+      def __init__(self, fn):
+        self.fn = fn
+        self.arg_names = list(fn.__code__.co_varnames[: fn.__code__.co_argcount])
+
+    class ASTSource:
+      def __init__(self, fn, signature, constexprs=None, attrs=None):
+        self.fn, self.signature = fn, signature
+
+    def compile(source, target=None, options=None):
+      self.calls.append((source.signature, dict(options)))
+      warps, stages = options["num_warps"], options["num_stages"]
+      if (warps, stages) == self.fail:
+        raise RuntimeError("PassManager::run failed")
+      return types.SimpleNamespace(
+        asm={
+          "ttir": "ttir\n",
+          "ttgir": f"ttgir warps={warps} pipelined={stages > 1}\n",
+          "llir": "llir\n",
+          "ptx": f"ptx {warps} {stages}\n",
+          "cubin": b"\x00",
+        }
+      )
+
+    triton.jit = JITFunction
+    triton.compile = compile
+    triton.compiler = compiler
+    triton.language = language
+    compiler.ASTSource = ASTSource
+    self.modules = {
+      "triton": triton,
+      "triton.compiler": compiler,
+      "triton.language": language,
+    }
+
+
+class CompileOnlyTests(unittest.TestCase):
+  def setUp(self):
+    temporary = tempfile.TemporaryDirectory()
+    self.addCleanup(temporary.cleanup)
+    self.root = Path(temporary.name)
+    self.kernel = self.root / "kernel.py"
+    self.kernel.write_text(KERNEL)
+    spec = importlib.util.spec_from_file_location("compile_kernel_stages", COMPILE_PATH)
+    self.stages = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(self.stages)
+
+  def compile(self, fake):
+    from unittest import mock
+
+    with mock.patch.dict(sys.modules, fake.modules):
+      return self.stages.compile_matrix(
+        self.kernel, warps=[1, 4], stages=[1, 2], out=self.root / "out"
+      )
+
+  def test_each_setting_is_compiled_once_and_its_stages_are_saved(self):
+    fake = FakeTriton()
+    table = self.compile(fake)
+    self.assertEqual(len(fake.calls), 4)
+    signature, options = fake.calls[0]
+    self.assertEqual(signature, {"x_ptr": "*fp32", "out_ptr": "*fp32"})
+    self.assertEqual(
+      options, {"num_warps": 1, "num_stages": 1, "enable_fp_fusion": False}
+    )
+    self.assertEqual(
+      sorted(path.name for path in (self.root / "out" / "warps-4-stages-2").iterdir()),
+      ["llir.ir", "ptx.ir", "ttgir.ir", "ttir.ir"],
+    )
+    self.assertEqual({row["status"] for row in table["settings"]}, {"compiled"})
+    self.assertEqual(table["ttgir_changes_with_stages"], {"1": True, "4": True})
+
+  def test_a_failed_setting_is_recorded_and_the_others_still_compile(self):
+    table = self.compile(FakeTriton(fail=(4, 2)))
+    rows = {(row["num_warps"], row["num_stages"]): row for row in table["settings"]}
+    self.assertEqual(rows[(4, 2)]["status"], "failed")
+    self.assertIn("PassManager::run failed", rows[(4, 2)]["error"])
+    self.assertEqual(rows[(1, 2)]["status"], "compiled")
+    self.assertIsNone(table["ttgir_changes_with_stages"]["4"])
+    self.assertTrue((self.root / "out" / "table.json").is_file())
+
+
 if __name__ == "__main__":
   unittest.main()
