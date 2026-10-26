@@ -115,26 +115,46 @@ class FreezeTests(unittest.TestCase):
         study.FrozenStudy.load(path)
       frozen.write(path)
       work = Path(directory) / "work"
-      study.Study(work, frozen, build=fake_builder(), screen=fake_screen(),
-                  execute=fake_execute()[0]).prepare()
+      study.Study(
+        work,
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
       changed = study.FrozenStudy(
         spec=study.study_spec(), digest="other", tranche=frozen.tranche
       )
       with self.assertRaises(tensor_tranche.ManifestRefused):
-        study.Study(work, changed, build=fake_builder(), screen=fake_screen(),
-                    execute=fake_execute()[0]).prepare()
+        study.Study(
+          work,
+          changed,
+          build=fake_builder(),
+          screen=fake_screen(),
+          execute=fake_execute()[0],
+        ).prepare()
 
   def test_the_work_directory_refuses_another_study(self):
     with tempfile.TemporaryDirectory() as directory:
       work = Path(directory) / "work"
       frozen = study.freeze_study()
-      study.Study(work, frozen, build=fake_builder(), screen=fake_screen(),
-                  execute=fake_execute()[0]).prepare()
+      study.Study(
+        work,
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
       other = study.freeze_study()
       other.digest = "different"
       with self.assertRaises(tensor_tranche.ManifestRefused):
-        study.Study(work, other, build=fake_builder(), screen=fake_screen(),
-                    execute=fake_execute()[0]).prepare()
+        study.Study(
+          work,
+          other,
+          build=fake_builder(),
+          screen=fake_screen(),
+          execute=fake_execute()[0],
+        ).prepare()
 
 
 class SelectionTests(unittest.TestCase):
@@ -143,8 +163,11 @@ class SelectionTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(["mw-g0c0"], log),
-        screen=fake_screen(), execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(["mw-g0c0"], log),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
       by_case = {}
@@ -172,8 +195,11 @@ class SelectionTests(unittest.TestCase):
       frozen = study.freeze_study()
       admitted = [slot["id"] for slot in frozen.spec["sources"]]
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(admitted),
-        screen=fake_screen(log=screens), execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(admitted),
+        screen=fake_screen(log=screens),
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
       self.assertEqual(len(run.corpus()), 12)
@@ -190,35 +216,49 @@ class SelectionTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(["mw-g0c0"]),
-        screen=fake_screen(), execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
       final = run._final_record(run.ledger.counts())
-      shortfalls = [item for item in final["refusals"] if item["reason"] == "attempts_exhausted"]
-      self.assertIn(
-        {"slot": "mw-g0c1", "reason": "attempts_exhausted"}, shortfalls
-      )
+      shortfalls = [
+        item for item in final["refusals"] if item["reason"] == "attempts_exhausted"
+      ]
+      self.assertIn({"slot": "mw-g0c1", "reason": "attempts_exhausted"}, shortfalls)
 
   def test_resume_keeps_the_corpus_and_does_not_rebuild_it(self):
     log = []
     with tempfile.TemporaryDirectory() as directory:
       work = Path(directory) / "work"
       frozen = study.freeze_study()
-      first = study.Study(work, frozen, build=fake_builder(["mw-g0c0"], log),
-                          screen=fake_screen(), execute=fake_execute()[0]).prepare()
+      first = study.Study(
+        work,
+        frozen,
+        build=fake_builder(["mw-g0c0"], log),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
       first.select_sources(max_slots=1)
       self.assertEqual(len(first.corpus()), 1)
       resumed_log = []
       resumed = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder(["mw-g0c1"], resumed_log), screen=fake_screen(),
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c1"], resumed_log),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       resumed.select_sources()
       self.assertEqual(len(resumed.corpus()), 2)
-      rebuilt = [request["slot"]["id"] for request in resumed_log if request["slot"]["id"] == "mw-g0c0"]
+      rebuilt = [
+        request["slot"]["id"]
+        for request in resumed_log
+        if request["slot"]["id"] == "mw-g0c0"
+      ]
       self.assertEqual(rebuilt, [])
       self.assertEqual(
         resumed.corpus()[0]["compiler_identity"], {"revision": "deadbeef"}
@@ -234,8 +274,12 @@ class DiscoveryTests(unittest.TestCase):
     work = Path(directory) / "work"
     admitted = [slot["id"] for slot in frozen.spec["sources"]]
     run = study.Study(
-      work, frozen, build=fake_builder(admitted), screen=fake_screen(),
-      execute=fake_execute(**execute_kwargs)[0], legacy_accounting=True,
+      work,
+      frozen,
+      build=fake_builder(admitted),
+      screen=fake_screen(),
+      execute=fake_execute(**execute_kwargs)[0],
+      legacy_accounting=True,
     ).prepare()
     run.select_sources()
     run.freeze_corpus()
@@ -253,12 +297,22 @@ class DiscoveryTests(unittest.TestCase):
       self.assertEqual(final["paths"]["p1"]["launches"], 96)
       self.assertEqual(final["paths"]["p2"]["launches"], 96)
       for _ in range(32):
-        run.retry("mw-g0c0/i0-base/warps-1", case_id="mw-g0c0", input="i0-base",
-                  configuration="warps-1", reason="repeat")
+        run.retry(
+          "mw-g0c0/i0-base/warps-1",
+          case_id="mw-g0c0",
+          input="i0-base",
+          configuration="warps-1",
+          reason="repeat",
+        )
       self.assertEqual(run.reserve_spent(), 32)
       self.assertIsNone(
-        run.retry("mw-g0c0/i0-base/warps-1", case_id="mw-g0c0", input="i0-base",
-                  configuration="warps-1", reason="repeat")
+        run.retry(
+          "mw-g0c0/i0-base/warps-1",
+          case_id="mw-g0c0",
+          input="i0-base",
+          configuration="warps-1",
+          reason="repeat",
+        )
       )
       self.assertTrue(
         any(event.get("kind") == "launch_refused" for event in run.path_ledger.events)
@@ -309,8 +363,11 @@ class DiscoveryTests(unittest.TestCase):
       frozen = study.freeze_study()
       admitted = [slot["id"] for slot in frozen.spec["sources"]]
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(admitted),
-        screen=fake_screen(), execute=execute,
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(admitted),
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -336,13 +393,14 @@ class DiscoveryTests(unittest.TestCase):
       self.assertTrue(final["corpus"], "the final record keeps the admitted corpus")
       self.assertTrue(final["observations"], "the final record keeps its observations")
 
-
   def test_new_runs_derive_launches_from_process_starts(self):
     def execute(request):
       for path in ("p1", "p2"):
         request["on_process"]({"event": "reserved", "mode": "x", "path": path})
         request["on_process"]({"event": "start", "mode": "x", "path": path, "pid": 1})
-        request["on_process"]({"event": "finish", "mode": "x", "path": path, "status": "completed"})
+        request["on_process"](
+          {"event": "finish", "mode": "x", "path": path, "status": "completed"}
+        )
       return {
         "status": "completed",
         "paths": {
@@ -350,15 +408,20 @@ class DiscoveryTests(unittest.TestCase):
           "p1": {"status": "completed"},
           "p2": {"status": "completed"},
         },
-        "candidate": False, "unavailable": [], "compiler": {"status": "unavailable"},
+        "candidate": False,
+        "unavailable": [],
+        "compiler": {"status": "unavailable"},
       }
 
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       admitted = [slot["id"] for slot in frozen.spec["sources"]]
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(admitted),
-        screen=fake_screen(), execute=execute,
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(admitted),
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -373,9 +436,12 @@ class DiscoveryTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       run = study.Study(
-        Path(directory) / "work", frozen,
+        Path(directory) / "work",
+        frozen,
         build=fake_builder(["mw-g0c0"]),
-        screen=DiscoveryTests().candidate_screen if hasattr(DiscoveryTests(), "candidate_screen") else fake_screen(),
+        screen=DiscoveryTests().candidate_screen
+        if hasattr(DiscoveryTests(), "candidate_screen")
+        else fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       # Use the candidate screen explicitly.
@@ -401,7 +467,9 @@ class DiscoveryTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen, build=fake_builder(["mw-g0c0"]),
+        work,
+        frozen,
+        build=fake_builder(["mw-g0c0"]),
         screen=TriageAndAccountingTests().candidate_screen,
         execute=fake_execute()[0],
       ).prepare()
@@ -409,8 +477,11 @@ class DiscoveryTests(unittest.TestCase):
       pending = run._pending_admission()
       pause = json.loads((work / "study-paused.json").read_text(encoding="utf-8"))
       decision = {
-        "action": "admit", "case": pending["case"], "attempt": pending["attempt"],
-        "pause_id": pause["pause_id"], "phase": pause["phase"],
+        "action": "admit",
+        "case": pending["case"],
+        "attempt": pending["attempt"],
+        "pause_id": pause["pause_id"],
+        "phase": pause["phase"],
       }
       if pause.get("candidates"):
         decision["candidate_sha256"] = study._digest(pause["candidates"])
@@ -426,20 +497,23 @@ class DiscoveryTests(unittest.TestCase):
       path.write_text(json.dumps(decision) + "\n", encoding="utf-8")
       # The pause and pending admission remain; a new process replays the decision.
       resumed = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       self.assertFalse(resumed.is_paused())
       self.assertEqual([entry["case"] for entry in resumed.corpus()], ["mw-g0c0"])
       self.assertIsNone(resumed._pending_admission())
       again = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       self.assertEqual(len(again.corpus()), 1)
-
 
   def test_qualification_persists_events_and_skips_completed_configurations(self):
     from test.unit.test_moving_window_repairs import QualificationFixture
@@ -464,15 +538,20 @@ class DiscoveryTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen, build=fake_builder(["mw-g0c0"]),
+        work,
+        frozen,
+        build=fake_builder(["mw-g0c0"]),
         screen=TriageAndAccountingTests().candidate_screen,
         execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
       pause = json.loads((work / "study-paused.json").read_text(encoding="utf-8"))
       decision = {
-        "action": "admit", "pause_id": pause["pause_id"], "phase": pause["phase"],
-        "case": "mw-g0c0", "attempt": 0,
+        "action": "admit",
+        "pause_id": pause["pause_id"],
+        "phase": pause["phase"],
+        "case": "mw-g0c0",
+        "attempt": 0,
       }
       if pause.get("candidates"):
         decision["candidate_sha256"] = study._digest(pause["candidates"])
@@ -491,8 +570,10 @@ class DiscoveryTests(unittest.TestCase):
       # The corpus effect is applied; only pause cleanup was interrupted.
       run._admit_pending()
       resumed = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       self.assertFalse(resumed.is_paused())
@@ -508,20 +589,27 @@ class DiscoveryTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen,
+        work,
+        frozen,
         build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
-        screen=fake_screen(), execute=execute,
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
       for _ in range(frozen.spec["budgets"]["discovery_p0"]):
         run.path_ledger.append(
-          "process", phase="discovery", path="p0", event="reserved",
-          slot="s", attempt=0,
+          "process",
+          phase="discovery",
+          path="p0",
+          event="reserved",
+          slot="s",
+          attempt=0,
         )
       run.run_discovery()
       classification = [
-        e for e in run.path_ledger.events
+        e
+        for e in run.path_ledger.events
         if e.get("kind") == "classification" and e.get("status") == "dispatch_refused"
       ]
       self.assertEqual(len(classification), 1)
@@ -530,10 +618,14 @@ class DiscoveryTests(unittest.TestCase):
 
   def test_conflicting_import_outcomes_are_refused(self):
     data = (
-      json.dumps({"execution_id": "run-1", "case": "c", "attempt": 0,
-                  "result": "completed"}) + "\n" +
-      json.dumps({"execution_id": "run-1", "case": "c", "attempt": 0,
-                  "result": "timed_out"}) + "\n"
+      json.dumps(
+        {"execution_id": "run-1", "case": "c", "attempt": 0, "result": "completed"}
+      )
+      + "\n"
+      + json.dumps(
+        {"execution_id": "run-1", "case": "c", "attempt": 0, "result": "timed_out"}
+      )
+      + "\n"
     )
     with self.assertRaises(study.StudyRefused):
       study.parse_triage_ledger(data)
@@ -543,23 +635,30 @@ class DiscoveryTests(unittest.TestCase):
       for path in ("p1", "p2"):
         request["on_process"]({"event": "reserved", "mode": "x", "path": path})
         request["on_process"]({"event": "start", "mode": "x", "path": path})
-        request["on_process"]({"event": "finish", "mode": "x", "path": path, "status": "completed"})
+        request["on_process"](
+          {"event": "finish", "mode": "x", "path": path, "status": "completed"}
+        )
       return {
         "status": "completed",
         "paths": {
           "p0": {"status": "completed", "cached": True},
-          "p1": {"status": "completed"}, "p2": {"status": "completed"},
+          "p1": {"status": "completed"},
+          "p2": {"status": "completed"},
         },
-        "candidate": False, "unavailable": [], "compiler": {"status": "unavailable"},
+        "candidate": False,
+        "unavailable": [],
+        "compiler": {"status": "unavailable"},
       }
 
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()  # accounting version 2
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen,
+        work,
+        frozen,
         build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
-        screen=fake_screen(), execute=execute,
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -579,22 +678,26 @@ class DiscoveryTests(unittest.TestCase):
         },
         "candidate": True,
         "dispatch_refused": "the discovery p2 allocation is exhausted",
-        "unavailable": [], "compiler": {"status": "unavailable"},
+        "unavailable": [],
+        "compiler": {"status": "unavailable"},
       }
 
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen,
+        work,
+        frozen,
         build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
-        screen=fake_screen(), execute=execute,
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
       run.run_discovery()
       classification = [
-        e for e in run.path_ledger.events
+        e
+        for e in run.path_ledger.events
         if e.get("kind") == "classification" and e.get("status") == "dispatch_refused"
       ][0]
       self.assertTrue(classification["candidate"])
@@ -606,31 +709,37 @@ class DiscoveryTests(unittest.TestCase):
       # This fixture models an archive from before adoption records existed.
       (run.work / "accounting-adoption.json").unlink()
       run.path_ledger.append(
-        "process", phase="discovery", path="p1", event="start", slot="s", attempt=0,
+        "process",
+        phase="discovery",
+        path="p1",
+        event="start",
+        slot="s",
+        attempt=0,
       )
       run.run_discovery()
       run.finalize()
       with self.assertRaises(study.StudyRefused):
         study.report_from_records(run.work)
-      reconstructed = study.report_from_records(
-        run.work, accounting_mode="process"
-      )
+      reconstructed = study.report_from_records(run.work, accounting_mode="process")
       self.assertEqual(reconstructed["paths"]["p1"]["launches"], 1)
 
   def test_the_historical_adapter_charges_ten_p2_attempts(self):
-    rows = "\n".join(
-      json.dumps({"case": f"case-{index // 2}", "attempt": index,
-                  "result": "timed_out"})
-      for index in range(10)
-    ) + "\n"
+    rows = (
+      "\n".join(
+        json.dumps(
+          {"case": f"case-{index // 2}", "attempt": index, "result": "timed_out"}
+        )
+        for index in range(10)
+      )
+      + "\n"
+    )
     entries = study.parse_triage_ledger(rows)
     self.assertEqual(len(entries), 10)
     self.assertTrue(all(entry["path"] == "p2" for entry in entries))
     with self.assertRaises(study.StudyRefused):
       study.parse_triage_ledger(
-        "\n".join(
-          json.dumps({"case": "c", "result": "timed_out"}) for _ in range(32)
-        ) + "\n"
+        "\n".join(json.dumps({"case": "c", "result": "timed_out"}) for _ in range(32))
+        + "\n"
       )
 
   def test_an_interrupted_discovery_stop_is_replayed(self):
@@ -643,16 +752,19 @@ class DiscoveryTests(unittest.TestCase):
           "p2": {"status": "completed"},
         },
         "candidate": True,
-        "unavailable": [], "compiler": {"status": "unavailable"},
+        "unavailable": [],
+        "compiler": {"status": "unavailable"},
       }
 
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen,
+        work,
+        frozen,
         build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
-        screen=fake_screen(), execute=execute,
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -660,7 +772,9 @@ class DiscoveryTests(unittest.TestCase):
       self.assertTrue(run.is_paused())
       pause = json.loads((work / "study-paused.json").read_text(encoding="utf-8"))
       decision = {
-        "action": "stop", "pause_id": pause["pause_id"], "phase": pause["phase"],
+        "action": "stop",
+        "pause_id": pause["pause_id"],
+        "phase": pause["phase"],
       }
       if pause.get("candidates"):
         decision["candidate_sha256"] = study._digest(pause["candidates"])
@@ -675,8 +789,11 @@ class DiscoveryTests(unittest.TestCase):
       with (work / "triage-decisions.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(decision) + "\n")
       resumed = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder(), screen=fake_screen(), execute=execute,
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       self.assertTrue(resumed.is_stopped())
       self.assertFalse(resumed.is_paused())
@@ -690,11 +807,18 @@ class DiscoveryTests(unittest.TestCase):
       ledger = Path(directory) / "triage-ledger.jsonl"
       ledger.write_text(triage_rows(10), encoding="utf-8")
       study.Study(
-        work, frozen, build=fake_builder(), screen=fake_screen(),
-        execute=fake_execute()[0], triage_ledger=ledger,
+        work,
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+        triage_ledger=ledger,
       ).prepare()
       resumed = study.Study(
-        work, frozen, build=fake_builder(), screen=fake_screen(),
+        work,
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       self.assertEqual(resumed.triage_charge(), 10)
@@ -703,7 +827,10 @@ class DiscoveryTests(unittest.TestCase):
       self.assertEqual(resumed.triage_charge("p1"), 0)
       with self.assertRaises(study.StudyRefused):
         study.Study(
-          work, frozen, build=fake_builder(), screen=fake_screen(),
+          work,
+          frozen,
+          build=fake_builder(),
+          screen=fake_screen(),
           execute=fake_execute()[0],
           triage_ledger=Path(directory) / "missing.jsonl",
         ).prepare()
@@ -715,22 +842,33 @@ class DiscoveryTests(unittest.TestCase):
       ledger = Path(directory) / "triage-ledger.jsonl"
       ledger.write_text(triage_rows(1), encoding="utf-8")
       study.Study(
-        work, frozen, build=fake_builder(), screen=fake_screen(),
-        execute=fake_execute()[0], triage_ledger=ledger,
+        work,
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+        triage_ledger=ledger,
       ).prepare()
       ledger.write_text(triage_rows(2), encoding="utf-8")
       with self.assertRaises(study.StudyRefused):
         study.Study(
-          work, frozen, build=fake_builder(), screen=fake_screen(),
-          execute=fake_execute()[0], triage_ledger=ledger,
+          work,
+          frozen,
+          build=fake_builder(),
+          screen=fake_screen(),
+          execute=fake_execute()[0],
+          triage_ledger=ledger,
         ).prepare()
 
   def test_a_screening_candidate_appears_in_the_final_report(self):
     with tempfile.TemporaryDirectory() as directory:
       run = self._frozen_run(directory)
       run.path_ledger.append(
-        "selection_candidates", case="mw-g0c0",
-        candidates=[{"kind": "unused_rows_changed", "probe": "i0-base vs i3-unused-rows"}],
+        "selection_candidates",
+        case="mw-g0c0",
+        candidates=[
+          {"kind": "unused_rows_changed", "probe": "i0-base vs i3-unused-rows"}
+        ],
       )
       run.run_discovery()
       final = run.finalize()
@@ -752,16 +890,26 @@ class DiscoveryTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       work = Path(directory) / "work"
-      first = study.Study(work, frozen, build=fake_builder(), screen=fake_screen(),
-                          execute=fake_execute()[0]).prepare()
+      first = study.Study(
+        work,
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+      ).prepare()
       claim = first.ledger.claim("mw-g0c0/i0-base/warps-1")
       self.assertEqual(claim.slot_id, "mw-g0c0/i0-base/warps-1")
       resumed = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder(), screen=fake_screen(), execute=fake_execute()[0],
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
       self.assertEqual(resumed.ledger.state("mw-g0c0/i0-base/warps-1"), "failed")
-      reconciled = [e for e in resumed.path_ledger.events if e.get("kind") == "reconciled"]
+      reconciled = [
+        e for e in resumed.path_ledger.events if e.get("kind") == "reconciled"
+      ]
       self.assertEqual(len(reconciled), 1)
       resumed.path_ledger.append(
         "slot_started",
@@ -771,12 +919,19 @@ class DiscoveryTests(unittest.TestCase):
         directory=str(resumed.work / "interrupted-attempt"),
       )
       directory_path = resumed.retry(
-        "mw-g0c0/i0-base/warps-1", case_id="mw-g0c0", input="i0-base",
-        configuration="warps-1", reason="interrupted",
+        "mw-g0c0/i0-base/warps-1",
+        case_id="mw-g0c0",
+        input="i0-base",
+        configuration="warps-1",
+        reason="interrupted",
       )
       self.assertIsNotNone(directory_path)
       self.assertTrue(str(directory_path).endswith("attempt-1"))
-      self.assertFalse((resumed.work / "discovery" / "mw-g0c0" / "i0-base" / "warps-1" / "attempt-0").exists())
+      self.assertFalse(
+        (
+          resumed.work / "discovery" / "mw-g0c0" / "i0-base" / "warps-1" / "attempt-0"
+        ).exists()
+      )
       self.assertEqual(resumed.reserve_spent(), 0)
       account = resumed.process_observer(
         "triage", slot="mw-g0c0/i0-base/warps-1", directory=str(directory_path)
@@ -846,7 +1001,10 @@ class EvidenceTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen, build=fake_builder(["mw-g0c0"]), screen=candidate_screen,
+        work,
+        frozen,
+        build=fake_builder(["mw-g0c0"]),
+        screen=candidate_screen,
         execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
@@ -862,9 +1020,11 @@ class EvidenceTests(unittest.TestCase):
       frozen = study.freeze_study()
       log = []
       run = study.Study(
-        Path(directory) / "work", frozen,
+        Path(directory) / "work",
+        frozen,
         build=fake_builder([slot["id"] for slot in frozen.spec["sources"]], log),
-        screen=fake_screen(), execute=fake_execute()[0],
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
       self.assertEqual(log[0]["max_nodes"], 16)
@@ -875,7 +1035,10 @@ class EvidenceTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       first = study.Study(
-        work, frozen, build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        work,
+        frozen,
+        build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       first.select_sources(max_slots=1)
@@ -883,18 +1046,24 @@ class EvidenceTests(unittest.TestCase):
       # Simulate a crash after reserving attempt 0 for the next slot.
       slot = frozen.spec["sources"][1]
       first.path_ledger.append(
-        "selection_attempt_reserved", case=slot["id"], attempt=0,
-        seed=123, directory=str(first.work / "selection" / slot["id"] / "attempt-0"),
+        "selection_attempt_reserved",
+        case=slot["id"],
+        attempt=0,
+        seed=123,
+        directory=str(first.work / "selection" / slot["id"] / "attempt-0"),
       )
       (first.work / "selection" / slot["id"] / "attempt-0").mkdir(parents=True)
       resumed = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder([slot["id"]], resumed_log), screen=fake_screen(),
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder([slot["id"]], resumed_log),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       resumed.select_sources()
       ordinals = [
-        event["attempt"] for event in resumed.path_ledger.events
+        event["attempt"]
+        for event in resumed.path_ledger.events
         if event.get("case") == slot["id"] and event.get("kind") == "selection_attempt"
       ]
       self.assertEqual(ordinals, [0, 1])
@@ -906,13 +1075,22 @@ class EvidenceTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(), screen=fake_screen(),
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
-      first = run.retry("s", case_id="mw-g0c0", input="i0-base",
-                        configuration="warps-1", reason="first")
-      second = run.retry("s", case_id="mw-g0c0", input="i0-base",
-                         configuration="warps-1", reason="second")
+      first = run.retry(
+        "s", case_id="mw-g0c0", input="i0-base", configuration="warps-1", reason="first"
+      )
+      second = run.retry(
+        "s",
+        case_id="mw-g0c0",
+        input="i0-base",
+        configuration="warps-1",
+        reason="second",
+      )
       self.assertIsNotNone(first)
       self.assertIsNotNone(second)
       self.assertNotEqual(first, second)
@@ -923,8 +1101,12 @@ class EvidenceTests(unittest.TestCase):
       frozen = legacy_frozen()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen, build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
-        screen=fake_screen(), execute=fake_execute()[0], legacy_accounting=True,
+        work,
+        frozen,
+        build=fake_builder([slot["id"] for slot in frozen.spec["sources"]]),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+        legacy_accounting=True,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -932,8 +1114,13 @@ class EvidenceTests(unittest.TestCase):
       final = run.finalize()
       packaged = Path(directory) / "packaged"
       packaged.mkdir()
-      for name in ("study.json", "corpus-frozen.json", "path-ledger.jsonl",
-                   "tranche-ledger.jsonl", "final.json"):
+      for name in (
+        "study.json",
+        "corpus-frozen.json",
+        "path-ledger.jsonl",
+        "tranche-ledger.jsonl",
+        "final.json",
+      ):
         (packaged / name).write_bytes((work / name).read_bytes())
       reproduced = study.report_from_records(packaged)
       self.assertEqual(reproduced, final)
@@ -943,7 +1130,10 @@ class EvidenceTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen, build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        work,
+        frozen,
+        build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
@@ -997,10 +1187,13 @@ def legacy_frozen():
 
 
 def triage_rows(count):
-  return "\n".join(
-    json.dumps({"case": f"c{index}", "attempt": index, "result": "timed_out"})
-    for index in range(count)
-  ) + "\n"
+  return (
+    "\n".join(
+      json.dumps({"case": f"c{index}", "attempt": index, "result": "timed_out"})
+      for index in range(count)
+    )
+    + "\n"
+  )
 
 
 DEVICE_TESTS = os.environ.get("REFRACTIR_DEVICE_TESTS") == "1"
@@ -1009,8 +1202,13 @@ DEVICE_TESTS = os.environ.get("REFRACTIR_DEVICE_TESTS") == "1"
 class TriageAndAccountingTests(unittest.TestCase):
   def candidate_screen(self, outcome):
     return {
-      "selected": True, "reason": "candidate", "launches": 6, "p0": 4,
-      "candidates": [{"kind": "unused_rows_changed", "probe": "i0-base vs i3-unused-rows"}],
+      "selected": True,
+      "reason": "candidate",
+      "launches": 6,
+      "p0": 4,
+      "candidates": [
+        {"kind": "unused_rows_changed", "probe": "i0-base vs i3-unused-rows"}
+      ],
       "record": {},
     }
 
@@ -1019,8 +1217,11 @@ class TriageAndAccountingTests(unittest.TestCase):
       frozen = study.freeze_study()
       work = Path(directory) / "work"
       run = study.Study(
-        work, frozen, build=fake_builder(["mw-g0c0"]),
-        screen=self.candidate_screen, execute=fake_execute()[0],
+        work,
+        frozen,
+        build=fake_builder(["mw-g0c0"]),
+        screen=self.candidate_screen,
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
       self.assertTrue(run.is_paused())
@@ -1028,8 +1229,10 @@ class TriageAndAccountingTests(unittest.TestCase):
       self.assertTrue(run.is_stopped())
       self.assertFalse(run.is_paused())
       resumed = study.Study(
-        work, study.FrozenStudy.load(work / "study.json"),
-        build=fake_builder(["mw-g0c0"]), screen=fake_screen(),
+        work,
+        study.FrozenStudy.load(work / "study.json"),
+        build=fake_builder(["mw-g0c0"]),
+        screen=fake_screen(),
         execute=fake_execute()[0],
       ).prepare()
       with self.assertRaises(study.StudyRefused):
@@ -1042,17 +1245,28 @@ class TriageAndAccountingTests(unittest.TestCase):
       if request["attempt"] < 7:
         return {"kind": "refused", "reason": "seed"}
       return {
-        "kind": "admitted", "synthetic": True, "source_sha256": "s", "inputs_sha256": "i",
-        "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
-        "trip_variant": "sir", "probe_values": {}, "bundles": {},
+        "kind": "admitted",
+        "synthetic": True,
+        "source_sha256": "s",
+        "inputs_sha256": "i",
+        "layouts": {},
+        "witnesses": [],
+        "region": {},
+        "source": "sir",
+        "trip_variant": "sir",
+        "probe_values": {},
+        "bundles": {},
         "compiler_identity": {},
       }
 
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       run = study.Study(
-        Path(directory) / "work", frozen, build=builder,
-        screen=self.candidate_screen, execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=builder,
+        screen=self.candidate_screen,
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources(max_slots=1)
       self.assertTrue(run.is_paused())
@@ -1069,10 +1283,12 @@ class TriageAndAccountingTests(unittest.TestCase):
       )
       self.assertEqual([entry["case"] for entry in run.corpus()], ["mw-g0c0"])
       self.assertNotIn(
-        "mw-g0c0", [e.get("case") for e in run.path_ledger.events if e.get("kind") == "shortfall"]
+        "mw-g0c0",
+        [e.get("case") for e in run.path_ledger.events if e.get("kind") == "shortfall"],
       )
       attempts = [
-        e["attempt"] for e in run.path_ledger.events
+        e["attempt"]
+        for e in run.path_ledger.events
         if e.get("kind") == "selection_attempt" and e.get("case") == "mw-g0c0"
       ]
       self.assertEqual(attempts, list(range(8)))
@@ -1085,17 +1301,28 @@ class TriageAndAccountingTests(unittest.TestCase):
     def builder(request):
       calls["count"] += 1
       return {
-        "kind": "admitted", "synthetic": True, "source_sha256": "s", "inputs_sha256": "i",
-        "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
-        "trip_variant": "sir", "probe_values": {}, "bundles": {},
+        "kind": "admitted",
+        "synthetic": True,
+        "source_sha256": "s",
+        "inputs_sha256": "i",
+        "layouts": {},
+        "witnesses": [],
+        "region": {},
+        "source": "sir",
+        "trip_variant": "sir",
+        "probe_values": {},
+        "bundles": {},
         "compiler_identity": {},
       }
 
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       run = study.Study(
-        Path(directory) / "work", frozen, build=builder,
-        screen=self.candidate_screen, execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=builder,
+        screen=self.candidate_screen,
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources(max_slots=1)
       run.record_triage_decision(
@@ -1111,7 +1338,8 @@ class TriageAndAccountingTests(unittest.TestCase):
       self.assertIsNone(run._pending_admission())
       run.select_sources(max_slots=1)
       attempts = [
-        e["attempt"] for e in run.path_ledger.events
+        e["attempt"]
+        for e in run.path_ledger.events
         if e.get("kind") == "selection_attempt" and e.get("case") == "mw-g0c0"
       ]
       self.assertEqual(attempts, [0, 1])
@@ -1120,13 +1348,17 @@ class TriageAndAccountingTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       run = DiscoveryTests()._frozen_run(directory)
       run.path_ledger.append(
-        "selection_invalid_execution", case="mw-g0c0",
+        "selection_invalid_execution",
+        case="mw-g0c0",
         candidates=[{"kind": "invalid_execution", "probe": "i0-base"}],
       )
       final = run.finalize()
       self.assertEqual(len(final["invalid_executions"]), 1)
       self.assertFalse(
-        any(candidate.get("kind") == "invalid_execution" for candidate in final["candidates"])
+        any(
+          candidate.get("kind") == "invalid_execution"
+          for candidate in final["candidates"]
+        )
       )
 
   def test_an_absent_archive_marks_every_control_missing(self):
@@ -1134,8 +1366,11 @@ class TriageAndAccountingTests(unittest.TestCase):
       frozen = study.freeze_study()
       admitted = [slot["id"] for slot in frozen.spec["sources"]]
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(admitted),
-        screen=fake_screen(), execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(admitted),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -1147,22 +1382,40 @@ class TriageAndAccountingTests(unittest.TestCase):
 
   def test_low_disk_after_the_first_attempt_stops_selection(self):
     import unittest.mock as mock
+
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       built = []
       run = study.Study(
-        Path(directory) / "work", frozen,
-        build=lambda request: built.append(request) or {
-          "kind": "admitted", "synthetic": True, "source_sha256": "s", "inputs_sha256": "i",
-          "layouts": {}, "witnesses": [], "region": {}, "source": "sir",
-          "trip_variant": "sir", "probe_values": {}, "bundles": {},
-          "compiler_identity": {},
-        },
-        screen=fake_screen(), execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=lambda request: (
+          built.append(request)
+          or {
+            "kind": "admitted",
+            "synthetic": True,
+            "source_sha256": "s",
+            "inputs_sha256": "i",
+            "layouts": {},
+            "witnesses": [],
+            "region": {},
+            "source": "sir",
+            "trip_variant": "sir",
+            "probe_values": {},
+            "bundles": {},
+            "compiler_identity": {},
+          }
+        ),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
-      usage = type("Usage", (), {"free": 8 * 1024**3, "total": 8 * 1024**3, "used": 0})()
+      usage = type(
+        "Usage", (), {"free": 8 * 1024**3, "total": 8 * 1024**3, "used": 0}
+      )()
       low = type("Usage", (), {"free": 0, "total": 8 * 1024**3, "used": 0})()
-      with mock.patch.object(study.shutil, "disk_usage", side_effect=[usage, usage, low, low]):
+      with mock.patch.object(
+        study.shutil, "disk_usage", side_effect=[usage, usage, low, low]
+      ):
         run.select_sources()
       self.assertEqual(len(built), 1)
       self.assertTrue(run.is_paused())
@@ -1183,18 +1436,23 @@ class TriageAndAccountingTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(),
-        screen=fake_screen(), execute=fake_execute()[0],
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
       for _ in range(frozen.spec["budgets"]["discovery_p0"]):
         run.path_ledger.append(
-          "process", phase="discovery", path="p0", event="reserved",
-          slot="s", attempt=0,
+          "process",
+          phase="discovery",
+          path="p0",
+          event="reserved",
+          slot="s",
+          attempt=0,
         )
       with self.assertRaises(study.DispatchRefused):
-        run._reserve_process_budget(
-          "discovery", {"event": "reserved", "path": "p0"}
-        )
+        run._reserve_process_budget("discovery", {"event": "reserved", "path": "p0"})
       self.assertTrue(
         any(e.get("kind") == "launch_refused" for e in run.path_ledger.events)
       )
@@ -1206,8 +1464,12 @@ class TriageAndAccountingTests(unittest.TestCase):
       ledger = Path(directory) / "triage-ledger.jsonl"
       ledger.write_text(triage_rows(10), encoding="utf-8")
       run = study.Study(
-        work, frozen, build=fake_builder(), screen=fake_screen(),
-        execute=fake_execute()[0], triage_ledger=ledger,
+        work,
+        frozen,
+        build=fake_builder(),
+        screen=fake_screen(),
+        execute=fake_execute()[0],
+        triage_ledger=ledger,
       ).prepare()
       self.assertEqual(run.triage_charge(), 10)
       self.assertEqual(run.reserve_spent(), 10)
@@ -1215,16 +1477,24 @@ class TriageAndAccountingTests(unittest.TestCase):
         run.path_ledger.append("retry", slot="s", case="c", attempt=0)
       self.assertEqual(run.reserve_spent(), 32)
       self.assertIsNone(
-        run.retry("s", case_id="mw-g0c0", input="i0-base",
-                  configuration="warps-1", reason="over")
+        run.retry(
+          "s",
+          case_id="mw-g0c0",
+          input="i0-base",
+          configuration="warps-1",
+          reason="over",
+        )
       )
       self.assertEqual(run.triage_charge(), 10)
 
   def test_low_disk_during_discovery_stops_before_the_next_slot(self):
     import unittest.mock as mock
+
     with tempfile.TemporaryDirectory() as directory:
       run = DiscoveryTests()._frozen_run(directory)
-      usage = type("Usage", (), {"free": 8 * 1024**3, "total": 8 * 1024**3, "used": 0})()
+      usage = type(
+        "Usage", (), {"free": 8 * 1024**3, "total": 8 * 1024**3, "used": 0}
+      )()
       low = type("Usage", (), {"free": 0, "total": 8 * 1024**3, "used": 0})()
       with mock.patch.object(
         study.shutil, "disk_usage", side_effect=[usage, usage, low, low]
@@ -1259,8 +1529,11 @@ class TriageAndAccountingTests(unittest.TestCase):
       frozen = study.freeze_study()
       admitted = [slot["id"] for slot in frozen.spec["sources"]]
       run = study.Study(
-        Path(directory) / "work", frozen, build=fake_builder(admitted),
-        screen=fake_screen(), execute=execute,
+        Path(directory) / "work",
+        frozen,
+        build=fake_builder(admitted),
+        screen=fake_screen(),
+        execute=execute,
       ).prepare()
       run.select_sources()
       run.freeze_corpus()
@@ -1275,13 +1548,16 @@ class TriageAndAccountingTests(unittest.TestCase):
 class ReportAndControlTests(unittest.TestCase):
   def test_low_disk_space_pauses_without_building(self):
     import unittest.mock as mock
+
     with tempfile.TemporaryDirectory() as directory:
       frozen = study.freeze_study()
       built = []
       run = study.Study(
-        Path(directory) / "work", frozen,
+        Path(directory) / "work",
+        frozen,
         build=lambda request: built.append(request) or {"kind": "refused"},
-        screen=fake_screen(), execute=fake_execute()[0],
+        screen=fake_screen(),
+        execute=fake_execute()[0],
       ).prepare()
       with mock.patch.object(study.shutil, "disk_usage") as usage:
         usage.return_value = type("Usage", (), {"free": 0, "total": 0, "used": 0})()
@@ -1289,7 +1565,9 @@ class ReportAndControlTests(unittest.TestCase):
       self.assertTrue(run.is_paused())
       self.assertEqual(built, [])
       self.assertEqual(
-        [e for e in run.path_ledger.events if e.get("kind") == "disk_guard"][0]["free_bytes"],
+        [e for e in run.path_ledger.events if e.get("kind") == "disk_guard"][0][
+          "free_bytes"
+        ],
         0,
       )
 
@@ -1327,8 +1605,11 @@ class ReportAndControlTests(unittest.TestCase):
     frozen = study.freeze_study()
     admitted = [slot["id"] for slot in frozen.spec["sources"]]
     run = study.Study(
-      Path(directory) / "work", frozen, build=fake_builder(admitted),
-      screen=fake_screen(), execute=fake_execute()[0],
+      Path(directory) / "work",
+      frozen,
+      build=fake_builder(admitted),
+      screen=fake_screen(),
+      execute=fake_execute()[0],
       controls_root=controls_root,
     ).prepare()
     run.select_sources()
@@ -1355,7 +1636,8 @@ class ReportAndControlTests(unittest.TestCase):
       pattern = study.CONTROL_PATTERNS["i0-base"]
       run = self.frozen_with_controls(directory, root)
       frozen_control = next(
-        entry for entry in run.frozen_corpus()["controls"]
+        entry
+        for entry in run.frozen_corpus()["controls"]
         if entry["case"] == control["id"]
       )
       (root / control["source"] / f"{pattern}-warps-4" / "case.json").write_text(
@@ -1363,8 +1645,10 @@ class ReportAndControlTests(unittest.TestCase):
       )
       with self.assertRaises(study.StudyRefused):
         study.verify_control_payload(
-          frozen_control, "i0-base",
-          root / control["source"] / f"{pattern}-warps-4", 4,
+          frozen_control,
+          "i0-base",
+          root / control["source"] / f"{pattern}-warps-4",
+          4,
         )
 
   def test_a_missing_control_is_recorded_and_left_unexecuted(self):
@@ -1373,6 +1657,7 @@ class ReportAndControlTests(unittest.TestCase):
       control = study.study_spec()["controls"][0]
       pattern = study.CONTROL_PATTERNS["i0-base"]
       import shutil as shutil_module
+
       shutil_module.rmtree(root / control["source"] / f"{pattern}-warps-1")
       run = self.frozen_with_controls(directory, root)
       controls = {entry["case"]: entry for entry in run.frozen_corpus()["controls"]}
@@ -1380,7 +1665,8 @@ class ReportAndControlTests(unittest.TestCase):
       run.run_discovery()
       final = run.finalize()
       missing_slots = [
-        slot_id for slot_id in final["execution"]["unexecuted"]
+        slot_id
+        for slot_id in final["execution"]["unexecuted"]
         if slot_id.startswith(control["id"])
       ]
       self.assertEqual(len(missing_slots), 8)
@@ -1391,27 +1677,36 @@ class DeviceIntegrationTests(unittest.TestCase):
   def operations(self):
     root = Path(os.environ.get("REFRACTIR_ROOT", ".")).resolve()
     return study.device_operations(
-      exporter=Path(os.environ.get(
-        "REFRACTIR_TENSOR_FREE_FORM_EXPORT", root / "build/bin/tensor_free_form_export"
-      )),
+      exporter=Path(
+        os.environ.get(
+          "REFRACTIR_TENSOR_FREE_FORM_EXPORT",
+          root / "build/bin/tensor_free_form_export",
+        )
+      ),
       symirc=Path(os.environ.get("REFRACTIR_SYMIRC", root / "symirc")),
       symiri=Path(os.environ.get("REFRACTIR_SYMIRI", root / "symiri")),
       controls_root=Path(os.environ["REFRACTIR_CONTROLS_ROOT"])
-      if os.environ.get("REFRACTIR_CONTROLS_ROOT") else None,
+      if os.environ.get("REFRACTIR_CONTROLS_ROOT")
+      else None,
     )
 
   def build(self, operations, directory, attempt=1, case_id=None):
     frozen = study.freeze_study()
     slot = (
       next(entry for entry in frozen.spec["sources"] if entry["id"] == case_id)
-      if case_id is not None else frozen.spec["sources"][0]
+      if case_id is not None
+      else frozen.spec["sources"][0]
     )
     seed = frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt
-    return slot, operations["build"]({
-      "slot": slot, "attempt": attempt, "seed": seed,
-      "max_attempts": frozen.spec["attempts"]["internal_max_attempts"],
-      "directory": str(Path(directory) / f"build-{case_id or attempt}-{attempt}"),
-    })
+    return slot, operations["build"](
+      {
+        "slot": slot,
+        "attempt": attempt,
+        "seed": seed,
+        "max_attempts": frozen.spec["attempts"]["internal_max_attempts"],
+        "directory": str(Path(directory) / f"build-{case_id or attempt}-{attempt}"),
+      }
+    )
 
   def test_build_then_execute_reaches_the_workers(self):
     operations = self.operations()
@@ -1420,13 +1715,18 @@ class DeviceIntegrationTests(unittest.TestCase):
       self.assertEqual(built["kind"], "admitted", built.get("reason"))
       self.assertIn("directory", built)
       events = []
-      outcome = operations["execute"]({
-        "slot": "device", "case": slot["id"],
-        "corpus": {"kind": "source", **built, "case": slot["id"]},
-        "input": "i0-base", "configuration": "warps-1", "attempt": 0,
-        "directory": str(Path(directory) / "run"),
-        "on_process": events.append,
-      })
+      outcome = operations["execute"](
+        {
+          "slot": "device",
+          "case": slot["id"],
+          "corpus": {"kind": "source", **built, "case": slot["id"]},
+          "input": "i0-base",
+          "configuration": "warps-1",
+          "attempt": 0,
+          "directory": str(Path(directory) / "run"),
+          "on_process": events.append,
+        }
+      )
       self.assertEqual(outcome["paths"]["p0"]["status"], "completed")
       self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
       self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
@@ -1444,17 +1744,26 @@ class DeviceIntegrationTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       slot, built = self.build(operations, directory)
       built["screen"] = {
-        "p0": [{
-          "probe": "i0-base", "status": "completed",
-          "output_sha256": "0" * 64, "output_path": str(Path(directory) / "missing.bin"),
-        }]
+        "p0": [
+          {
+            "probe": "i0-base",
+            "status": "completed",
+            "output_sha256": "0" * 64,
+            "output_path": str(Path(directory) / "missing.bin"),
+          }
+        ]
       }
-      outcome = operations["execute"]({
-        "slot": "device", "case": slot["id"],
-        "corpus": {"kind": "source", **built, "case": slot["id"]},
-        "input": "i0-base", "configuration": "warps-1", "attempt": 0,
-        "directory": str(Path(directory) / "run-corrupt"),
-      })
+      outcome = operations["execute"](
+        {
+          "slot": "device",
+          "case": slot["id"],
+          "corpus": {"kind": "source", **built, "case": slot["id"]},
+          "input": "i0-base",
+          "configuration": "warps-1",
+          "attempt": 0,
+          "directory": str(Path(directory) / "run-corrupt"),
+        }
+      )
       self.assertEqual(outcome["paths"]["p0"]["status"], "unavailable")
       self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
       self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
@@ -1472,19 +1781,28 @@ class DeviceIntegrationTests(unittest.TestCase):
         built["screen"] = {
           "p0": [
             {"probe": probe, "status": "unavailable", "reason": "fixture"}
-            for probe in ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows")
+            for probe in (
+              "i0-base",
+              "i1-read-plus-one",
+              "i2-late-row",
+              "i3-unused-rows",
+            )
           ]
         }
         for warps in (1, 4):
           events = []
-          outcome = operations["execute"]({
-            "slot": "device", "case": slot["id"],
-            "corpus": {"kind": "source", **built, "case": slot["id"]},
-            "input": "i0-base", "configuration": f"warps-{warps}",
-            "attempt": attempt,
-            "directory": str(Path(directory) / f"run-{warps}"),
-            "on_process": events.append,
-          })
+          outcome = operations["execute"](
+            {
+              "slot": "device",
+              "case": slot["id"],
+              "corpus": {"kind": "source", **built, "case": slot["id"]},
+              "input": "i0-base",
+              "configuration": f"warps-{warps}",
+              "attempt": attempt,
+              "directory": str(Path(directory) / f"run-{warps}"),
+              "on_process": events.append,
+            }
+          )
           self.assertEqual(outcome["paths"]["p0"]["status"], "unavailable")
           self.assertEqual(outcome["paths"]["p1"]["status"], "completed")
           self.assertEqual(outcome["paths"]["p2"]["status"], "completed")
@@ -1503,8 +1821,7 @@ class DeviceIntegrationTests(unittest.TestCase):
       self.assertEqual(built["kind"], "admitted", built.get("reason"))
       screened = operations["screen"](built)
       conditional = [
-        run for run in screened["record"]["runs"]
-        if run.get("variant") != "combined"
+        run for run in screened["record"]["runs"] if run.get("variant") != "combined"
       ]
       self.assertTrue(conditional, screened["record"]["selection"])
       self.assertTrue(

@@ -109,9 +109,7 @@ class QualificationCapabilityTests(unittest.TestCase):
 
   def test_an_invariant_active_row_pattern_does_not_qualify(self):
     built = qualification_built("mw-g0c1")
-    built["region"]["window"]["witness"]["per_trip_active"] = [
-      [True, True, True]
-    ] * 4
+    built["region"]["window"]["witness"]["per_trip_active"] = [[True, True, True]] * 4
     checks = study.qualification_capabilities(built, ["changing_active_rows"])
     self.assertFalse(checks["changing_active_rows"])
 
@@ -135,7 +133,8 @@ class QualificationGateTests(unittest.TestCase):
     for multiplication in (0, 1):
       spec = study.study_spec()
       spec["qualification"] = {
-        **study.QUALIFICATION, "version": 1,
+        **study.QUALIFICATION,
+        "version": 1,
         "max_multiplications": multiplication,
       }
       study._validate_spec(spec, allow_legacy_qualification=True)
@@ -201,20 +200,23 @@ class CliWiringTests(unittest.TestCase):
           with self.assertRaises(study.StudyRefused):
             study.main(
               [
-                "--mode", mode,
-                "--work", str(work),
-                "--exporter", "exporter",
-                "--symirc", "symirc",
-                "--symiri", "symiri",
+                "--mode",
+                mode,
+                "--work",
+                str(work),
+                "--exporter",
+                "exporter",
+                "--symirc",
+                "symirc",
+                "--symiri",
+                "symiri",
                 "--accept-current-toolchain",
               ]
             )
     self.assertEqual(calls, {"build": 0, "execute": 0})
 
 
-@unittest.skipUnless(
-  VALIDATION_DIR, "bounded device validation is opt-in"
-)
+@unittest.skipUnless(VALIDATION_DIR, "bounded device validation is opt-in")
 class BoundedDeviceValidation(unittest.TestCase):
   """§6.2: one fail-stop batch with checks before each process reservation."""
 

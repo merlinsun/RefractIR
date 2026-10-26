@@ -131,14 +131,18 @@ class QualificationOutcomeTests(unittest.TestCase):
     runner = authority(f)
     note = self.root / "fixture-diagnosis.txt"
     note.write_text("The host fixture deliberately injected this failure.\n")
-    runner.record_triage_decision({
-      "action": "resume",
-      "disposition": {
-        "classification": "infrastructure_defect",
-        "explanation": "This report fixture uses a deliberately injected failure.",
-        "evidence": [{"path": note.name, "sha256": study._sha256_bytes(note.read_bytes())}],
-      },
-    })
+    runner.record_triage_decision(
+      {
+        "action": "resume",
+        "disposition": {
+          "classification": "infrastructure_defect",
+          "explanation": "This report fixture uses a deliberately injected failure.",
+          "evidence": [
+            {"path": note.name, "sha256": study._sha256_bytes(note.read_bytes())}
+          ],
+        },
+      }
+    )
     f.run()
     runner = authority(f)
     runner.build = fixtures.fake_builder(

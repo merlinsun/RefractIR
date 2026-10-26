@@ -44,10 +44,42 @@ PROBES = ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows")
 CONFIGURATIONS = ("warps-1", "warps-4")
 POLICIES = ("unguided", "deep", "wide", "shared", "reduction-heavy", "cross-state")
 COLUMNS = (
-  {"column": 0, "shape": [2, 8], "trips": 4, "stride": 1, "backing_rows": 7, "active": 5, "regime": "interior"},
-  {"column": 1, "shape": [3, 4], "trips": 4, "stride": 1, "backing_rows": 8, "active": 5, "regime": "tail"},
-  {"column": 2, "shape": [4, 4], "trips": 8, "stride": 2, "backing_rows": 20, "active": 18, "regime": "interior"},
-  {"column": 3, "shape": [3, 8], "trips": 8, "stride": 2, "backing_rows": 19, "active": 15, "regime": "tail"},
+  {
+    "column": 0,
+    "shape": [2, 8],
+    "trips": 4,
+    "stride": 1,
+    "backing_rows": 7,
+    "active": 5,
+    "regime": "interior",
+  },
+  {
+    "column": 1,
+    "shape": [3, 4],
+    "trips": 4,
+    "stride": 1,
+    "backing_rows": 8,
+    "active": 5,
+    "regime": "tail",
+  },
+  {
+    "column": 2,
+    "shape": [4, 4],
+    "trips": 8,
+    "stride": 2,
+    "backing_rows": 20,
+    "active": 18,
+    "regime": "interior",
+  },
+  {
+    "column": 3,
+    "shape": [3, 8],
+    "trips": 8,
+    "stride": 2,
+    "backing_rows": 19,
+    "active": 15,
+    "regime": "tail",
+  },
 )
 CONTROL_PATTERNS = {
   "i0-base": "distinct-integer-0",
@@ -66,8 +98,12 @@ ATTEMPTS_PER_SLOT = 8
 INTERNAL_MAX_ATTEMPTS = 1
 PROBE_RULES = {
   "schedule": [
-    "i0-base/T", "i1-read-plus-one/T", "i2-late-row/T", "i3-unused-rows/T",
-    "i0-base/T-1", "i2-late-row/T-1",
+    "i0-base/T",
+    "i1-read-plus-one/T",
+    "i2-late-row/T",
+    "i3-unused-rows/T",
+    "i0-base/T-1",
+    "i2-late-row/T-1",
   ],
   "conditional_cap": 4,
   "launch_cap": 10,
@@ -123,9 +159,13 @@ def source_slots():
   for group in range(3):
     for column in range(4):
       requirement = (
-        "reduction" if group == 0 else
-        "shared" if group == 1 else
-        "extrema-transpose" if column % 2 == 0 else "extrema-expand"
+        "reduction"
+        if group == 0
+        else "shared"
+        if group == 1
+        else "extrema-transpose"
+        if column % 2 == 0
+        else "extrema-expand"
       )
       spec = dict(COLUMNS[column])
       slots.append(
@@ -271,9 +311,7 @@ def require_qualification(work, frozen):
   work = Path(work)
   declaration = frozen.spec.get("qualification")
   if declaration != QUALIFICATION:
-    raise StudyRefused(
-      "the frozen study has no current qualification declaration"
-    )
+    raise StudyRefused("the frozen study has no current qualification declaration")
   ledger = work / "path-ledger.jsonl"
   if not ledger.is_file():
     raise StudyRefused("qualification outcome history is missing")
@@ -308,9 +346,13 @@ def require_qualification(work, frozen):
     for configuration in CONFIGURATIONS:
       outcome = configurations.get(configuration) or {}
       if outcome.get("paths", {}).get("p1", {}).get("status") != "completed":
-        raise StudyRefused(f"qualification case {entry['case']} lacks {configuration} P1")
+        raise StudyRefused(
+          f"qualification case {entry['case']} lacks {configuration} P1"
+        )
       if outcome.get("paths", {}).get("p2", {}).get("status") != "completed":
-        raise StudyRefused(f"qualification case {entry['case']} lacks {configuration} P2")
+        raise StudyRefused(
+          f"qualification case {entry['case']} lacks {configuration} P2"
+        )
   if not record.get("validated"):
     raise StudyRefused("the qualification record is not validated")
   return record
@@ -368,13 +410,15 @@ def _validate_spec(spec, *, allow_legacy_qualification=False):
   if spec.get("budgets") != BUDGETS:
     raise tensor_tranche.ManifestRefused("the study budgets changed")
   if "accounting" in spec and spec["accounting"] != {
-    "version": 2, "mode": "process-events"
+    "version": 2,
+    "mode": "process-events",
   }:
     raise tensor_tranche.ManifestRefused("the study accounting version is unknown")
   if "qualification" in spec and spec["qualification"] != QUALIFICATION:
     legacy = {
-      json.dumps({**QUALIFICATION, "version": 1, "max_multiplications": value},
-                 sort_keys=True)
+      json.dumps(
+        {**QUALIFICATION, "version": 1, "max_multiplications": value}, sort_keys=True
+      )
       for value in (0, 1)
     }
     legacy.add(json.dumps({**QUALIFICATION, "version": 1}, sort_keys=True))
@@ -394,7 +438,12 @@ def _validate_spec(spec, *, allow_legacy_qualification=False):
     seen.add(slot.get("id"))
     if slot.get("lane") not in LANES[:3]:
       raise tensor_tranche.ManifestRefused("a source slot names an unknown lane")
-    if slot.get("requirement") not in ("reduction", "shared", "extrema-transpose", "extrema-expand"):
+    if slot.get("requirement") not in (
+      "reduction",
+      "shared",
+      "extrema-transpose",
+      "extrema-expand",
+    ):
       raise tensor_tranche.ManifestRefused("a source slot names an unknown requirement")
     if slot.get("policy") not in POLICIES:
       raise tensor_tranche.ManifestRefused("a source slot names an unknown policy")
@@ -409,7 +458,9 @@ def _validate_spec(spec, *, allow_legacy_qualification=False):
     if control.get("lane", "control") != "control":
       raise tensor_tranche.ManifestRefused("a control names another lane")
     if not control.get("id") or not control.get("source"):
-      raise tensor_tranche.ManifestRefused("a control needs an id and an archived source")
+      raise tensor_tranche.ManifestRefused(
+        "a control needs an id and an archived source"
+      )
 
 
 class FrozenStudy:
@@ -429,7 +480,9 @@ class FrozenStudy:
     }
 
   def write(self, path):
-    Path(path).write_text(json.dumps(self.as_record(), indent=1) + "\n", encoding="utf-8")
+    Path(path).write_text(
+      json.dumps(self.as_record(), indent=1) + "\n", encoding="utf-8"
+    )
     return Path(path)
 
   @classmethod
@@ -473,11 +526,15 @@ def freeze_study(spec=None, *, toolchain=None):
     "study": spec["schema"],
     "budget": {
       "executions": spec["budgets"]["discovery_gpu"],
-      "controls": len(spec["controls"]) * len(spec["probes"]) * len(spec["configurations"]),
+      "controls": len(spec["controls"])
+      * len(spec["probes"])
+      * len(spec["configurations"]),
     },
     "cases": cases,
   }
-  return FrozenStudy(spec=spec, digest=_digest(spec), tranche=tensor_tranche.freeze(manifest))
+  return FrozenStudy(
+    spec=spec, digest=_digest(spec), tranche=tensor_tranche.freeze(manifest)
+  )
 
 
 class PathLedger:
@@ -532,8 +589,13 @@ def path_counts(events, *, legacy=False):
     return counts
   counts = {
     path: {
-      "launches": 0, "cached": 0, "failures": 0, "not_run": 0,
-      "spawn_failed": 0, "interrupted": 0, "statuses": {},
+      "launches": 0,
+      "cached": 0,
+      "failures": 0,
+      "not_run": 0,
+      "spawn_failed": 0,
+      "interrupted": 0,
+      "statuses": {},
     }
     for path in ("p0", "p1", "p2")
   }
@@ -563,6 +625,7 @@ def path_counts(events, *, legacy=False):
   for path in counts:
     counts[path]["interrupted"] = max(0, starts.get(path, 0) - finishes.get(path, 0))
   return counts
+
 
 def parse_triage_ledger(data, source=None):
   """Validate and normalize triage rows; arbitrary line counts never charge."""
@@ -594,30 +657,36 @@ def parse_triage_ledger(data, source=None):
     if allocation not in ("triage", "qualification", "selection", "discovery"):
       raise StudyRefused(f"the triage ledger row {number} has an unknown allocation")
     if row["result"] not in (
-      "completed", "failed", "timed_out", "hung", "refused", "spawn_failed",
+      "completed",
+      "failed",
+      "timed_out",
+      "hung",
+      "refused",
+      "spawn_failed",
     ):
       raise StudyRefused(f"the triage ledger row {number} has an unknown outcome")
     supplied = row.get("execution_id")
     if supplied is not None and (not isinstance(supplied, str) or not supplied):
-      raise StudyRefused(
-        f"the triage ledger row {number} has an invalid execution_id"
-      )
+      raise StudyRefused(f"the triage ledger row {number} has an invalid execution_id")
     attempt = row.get("attempt")
     if supplied is None and (type(attempt) is not int or attempt < 0):
       raise StudyRefused(
         f"the triage ledger row {number} needs an execution_id or a valid attempt"
       )
-    key = supplied or hashlib.sha256(
-      json.dumps(
-        {
-          "case": row["case"],
-          "attempt": row.get("attempt"),
-          "path": path,
-          "allocation": allocation,
-        },
-        sort_keys=True,
-      ).encode("utf-8")
-    ).hexdigest()
+    key = (
+      supplied
+      or hashlib.sha256(
+        json.dumps(
+          {
+            "case": row["case"],
+            "attempt": row.get("attempt"),
+            "path": path,
+            "allocation": allocation,
+          },
+          sort_keys=True,
+        ).encode("utf-8")
+      ).hexdigest()
+    )
     entry = {
       "execution_id": key,
       "case": row["case"],
@@ -731,9 +800,7 @@ class Study:
     if any(record.get("ledger_sha256") == digest for record in imports):
       return
     if imports:
-      raise StudyRefused(
-        "a different triage ledger is already accepted for this study"
-      )
+      raise StudyRefused("a different triage ledger is already accepted for this study")
     paths = {}
     for entry in entries:
       paths[entry["path"]] = paths.get(entry["path"], 0) + 1
@@ -831,9 +898,7 @@ class Study:
     """Persist, apply, and mark one decision for the active pause."""
     if not self.is_paused():
       raise StudyRefused("the study is not paused")
-    pause = json.loads(
-      (self.work / "study-paused.json").read_text(encoding="utf-8")
-    )
+    pause = json.loads((self.work / "study-paused.json").read_text(encoding="utf-8"))
     record = dict(decision) if isinstance(decision, dict) else {"action": decision}
     action = record.get("action")
     if action not in ("admit", "reject", "resume", "stop"):
@@ -964,7 +1029,8 @@ class Study:
     entry = pending["entry"]
     if entry["case"] not in self._selected_ids():
       self.path_ledger.append(
-        "corpus", case=entry["case"],
+        "corpus",
+        case=entry["case"],
         source_sha256=entry.get("source_sha256"),
         inputs_sha256=entry.get("inputs_sha256"),
       )
@@ -1001,8 +1067,7 @@ class Study:
     pause = json.loads(pause_path.read_text(encoding="utf-8"))
     pause_id = pause.get("pause_id")
     decisions = [
-      decision for decision in self._decisions()
-      if decision.get("pause_id") == pause_id
+      decision for decision in self._decisions() if decision.get("pause_id") == pause_id
     ]
     if not decisions:
       return False
@@ -1053,9 +1118,7 @@ class Study:
       return
     if self._replay_decisions():
       return
-    raise StudyRefused(
-      "a pending admission needs an admit, reject, or stop decision"
-    )
+    raise StudyRefused("a pending admission needs an admit, reject, or stop decision")
 
   def is_stopped(self):
     return (self.work / "study-stopped.json").is_file()
@@ -1188,9 +1251,7 @@ class Study:
           continue
         if not self._disk_guard():
           return self
-        seed = (
-          self.frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt
-        )
+        seed = self.frozen.spec["attempts"]["seed_base"] + 8 * slot["index"] + attempt
         directory = self.work / "selection" / slot["id"] / f"attempt-{attempt}"
         if directory.exists():
           raise StudyRefused(f"selection attempt directory already exists: {directory}")
@@ -1236,8 +1297,11 @@ class Study:
           screened = self.screen(outcome)
         except DispatchRefused as error:
           self.path_ledger.append(
-            "dispatch_refused", case=slot["id"], attempt=attempt,
-            phase="screening", reason=str(error),
+            "dispatch_refused",
+            case=slot["id"],
+            attempt=attempt,
+            phase="screening",
+            reason=str(error),
           )
           self._save_pending(
             {
@@ -1311,7 +1375,8 @@ class Study:
           return self
         if screened.get("unavailable"):
           self.path_ledger.append(
-            "selection_unavailable", case=slot["id"],
+            "selection_unavailable",
+            case=slot["id"],
             unavailable=screened["unavailable"],
           )
         if screened.get("selected"):
@@ -1340,9 +1405,9 @@ class Study:
       lane = entry.get("lane")
       if lane not in ("G0", "G1", "G2"):
         continue
-      signature = (
-        (entry.get("region") or {}).get("live_dag") or {}
-      ).get("connectivity_signature")
+      signature = ((entry.get("region") or {}).get("live_dag") or {}).get(
+        "connectivity_signature"
+      )
       group = groups.setdefault(lane, {"bodies": 0, "signatures": []})
       group["bodies"] += 1
       if signature:
@@ -1356,7 +1421,9 @@ class Study:
         "distinct_signatures": distinct,
         "sufficient": group["bodies"] >= 3 and distinct >= 3,
       }
-    report["sufficient"] = all(report[lane]["sufficient"] for lane in ("G0", "G1", "G2"))
+    report["sufficient"] = all(
+      report[lane]["sufficient"] for lane in ("G0", "G1", "G2")
+    )
     return report
 
   def freeze_corpus(self):
@@ -1401,10 +1468,20 @@ class Study:
               (bundle / "case.json").read_bytes()
             ).hexdigest()
           for bundle in bundles[1:]:
-            if hashlib.sha256((bundle / "program.sir").read_bytes()).hexdigest() != program_sha:
-              raise StudyRefused(f"archived control program changed across warps: {bundle}")
-            if hashlib.sha256((bundle / "inputs.bin").read_bytes()).hexdigest() != inputs_sha:
-              raise StudyRefused(f"archived control input changed across warps: {bundle}")
+            if (
+              hashlib.sha256((bundle / "program.sir").read_bytes()).hexdigest()
+              != program_sha
+            ):
+              raise StudyRefused(
+                f"archived control program changed across warps: {bundle}"
+              )
+            if (
+              hashlib.sha256((bundle / "inputs.bin").read_bytes()).hexdigest()
+              != inputs_sha
+            ):
+              raise StudyRefused(
+                f"archived control input changed across warps: {bundle}"
+              )
           hashes[probe] = {
             "pattern": pattern,
             "program_sha256": program_sha,
@@ -1441,8 +1518,12 @@ class Study:
     return record
 
   ATTEMPT_KINDS = (
-    "selection_attempt", "selection_attempt_reserved", "launch",
-    "launch_reserved", "retry", "slot_started",
+    "selection_attempt",
+    "selection_attempt_reserved",
+    "launch",
+    "launch_reserved",
+    "retry",
+    "slot_started",
   )
 
   def _attempts_used(self, case_id):
@@ -1461,15 +1542,21 @@ class Study:
       if event.get("case") == case_id and event.get("kind") == "selection_attempt"
     }
     return [
-      event for event in self.path_ledger.events
+      event
+      for event in self.path_ledger.events
       if event.get("case") == case_id
       and event.get("kind") == "selection_attempt_reserved"
       and event["attempt"] not in finished
     ]
 
   IMMUTABLE_FIELDS = (
-    "source_sha256", "inputs_sha256", "layouts", "witnesses", "region",
-    "probes", "compiler_identity",
+    "source_sha256",
+    "inputs_sha256",
+    "layouts",
+    "witnesses",
+    "region",
+    "probes",
+    "compiler_identity",
   )
 
   def corpus_for_report(self):
@@ -1491,7 +1578,9 @@ class Study:
             f"selection history contradicts the frozen {field} for {entry['case']}"
           )
     if len(selected) != len(frozen["sources"]):
-      raise StudyRefused("selection history and the frozen corpus disagree on source count")
+      raise StudyRefused(
+        "selection history and the frozen corpus disagree on source count"
+      )
     return frozen["sources"]
 
   def _next_attempt(self, slot_id):
@@ -1519,8 +1608,7 @@ class Study:
       raise StudyRefused("the generator diversity minimum is not met")
     available = {entry["case"] for entry in corpus["sources"] + corpus["controls"]}
     cases = {
-      case["id"]: case
-      for case in self.frozen.tranche.payload["manifest"]["cases"]
+      case["id"]: case for case in self.frozen.tranche.payload["manifest"]["cases"]
     }
     for slot in self.frozen.tranche.slots:
       if self.ledger.state(slot.slot_id) != "pending":
@@ -1530,12 +1618,15 @@ class Study:
       if slot.case_id not in available:
         continue
       corpus_entry = next(
-        entry for entry in corpus["sources"] + corpus["controls"]
+        entry
+        for entry in corpus["sources"] + corpus["controls"]
         if entry["case"] == slot.case_id
       )
       if corpus_entry.get("status") == "missing":
         self.path_ledger.append(
-          "control_missing", case=slot.case_id, slot=slot.slot_id,
+          "control_missing",
+          case=slot.case_id,
+          slot=slot.slot_id,
           reason=corpus_entry.get("reason"),
         )
         continue
@@ -1571,7 +1662,8 @@ class Study:
         "slot": slot.slot_id,
         "case": cases[slot.case_id],
         "corpus": next(
-          entry for entry in corpus["sources"] + corpus["controls"]
+          entry
+          for entry in corpus["sources"] + corpus["controls"]
           if entry["case"] == slot.case_id
         ),
         "input": slot.input,
@@ -1594,7 +1686,9 @@ class Study:
         self.path_ledger.append("dispatch_refused", **classification)
         self.path_ledger.append("classification", **classification)
         self.ledger.finish(
-          slot.slot_id, "refused", reason=str(error),
+          slot.slot_id,
+          "refused",
+          reason=str(error),
           detail={"status": "dispatch_refused"},
         )
         self.pause(
@@ -1604,7 +1698,9 @@ class Study:
         )
         return self
       except Exception as error:
-        self.ledger.finish(slot.slot_id, "failed", reason=f"{type(error).__name__}: {error}")
+        self.ledger.finish(
+          slot.slot_id, "failed", reason=f"{type(error).__name__}: {error}"
+        )
         classification = {
           "slot": slot.slot_id,
           "case": slot.case_id,
@@ -1620,14 +1716,14 @@ class Study:
         )
         return self
       slot_processes = [
-        event for event in self.path_ledger.events
+        event
+        for event in self.path_ledger.events
         if event.get("kind") == "process"
         and event.get("slot") == slot.slot_id
         and event.get("attempt") == attempt
       ]
       started = {
-        event.get("path") for event in slot_processes
-        if event.get("event") == "start"
+        event.get("path") for event in slot_processes if event.get("event") == "start"
       }
       for path in ("p0", "p1", "p2"):
         info = outcome.get("paths", {}).get(path)
@@ -1635,28 +1731,44 @@ class Study:
           continue
         if info.get("cached"):
           self.path_ledger.append(
-            "cached", path=path, slot=slot.slot_id, case=slot.case_id,
-            attempt=attempt, key=info.get("key"),
+            "cached",
+            path=path,
+            slot=slot.slot_id,
+            case=slot.case_id,
+            attempt=attempt,
+            key=info.get("key"),
           )
         elif slot_processes or not self.legacy_accounting:
           # New runs trust lifecycle evidence: no start means no launch.
           if path in started:
             self.path_ledger.append(
-              "launch", path=path, slot=slot.slot_id, case=slot.case_id,
-              attempt=attempt, directory=info.get("directory", str(directory)),
+              "launch",
+              path=path,
+              slot=slot.slot_id,
+              case=slot.case_id,
+              attempt=attempt,
+              directory=info.get("directory", str(directory)),
               status=info.get("status", "completed"),
             )
           else:
             self.path_ledger.append(
-              "not_run", path=path, slot=slot.slot_id, case=slot.case_id,
-              attempt=attempt, status=info.get("status", "unavailable"),
+              "not_run",
+              path=path,
+              slot=slot.slot_id,
+              case=slot.case_id,
+              attempt=attempt,
+              status=info.get("status", "unavailable"),
               reason="no process start was recorded",
             )
         else:
           # Host fixtures and historical records supply no lifecycle events.
           self.path_ledger.append(
-            "launch", path=path, slot=slot.slot_id, case=slot.case_id,
-            attempt=attempt, directory=info.get("directory", str(directory)),
+            "launch",
+            path=path,
+            slot=slot.slot_id,
+            case=slot.case_id,
+            attempt=attempt,
+            directory=info.get("directory", str(directory)),
             status=info.get("status", "completed"),
           )
       if outcome.get("dispatch_refused"):
@@ -1672,11 +1784,17 @@ class Study:
         self.path_ledger.append("dispatch_refused", **classification)
         self.path_ledger.append("classification", **classification)
         self.ledger.finish(
-          slot.slot_id, "refused", reason=outcome["dispatch_refused"],
-          detail={"status": "dispatch_refused", "candidate": classification["candidate"]},
+          slot.slot_id,
+          "refused",
+          reason=outcome["dispatch_refused"],
+          detail={
+            "status": "dispatch_refused",
+            "candidate": classification["candidate"],
+          },
         )
         self.pause(
-          [classification], reason=f"dispatch refused at {slot.slot_id}",
+          [classification],
+          reason=f"dispatch refused at {slot.slot_id}",
           phase="resource",
         )
         return self
@@ -1689,7 +1807,9 @@ class Study:
         "compiler": outcome.get("compiler", {"status": "unavailable"}),
       }
       self.path_ledger.append("classification", **classification)
-      self.ledger.finish(slot.slot_id, "completed", detail={"status": outcome.get("status")})
+      self.ledger.finish(
+        slot.slot_id, "completed", detail={"status": outcome.get("status")}
+      )
       if classification["candidate"]:
         self.pause(
           [classification],
@@ -1797,7 +1917,9 @@ class Study:
       for reason in e.get("unavailable", [])
     ]
     compiler_observed = sum(
-      1 for e in classifications if (e.get("compiler") or {}).get("status") == "observed"
+      1
+      for e in classifications
+      if (e.get("compiler") or {}).get("status") == "observed"
     )
     unexecuted = [
       slot.slot_id
@@ -1921,9 +2043,7 @@ class Study:
     if self.ledger is None:
       raise StudyRefused("prepare the study before finalizing")
     if self.is_paused():
-      raise StudyRefused(
-        f"cannot finalize a paused study: {self._paused_reason()}"
-      )
+      raise StudyRefused(f"cannot finalize a paused study: {self._paused_reason()}")
     counts = self.ledger.close()
     record = self._final_record(counts)
     (self.work / "final.json").write_text(
@@ -1997,7 +2117,11 @@ def compiler_stage_observation(compiled):
       artifacts[stage] = path.read_text(encoding="utf-8")
       hashes[stage] = hashlib.sha256(path.read_bytes()).hexdigest()
   if not artifacts:
-    return {"status": "unavailable", "reason": "no compiler IR artifacts", "artifact_sha256": hashes}
+    return {
+      "status": "unavailable",
+      "reason": "no compiler IR artifacts",
+      "artifact_sha256": hashes,
+    }
   try:
     observation = tensor_compiler_observation.observe_compiler_ir(
       artifacts,
@@ -2031,7 +2155,6 @@ def compiler_stage_observation(compiled):
     ),
     "later_loop_retention": "unavailable",
   }
-
 
 
 def require_toolchain(frozen, current, *, accept_current=False):
@@ -2075,17 +2198,21 @@ def verify_control_payload(corpus, probe, bundle, warps):
   archived_case = (bundle / "case.json").read_bytes()
   frozen_hashes = (corpus.get("hashes") or {}).get(probe)
   if frozen_hashes:
-    if hashlib.sha256(archived_program).hexdigest() != frozen_hashes.get("program_sha256"):
+    if hashlib.sha256(archived_program).hexdigest() != frozen_hashes.get(
+      "program_sha256"
+    ):
       raise StudyRefused(f"archived control program changed: {corpus.get('source')}")
-    if hashlib.sha256(archived_inputs).hexdigest() != frozen_hashes.get("inputs_sha256"):
+    if hashlib.sha256(archived_inputs).hexdigest() != frozen_hashes.get(
+      "inputs_sha256"
+    ):
       raise StudyRefused(f"archived control input changed: {corpus.get('source')}")
-    if hashlib.sha256(archived_case).hexdigest() != (frozen_hashes.get("case_sha256") or {}).get(str(warps)):
+    if hashlib.sha256(archived_case).hexdigest() != (
+      frozen_hashes.get("case_sha256") or {}
+    ).get(str(warps)):
       raise StudyRefused(f"archived control case changed: {corpus.get('source')}")
   case_record = json.loads(archived_case)
   if case_record.get("launch", {}).get("num_warps") != warps:
-    raise StudyRefused(
-      f"archived control warp setting differs from the slot: {warps}"
-    )
+    raise StudyRefused(f"archived control warp setting differs from the slot: {warps}")
   return archived_program, archived_inputs, archived_case
 
 
@@ -2111,6 +2238,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
   identity = native_triton_family.triton_identity(environment)
   try:
     import triton as _triton
+
     triton_library = Path(_triton.__file__).parent / "_C" / "libtriton.so"
   except Exception:
     triton_library = None
@@ -2119,7 +2247,9 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     "symirc_sha256": _file_sha256(symirc),
     "symiri_sha256": _file_sha256(symiri),
     "triton": identity,
-    "triton_library_sha256": None if triton_library is None else _file_sha256(triton_library),
+    "triton_library_sha256": None
+    if triton_library is None
+    else _file_sha256(triton_library),
     "python": sys.version.split()[0],
     "device": identity.get("device"),
   }
@@ -2135,22 +2265,37 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       raise StudyRefused("the requested node limit is invalid")
     command = [
       str(exporter),
-      "--policy", slot["policy"],
-      "--seed", str(seed),
-      "--shape", f"{rows},{columns}",
-      "--states", "2",
-      "--trip-count", str(slot["trips"]),
-      "--window", f"{rows},{slot['stride']},{slot['active']}",
-      "--window-buffer-rows", str(slot["backing_rows"]),
-      "--profile", "v3",
-      "--features", "extrema,transpose,expand",
-      "--window-requirement", slot["requirement"],
-      "--max-attempts", "1",
-      "--max-nodes", str(node_limit),
-      "--max-multiplications", str(request.get("max_multiplications", 1)),
+      "--policy",
+      slot["policy"],
+      "--seed",
+      str(seed),
+      "--shape",
+      f"{rows},{columns}",
+      "--states",
+      "2",
+      "--trip-count",
+      str(slot["trips"]),
+      "--window",
+      f"{rows},{slot['stride']},{slot['active']}",
+      "--window-buffer-rows",
+      str(slot["backing_rows"]),
+      "--profile",
+      "v3",
+      "--features",
+      "extrema,transpose,expand",
+      "--window-requirement",
+      slot["requirement"],
+      "--max-attempts",
+      "1",
+      "--max-nodes",
+      str(node_limit),
+      "--max-multiplications",
+      str(request.get("max_multiplications", 1)),
       "--require-computed-roots",
-      "--num-warps", "1",
-      "--out", str(directory / "export"),
+      "--num-warps",
+      "1",
+      "--out",
+      str(directory / "export"),
     ]
     completed = subprocess.run(
       command, capture_output=True, text=True, check=False, timeout=timeout_s
@@ -2159,7 +2304,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       return {
         "kind": "refused",
         "reason": (completed.stderr or completed.stdout).strip().splitlines()[-1:]
-        and (completed.stderr or completed.stdout).strip()
+        and (completed.stderr or completed.stdout).strip(),
       }
     export = directory / "export"
     region = json.loads((export / "region.json").read_text(encoding="utf-8"))
@@ -2247,7 +2392,12 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
     command = list(outcome.get("export_command") or [])
     if len(command) < 2 or command[-2] != "--out":
       return "unsupported", None
-    command = command[:-2] + ["--return", f"state:{state}", "--out", str(base / "export")]
+    command = command[:-2] + [
+      "--return",
+      f"state:{state}",
+      "--out",
+      str(base / "export"),
+    ]
     completed = subprocess.run(
       command, capture_output=True, text=True, check=False, timeout=timeout_s
     )
@@ -2262,7 +2412,8 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       # Returning one state omits the unused combined-output declaration; every
       # loop declaration and statement must otherwise be identical.
       return [
-        line for line in text.split("^exit:")[0].splitlines()
+        line
+        for line in text.split("^exit:")[0].splitlines()
         if not line.strip().startswith("let mut %out:")
       ]
 
@@ -2276,10 +2427,14 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       schema=tensor_free_form_inputs.WINDOW_PROBE_SCHEMA,
       pattern=probe,
       seed=0,
-      names=tuple(record["name"] for record in
-                  tensor_free_form_inputs.parameters(outcome["region"])),
-      shapes=tuple(tuple(record["shape"]) for record in
-                   tensor_free_form_inputs.parameters(outcome["region"])),
+      names=tuple(
+        record["name"]
+        for record in tensor_free_form_inputs.parameters(outcome["region"])
+      ),
+      shapes=tuple(
+        tuple(record["shape"])
+        for record in tensor_free_form_inputs.parameters(outcome["region"])
+      ),
       dtype="f32",
       values=(),
       data=data,
@@ -2338,20 +2493,23 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         case = tensor_target_case.load(bundle, symiri=symiri)
         output_path = _Path(outcome["directory"]) / f"p0-{probe}.bin"
         observation = tensor_target_reference.observe(
-          case, symiri=symiri, timeout_s=timeout_s, output_path=output_path,
+          case,
+          symiri=symiri,
+          timeout_s=timeout_s,
+          output_path=output_path,
           on_process=p0_process,
         )
         record = observation.as_record()
         base_run = next(
-          run for run in result["runs"]
-          if run["probe"] == probe and run["trip_count"] == trip_count
+          run
+          for run in result["runs"]
+          if run["probe"] == probe
+          and run["trip_count"] == trip_count
           and run["variant"] == "combined"
         )
         p1_sha = base_run.get("actual_sha256")
         p0_sha = record.get("output_sha256")
-        agreement = (
-          None if p0_sha is None or p1_sha is None else p0_sha == p1_sha
-        )
+        agreement = None if p0_sha is None or p1_sha is None else p0_sha == p1_sha
         p0.append(
           {
             "probe": probe,
@@ -2430,6 +2588,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       if process is not None:
         path = "p1" if event.get("mode") == "interpret" else "p2"
         process({**event, "path": path})
+
     directory.mkdir(parents=True, exist_ok=True)
     if corpus.get("kind") == "control":
       if controls_root is None:
@@ -2442,9 +2601,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         }
       warps = int(configuration.rsplit("-", 1)[1])
       pattern = CONTROL_PATTERNS[probe]
-      bundle = (
-        Path(controls_root) / str(corpus["source"]) / f"{pattern}-warps-{warps}"
-      )
+      bundle = Path(controls_root) / str(corpus["source"]) / f"{pattern}-warps-{warps}"
       if not bundle.is_dir():
         return {
           "status": "unavailable",
@@ -2480,13 +2637,13 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
       current_p0_refused = False
       if reference is None:
         reference = tensor_target_reference.observe(
-          case, symiri=symiri, timeout_s=timeout_s,
+          case,
+          symiri=symiri,
+          timeout_s=timeout_s,
           output_path=directory / "p0.bin",
           on_process=p0_process,
         )
-        current_p0_refused = (
-          reference.status == tensor_target_reference.NOT_RUN
-        )
+        current_p0_refused = reference.status == tensor_target_reference.NOT_RUN
         if reference.status == tensor_target_reference.COMPLETED:
           reference_cache[cache_key] = reference
       run = tensor_target_run.run(
@@ -2523,9 +2680,9 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         "paths": paths,
         "candidate": run.candidate,
         "dispatch_refused": run.dispatch_refused,
-        "unavailable": [] if reference.status == tensor_target_reference.COMPLETED else [
-          f"p0:{reference.status}"
-        ],
+        "unavailable": []
+        if reference.status == tensor_target_reference.COMPLETED
+        else [f"p0:{reference.status}"],
         "compiler": compiler,
         "control": {
           "program_sha256": hashlib.sha256(archived_program).hexdigest(),
@@ -2537,23 +2694,33 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         "record": run.as_record(),
       }
     if corpus.get("compiler_identity") not in (None, identity):
-      raise StudyRefused("the corpus compiler identity differs from the current environment")
+      raise StudyRefused(
+        "the corpus compiler identity differs from the current environment"
+      )
     region = corpus["region"]
     source = corpus["source"]
-    if corpus.get("source_sha256") and hashlib.sha256(source.encode("utf-8")).hexdigest() != corpus["source_sha256"]:
+    if (
+      corpus.get("source_sha256")
+      and hashlib.sha256(source.encode("utf-8")).hexdigest() != corpus["source_sha256"]
+    ):
       raise StudyRefused("the corpus source changed after the freeze")
     probe_bytes = bytes(corpus["probe_values"][probe])
     stored_probe = (corpus.get("probes") or {}).get(probe) or {}
-    if stored_probe.get("sha256") and hashlib.sha256(probe_bytes).hexdigest() != stored_probe["sha256"]:
+    if (
+      stored_probe.get("sha256")
+      and hashlib.sha256(probe_bytes).hexdigest() != stored_probe["sha256"]
+    ):
       raise StudyRefused("the corpus probe inputs changed after the freeze")
     proposal = tensor_free_form_inputs.Proposal(
       schema=tensor_free_form_inputs.WINDOW_PROBE_SCHEMA,
       pattern=probe,
       seed=0,
-      names=tuple(record["name"] for record in
-                  tensor_free_form_inputs.parameters(region)),
-      shapes=tuple(tuple(record["shape"]) for record in
-                   tensor_free_form_inputs.parameters(region)),
+      names=tuple(
+        record["name"] for record in tensor_free_form_inputs.parameters(region)
+      ),
+      shapes=tuple(
+        tuple(record["shape"]) for record in tensor_free_form_inputs.parameters(region)
+      ),
       dtype="f32",
       values=(),
       data=probe_bytes,
@@ -2602,7 +2769,10 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
           data = None
           if output_path and _Path(output_path).is_file():
             data = _Path(output_path).read_bytes()
-          if data is not None and hashlib.sha256(data).hexdigest() == entry["output_sha256"]:
+          if (
+            data is not None
+            and hashlib.sha256(data).hexdigest() == entry["output_sha256"]
+          ):
             reference = tensor_target_reference.ReferenceObservation(
               tensor_target_reference.COMPLETED,
               output=data,
@@ -2637,9 +2807,7 @@ def device_operations(*, exporter, symirc, symiri, controls_root=None, timeout_s
         on_process=p0_process,
         output_path=request.get("reference_output_path"),
       )
-      current_p0_refused = (
-        reference.status == tensor_target_reference.NOT_RUN
-      )
+      current_p0_refused = reference.status == tensor_target_reference.NOT_RUN
     if request.get("on_reference") is not None:
       request["on_reference"](reference)
     run = tensor_target_run.run(
@@ -3111,9 +3279,8 @@ def run_qualification(
       "qualification cannot dispatch while the study is paused or stopped"
     )
   diagnostic_only = any(
-    review["unresolved"] for review in _qualification_reviews(
-      work, authority.path_ledger.events, frozen
-    )
+    review["unresolved"]
+    for review in _qualification_reviews(work, authority.path_ledger.events, frozen)
   )
   if authority.legacy_accounting:
     raise StudyRefused("new qualification needs process accounting")
@@ -3326,6 +3493,7 @@ def run_qualification(
             UNAVAILABLE,
             ReferenceObservation,
           )
+
           failed = ReferenceObservation(
             UNAVAILABLE, reason=f"P0 dispatch refused: {error}"
           )
@@ -3391,9 +3559,7 @@ def run_qualification(
       )
     )
     capabilities = qualification_capabilities(built, required)
-    validated = bool(
-      validated and all(capabilities.get(name) for name in required)
-    )
+    validated = bool(validated and all(capabilities.get(name) for name in required))
     case_record = {
       "case": case,
       "padded": slot["padded"],
@@ -3435,8 +3601,11 @@ def main(argv=None):
   parser.add_argument("--symiri", required=True)
   parser.add_argument("--timeout", type=float, default=300.0)
   parser.add_argument("--controls-root", default=None)
-  parser.add_argument("--mode", choices=("qualification", "select", "discover", "close", "reconcile"),
-                      required=True)
+  parser.add_argument(
+    "--mode",
+    choices=("qualification", "select", "discover", "close", "reconcile"),
+    required=True,
+  )
   parser.add_argument("--triage-ledger", default=None)
   parser.add_argument(
     "--qualification-retry",
@@ -3457,7 +3626,10 @@ def main(argv=None):
   if arguments.triage_disposition_file is not None:
     if decision is None:
       parser.error("--triage-disposition-file requires --triage-decision")
-    decision = {"action": decision, "disposition": json.loads(arguments.triage_disposition_file.read_text())}
+    decision = {
+      "action": decision,
+      "disposition": json.loads(arguments.triage_disposition_file.read_text()),
+    }
   if arguments.mode == "reconcile":
     report = report_from_records(
       Path(arguments.work),
@@ -3479,7 +3651,11 @@ def main(argv=None):
   toolchain = operations["toolchain"]
   work = Path(arguments.work)
   study_path = work / "study.json"
-  frozen = FrozenStudy.load(study_path) if study_path.is_file() else freeze_study(toolchain=toolchain)
+  frozen = (
+    FrozenStudy.load(study_path)
+    if study_path.is_file()
+    else freeze_study(toolchain=toolchain)
+  )
   require_toolchain(
     frozen, toolchain, accept_current=arguments.accept_current_toolchain
   )
@@ -3528,8 +3704,11 @@ def main(argv=None):
       print(json.dumps({"paused": study._paused_reason()}))
       return 2
     corpus = study.freeze_corpus()
-    print(json.dumps({"selected": len(corpus["sources"]),
-                      "shortfalls": corpus["shortfalls"]}))
+    print(
+      json.dumps(
+        {"selected": len(corpus["sources"]), "shortfalls": corpus["shortfalls"]}
+      )
+    )
     return 0
   if arguments.mode == "discover":
     study.run_discovery()
@@ -3539,8 +3718,14 @@ def main(argv=None):
     print(json.dumps({"execution": study.ledger.counts()}))
     return 0
   final = study.finalize()
-  print(json.dumps({"execution": final["execution"]["states"],
-                    "candidates": len(final["candidates"])}))
+  print(
+    json.dumps(
+      {
+        "execution": final["execution"]["states"],
+        "candidates": len(final["candidates"]),
+      }
+    )
+  )
   return 0
 
 
