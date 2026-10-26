@@ -72,8 +72,20 @@ def summary(work, events):
       ):
         raise ValueError("triage decision names different candidate evidence")
       decisions[decision["pause_id"]] = validate(work, decision["disposition"])
+  # Qualification may pause the same retained outcome again after a diagnostic
+  # retry. Its latest disposition replaces the open status, not its history.
+  latest_qualification = {
+    pause["candidate_sha256"]: pause_id
+    for pause_id, pause in pauses.items()
+    if pause.get("phase") == "qualification"
+  }
   records = []
   for pause_id, pause in pauses.items():
+    if (
+      pause.get("phase") == "qualification"
+      and latest_qualification[pause["candidate_sha256"]] != pause_id
+    ):
+      continue
     disposition = decisions.get(pause_id)
     records.append(
       {

@@ -124,6 +124,7 @@ class QualificationGateTests(unittest.TestCase):
     self.work.mkdir(parents=True)
     self.frozen = study.freeze_study(toolchain={"symirc_sha256": "x"})
     self.frozen.write(self.work / "study.json")
+    (self.work / "path-ledger.jsonl").touch()
 
   def write(self, record):
     (self.work / "qualification.json").write_text(

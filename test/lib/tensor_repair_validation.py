@@ -5,11 +5,65 @@ ledgers remain authoritative; batch limits are checked from those ledgers
 before forwarding a reservation to the study's own accounting authority.
 """
 
+import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from test.lib import tensor_execution
 from test.lib import tensor_study_accounting as accounting
+
+SOURCE_ROOT = Path(__file__).resolve().parents[2]
+SOURCE_DIRS = ("test/lib", "test/tensor/campaigns", "test/unit")
+REQUIRED_SOURCES = (
+  "test/lib/tensor_repair_validation.py",
+  "test/tensor/campaigns/run_moving_window_discovery.py",
+  "test/unit/test_moving_window_closure.py",
+)
+
+
+def implementation_files(root):
+  root = Path(root)
+  if not all((root / name).is_file() for name in REQUIRED_SOURCES):
+    raise ValueError("repair implementation source is missing")
+  return {
+    path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    for directory in SOURCE_DIRS
+    for path in sorted((root / directory).rglob("*.py"))
+  }
+
+
+def implementation_identity(root):
+  files = implementation_files(root)
+  revision = subprocess.run(
+    ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=False
+  )
+  return {
+    "schema": "refractir.repair-implementation.v1",
+    "files": files,
+    "digest": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
+    # Content hashes bind an applied overlay even before it has a commit.
+    "base_revision": revision.stdout.strip() if revision.returncode == 0 else None,
+    "python": {
+      "version": sys.version,
+      "executable_sha256": hashlib.sha256(
+        Path(sys.executable).read_bytes()
+      ).hexdigest(),
+    },
+  }
+
+
+def verify_implementation(root, identity):
+  if (
+    not isinstance(identity, dict)
+    or identity.get("schema") != "refractir.repair-implementation.v1"
+  ):
+    raise ValueError("repair implementation identity is missing")
+  files = implementation_files(root)
+  digest = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+  if files != identity.get("files") or digest != identity.get("digest"):
+    raise ValueError("repair implementation source changed")
 
 
 def _require(condition, message):
@@ -18,6 +72,7 @@ def _require(condition, message):
 
 
 def run_batch(root, operations, *, driver, caps, total_caps):
+  identity = implementation_identity(SOURCE_ROOT)
   root = Path(root)
   root.mkdir(parents=True, exist_ok=False)
   names = ("qualification", "refused-p2", "refused-p0")
@@ -26,6 +81,7 @@ def run_batch(root, operations, *, driver, caps, total_caps):
     "status": "running",
     "caps": dict(total_caps),
     "toolchain": operations["toolchain"],
+    "implementation": identity,
     "scenarios": [
       {"scenario": name, "status": "pending", "caps": caps[name]} for name in names
     ],
@@ -81,12 +137,14 @@ def run_batch(root, operations, *, driver, caps, total_caps):
     )
 
   def execute(request):
+    verify_implementation(SOURCE_ROOT, identity)
     callback = request["on_process"]
     name = active["scenario"]
 
     def guard(event):
       path = event["path"]
       if event["event"] == "reserved":
+        verify_implementation(SOURCE_ROOT, identity)
         expected = (
           name == "refused-p2"
           and path == "p2"
@@ -113,7 +171,11 @@ def run_batch(root, operations, *, driver, caps, total_caps):
 
     return operations["execute"]({**request, "on_process": guard})
 
-  wrapped = {**operations, "execute": execute}
+  def build(request):
+    verify_implementation(SOURCE_ROOT, identity)
+    return operations["build"](request)
+
+  wrapped = {**operations, "build": build, "execute": execute}
 
   def scenario(name):
     work = root / name
@@ -154,6 +216,13 @@ def run_batch(root, operations, *, driver, caps, total_caps):
 
   save()
   try:
+    for name, digest in identity["files"].items():
+      data = (SOURCE_ROOT / name).read_bytes()
+      if hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError("repair implementation source changed before snapshot")
+      path = root / "implementation" / name
+      path.parent.mkdir(parents=True, exist_ok=True)
+      path.write_bytes(data)
     for active in record["scenarios"]:
       name = active["scenario"]
       active["status"] = "running"

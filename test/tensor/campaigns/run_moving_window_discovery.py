@@ -274,6 +274,12 @@ def require_qualification(work, frozen):
     raise StudyRefused(
       "the frozen study has no current qualification declaration"
     )
+  ledger = work / "path-ledger.jsonl"
+  if not ledger.is_file():
+    raise StudyRefused("qualification outcome history is missing")
+  reviews = _qualification_reviews(work, PathLedger(ledger).load().events, frozen)
+  if any(review["unresolved"] for review in reviews):
+    raise StudyRefused("qualification has unresolved candidate outcomes")
   path = work / "qualification.json"
   if not path.is_file():
     raise StudyRefused("qualification has not been recorded")
@@ -2877,26 +2883,74 @@ def _restore_qualification_outcomes(progress, events):
       state["outcomes"][configuration] = dict(event["outcome"])
 
 
-def _pause_qualification_outcomes(authority):
-  applied = authority._applied_decisions()
-  resolved = {
-    d.get("qualification_attempt")
-    for d in authority._decisions()
-    if d.get("decision_id") in applied
+def _qualification_reviews(work, events, frozen):
+  """Resolve candidate history from applied, evidence-bound decisions."""
+
+  def rows(name):
+    path = Path(work) / name
+    return (
+      [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+      if path.is_file()
+      else []
+    )
+
+  applied = {row["decision_id"] for row in rows("triage-applied.jsonl")}
+  decisions = {
+    row["qualification_attempt"]: row
+    for row in rows("triage-decisions.jsonl")
+    if row.get("decision_id") in applied and row.get("qualification_attempt")
   }
-  for event in authority.path_ledger.events:
+  reviews = []
+  for event in events:
     if event.get("kind") != "qualification_outcome":
       continue
     outcome = event["outcome"]
     if not (outcome.get("candidate") or outcome.get("dispatch_refused")):
       continue
-    if event["qualification_attempt"] in resolved:
+    key = _digest(
+      {
+        "study": frozen.digest,
+        "case": event["case"],
+        "configuration": event["configuration"],
+        "attempt": event["attempt"],
+      }
+    )
+    if key != event.get("qualification_attempt"):
+      raise StudyRefused("qualification outcome belongs to another attempt or study")
+    decision = decisions.get(key)
+    acknowledged = decision is not None and decision.get("action") == "resume"
+    unresolved = bool(outcome.get("candidate"))
+    if acknowledged and unresolved:
+      if decision.get("candidate_sha256") != _digest([event]):
+        raise StudyRefused("qualification decision names different candidate evidence")
+      try:
+        disposition = candidate_triage.validate(work, decision.get("disposition"))
+      except ValueError as error:
+        raise StudyRefused(str(error)) from error
+      unresolved = disposition["classification"] == "unresolved"
+    reviews.append(
+      {"event": event, "acknowledged": acknowledged, "unresolved": unresolved}
+    )
+  return reviews
+
+
+def _pause_qualification_outcomes(authority, *, diagnostic_retry=None):
+  for review in _qualification_reviews(
+    authority.work, authority.path_ledger.events, authority.frozen
+  ):
+    event = review["event"]
+    if review["acknowledged"] and not review["unresolved"]:
+      continue
+    identity = (event["case"], event["configuration"], event["attempt"])
+    # A named retry permits this diagnostic attempt only. It is not a
+    # disposition and cannot authorize the next configuration or case.
+    if review["unresolved"] and review["acknowledged"] and identity == diagnostic_retry:
       continue
     if not authority.is_paused():
       authority.pause(
-        [event] if outcome.get("candidate") else [],
+        [event] if event["outcome"].get("candidate") else [],
         reason="qualification candidate"
-        if outcome.get("candidate")
+        if event["outcome"].get("candidate")
         else "qualification dispatch refused",
         phase="qualification",
         qualification_attempt=event["qualification_attempt"],
@@ -3044,10 +3098,10 @@ def run_qualification(
   ]
   if construction_stops and not authority.is_paused() and not authority.is_stopped():
     authority.pause([], reason=construction_stops[-1]["reason"], phase="qualification")
-  _pause_qualification_outcomes(authority)
+  _pause_qualification_outcomes(authority, diagnostic_retry=retry_request)
   if triage_decision is not None:
     authority.record_triage_decision(triage_decision)
-    _pause_qualification_outcomes(authority)
+    _pause_qualification_outcomes(authority, diagnostic_retry=retry_request)
   if construction_stops:
     raise StudyRefused(
       "qualification construction failed; preserve it and use a new approved freeze"
@@ -3056,6 +3110,11 @@ def run_qualification(
     raise StudyRefused(
       "qualification cannot dispatch while the study is paused or stopped"
     )
+  diagnostic_only = any(
+    review["unresolved"] for review in _qualification_reviews(
+      work, authority.path_ledger.events, frozen
+    )
+  )
   if authority.legacy_accounting:
     raise StudyRefused("new qualification needs process accounting")
   record = {
@@ -3071,6 +3130,8 @@ def run_qualification(
     )
 
   for slot in chosen:
+    if diagnostic_only and slot["id"] != retry_request[0]:
+      continue
     if authority.is_paused() or authority.is_stopped():
       break
     case = slot["id"]
@@ -3166,6 +3227,8 @@ def run_qualification(
     state = progress["cases"][case]
     observed = references.get(case)
     for configuration in frozen.spec["configurations"]:
+      if diagnostic_only and configuration != retry_request[1]:
+        continue
       previous = state["attempts"].get(configuration)
       if previous is not None:
         if previous["status"] == "completed":
@@ -3309,8 +3372,14 @@ def run_qualification(
       state["attempts"].get(c, {}).get("status") == "completed"
       for c in frozen.spec["configurations"]
     )
+    open_candidates = [
+      review["event"]["qualification_attempt"]
+      for review in _qualification_reviews(work, authority.path_ledger.events, frozen)
+      if review["unresolved"] and review["event"]["case"] == case
+    ]
     validated = (
       complete
+      and not open_candidates
       and getattr(observed, "status", None) == COMPLETED
       and all(
         not value.get("candidate")
@@ -3332,6 +3401,7 @@ def run_qualification(
       "capabilities": capabilities,
       "complete": complete,
       "validated": validated,
+      **({"unresolved_candidates": open_candidates} if open_candidates else {}),
     }
     if not complete:
       case_record["interrupted"] = (

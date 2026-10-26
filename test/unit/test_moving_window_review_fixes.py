@@ -128,7 +128,17 @@ class QualificationOutcomeTests(unittest.TestCase):
   def test_final_report_keeps_qualification_candidate(self):
     f = CandidateFixture(self.root)
     f.run()
-    runner = resume_if_paused(f)
+    runner = authority(f)
+    note = self.root / "fixture-diagnosis.txt"
+    note.write_text("The host fixture deliberately injected this failure.\n")
+    runner.record_triage_decision({
+      "action": "resume",
+      "disposition": {
+        "classification": "infrastructure_defect",
+        "explanation": "This report fixture uses a deliberately injected failure.",
+        "evidence": [{"path": note.name, "sha256": study._sha256_bytes(note.read_bytes())}],
+      },
+    })
     f.run()
     runner = authority(f)
     runner.build = fixtures.fake_builder(
@@ -140,6 +150,7 @@ class QualificationOutcomeTests(unittest.TestCase):
     saved = runner.finalize()
     self.assertEqual(len(saved["candidates"]), 1)
     self.assertEqual(saved["candidates"][0]["phase"], "qualification")
+    self.assertEqual(saved["candidate_triage"]["resolved"], 1)
     self.assertEqual(saved, study.report_from_records(f.root))
 
   def test_retry_keeps_both_attempt_outcomes(self):

@@ -13,6 +13,8 @@ from pathlib import Path
 
 NAME = "evidence-manifest.json"
 SCHEMA = "refractir.moving-window-evidence.v1"
+QUALIFICATION_SCHEMA = "refractir.moving-window-qualification-evidence.v1"
+REPAIR_SCHEMA = "refractir.moving-window-repair-evidence.v1"
 
 
 def _sha(path):
@@ -37,6 +39,15 @@ def inventory(work, external_roots=()):
           "sha256": _sha(path),
         }
       )
+  if (work / "validation.json").is_file():
+    if external_roots:
+      raise ValueError("repair batches must retain their scenario payloads internally")
+    return {
+      "schema": REPAIR_SCHEMA,
+      "origin": str(work),
+      "files": files,
+      "batch_sha256": _sha(work / "validation.json"),
+    }
   mounts = [
     {"origin": str(Path(path).resolve()), "prefix": f"external/{index:03d}"}
     for index, path in enumerate(external_roots)
@@ -93,10 +104,33 @@ def inventory(work, external_roots=()):
   }
 
 
+def _verify_files(root, files):
+  indexed = {}
+  for item in files:
+    name = item.get("path", "")
+    relative = Path(name)
+    if not name or relative.is_absolute() or ".." in relative.parts or name in indexed:
+      raise ValueError("invalid or duplicate evidence path")
+    path = root / relative
+    if (
+      path.is_symlink() or not path.resolve().is_relative_to(root) or not path.is_file()
+    ):
+      raise ValueError(f"missing evidence: {name}")
+    if path.stat().st_size != item.get("size") or _sha(path) != item.get("sha256"):
+      raise ValueError(f"evidence digest changed: {name}")
+    indexed[name] = item
+
+  return indexed
+
+
 def verify(work, *, manifest=None, study_digest=None):
   root = Path(work).resolve()
   record = manifest if manifest is not None else json.loads((root / NAME).read_text())
-  if record.get("schema") != SCHEMA or not isinstance(record.get("files"), list):
+  if record.get("schema") == REPAIR_SCHEMA:
+    return _verify_repair(root, record)
+  if record.get("schema") not in (SCHEMA, QUALIFICATION_SCHEMA) or not isinstance(
+    record.get("files"), list
+  ):
     raise ValueError("unsupported evidence manifest")
   if study_digest is None:
     study_digest = json.loads((root / "study.json").read_text())["digest"]
@@ -121,20 +155,7 @@ def verify(work, *, manifest=None, study_digest=None):
     ):
       raise ValueError("invalid external-root mapping")
     seen.add(str(prefix))
-  indexed = {}
-  for item in record["files"]:
-    name = item.get("path", "")
-    relative = Path(name)
-    if not name or relative.is_absolute() or ".." in relative.parts or name in indexed:
-      raise ValueError("invalid or duplicate evidence path")
-    path = root / relative
-    if (
-      path.is_symlink() or not path.resolve().is_relative_to(root) or not path.is_file()
-    ):
-      raise ValueError(f"missing evidence: {name}")
-    if path.stat().st_size != item.get("size") or _sha(path) != item.get("sha256"):
-      raise ValueError(f"evidence digest changed: {name}")
-    indexed[name] = item
+  indexed = _verify_files(root, record["files"])
 
   def relative(path):
     path = Path(path)
@@ -168,12 +189,14 @@ def verify(work, *, manifest=None, study_digest=None):
       raise ValueError(f"saved digest differs from raw artifact: {name}")
     return root / name
 
-  for name in [
-    "study.json",
-    "path-ledger.jsonl",
-    "tranche-ledger.jsonl",
-    "corpus-frozen.json",
-  ]:
+  qualification = record["schema"] == QUALIFICATION_SCHEMA
+  required = ["study.json", "path-ledger.jsonl", "tranche-ledger.jsonl"]
+  required += (
+    ["qualification-progress.json", "qualification.json"]
+    if qualification
+    else ["corpus-frozen.json"]
+  )
+  for name in required:
     need(name)
   events = [
     json.loads(line)
@@ -209,7 +232,10 @@ def verify(work, *, manifest=None, study_digest=None):
       need(arg("--tensor-input"))
       need(command[-1])
       if finished and finished.get("status") == "completed":
-        need(arg("--tensor-output"))
+        output = arg("--tensor-output")
+        if qualification and relative(output) not in indexed:
+          output = output.with_suffix(output.suffix + ".aside")
+        need(output)
       continue
     bundle = arg("--case")
     artifacts = arg("--artifacts-dir")
@@ -280,9 +306,183 @@ def verify(work, *, manifest=None, study_digest=None):
         compiler_hashes(child)
 
   compiler_hashes(events)
+  if qualification:
+    _verify_qualification_records(root, events, need)
   if (root / "qualification.json").is_file():
     need("qualification.json")
     compiler_hashes(json.loads((root / "qualification.json").read_text()))
+  return record
+
+
+def _canonical_sha(value):
+  data = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+  return hashlib.sha256(data.encode()).hexdigest()
+
+
+def _verify_qualification_records(root, events, need):
+  progress = json.loads(need("qualification-progress.json").read_text())
+  outcomes = {}
+  for event in events:
+    if event.get("kind") == "qualification_outcome":
+      key = (event["case"], event["configuration"], event["attempt"])
+      if key in outcomes and outcomes[key] != event:
+        raise ValueError("contradictory qualification attempt history")
+      outcomes[key] = event
+  for case, state in progress["cases"].items():
+    identity = state["identity"]
+    for configuration, attempt in state["attempts"].items():
+      saved = outcomes.get((case, configuration, attempt["attempt"]))
+      if (
+        saved is None
+        or saved["attempt_record"] != attempt
+        or saved["outcome"] != state["outcomes"][configuration]
+      ):
+        raise ValueError("qualification progress differs from outcome history")
+    built = json.loads(need(Path(case) / "build.json").read_text())
+    if _canonical_sha(built) != identity["build_digest"]:
+      raise ValueError("qualification build digest differs")
+    for probe, bundle in built["bundles"].items():
+      for name in ("program.sir", "inputs.bin", "case.json"):
+        need(Path(bundle) / name, identity["payloads"][f"{probe}/{name}"])
+    if state.get("reference_record"):
+      meta_path = need(state["reference_record"])
+      meta = json.loads(meta_path.read_text())
+      if (
+        _canonical_sha(meta) != state["reference_digest"]
+        or meta["identity"] != identity
+      ):
+        raise ValueError("qualification reference identity differs")
+      if meta["status"] == "completed":
+        output = meta_path.with_name("p0.bin")
+        if not output.exists():
+          output = output.with_suffix(".bin.aside")
+        need(output.relative_to(root), meta["output_sha256"])
+  for event in events:
+    if event.get("kind") == "qualification_outcome":
+      attempt = event["attempt_record"]
+      if not attempt.get("artifacts"):
+        raise ValueError("qualification outcome has no retained artifacts")
+      for name, digest in attempt["artifacts"].items():
+        need(Path(attempt["directory"]) / name, digest)
+  decisions = [
+    event["decision"] for event in events if event.get("kind") == "triage_decision"
+  ]
+  if decisions:
+    attempt_keys = {event["qualification_attempt"] for event in outcomes.values()}
+    if any(
+      row.get("qualification_attempt") not in attempt_keys
+      for row in decisions
+      if row.get("phase") == "qualification"
+    ):
+      raise ValueError("triage decision has no retained qualification outcome")
+    saved = [
+      json.loads(line)
+      for line in need("triage-decisions.jsonl").read_text().splitlines()
+      if line.strip()
+    ]
+    applied = {
+      json.loads(line)["decision_id"]
+      for line in need("triage-applied.jsonl").read_text().splitlines()
+      if line.strip()
+    }
+    if decisions != saved or not all(row["decision_id"] in applied for row in saved):
+      raise ValueError("qualification decisions are incomplete or contradictory")
+
+
+def _verify_repair(root, record):
+  from test.lib.tensor_repair_validation import verify_implementation
+  from test.tensor.campaigns import run_moving_window_discovery as driver
+
+  files = record.get("files")
+  if not isinstance(files, list):
+    raise ValueError("repair evidence manifest has no files")
+  indexed = _verify_files(root, files)
+  origin = Path(record.get("origin", ""))
+  if not origin.is_absolute():
+    raise ValueError("repair evidence origin must be absolute")
+
+  def required(name):
+    if name not in indexed:
+      raise ValueError(f"required repair evidence is missing: {name}")
+    return root / name
+
+  validation = json.loads(required("validation.json").read_text())
+  if _sha(root / "validation.json") != record.get("batch_sha256"):
+    raise ValueError("repair validation record digest differs")
+  verify_implementation(root / "implementation", validation.get("implementation"))
+  names = ("qualification", "refused-p2", "refused-p0")
+  scenarios = validation.get("scenarios", [])
+  if validation.get("status") != "passed" or [
+    s.get("scenario") for s in scenarios
+  ] != list(names):
+    raise ValueError("repair batch has not completed its three scenarios")
+  totals = {path: 0 for path in ("p0", "p1", "p2")}
+  process_index = []
+  for name, scenario in zip(names, scenarios):
+    required(f"{name}/study.json")
+    ledger = required(f"{name}/path-ledger.jsonl")
+    events = [
+      json.loads(line) for line in ledger.read_text().splitlines() if line.strip()
+    ]
+    frozen = driver.FrozenStudy.load(root / name / "study.json")
+    study = frozen.as_record()
+    if frozen.spec.get("toolchain") != validation.get("toolchain"):
+      raise ValueError("repair scenario toolchain differs from its batch")
+    scenario_manifest = {
+      "schema": QUALIFICATION_SCHEMA,
+      "study": study["digest"],
+      "origin": str(origin / name),
+      "files": [
+        {**item, "path": str(Path(item["path"]).relative_to(name))}
+        for item in files
+        if Path(item["path"]).is_relative_to(name)
+      ],
+    }
+    verify(root / name, manifest=scenario_manifest)
+    counts = driver.path_counts(events)
+    starts = {path: counts[path]["launches"] for path in totals}
+    if (
+      scenario.get("status") != "completed"
+      or starts != scenario.get("starts")
+      or starts != scenario.get("caps")
+    ):
+      raise ValueError(f"repair scenario process counts differ: {name}")
+    for path in totals:
+      totals[path] += starts[path]
+    process_index.extend(
+      {"scenario": name, **event}
+      for event in events
+      if event.get("kind") in ("process", "launch_refused")
+    )
+    qualified = json.loads((root / name / "qualification.json").read_text())
+    if name == "qualification":
+      frozen = driver.FrozenStudy.load(root / name / "study.json")
+      driver.require_qualification(root / name, frozen)
+      if qualified["digest"] != scenario.get("qualification_digest"):
+        raise ValueError("repair qualification digest differs")
+    elif name == "refused-p2":
+      if (
+        not qualified["cases"][0]["complete"]
+        or scenario.get("p0_cache") != "moved-aside"
+      ):
+        raise ValueError("P2 refusal/retry evidence is incomplete")
+    elif (
+      not qualified["cases"][0]["complete"]
+      or qualified["cases"][0]["validated"]
+      or scenario.get("p0_cache") != "unavailable"
+    ):
+      raise ValueError("P0 refusal/retry evidence is incomplete")
+  saved_index = [
+    json.loads(line)
+    for line in required("processes.jsonl").read_text().splitlines()
+    if line.strip()
+  ]
+  if saved_index != process_index:
+    raise ValueError("repair process index differs from authoritative ledgers")
+  if totals != validation.get("total_starts") or any(
+    totals[p] > validation["caps"][p] for p in totals
+  ):
+    raise ValueError("repair batch process allocation differs")
   return record
 
 
@@ -296,7 +496,7 @@ def package(work, destination, *, external_roots=()):
     target = destination / item["path"]
     target.parent.mkdir(parents=True, exist_ok=True)
     source = work / item["path"]
-    for mount in manifest["external_roots"]:
+    for mount in manifest.get("external_roots", []):
       if Path(item["path"]).is_relative_to(mount["prefix"]):
         source = Path(mount["origin"]) / Path(item["path"]).relative_to(mount["prefix"])
         break
@@ -320,7 +520,15 @@ def main(argv=None):
     result = package(args.work, args.destination, external_roots=args.external_root)
   else:
     result = verify(args.work)
-  print(json.dumps({"study": result["study"], "files": len(result["files"])}))
+  print(
+    json.dumps(
+      {
+        "schema": result["schema"],
+        "study": result.get("study"),
+        "files": len(result["files"]),
+      }
+    )
+  )
   return 0
 
 
