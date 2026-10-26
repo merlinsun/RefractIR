@@ -324,9 +324,9 @@ class _Session:
     self.restarted = bool(history)
     self.pairs_per_kernel = len(spec["configurations"]) * len(spec["inputs"])
 
-  def stop_reason(self, started):
+  def stop_reason(self, started, now):
     budget = self.spec["budget"]
-    if self.clock() - started >= budget["wall_clock_s_per_session"]:
+    if now - started >= budget["wall_clock_s_per_session"]:
       return "wall_clock"
     if self.dispatched + self.pairs_per_kernel > budget["gpu_workers"]:
       return "gpu_budget"
@@ -348,12 +348,12 @@ class _Session:
     return directory
 
   def run_kernel(self, index):
+    """Build and run one kernel; return its status fields and directory."""
     request = kernel_request(self.spec, index)
     directory = self.kernel_directory(request["seed"])
     built = self.operations["build"]({**request, "directory": str(directory)})
     if built["kind"] != "admitted":
-      return self.log.append(
-        "kernel",
+      return directory, dict(
         seed=request["seed"],
         request=request,
         status="refused",
@@ -389,8 +389,7 @@ class _Session:
     status = (
       "candidate" if candidates else "infrastructure" if infrastructure else "agreement"
     )
-    return self.log.append(
-      "kernel",
+    return directory, dict(
       seed=request["seed"],
       request=request,
       status=status,
@@ -436,10 +435,17 @@ class _Session:
     for index in range(self.spec["seed_count"]):
       if self.spec["seed_start"] + index in self.done:
         continue
-      reason = self.stop_reason(started)
+      now = self.clock()
+      reason = self.stop_reason(started, now)
       if reason is not None:
         break
-      self.run_kernel(index)
+      directory, fields = self.run_kernel(index)
+      self.log.append(
+        "kernel",
+        **fields,
+        elapsed_s=self.clock() - now,
+        disk_bytes=_disk_bytes(directory),
+      )
       if self.infrastructure_exceeded():
         reason = "infrastructure_failure_rate"
         break
@@ -448,10 +454,73 @@ class _Session:
     return report(self.work, reason)
 
 
+def _disk_bytes(directory):
+  return sum(
+    path.stat().st_size for path in Path(directory).rglob("*") if path.is_file()
+  )
+
+
 def _pair_name(configuration, name):
   return (
     f"warps-{configuration['num_warps']}-stages-{configuration['num_stages']}-{name}"
   )
+
+
+def _histogram(values):
+  counts = {}
+  for value in values:
+    counts[str(value)] = counts.get(str(value), 0) + 1
+  return counts
+
+
+def _exposure(admitted):
+  """Section 6.6 statistics over every paired run's compiler summary."""
+  compilers = [
+    pair.get("compiler") or {} for line in admitted for pair in line["pairs"]
+  ]
+  observed = [
+    compiler for compiler in compilers if compiler.get("status") == "observed"
+  ]
+  ttgir = [(compiler.get("stages") or {}).get("ttgir") or {} for compiler in observed]
+  kinds = {}
+  for compiler in observed:
+    for kind in sorted(set(compiler.get("encodings") or ())):
+      kinds[kind] = kinds.get(kind, 0) + 1
+  return {
+    "observed": len(observed),
+    "unavailable": len(compilers) - len(observed),
+    "ttgir_layout_conversions": _histogram(
+      stage.get("layout_conversion_count") for stage in ttgir
+    ),
+    "ttgir_loop_retained": sum(
+      (stage.get("loop_construct_count") or 0) > 0 for stage in ttgir
+    ),
+    "encoding_kinds": kinds,
+  }
+
+
+def measurements(kernels):
+  """The pilot's acceptance measurements from the kernel status lines."""
+  admitted = [line for line in kernels if line["status"] != "refused"]
+  elapsed = sum(line.get("elapsed_s", 0) for line in kernels)
+  disk = [line.get("disk_bytes", 0) for line in admitted]
+  failures = sum(line["infrastructure"] for line in admitted)
+  return {
+    "elapsed_s": elapsed,
+    "kernels_per_hour": len(admitted) * 3600 / elapsed if elapsed else None,
+    "disk_bytes_per_kernel": {
+      "mean": sum(disk) / len(disk) if disk else None,
+      "max": max(disk, default=None),
+      "total": sum(disk),
+    },
+    "infrastructure": {
+      "kernels": failures,
+      "admitted": len(admitted),
+      "rate": failures / len(admitted) if admitted else None,
+    },
+    "live_nodes": _histogram(line.get("live_nodes") for line in admitted),
+    "exposure": _exposure(admitted),
+  }
 
 
 def report(work, reason=None):
@@ -481,6 +550,7 @@ def report(work, reason=None):
     "gpu_workers_dispatched": sum(line["event"] == "dispatch" for line in history),
     "sessions": sum(line["event"] in ("start", "restart") for line in history),
     "signatures": signatures,
+    "measurements": measurements(kernels),
   }
   tensor_execution.write_atomic(
     work / "report.json", (_canonical(result) + "\n").encode("utf-8")
@@ -548,6 +618,14 @@ def _mode_result(run):
     "reason": run.reason or run.stderr[-2000:],
     "output": run.actual,
   }
+
+
+def ttgir_encodings(text):
+  """The kind of each named layout encoding defined at the top of TTGIR."""
+  return [
+    match.group(1)
+    for match in re.finditer(r"^#\w+ = #ttg\.(\w+)<", text, flags=re.MULTILINE)
+  ]
 
 
 def pair_result(run, bundle):
@@ -705,9 +783,13 @@ def device_operations(*, exporter, symirc, symiri, timeout_s=300.0, toolchain=No
       return pair_failure(error)
     result = pair_result(run, directory)
     result["inputs_sha256"] = hashlib.sha256(data).hexdigest()
-    result["compiler"] = _STUDY.compiler_stage_observation(
-      directory / "target-runs" / "compiled"
-    )
+    compiled = directory / "target-runs" / "compiled"
+    result["compiler"] = _STUDY.compiler_stage_observation(compiled)
+    ttgir = compiled / "compiler-ttgir.ir"
+    if ttgir.is_file():
+      result["compiler"]["encodings"] = ttgir_encodings(
+        ttgir.read_text(encoding="utf-8")
+      )
     return result
 
   def screen(kernel):

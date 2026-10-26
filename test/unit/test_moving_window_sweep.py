@@ -48,8 +48,19 @@ def lines(path):
 class Script:
   """Scripted builder and paired worker; every unscripted path returns ONE."""
 
-  def __init__(self, *, refused=(), outputs=None, statuses=None, interrupt=None):
+  def __init__(
+    self,
+    *,
+    refused=(),
+    outputs=None,
+    statuses=None,
+    interrupt=None,
+    live_nodes=None,
+    compiler=None,
+  ):
     self.refused = set(refused)
+    self.live_nodes = live_nodes or {}
+    self.compiler = compiler or {}
     self.outputs = outputs or {}
     self.statuses = statuses or {}
     self.interrupt = interrupt
@@ -72,7 +83,7 @@ class Script:
       "source_sha256": f"sir-{seed}",
       "typed_fingerprint": f"fp-{seed}",
       "connectivity_signature": "c0",
-      "live_nodes": 9,
+      "live_nodes": self.live_nodes.get(seed, 9),
     }
 
   def run_pair(self, request):
@@ -89,7 +100,7 @@ class Script:
       "kernel_sha256": f"kernel-{seed}",
       "inputs_sha256": f"inputs-{request['input']}",
       "raw": [str(raw)],
-      "compiler": {"status": "unavailable"},
+      "compiler": self.compiler.get(key, {"status": "unavailable"}),
     }
     for path in ("p1", "p2"):
       status, reason = self.statuses.get((*key, path), ("completed", ""))
@@ -245,6 +256,84 @@ class SweepContractTests(SweepFixture):
       self.assertEqual(report["stop_reason"], "disk_guard")
 
 
+def observed(conversions, *, loop=1, encodings=("blocked",)):
+  return {
+    "status": "observed",
+    "stages": {
+      "ttgir": {"layout_conversion_count": conversions, "loop_construct_count": loop}
+    },
+    "encodings": list(encodings),
+  }
+
+
+def ticking(step):
+  """A session clock that advances `step` seconds on every reading."""
+  readings = iter(range(0, 10**9, step))
+  return lambda: next(readings)
+
+
+class SweepReportTests(SweepFixture):
+  """The pilot's acceptance measurements, computed from the retained records."""
+
+  def measurements(self, *args, **kwargs):
+    return self.run_sweep(*args, **kwargs)["measurements"]
+
+  def test_kernels_per_hour_is_measured_on_the_session_clock(self):
+    script = Script(refused={S0 + 1})
+    measured = self.measurements(
+      spec(3, wall_clock_s=10**6), script, clock=ticking(600)
+    )
+    self.assertEqual([k["elapsed_s"] for k in self.kernels()], [600, 600, 600])
+    self.assertEqual(measured["elapsed_s"], 1800)
+    self.assertEqual(measured["kernels_per_hour"], 4.0)
+
+  def test_disk_use_per_admitted_kernel_is_measured_after_pruning(self):
+    script = Script()
+    measured = self.measurements(spec(2, sample_every=2), script)
+
+    def size(seed):
+      root = self.work / "kernels" / f"seed-{seed}"
+      return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+
+    sizes = [size(S0), size(S0 + 1)]
+    self.assertLess(sizes[0], sizes[1])
+    self.assertEqual([k["disk_bytes"] for k in self.kernels()], sizes)
+    self.assertEqual(
+      measured["disk_bytes_per_kernel"],
+      {"mean": sum(sizes) / 2, "max": sizes[1], "total": sum(sizes)},
+    )
+
+  def test_the_infrastructure_rate_is_over_admitted_kernels(self):
+    script = Script(
+      refused={S0 + 4},
+      statuses={(S0 + 1, 4, I3, "p2"): ("environment_unavailable", "CUDA device 0")},
+    )
+    measured = self.measurements(spec(5), script)
+    self.assertEqual(
+      measured["infrastructure"], {"kernels": 1, "admitted": 4, "rate": 0.25}
+    )
+
+  def test_the_live_node_histogram_counts_admitted_kernels_only(self):
+    script = Script(refused={S0 + 2}, live_nodes={S0: 5, S0 + 1: 12, S0 + 3: 5})
+    measured = self.measurements(spec(4), script)
+    self.assertEqual(measured["live_nodes"], {"5": 2, "12": 1})
+
+  def test_exposure_statistics_summarize_ttgir_per_paired_run(self):
+    script = Script(
+      compiler={
+        (S0, 1, I0): observed(0),
+        (S0, 1, I3): observed(0),
+        (S0, 4, I0): observed(2, encodings=("blocked", "slice")),
+        (S0, 4, I3): observed(2, loop=0, encodings=("blocked", "slice")),
+      }
+    )
+    exposure = self.measurements(spec(2), script)["exposure"]
+    self.assertEqual((exposure["observed"], exposure["unavailable"]), (4, 4))
+    self.assertEqual(exposure["ttgir_layout_conversions"], {"0": 2, "2": 2})
+    self.assertEqual(exposure["ttgir_loop_retained"], 3)
+    self.assertEqual(exposure["encoding_kinds"], {"blocked": 4, "slice": 2})
+
+
 class SweepEdgeTests(SweepFixture):
   def test_a_builder_refusal_is_recorded_and_consumes_its_seed(self):
     script = Script(refused={S0 + 1})
@@ -375,6 +464,20 @@ class DeviceBindingTests(unittest.TestCase):
         built = operations["build"]({**request, "directory": str(self.root / name)})
         self.assertEqual(built["kind"], "refused")
         self.assertTrue(built["reason"])
+
+  def test_ttgir_encoding_kinds_are_read_from_their_definitions(self):
+    text = (
+      "#blocked = #ttg.blocked<{sizePerThread = [1, 1], warpsPerCTA = [4, 1]}>\n"
+      "#blocked1 = #ttg.blocked<{sizePerThread = [1, 4], warpsPerCTA = [1, 4]}>\n"
+      "#loc = loc(unknown)\n"
+      "#shared = #ttg.swizzled_shared<{vec = 1, perPhase = 1}>\n"
+      "module attributes {} {\n"
+      "  %0 = ttg.convert_layout %x : tensor<4xf32, #ttg.slice<{dim = 1, parent = #blocked}>>\n"
+      "}\n"
+    )
+    self.assertEqual(
+      sweep.ttgir_encodings(text), ["blocked", "blocked", "swizzled_shared"]
+    )
 
   def test_a_target_run_becomes_path_statuses_outputs_and_raw_paths(self):
     from test.lib import tensor_target_run as target
