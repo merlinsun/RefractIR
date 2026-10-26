@@ -17,9 +17,11 @@ script them; `device_operations` binds the exporter and `tensor_target_run`.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
+import random
 import re
 import shutil
 import struct
@@ -37,6 +39,7 @@ from test.lib import tensor_execution  # noqa: E402
 SCHEMA = "refractir.moving-window-sweep.v1"
 INPUTS = ("i0-base", "i3-unused-rows")
 GROUPS = ("G0", "G1", "G2", "unconstrained")
+ORDER = "policy-stratified-seeded-permutation-v1"
 MAX_NODES = 16
 MAX_MULTIPLICATIONS = 1
 INFRASTRUCTURE_WINDOW = 100
@@ -116,6 +119,7 @@ def sweep_spec(
     "max_nodes": MAX_NODES,
     "max_multiplications": MAX_MULTIPLICATIONS,
     "enable_fp_fusion": False,
+    "order": ORDER,
     "sample_every": sample_every,
     "budget": {
       "gpu_workers": gpu_workers,
@@ -127,10 +131,33 @@ def sweep_spec(
   }
 
 
+@functools.lru_cache(maxsize=8)
+def _block_cells(seed_start, block):
+  """One block's (group, column, policy) cells, each exactly once.
+
+  Policies take turns in a seeded order, so every prefix holds each policy
+  within one of the others; each policy visits all group/column pairs in its
+  own seeded order. A sweep stopped by its budget therefore keeps a balanced
+  policy mix, and roughly balanced groups and columns.
+  """
+  rng = random.Random(f"{SCHEMA}:{ORDER}:{seed_start}:{block}")
+  pairs = [
+    (group, column) for group in range(len(GROUPS)) for column in range(len(COLUMNS))
+  ]
+  policies = rng.sample(range(len(POLICIES)), len(POLICIES))
+  visits = {policy: rng.sample(pairs, len(pairs)) for policy in policies}
+  return tuple(
+    (*visits[policy][turn], policy) for turn in range(len(pairs)) for policy in policies
+  )
+
+
 def kernel_request(spec, index):
   """Map a seed-block index to its group, shape column, and policy."""
-  group_index = index % len(GROUPS)
-  column = COLUMNS[(index // len(GROUPS)) % len(COLUMNS)]
+  block, offset = divmod(index, len(GROUPS) * len(COLUMNS) * len(POLICIES))
+  group_index, column_index, policy_index = _block_cells(spec["seed_start"], block)[
+    offset
+  ]
+  column = COLUMNS[column_index]
   group = GROUPS[group_index]
   requirement = {
     "G0": "reduction",
@@ -143,7 +170,7 @@ def kernel_request(spec, index):
     "index": index,
     "group": group,
     "requirement": requirement,
-    "policy": POLICIES[(index // (len(GROUPS) * len(COLUMNS))) % len(POLICIES)],
+    "policy": POLICIES[policy_index],
     "padded": (group_index + column["column"]) % 2 == 1,
     "column": dict(column),
     "max_nodes": spec["max_nodes"],

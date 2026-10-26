@@ -272,6 +272,59 @@ def ticking(step):
   return lambda: next(readings)
 
 
+def cell(request):
+  return (request["group"], request["column"]["column"], request["policy"])
+
+
+class SeedOrderTests(unittest.TestCase):
+  """Each block of 96 seeds is a seeded, policy-stratified permutation."""
+
+  def requests(self, start=S0, count=192):
+    declared = sweep.sweep_spec(
+      seed_start=start,
+      seed_count=count,
+      configurations=CONFIGURATIONS,
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+    )
+    return [sweep.kernel_request(declared, index) for index in range(count)]
+
+  def test_every_block_covers_each_cell_once(self):
+    requests = self.requests()
+    for block in (requests[:96], requests[96:]):
+      self.assertEqual(len({cell(request) for request in block}), 96)
+    self.assertEqual([r["seed"] for r in requests], list(range(S0, S0 + 192)))
+
+  def test_policies_take_turns_in_every_prefix(self):
+    counts = dict.fromkeys(sweep.POLICIES, 0)
+    for request in self.requests(count=96):
+      counts[request["policy"]] += 1
+      self.assertLessEqual(max(counts.values()) - min(counts.values()), 1)
+
+  def test_the_order_is_seeded_and_differs_between_blocks(self):
+    first = [cell(request) for request in self.requests()]
+    self.assertEqual(first, [cell(request) for request in self.requests()])
+    self.assertNotEqual(first[:96], first[96:])
+    other = [cell(request) for request in self.requests(start=S0 + 7)]
+    self.assertNotEqual(first[:96], other[:96])
+
+  def test_the_declaration_names_the_order(self):
+    self.assertEqual(spec(4)["order"], sweep.ORDER)
+
+  def test_requirement_and_padding_follow_group_and_column(self):
+    requirements = {"G0": "reduction", "G1": "shared", "unconstrained": None}
+    for request in self.requests(count=96):
+      group, column = request["group"], request["column"]["column"]
+      expected = (
+        requirements.get(group)
+        if group != "G2"
+        else ("extrema-transpose" if column % 2 == 0 else "extrema-expand")
+      )
+      self.assertEqual(request["requirement"], expected)
+      self.assertEqual(request["padded"], (sweep.GROUPS.index(group) + column) % 2 == 1)
+
+
 class SweepReportTests(SweepFixture):
   """The pilot's acceptance measurements, computed from the retained records."""
 
@@ -413,20 +466,29 @@ class DeviceBindingTests(unittest.TestCase):
       toolchain={"exporter_sha256": "fake"},
     )
 
+  def index_of(self, group):
+    """The first index whose cell matches the column-0 window fixture."""
+    declared = spec(96)
+    for index in range(96):
+      request = sweep.kernel_request(declared, index)
+      if request["group"] == group and request["column"]["column"] == 0:
+        return index
+    raise AssertionError(f"no column-0 cell for {group}")
+
   def build(self, index):
-    request = sweep.kernel_request(spec(4), index)
+    request = sweep.kernel_request(spec(96), index)
     directory = self.root / f"kernel-{index}"
     built = self.operations["build"]({**request, "directory": str(directory)})
     argv = json.loads((directory / "argv.json").read_text())
     return request, built, argv
 
   def test_the_builder_exports_the_declared_request(self):
-    request, built, argv = self.build(0)
+    request, built, argv = self.build(self.index_of("G0"))
     self.assertEqual(request["requirement"], "reduction")
     self.assertEqual(argv[argv.index("--window-requirement") + 1], "reduction")
     self.assertEqual(argv[argv.index("--max-nodes") + 1], "16")
     self.assertEqual(argv[argv.index("--max-multiplications") + 1], "1")
-    self.assertEqual(argv[argv.index("--seed") + 1], str(S0))
+    self.assertEqual(argv[argv.index("--seed") + 1], str(request["seed"]))
     self.assertEqual(built["kind"], "admitted")
     self.assertEqual(
       (
@@ -439,7 +501,7 @@ class DeviceBindingTests(unittest.TestCase):
     self.assertEqual(set(built["probe_values"]), set(sweep.PROBES))
 
   def test_the_unconstrained_group_exports_without_a_requirement(self):
-    request, built, argv = self.build(3)
+    request, built, argv = self.build(self.index_of("unconstrained"))
     self.assertEqual(request["group"], "unconstrained")
     self.assertNotIn("--window-requirement", argv)
     self.assertEqual(built["kind"], "admitted")
