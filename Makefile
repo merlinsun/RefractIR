@@ -308,7 +308,7 @@ test-tensor-free-form: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_FREE_FORM_AP
 	    test.unit.test_moving_window_repairs test.unit.test_moving_window_closure \
 	    test.unit.test_moving_window_review_fixes test.unit.test_moving_window_delivery \
 	    test.unit.test_moving_window_followup test.unit.test_moving_window_sweep \
-	    test.unit.test_moving_window_sweep_summary
+	    test.unit.test_moving_window_sweep_summary test.unit.test_classify_sweep_mismatches
 
 TENSOR_GRAPH_REGION_API = $(BIN_DIR)/tensor_graph_region_api
 TENSOR_GRAPH_REGION_EXPORT = $(BIN_DIR)/tensor_graph_region_export
