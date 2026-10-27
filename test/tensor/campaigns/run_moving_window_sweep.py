@@ -50,6 +50,8 @@ INFRASTRUCTURE_STATUSES = frozenset(
   {"environment_unavailable", "not_run", "infrastructure_error"}
 )
 MAX_POSITIONS = 16
+# A pair the driver chose not to dispatch; it is neither a failure nor evidence.
+SKIPPED = "skipped"
 
 
 class SweepRefused(RuntimeError):
@@ -257,6 +259,8 @@ def evaluate(pairs):
     where = {"configuration": pair["configuration"], "input": pair["input"]}
     for path in ("p1", "p2"):
       run = pair[path]
+      if run["status"] == SKIPPED:
+        continue
       if run["status"] in INFRASTRUCTURE_STATUSES:
         infrastructure = True
       elif run["status"] != COMPLETED:
@@ -273,9 +277,14 @@ def evaluate(pairs):
         candidates.append({"kind": "non_finite", "path": path, **where})
     first, second = pair["p1"].get("output"), pair["p2"].get("output")
     if pair["p1"]["status"] == pair["p2"]["status"] == COMPLETED and first != second:
-      candidates.append(
-        {"kind": "path_difference", "positions": _positions(first, second), **where}
+      # Non-finite values are undefined in SIR, so a difference among them is
+      # grouped apart from a difference between defined outputs.
+      kind = (
+        "path_difference"
+        if _finite(first) and _finite(second)
+        else "non_finite_path_difference"
       )
+      candidates.append({"kind": kind, "positions": _positions(first, second), **where})
   for configuration in {_canonical(pair["configuration"]) for pair in pairs}:
     runs = {
       pair["input"]: pair
@@ -394,7 +403,11 @@ class _Session:
     kernel = {**built, "seed": request["seed"], "request": request}
     pairs = []
     for configuration in self.spec["configurations"]:
+      skip = None
       for name in self.spec["inputs"]:
+        if skip is not None:
+          pairs.append(_skipped_pair(configuration, name, skip))
+          continue
         self.log.append(
           "dispatch", seed=request["seed"], configuration=configuration, input=name
         )
@@ -409,6 +422,10 @@ class _Session:
           }
         )
         pairs.append({**result, "configuration": configuration, "input": name})
+        if _compilation_timeout(result):
+          # Every input at this setting compiles the same kernel, so the rest
+          # would only repeat the timeout.
+          skip = f"P2 compilation timed out on {name} at this configuration"
     candidates, infrastructure = evaluate(pairs)
     exposure = self.operations["screen"](kernel) if sampled else None
     if not (candidates or sampled):
@@ -459,6 +476,7 @@ class _Session:
       budget=self.spec["budget"],
       toolchain=self.operations["toolchain"],
       device=self.operations.get("device"),
+      timeout_s=self.operations.get("timeout_s"),
       gpu_workers_dispatched=self.dispatched,
     )
     started = self.clock()
@@ -480,6 +498,23 @@ class _Session:
     reason = reason or "seed_block_complete"
     self.log.append("stop", reason=reason, gpu_workers_dispatched=self.dispatched)
     return report(self.work, reason)
+
+
+def _compilation_timeout(result):
+  compiled = result.get("p2") or {}
+  return (
+    compiled.get("status") == "timed_out" and compiled.get("phase") == "compilation"
+  )
+
+
+def _skipped_pair(configuration, name, reason):
+  path = {"status": SKIPPED, "reason": reason, "output": None}
+  return {
+    "configuration": configuration,
+    "input": name,
+    "p1": dict(path),
+    "p2": dict(path),
+  }
 
 
 def _disk_bytes(directory):
@@ -645,6 +680,7 @@ def _mode_result(run):
     "status": run.status,
     "reason": run.reason or run.stderr[-2000:],
     "output": run.actual,
+    "phase": run.phase,
   }
 
 
@@ -872,6 +908,7 @@ def device_operations(
     "screen": screen,
     "toolchain": toolchain,
     "device": device_id,
+    "timeout_s": timeout_s,
   }
 
 

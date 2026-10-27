@@ -23,6 +23,10 @@ S0 = 30000000
 ONE = struct.pack("<4f", 1.0, 2.0, 3.0, 4.0)
 TWO = struct.pack("<4f", 1.0, 2.0, 3.0, 5.0)
 NAN = struct.pack("<4f", 1.0, float("nan"), 3.0, 4.0)
+# The same positions, but a different NaN payload in the second word.
+OTHER_NAN = (
+  struct.pack("<f", 1.0) + bytes.fromhex("0100c07f") + struct.pack("<2f", 3.0, 4.0)
+)
 CONFIGURATIONS = ({"num_warps": 1, "num_stages": 1}, {"num_warps": 4, "num_stages": 1})
 I0, I3 = "i0-base", "i3-unused-rows"
 
@@ -103,9 +107,14 @@ class Script:
       "compiler": self.compiler.get(key, {"status": "unavailable"}),
     }
     for path in ("p1", "p2"):
-      status, reason = self.statuses.get((*key, path), ("completed", ""))
+      status, reason, *phase = self.statuses.get((*key, path), ("completed", ""))
       output = self.outputs.get((*key, path), ONE) if status == "completed" else None
-      result[path] = {"status": status, "reason": reason, "output": output}
+      result[path] = {
+        "status": status,
+        "reason": reason,
+        "output": output,
+        "phase": phase[0] if phase else "runtime",
+      }
     return result
 
   def screen(self, kernel):
@@ -387,6 +396,58 @@ class SweepReportTests(SweepFixture):
     self.assertEqual(exposure["encoding_kinds"], {"blocked": 4, "slice": 2})
 
 
+class CompileTimeoutTests(SweepFixture):
+  """A compiled-path timeout during compilation is not paid twice per setting."""
+
+  def test_a_compilation_timeout_skips_the_rest_of_its_configuration(self):
+    script = Script(
+      statuses={(S0, 1, I0, "p2"): ("timed_out", "worker exceeded", "compilation")}
+    )
+    report = self.run_sweep(spec(1), script)
+    self.assertEqual(script.pairs, [(S0, 1, I0), (S0, 4, I0), (S0, 4, I3)])
+    self.assertEqual(report["gpu_workers_dispatched"], 3)
+    kernel = self.kernels()[0]
+    skipped = [pair for pair in kernel["pairs"] if pair["p1"]["status"] == "skipped"]
+    self.assertEqual(
+      [(pair["configuration"]["num_warps"], pair["input"]) for pair in skipped],
+      [(1, I3)],
+    )
+    self.assertIn("compilation timed out", skipped[0]["p2"]["reason"])
+    self.assertEqual((kernel["status"], kernel["infrastructure"]), ("candidate", False))
+    kinds = {c["kind"] for c in self.candidates()}
+    self.assertEqual(kinds, {"execution_status"})
+
+  def test_a_runtime_timeout_still_runs_the_other_input(self):
+    script = Script(
+      statuses={(S0, 1, I0, "p2"): ("timed_out", "worker exceeded", "runtime")}
+    )
+    self.run_sweep(spec(1), script)
+    self.assertEqual(len(script.pairs), 4)
+
+  def test_each_session_records_its_timeout(self):
+    script = Script()
+    operations = {**script.operations, "timeout_s": 120.0}
+    sweep.run_sweep(self.work, spec(1), operations, free_bytes=lambda path: 10**12)
+    starts = [
+      line for line in lines(self.work / "run-log.jsonl") if line["event"] == "start"
+    ]
+    self.assertEqual(starts[0]["timeout_s"], 120.0)
+
+  def test_a_path_difference_in_non_finite_output_is_tagged(self):
+    script = Script(
+      outputs={
+        (S0, 1, I0, "p1"): NAN,
+        (S0, 1, I0, "p2"): OTHER_NAN,
+        (S0, 1, I3, "p1"): NAN,
+        (S0, 1, I3, "p2"): OTHER_NAN,
+      }
+    )
+    self.run_sweep(spec(1), script)
+    kinds = {c["kind"] for c in self.candidates()}
+    self.assertIn("non_finite_path_difference", kinds)
+    self.assertNotIn("path_difference", kinds)
+
+
 class SweepEdgeTests(SweepFixture):
   def test_a_restart_after_an_infrastructure_stop_dispatches_nothing(self):
     script = Script(
@@ -632,7 +693,8 @@ class DeviceBindingTests(unittest.TestCase):
     )
     result = sweep.pair_result(run, bundle)
     self.assertEqual(
-      result["p1"], {"status": "completed", "reason": "why", "output": ONE}
+      result["p1"],
+      {"status": "completed", "reason": "why", "output": ONE, "phase": "runtime"},
     )
     self.assertEqual(result["p2"]["status"], "compile_failure")
     self.assertIsNone(result["p2"]["output"])
