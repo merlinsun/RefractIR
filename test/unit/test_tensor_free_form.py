@@ -59,6 +59,18 @@ class FreeFormContractTests(unittest.TestCase):
   def test_three_state_region_assembles_into_valid_sir(self):
     self.run_contract("three-state-assembly")
 
+  def test_additive_states_are_bounded_over_their_trips(self):
+    self.run_contract("magnitude-three-state-trips")
+
+  def test_a_compounding_product_leaves_the_exact_range(self):
+    self.run_contract("magnitude-product-compounds")
+
+  def test_a_sum_scales_its_bound_and_extrema_keep_it(self):
+    self.run_contract("magnitude-reductions-and-shapes")
+
+  def test_a_window_fill_bounds_its_tile(self):
+    self.run_contract("magnitude-window-fill")
+
   def test_state_and_invariant_initialization_is_respected(self):
     self.run_contract("invariant-initialization")
 
@@ -763,6 +775,40 @@ class FreeFormExportTests(unittest.TestCase):
       )
       self.assertNotEqual(result.returncode, 0)
       self.assertIn("max attempts", result.stderr)
+
+  def test_an_exact_input_bound_refuses_a_body_beyond_the_exact_range(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "deep", "--seed", "11", "--shape", "2,2", "--trip-count", "2",
+        "--states", "2", "--exact-input-bound", "100000000", "--out", directory,
+      )
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("exact f32 integer range", result.stderr)
+      self.assertFalse((Path(directory) / "program.sir").exists())
+
+  def test_without_the_flag_the_record_states_no_exact_range(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "deep", "--seed", "11", "--shape", "2,2", "--trip-count", "2",
+        "--states", "2", "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertNotIn("exact_range", record)
+
+  def test_an_admitted_body_records_its_magnitude_bound(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "deep", "--seed", "11", "--shape", "2,2", "--trip-count", "2",
+        "--states", "2", "--max-multiplications", "0", "--exact-input-bound", "1",
+        "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["exact_range"]["input_bound"], 1.0)
+      bound = record["exact_range"]["magnitude_bound"]
+      self.assertGreaterEqual(bound, 1.0)
+      self.assertLessEqual(bound, 2**24)
 
   def test_a_requirement_refusal_names_the_subgoal(self):
     with tempfile.TemporaryDirectory() as directory:

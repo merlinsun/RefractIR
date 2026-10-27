@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,6 +34,10 @@ namespace refractir::reify {
         const std::vector<std::string> &reservedNames = {}
     ) const;
     [[nodiscard]] std::vector<std::string> renderInstructions() const;
+    /// An upper bound on the magnitude of every live value, given one for each
+    /// input. Throws std::invalid_argument when an input has no bound.
+    [[nodiscard]] std::map<std::string, double>
+    magnitudeBounds(const std::map<std::string, double> &inputs) const;
     [[nodiscard]] std::vector<std::string> renderBody(
         const std::vector<std::pair<std::string, std::string>> &updates,
         const std::vector<std::string> &reservedNames = {}

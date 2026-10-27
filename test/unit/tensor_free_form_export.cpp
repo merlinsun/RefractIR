@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "ast/ast.hpp"
 #include "reify/tensor_free_form.hpp"
 
 // Export one free-form region as a case directory: the assembled SIR plus the
@@ -78,6 +79,8 @@ namespace {
     bool maxAttemptsSet = false;
     std::uint32_t maxMultiplications = 2;
     bool maxMultiplicationsSet = false;
+    /// Positive enables the exact-range check for inputs of this magnitude.
+    double exactInputBound = 0.0;
     bool requireComputedRoots = false;
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
@@ -211,6 +214,8 @@ namespace {
       } else if (flag == "--max-multiplications") {
         options.maxMultiplications = static_cast<std::uint32_t>(std::stoul(value()));
         options.maxMultiplicationsSet = true;
+      } else if (flag == "--exact-input-bound") {
+        options.exactInputBound = refractir::parseFloatLiteral(value());
       } else if (flag == "--require-computed-roots") {
         options.requireComputedRoots = true;
       } else if (flag == "--num-warps") {
@@ -541,6 +546,19 @@ namespace {
       loop.finalTerms = {std::string(stateNames[options.returnState])};
     }
     const auto source = assembleCountedLoop(built.region, loop);
+    // Opt-in: with integer inputs and no division, a value stays exact unless
+    // its magnitude leaves the range f32 holds every integer in, and a sound
+    // bound below that range also rules out overflow to a non-finite value.
+    double magnitudeBound = 0.0;
+    if (options.exactInputBound > 0.0) {
+      magnitudeBound = freeFormMagnitudeBound(built.region, loop, options.exactInputBound);
+      if (!(magnitudeBound <= kExactF32IntegerBound))
+        throw std::invalid_argument(
+            "free-form export: value magnitude bound " + refractir::formatDouble(magnitudeBound) +
+            " exceeds the exact f32 integer range for inputs bounded by " +
+            refractir::formatDouble(options.exactInputBound)
+        );
+    }
     // The canonical adapter is recorded, never substituted: the experiment
     // travels the target-only route, so whether the bytes also fit the
     // canonical configuration is evidence about the body, not a second program.
@@ -557,16 +575,19 @@ namespace {
     writeFile(options.output / "program.sir", source);
     std::ostringstream record;
     record << "{\"schema\":\"refractir.free-form-region.v1\",\"entry\":\"kernel\","
-           << "\"profile\":" << jsonString(options.profile) << ",\"dtype\":"
-           << jsonString(options.dtype) << ",\"policy\":"
-           << jsonString(std::string(freeFormPolicyName(options.policy)))
+           << "\"profile\":" << jsonString(options.profile)
+           << ",\"dtype\":" << jsonString(options.dtype)
+           << ",\"policy\":" << jsonString(std::string(freeFormPolicyName(options.policy)))
            << ",\"seed\":" << options.seed << ",\"shape\":" << shapeJson(options.shape)
-           << ",\"trip_count\":" << options.tripCount << ",\"state_count\":"
-           << options.stateCount << ",\"max_nodes\":" << options.maxNodes
-           << ",\"max_rank\":" << options.maxRank
-           << ",\"num_warps\":" << options.numWarps << ",\"route\":\"target-only\","
-           << "\"features\":{\"transpose\":"
-           << (options.features.transpose ? "true" : "false")
+           << ",\"trip_count\":" << options.tripCount << ",\"state_count\":" << options.stateCount
+           << ",\"max_nodes\":" << options.maxNodes << ",\"max_rank\":" << options.maxRank
+           << ",\"num_warps\":" << options.numWarps;
+    if (options.exactInputBound > 0.0)
+      record << ",\"exact_range\":{\"input_bound\":"
+             << refractir::formatDouble(options.exactInputBound)
+             << ",\"magnitude_bound\":" << refractir::formatDouble(magnitudeBound) << "}";
+    record << ",\"route\":\"target-only\","
+           << "\"features\":{\"transpose\":" << (options.features.transpose ? "true" : "false")
            << ",\"expand\":" << (options.features.expand ? "true" : "false")
            << ",\"extrema\":" << (options.features.extrema ? "true" : "false") << "},"
            << "\"window\":";

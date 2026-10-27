@@ -2023,6 +2023,61 @@ namespace refractir::reify {
     return source.str();
   }
 
+  namespace {
+    /// A window tile reads runtime data inside the active rows and the fill
+    /// outside them, so either can be the larger.
+    double windowInputBound(const FreeFormLoop &loop, const std::string &name, double inputBound) {
+      for (const auto &window: loop.windows) {
+        if (window.result != name)
+          continue;
+        const auto fill = window.fillKind == FreeFormFillKind::Float
+                              ? std::fabs(window.fillFloat)
+                              : std::fabs(static_cast<double>(window.fillInteger));
+        return std::max(inputBound, fill);
+      }
+      throw std::invalid_argument("free-form bound: no window produces " + name);
+    }
+
+    double foldBound(TensorOp op, double left, double right) {
+      if (op == TensorOp::Mul)
+        return left == 0.0 || right == 0.0 ? 0.0 : left * right;
+      if (op == TensorOp::Min || op == TensorOp::Max)
+        return std::max(left, right);
+      return left + right;
+    }
+  } // namespace
+
+  double
+  freeFormMagnitudeBound(const TensorRegion &region, const FreeFormLoop &loop, double inputBound) {
+    std::map<std::string, double> current;
+    for (const auto &input: loop.inputs) {
+      const auto &name = input.value.name;
+      current[name] = input.init == FreeFormInit::Zero ? 0.0
+                      : input.init == FreeFormInit::Window
+                          ? windowInputBound(loop, name, inputBound)
+                          : inputBound;
+    }
+    double worst = 0.0;
+    for (const auto &[name, bound]: current)
+      worst = std::max(worst, bound);
+    // Each trip reads the states the previous trip wrote; invariants, window
+    // tiles included, keep the bound they started with.
+    for (std::uint32_t trip = 0; trip < loop.tripCount; ++trip) {
+      const auto bounds = region.magnitudeBounds(current);
+      for (const auto &[name, bound]: bounds)
+        worst = std::max(worst, bound);
+      for (const auto &[state, result]: loop.updates)
+        current[state] = bounds.at(result);
+    }
+    if (!loop.finalTerms.empty()) {
+      auto folded = current.at(loop.finalTerms.front());
+      for (std::size_t index = 1; index < loop.finalTerms.size(); ++index)
+        folded = foldBound(loop.finalOp, folded, current.at(loop.finalTerms[index]));
+      worst = std::max(worst, folded);
+    }
+    return worst;
+  }
+
   FreeFormAssembly assembleCanonicalLoop(const TensorRegion &region, std::uint32_t tripCount) {
     FreeFormAssembly assembly;
     try {

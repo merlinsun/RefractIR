@@ -583,6 +583,27 @@ class DeviceBindingTests(unittest.TestCase):
     )
     self.assertEqual(set(built["probe_values"]), set(sweep.PROBES))
 
+  def test_the_builder_declares_the_exact_input_bound(self):
+    _, _, argv = self.build(self.index_of("G1"))
+    self.assertEqual(
+      argv[argv.index("--exact-input-bound") + 1], str(sweep.EXACT_INPUT_BOUND)
+    )
+    self.assertEqual(spec(4)["exact_input_bound"], sweep.EXACT_INPUT_BOUND)
+
+  def test_every_probe_value_is_within_the_exact_input_bound(self):
+    from test.lib import tensor_free_form_inputs
+    from test.unit import test_tensor_free_form_case as fixtures
+
+    for group in range(3):
+      for column in range(4):
+        for probe in tensor_free_form_inputs.window_probes(
+          fixtures.WINDOW_REGION, group=group, column=column
+        ):
+          values = struct.unpack(f"<{len(probe.data) // 4}f", probe.data)
+          self.assertLessEqual(
+            max(abs(value) for value in values), sweep.EXACT_INPUT_BOUND
+          )
+
   def test_the_unconstrained_group_exports_without_a_requirement(self):
     request, built, argv = self.build(self.index_of("unconstrained"))
     self.assertEqual(request["group"], "unconstrained")

@@ -268,6 +268,72 @@ namespace refractir::reify {
     return declarations;
   }
 
+  // Interval reasoning over magnitudes only: every operation the region can
+  // hold is monotone in its operands' magnitudes, so one forward pass over the
+  // live nodes bounds every value from its inputs' bounds.
+  std::map<std::string, double>
+  TensorRegion::magnitudeBounds(const std::map<std::string, double> &inputs) const {
+    std::vector<double> bound(values_.size(), 0.0);
+    for (std::size_t index = 0; index < values_.size(); ++index) {
+      if (values_[index].producer >= 0)
+        continue;
+      const auto found = inputs.find(values_[index].name);
+      if (found == inputs.end())
+        throw std::invalid_argument(
+            "tensor region: no magnitude bound for input " + values_[index].name
+        );
+      bound[index] = found->second;
+    }
+    const auto live = liveNodes();
+    std::map<std::string, double> bounds(inputs.begin(), inputs.end());
+    for (std::size_t position = 0; position < nodes_.size(); ++position) {
+      if (!live[position])
+        continue;
+      const auto &node = nodes_[position];
+      const auto operand = [&](std::size_t index) {
+        return bound[static_cast<std::size_t>(node.operands.at(index))];
+      };
+      double result = 0.0;
+      switch (node.op) {
+        case TensorOp::Add:
+        case TensorOp::Sub:
+          result = operand(0) + operand(1);
+          break;
+        case TensorOp::Mul:
+          // A zero bound means exactly zero, so the product is zero even when
+          // the other operand is unbounded; this also keeps 0 * inf from NaN.
+          result = operand(0) == 0.0 || operand(1) == 0.0 ? 0.0 : operand(0) * operand(1);
+          break;
+        case TensorOp::Min:
+        case TensorOp::Max:
+          result = std::max(operand(0), operand(1));
+          break;
+        case TensorOp::Sum: {
+          const auto &shape = values_[static_cast<std::size_t>(node.operands.at(0))].type.shape;
+          const auto rank = static_cast<std::int64_t>(shape.size());
+          const auto axis = node.axis < 0 ? node.axis + rank : node.axis;
+          result = operand(0) * static_cast<double>(shape.at(static_cast<std::size_t>(axis)));
+          break;
+        }
+        case TensorOp::ReduceMin:
+        case TensorOp::ReduceMax:
+        case TensorOp::Transpose:
+        case TensorOp::Expand:
+        case TensorOp::Broadcast:
+          result = operand(0);
+          break;
+        default:
+          throw std::invalid_argument(
+              "tensor region: no magnitude rule for " +
+              values_[static_cast<std::size_t>(node.result)].name
+          );
+      }
+      bound[static_cast<std::size_t>(node.result)] = result;
+      bounds[values_[static_cast<std::size_t>(node.result)].name] = result;
+    }
+    return bounds;
+  }
+
   std::vector<std::string> TensorRegion::renderInstructions() const {
     const auto live = liveNodes();
     std::vector<std::string> instructions;

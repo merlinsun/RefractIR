@@ -42,6 +42,10 @@ GROUPS = ("G0", "G1", "G2", "unconstrained")
 ORDER = "policy-stratified-seeded-permutation-v1"
 MAX_NODES = 16
 MAX_MULTIPLICATIONS = 1
+# The largest input magnitude the window probe recipe writes (the late row's
+# +-5). The exporter refuses a body whose values could then leave the exact
+# f32 integer range, so tolerance-free oracles stay exact.
+EXACT_INPUT_BOUND = 5
 INFRASTRUCTURE_WINDOW = 100
 INFRASTRUCTURE_MAX = 5
 COMPLETED = "completed"
@@ -120,6 +124,7 @@ def sweep_spec(
     "inputs": list(INPUTS),
     "max_nodes": MAX_NODES,
     "max_multiplications": MAX_MULTIPLICATIONS,
+    "exact_input_bound": EXACT_INPUT_BOUND,
     "enable_fp_fusion": False,
     "order": ORDER,
     "sample_every": sample_every,
@@ -177,6 +182,7 @@ def kernel_request(spec, index):
     "column": dict(column),
     "max_nodes": spec["max_nodes"],
     "max_multiplications": spec["max_multiplications"],
+    "exact_input_bound": spec["exact_input_bound"],
   }
 
 
@@ -667,6 +673,8 @@ def _export_command(exporter, request, out):
     str(request["max_nodes"]),
     "--max-multiplications",
     str(request["max_multiplications"]),
+    "--exact-input-bound",
+    str(request["exact_input_bound"]),
     "--require-computed-roots",
     "--num-warps",
     "1",

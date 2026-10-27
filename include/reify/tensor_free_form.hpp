@@ -391,4 +391,13 @@ namespace refractir::reify {
   /// being forced into a canonical program.
   [[nodiscard]] FreeFormAssembly assembleCanonicalLoop(const TensorRegion &region, std::uint32_t tripCount);
 
+  /// The largest magnitude f32 holds every integer up to exactly (2^24).
+  inline constexpr double kExactF32IntegerBound = 16777216.0;
+
+  /// An upper bound on the magnitude of every value the assembled loop computes
+  /// in any trip, including the final expression, when every runtime input is
+  /// bounded by `inputBound` in magnitude.
+  [[nodiscard]] double
+  freeFormMagnitudeBound(const TensorRegion &region, const FreeFormLoop &loop, double inputBound);
+
 } // namespace refractir::reify

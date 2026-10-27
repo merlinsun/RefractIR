@@ -1691,6 +1691,82 @@ namespace {
     return assembleCountedLoop(threeStateRegion(), threeStateLoop());
   }
 
+  void requireBound(double actual, double expected, const std::string &what) {
+    require(
+        actual == expected,
+        what + ": bound " + std::to_string(actual) + ", expected " + std::to_string(expected)
+    );
+  }
+
+  // Three additive states over two trips, with every runtime input bounded by
+  // one: trip 1 gives 2/3/3/2/2, trip 2 gives 6/9/9/8/10, and the final sum 28.
+  void magnitudeThreeStateTrips() {
+    requireBound(
+        freeFormMagnitudeBound(threeStateRegion(), threeStateLoop(), 1.0), 28.0,
+        "three additive states over two trips"
+    );
+  }
+
+  // A state multiplied by itself squares its bound each trip, so eight trips
+  // leave the exact range even from a bound of two.
+  void magnitudeProductCompounds() {
+    TensorRegion region({{"%acc_x", type({2, 2})}});
+    region.add("%next_x", TensorOp::Mul, {"%acc_x", "%acc_x"});
+    region.setResults({"%next_x"});
+    FreeFormLoop loop;
+    loop.inputs = {state("%acc_x", {2, 2}, "%x")};
+    loop.results = {"%next_x"};
+    loop.updates = {{"%acc_x", "%next_x"}};
+    loop.finalTerms = {"%acc_x"};
+    loop.tripCount = 2;
+    requireBound(freeFormMagnitudeBound(region, loop, 2.0), 16.0, "two squaring trips");
+    loop.tripCount = 8;
+    require(
+        freeFormMagnitudeBound(region, loop, 2.0) > kExactF32IntegerBound,
+        "eight squaring trips must leave the exact range"
+    );
+  }
+
+  // A sum scales its bound by the reduced extent; an extrema reduction and a
+  // broadcast keep it.
+  void magnitudeReductionsAndShapes() {
+    for (const auto op: {TensorOp::Sum, TensorOp::ReduceMax}) {
+      TensorRegion region({{"%acc_x", type({2, 4})}});
+      region.add("%reduced", op, {"%acc_x"}, 1, true);
+      region.add("%wide", TensorOp::Broadcast, {"%reduced"}, 0, false, {2, 4});
+      region.add("%next_x", TensorOp::Add, {"%acc_x", "%wide"});
+      region.setResults({"%next_x"});
+      FreeFormLoop loop;
+      loop.inputs = {state("%acc_x", {2, 4}, "%x")};
+      loop.results = {"%next_x"};
+      loop.updates = {{"%acc_x", "%next_x"}};
+      loop.finalTerms = {"%acc_x"};
+      loop.tripCount = 1;
+      requireBound(
+          freeFormMagnitudeBound(region, loop, 1.0), op == TensorOp::Sum ? 5.0 : 2.0,
+          op == TensorOp::Sum ? "a sum over four lanes" : "a maximum over four lanes"
+      );
+    }
+  }
+
+  // A window tile is bounded by the larger of the input bound and its fill.
+  void magnitudeWindowFill() {
+    TensorRegion region(
+        {{"%acc_x", type({2, 2})},
+         {"%acc_y", type({2, 2})},
+         {"%source", type({4, 2})},
+         {"%tile", type({2, 2})}}
+    );
+    region.add("%next_x", TensorOp::Add, {"%acc_x", "%tile"});
+    region.add("%next_y", TensorOp::Add, {"%acc_y", "%tile"});
+    region.setResults({"%next_x", "%next_y"});
+    auto loop = windowLoop();
+    loop.tripCount = 2;
+    loop.windows.front().fillFloat = -9.0;
+    // Trip 1: 1 + 9 and 0 + 9; trip 2: 10 + 9 and 9 + 9; the final sum is 37.
+    requireBound(freeFormMagnitudeBound(region, loop, 1.0), 37.0, "a window fill of -9");
+  }
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -1844,6 +1920,14 @@ int main(int argc, char **argv) {
       windowWitnessStrideTwoRowsTwoActiveThreeIsTail();
     else if (name == "window-witness-json")
       windowWitnessJson();
+    else if (name == "magnitude-three-state-trips")
+      magnitudeThreeStateTrips();
+    else if (name == "magnitude-product-compounds")
+      magnitudeProductCompounds();
+    else if (name == "magnitude-reductions-and-shapes")
+      magnitudeReductionsAndShapes();
+    else if (name == "magnitude-window-fill")
+      magnitudeWindowFill();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;
