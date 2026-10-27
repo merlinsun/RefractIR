@@ -56,6 +56,10 @@ namespace refractir {
     std::string lowerExpr(const Expr &expr);
     std::string lowerAtom(const Atom &atom);
     std::string lowerTensorAtom(const TensorAtom &atom);
+    std::string signedZeroExtremum(bool minimum, const std::string &left, const std::string &right);
+    std::string signedZeroReduction(
+        bool minimum, const std::string &lanes, std::uint32_t axis, const char *keep
+    );
     std::string lowerCoef(const Coef &coef);
     std::string lowerLValue(const LValue &lvalue);
     std::string nextTemporary(const std::string &stem);

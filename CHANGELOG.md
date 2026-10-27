@@ -177,6 +177,7 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Fixed
 
+- Triton emission of floating `min`, `max`, `rmin`, and `rmax` keeps SIR's signed-zero tie-break (`-0.0` forces the minimum, `+0.0` the maximum). The plain Triton calls leave the tie unspecified, so the interpreter and compiled paths returned different signed zeros on the same kernel.
 - The solver's floating `%` encoding uses IEEE `fp.rem` with a sign correction for C `fmod`, preserving low remainder bits and negative zero instead of reconstructing the result through rounded division, multiplication, and subtraction.
 - Tensor initializer lowering: a scalar initializer materializes at the declared tensor shape for every profile before a shape-sensitive operator, and a tensor initializer copies its value. The previous Triton emission either lost the rank or passed a block tensor as `tl.full`'s scalar fill value, which Triton rejects. `docs/SPEC_TENSOR_v0.1.md` §3 states the rule.
 - Linking a library with `-I` merged its declarations by name. An intrinsic overload the primary also declared under a different signature was dropped, so the library body stopped typechecking; a struct the primary declared differently displaced the library's, and when the two agreed on field types but not their order the result still typechecked and read fields at the wrong offsets. Both are keyed by the declaration's identity now, and a struct conflict is rejected.

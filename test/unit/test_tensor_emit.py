@@ -152,7 +152,13 @@ fun @kernel(%x: tensor [2] f32, %y: tensor [2] f32) : tensor [2] f32 {
     ast.parse(output)
     self.assertIn("tl.max(", output)
     self.assertIn("tl.sum(", output)
-    self.assertEqual(output.count("keep_dims=True"), 2)
+    # Every reduction keeps its axis; a float extrema reduction emits a second
+    # reduction for its signed-zero tie-break.
+    reductions = (
+      output.count("tl.max(") + output.count("tl.min(") + output.count("tl.sum(")
+    )
+    self.assertEqual(output.count("keep_dims=True"), reductions)
+    self.assertNotIn("keep_dims=False", output)
 
   def test_transposed_output_offsets(self):
     source = """\
@@ -1446,8 +1452,10 @@ class V3ExtremaEmissionTests(unittest.TestCase):
     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
     ast.parse(output)
     self.assertIn("tl.min(", output)
-    self.assertNotIn("tl.where(", output)
+    # v2 has no inactive lanes, so no neutral value masks the operand; the
+    # remaining `tl.where` calls are the signed-zero tie-break.
     self.assertNotIn("inf", output)
+    self.assertNotIn("tl.min(tl.where(", output)
 
 
 @unittest.skipUnless(_triton_interpreter_available(), "Triton interpreter unavailable")

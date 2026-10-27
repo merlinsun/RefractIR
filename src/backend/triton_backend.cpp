@@ -342,6 +342,48 @@ namespace refractir {
     return candidate;
   }
 
+  // SIR resolves an equal-magnitude signed-zero tie in min and max with IEEE
+  // minNum/maxNum: -0.0 forces the minimum and +0.0 the maximum. Triton leaves
+  // that tie unspecified, so its interpreter and compiled paths may disagree.
+  // Under round-to-nearest, +0.0 + -0.0 = +0.0 and -0.0 + -0.0 = -0.0, so the
+  // sum of two zeros is the maximum's tie-break and the negated sum of their
+  // negations is the minimum's; every other pair keeps the Triton call.
+  std::string TritonBackend::signedZeroExtremum(
+      bool minimum, const std::string &left, const std::string &right
+  ) {
+    const auto a = nextTemporary("extremum_left");
+    const auto b = nextTemporary("extremum_right");
+    addLine(a + " = " + left);
+    addLine(b + " = " + right);
+    const auto tie = minimum ? "-((-" + a + ") + (-" + b + "))" : "(" + a + " + " + b + ")";
+    return "tl.where((" + a + " == 0.0) & (" + b + " == 0.0), " + tie + ", " +
+           (minimum ? "tl.minimum(" : "tl.maximum(") + a + ", " + b + "))";
+  }
+
+  // The reduction form of the same tie-break. When the extreme value is zero,
+  // its sign is decided by whether any zero lane has the winning sign: +0.0
+  // for a maximum, -0.0 for a minimum. The sign is read from the lane's bits,
+  // and an integer maximum over a 0/1 marker combines the lanes; summing the
+  // zero lanes instead would depend on the identity a reduction starts from.
+  std::string TritonBackend::signedZeroReduction(
+      bool minimum, const std::string &lanes, std::uint32_t axis, const char *keep
+  ) {
+    const auto values = nextTemporary("extrema_lanes");
+    const auto extreme = nextTemporary("extrema");
+    const auto winning = nextTemporary("extrema_winning_zero");
+    const auto arguments = ", axis=" + std::to_string(axis) + ", keep_dims=" + keep + ")";
+    addLine(values + " = " + lanes);
+    addLine(extreme + " = " + (minimum ? "tl.min(" : "tl.max(") + values + arguments);
+    const auto sign = std::string(minimum ? " < 0" : " >= 0");
+    addLine(
+        winning + " = tl.max(tl.where((" + values + " == 0.0) & (" + values +
+        ".to(tl.int32, bitcast=True)" + sign + "), 1, 0)" + arguments
+    );
+    const auto zero = minimum ? "tl.where(" + winning + " > 0, -0.0, 0.0)"
+                              : "tl.where(" + winning + " > 0, 0.0, -0.0)";
+    return "tl.where(" + extreme + " == 0.0, " + zero + ", " + extreme + ")";
+  }
+
   std::string TritonBackend::nextTemporary(const std::string &stem) {
     return freshPythonName("_sir_" + stem + "_tmp" + std::to_string(temporaryId_++));
   }
@@ -760,10 +802,13 @@ namespace refractir {
       return "(" + operands[0] + " | " + operands[1] + ")";
     if (atom.op == TensorOp::Xor)
       return "(" + operands[0] + " ^ " + operands[1] + ")";
-    if (atom.op == TensorOp::Min)
-      return "tl.minimum(" + operands[0] + ", " + operands[1] + ")";
-    if (atom.op == TensorOp::Max)
-      return "tl.maximum(" + operands[0] + ", " + operands[1] + ")";
+    if (atom.op == TensorOp::Min || atom.op == TensorOp::Max) {
+      const bool minimum = atom.op == TensorOp::Min;
+      if (!isInteger)
+        return signedZeroExtremum(minimum, operands[0], operands[1]);
+      return std::string(minimum ? "tl.minimum(" : "tl.maximum(") + operands[0] + ", " +
+             operands[1] + ")";
+    }
     if (atom.op == TensorOp::Exp)
       return "tl.exp(" + operands.front() + ")";
     if (atom.op == TensorOp::Sum || atom.op == TensorOp::ReduceMin ||
@@ -803,6 +848,8 @@ namespace refractir {
           neutral = minimum ? "float(\"inf\")" : "-float(\"inf\")";
         value = "tl.where(" + validity + ", " + value + ", " + neutral + ")";
       }
+      if (!isInteger)
+        return signedZeroReduction(minimum, value, axis, keep);
       return std::string(minimum ? "tl.min(" : "tl.max(") + value +
              ", axis=" + std::to_string(axis) + ", keep_dims=" + keep + ")";
     }
