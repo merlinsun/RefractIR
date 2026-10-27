@@ -401,6 +401,15 @@ class SweepEdgeTests(SweepFixture):
     self.assertEqual(len(script.pairs), dispatched)
     self.assertEqual(report["stop_reason"], "infrastructure_failure_rate")
 
+  def test_each_session_records_its_device(self):
+    script = Script()
+    operations = {**script.operations, "device": 6}
+    sweep.run_sweep(self.work, spec(1), operations, free_bytes=lambda path: 10**12)
+    sessions = [
+      line for line in lines(self.work / "run-log.jsonl") if line["event"] == "start"
+    ]
+    self.assertEqual(sessions[0]["device"], 6)
+
   def test_a_builder_refusal_is_recorded_and_consumes_its_seed(self):
     script = Script(refused={S0 + 1})
     self.run_sweep(spec(3), script)
@@ -553,6 +562,59 @@ class DeviceBindingTests(unittest.TestCase):
     self.assertEqual(
       sweep.ttgir_encodings(text), ["blocked", "blocked", "swizzled_shared"]
     )
+
+  def test_the_paired_run_uses_the_declared_device(self):
+    from unittest import mock
+
+    from test.lib import tensor_target_run as target
+
+    operations = sweep.device_operations(
+      exporter=self.exporter,
+      symirc=self.root / "symirc",
+      symiri=self.root / "symiri",
+      toolchain={"exporter_sha256": "fake"},
+      device_id=3,
+    )
+    self.assertEqual(operations["device"], 3)
+    request, built, _ = self.build(self.index_of("G0"))
+    kernel = {**built, "seed": request["seed"], "request": request}
+    finished = target.TargetRun(
+      bundle=self.root,
+      status=target.TARGET_AGREEMENT,
+      emission=None,
+      interpreter=target.ModeRun(
+        "interpret", target.COMPLETED, 0, "runtime", ONE, "", ""
+      ),
+      compiled=target.ModeRun("compiled", target.COMPLETED, 0, "runtime", ONE, "", ""),
+    )
+    with mock.patch.object(target, "run", return_value=finished) as run:
+      operations["run_pair"](
+        {
+          "kernel": kernel,
+          "configuration": {"num_warps": 1, "num_stages": 1},
+          "input": I0,
+          "directory": str(self.root / "pair"),
+        }
+      )
+    self.assertEqual(run.call_args.kwargs["device_id"], 3)
+
+  def test_the_command_line_passes_the_device(self):
+    import contextlib
+    import io
+    from unittest import mock
+
+    with (
+      mock.patch.object(sweep, "device_operations", return_value={}) as bind,
+      mock.patch.object(sweep, "run_sweep", return_value={}),
+      contextlib.redirect_stdout(io.StringIO()),
+    ):
+      arguments = ["--work", str(self.root / "w"), "--seed-start", str(S0)]
+      arguments += ["--seed-count", "4", "--gpu-workers", "8"]
+      arguments += ["--wall-clock-hours", "1", "--exporter", str(self.exporter)]
+      sweep.main(arguments + ["--device", "5"])
+      self.assertEqual(bind.call_args.kwargs["device_id"], 5)
+      sweep.main(arguments)
+      self.assertEqual(bind.call_args.kwargs["device_id"], 0)
 
   def test_a_target_run_becomes_path_statuses_outputs_and_raw_paths(self):
     from test.lib import tensor_target_run as target

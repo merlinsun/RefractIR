@@ -458,6 +458,7 @@ class _Session:
       spec_sha256=_digest(self.spec),
       budget=self.spec["budget"],
       toolchain=self.operations["toolchain"],
+      device=self.operations.get("device"),
       gpu_workers_dispatched=self.dispatched,
     )
     started = self.clock()
@@ -700,8 +701,14 @@ def _toolchain(exporter, symirc, symiri):
   }
 
 
-def device_operations(*, exporter, symirc, symiri, timeout_s=300.0, toolchain=None):
-  """Bind the sweep to the exporter, the interpreter, and the paired runner."""
+def device_operations(
+  *, exporter, symirc, symiri, timeout_s=300.0, toolchain=None, device_id=0
+):
+  """Bind the sweep to the exporter, the interpreter, and the paired runner.
+
+  `device_id` selects the GPU for compiled runs; several shards on one host
+  each take their own device and seed block.
+  """
   from test.lib import (
     tensor_free_form_case,
     tensor_free_form_inputs,
@@ -803,6 +810,7 @@ def device_operations(*, exporter, symirc, symiri, timeout_s=300.0, toolchain=No
         symiri=symiri,
         timeout_s=timeout_s,
         compiler_identity=identity,
+        device_id=device_id,
       )
     except Exception as error:
       # Recorded as infrastructure: it counts against the failure-rate stop
@@ -863,6 +871,7 @@ def device_operations(*, exporter, symirc, symiri, timeout_s=300.0, toolchain=No
     "run_pair": run_pair,
     "screen": screen,
     "toolchain": toolchain,
+    "device": device_id,
   }
 
 
@@ -883,6 +892,7 @@ def main(argv=None):
   parser.add_argument("--symirc", type=Path, default=_ROOT / "symirc")
   parser.add_argument("--symiri", type=Path, default=_ROOT / "symiri")
   parser.add_argument("--timeout", type=float, default=300.0)
+  parser.add_argument("--device", type=int, default=0, help="GPU for compiled runs")
   arguments = parser.parse_args(argv)
   declared = sweep_spec(
     seed_start=arguments.seed_start,
@@ -900,6 +910,7 @@ def main(argv=None):
     symirc=arguments.symirc,
     symiri=arguments.symiri,
     timeout_s=arguments.timeout,
+    device_id=arguments.device,
   )
   try:
     result = run_sweep(arguments.work, declared, operations)
