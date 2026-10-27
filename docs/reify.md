@@ -290,6 +290,11 @@ The test exporter exposes the study's construction requests:
 | `--window-requirement reduction\|shared\|extrema-transpose\|extrema-expand` | adds the bounded live relationships below; requires `--window` |
 | `--require-computed-roots` | refuses a direct input as any result root; construction must supply a computed producer within the node budget |
 | `--max-attempts N`, `--max-multiplications N` | set the builder's internal limits instead of only recording them |
+| `--exact-input-bound B` | refuses a body whose value magnitudes, bounded across every loop trip from inputs of magnitude at most `B`, break the exact contract; records `exact_range` |
+| `--exact-contract all\|reduction` | the contract `--exact-input-bound` checks: `all` keeps every value within 2^24; `reduction` keeps `sum` results within 2^23 and every value within 2^64 (default `all`) |
+| `--root-selection deepest\|most-live` | picks each result root as the deepest value, or as the value that keeps the most grown nodes alive beyond the roots already chosen (default `deepest`) |
+
+Without division, every body value is an integer, so exactness is a question of magnitude. The bound is interval reasoning over magnitudes, iterated for the declared trip count. The `reduction` contract rests on two facts: with fusion off, an elementwise f32 operation rounds identically on the interpreter and the GPU, and only a `sum`'s lane order is left to the backend. The default root selection and the absence of both flags leave the builder's output and record unchanged.
 
 Interpreter screening runs those probes at the declared trip count and I0/I2 one trip earlier, then at most four conditional per-state variants; a failed, unsupported, or non-finite run is preserved as a candidate and never becomes evidence of collapse. The selection facts are empirical (a body is selected when I0 differs from I1 and I2, agrees with I3, and changes with the trip count), not a correctness claim.
 

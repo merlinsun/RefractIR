@@ -81,6 +81,8 @@ namespace {
     bool maxMultiplicationsSet = false;
     /// Positive enables the exact-range check for inputs of this magnitude.
     double exactInputBound = 0.0;
+    FreeFormExactContract exactContract = FreeFormExactContract::AllValues;
+    FreeFormRootSelection rootSelection = FreeFormRootSelection::Deepest;
     bool requireComputedRoots = false;
     /// `combined` returns the sum of every state; `state:K` returns state K.
     bool returnCombined = true;
@@ -216,6 +218,22 @@ namespace {
         options.maxMultiplicationsSet = true;
       } else if (flag == "--exact-input-bound") {
         options.exactInputBound = refractir::parseFloatLiteral(value());
+      } else if (flag == "--exact-contract") {
+        const std::string contract = value();
+        if (contract == "all")
+          options.exactContract = FreeFormExactContract::AllValues;
+        else if (contract == "reduction")
+          options.exactContract = FreeFormExactContract::Reductions;
+        else
+          throw std::invalid_argument("unknown free-form exact contract: " + contract);
+      } else if (flag == "--root-selection") {
+        const std::string selection = value();
+        if (selection == "deepest")
+          options.rootSelection = FreeFormRootSelection::Deepest;
+        else if (selection == "most-live")
+          options.rootSelection = FreeFormRootSelection::MostLive;
+        else
+          throw std::invalid_argument("unknown free-form root selection: " + selection);
       } else if (flag == "--require-computed-roots") {
         options.requireComputedRoots = true;
       } else if (flag == "--num-warps") {
@@ -500,6 +518,7 @@ namespace {
     request.policy = options.policy;
     request.features = options.features;
     request.seed = options.seed;
+    request.rootSelection = options.rootSelection;
     request.limits.maxNodes = options.maxNodes;
     request.limits.maxRank = options.maxRank;
     if (options.maxAttemptsSet)
@@ -546,16 +565,18 @@ namespace {
       loop.finalTerms = {std::string(stateNames[options.returnState])};
     }
     const auto source = assembleCountedLoop(built.region, loop);
-    // Opt-in: with integer inputs and no division, a value stays exact unless
-    // its magnitude leaves the range f32 holds every integer in, and a sound
-    // bound below that range also rules out overflow to a non-finite value.
-    double magnitudeBound = 0.0;
+    // Opt-in: with integer inputs and no division every value stays an
+    // integer, so exactness is a magnitude question, and a sound bound below
+    // the contract's limits also rules out overflow to a non-finite value.
+    FreeFormMagnitudes magnitudes;
     if (options.exactInputBound > 0.0) {
-      magnitudeBound = freeFormMagnitudeBound(built.region, loop, options.exactInputBound);
-      if (!(magnitudeBound <= kExactF32IntegerBound))
+      magnitudes = freeFormMagnitudes(built.region, loop, options.exactInputBound);
+      if (!freeFormWithinExactContract(magnitudes, options.exactContract))
         throw std::invalid_argument(
-            "free-form export: value magnitude bound " + refractir::formatDouble(magnitudeBound) +
-            " exceeds the exact f32 integer range for inputs bounded by " +
+            "free-form export: value magnitude bound " +
+            refractir::formatDouble(magnitudes.largest) + " (sums " +
+            refractir::formatDouble(magnitudes.largestSum) +
+            ") exceeds the exact f32 integer range for inputs bounded by " +
             refractir::formatDouble(options.exactInputBound)
         );
     }
@@ -584,8 +605,12 @@ namespace {
            << ",\"num_warps\":" << options.numWarps;
     if (options.exactInputBound > 0.0)
       record << ",\"exact_range\":{\"input_bound\":"
-             << refractir::formatDouble(options.exactInputBound)
-             << ",\"magnitude_bound\":" << refractir::formatDouble(magnitudeBound) << "}";
+             << refractir::formatDouble(options.exactInputBound) << ",\"contract\":\""
+             << (options.exactContract == FreeFormExactContract::Reductions ? "reduction" : "all")
+             << "\",\"magnitude_bound\":" << refractir::formatDouble(magnitudes.largest)
+             << ",\"sum_bound\":" << refractir::formatDouble(magnitudes.largestSum) << "}";
+    if (options.rootSelection == FreeFormRootSelection::MostLive)
+      record << ",\"root_selection\":\"most-live\"";
     record << ",\"route\":\"target-only\","
            << "\"features\":{\"transpose\":" << (options.features.transpose ? "true" : "false")
            << ",\"expand\":" << (options.features.expand ? "true" : "false")

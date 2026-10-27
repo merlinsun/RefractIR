@@ -46,6 +46,12 @@ MAX_MULTIPLICATIONS = 1
 # +-5). The exporter refuses a body whose values could then leave the exact
 # f32 integer range, so tolerance-free oracles stay exact.
 EXACT_INPUT_BOUND = 5
+# Elementwise f32 operations round identically on both paths with fusion off,
+# so only `sum`, whose lane order a backend chooses, must stay exact.
+EXACT_CONTRACT = "reduction"
+# Keep the most grown nodes alive when choosing result roots: larger live
+# bodies are where H2b observed layout conversions.
+ROOT_SELECTION = "most-live"
 INFRASTRUCTURE_WINDOW = 100
 INFRASTRUCTURE_MAX = 5
 COMPLETED = "completed"
@@ -125,6 +131,8 @@ def sweep_spec(
     "max_nodes": MAX_NODES,
     "max_multiplications": MAX_MULTIPLICATIONS,
     "exact_input_bound": EXACT_INPUT_BOUND,
+    "exact_contract": EXACT_CONTRACT,
+    "root_selection": ROOT_SELECTION,
     "enable_fp_fusion": False,
     "order": ORDER,
     "sample_every": sample_every,
@@ -183,6 +191,8 @@ def kernel_request(spec, index):
     "max_nodes": spec["max_nodes"],
     "max_multiplications": spec["max_multiplications"],
     "exact_input_bound": spec["exact_input_bound"],
+    "exact_contract": spec["exact_contract"],
+    "root_selection": spec["root_selection"],
   }
 
 
@@ -675,6 +685,10 @@ def _export_command(exporter, request, out):
     str(request["max_multiplications"]),
     "--exact-input-bound",
     str(request["exact_input_bound"]),
+    "--exact-contract",
+    request["exact_contract"],
+    "--root-selection",
+    request["root_selection"],
     "--require-computed-roots",
     "--num-warps",
     "1",

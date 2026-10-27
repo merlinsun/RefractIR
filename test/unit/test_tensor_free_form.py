@@ -71,6 +71,21 @@ class FreeFormContractTests(unittest.TestCase):
   def test_a_window_fill_bounds_its_tile(self):
     self.run_contract("magnitude-window-fill")
 
+  def test_only_live_sums_are_order_sensitive(self):
+    self.run_contract("order-sensitive-values-are-live-sums")
+
+  def test_the_sum_bound_tracks_sums_alone(self):
+    self.run_contract("magnitudes-track-sums")
+
+  def test_the_reduction_contract_bounds_sums_and_overflow(self):
+    self.run_contract("reduction-contract-bounds")
+
+  def test_most_live_roots_keep_more_nodes(self):
+    self.run_contract("most-live-roots-keep-more-nodes")
+
+  def test_deepest_roots_are_the_default(self):
+    self.run_contract("deepest-roots-are-the-default")
+
   def test_state_and_invariant_initialization_is_respected(self):
     self.run_contract("invariant-initialization")
 
@@ -786,6 +801,34 @@ class FreeFormExportTests(unittest.TestCase):
       self.assertIn("exact f32 integer range", result.stderr)
       self.assertFalse((Path(directory) / "program.sir").exists())
 
+  def test_the_reduction_contract_is_recorded_with_its_sum_bound(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "deep", "--seed", "11", "--shape", "2,2", "--trip-count", "2",
+        "--states", "2", "--max-multiplications", "0", "--exact-input-bound", "1",
+        "--exact-contract", "reduction", "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["exact_range"]["contract"], "reduction")
+      self.assertLessEqual(record["exact_range"]["sum_bound"], 2**23)
+      result = self.export("--exact-contract", "loose", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("unknown free-form exact contract", result.stderr)
+
+  def test_most_live_root_selection_is_recorded(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result = self.export(
+        "--policy", "deep", "--seed", "11", "--shape", "2,2", "--trip-count", "2",
+        "--states", "2", "--root-selection", "most-live", "--out", directory,
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["root_selection"], "most-live")
+      result = self.export("--root-selection", "widest", "--out", directory)
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("unknown free-form root selection", result.stderr)
+
   def test_without_the_flag_the_record_states_no_exact_range(self):
     with tempfile.TemporaryDirectory() as directory:
       result = self.export(
@@ -795,6 +838,7 @@ class FreeFormExportTests(unittest.TestCase):
       self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
       record = json.loads((Path(directory) / "region.json").read_text(encoding="utf-8"))
       self.assertNotIn("exact_range", record)
+      self.assertNotIn("root_selection", record)
 
   def test_an_admitted_body_records_its_magnitude_bound(self):
     with tempfile.TemporaryDirectory() as directory:

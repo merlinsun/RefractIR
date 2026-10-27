@@ -48,6 +48,12 @@ namespace refractir::reify {
   /// is admissible.
   enum class FreeFormFillKind : std::uint8_t { Integer, Float };
 
+  /// How each requested result picks its root among the grown values once
+  /// requirements and computed-root preferences are met. `Deepest` takes the
+  /// deepest value. `MostLive` takes the value that keeps the most grown nodes
+  /// alive beyond the roots already chosen, so less of the body is pruned.
+  enum class FreeFormRootSelection : std::uint8_t { Deepest, MostLive };
+
   /// One typed region input together with its loop role and initialization.
   struct FreeFormInput {
     TensorRegionInput value;
@@ -143,6 +149,7 @@ namespace refractir::reify {
     FreeFormLimits limits;
     std::uint32_t seed = 0;
     std::vector<FreeFormRequirement> requirements;
+    FreeFormRootSelection rootSelection = FreeFormRootSelection::Deepest;
   };
 
   /// The observable traits one legal action has. A policy can only bias what
@@ -399,5 +406,29 @@ namespace refractir::reify {
   /// bounded by `inputBound` in magnitude.
   [[nodiscard]] double
   freeFormMagnitudeBound(const TensorRegion &region, const FreeFormLoop &loop, double inputBound);
+
+  /// The largest magnitude bound over every value, and over the
+  /// order-sensitive values alone, across every trip of the loop.
+  struct FreeFormMagnitudes {
+    double largest = 0.0;
+    double largestSum = 0.0;
+  };
+
+  [[nodiscard]] FreeFormMagnitudes
+  freeFormMagnitudes(const TensorRegion &region, const FreeFormLoop &loop, double inputBound);
+
+  /// Which values must stay exact for a byte-identical path comparison.
+  /// `AllValues` keeps every value within 2^24. `Reductions` relies on
+  /// elementwise f32 operations rounding identically on both paths when
+  /// fusion is off, so it keeps only `sum` results within 2^23 (a factor-of-two
+  /// margin for rounding earlier in the body) and every value within 2^64,
+  /// far below the f32 overflow threshold.
+  enum class FreeFormExactContract : std::uint8_t { AllValues, Reductions };
+
+  inline constexpr double kExactReductionBound = 8388608.0;
+  inline constexpr double kFiniteMarginBound = 18446744073709551616.0;
+
+  [[nodiscard]] bool
+  freeFormWithinExactContract(const FreeFormMagnitudes &magnitudes, FreeFormExactContract contract);
 
 } // namespace refractir::reify

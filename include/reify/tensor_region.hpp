@@ -38,6 +38,9 @@ namespace refractir::reify {
     /// input. Throws std::invalid_argument when an input has no bound.
     [[nodiscard]] std::map<std::string, double>
     magnitudeBounds(const std::map<std::string, double> &inputs) const;
+    /// The live values whose rounding depends on evaluation order: the
+    /// results of `sum`, whose lanes a backend may add in any order.
+    [[nodiscard]] std::vector<std::string> orderSensitiveValues() const;
     [[nodiscard]] std::vector<std::string> renderBody(
         const std::vector<std::pair<std::string, std::string>> &updates,
         const std::vector<std::string> &reservedNames = {}

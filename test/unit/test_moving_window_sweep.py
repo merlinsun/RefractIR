@@ -590,6 +590,16 @@ class DeviceBindingTests(unittest.TestCase):
     )
     self.assertEqual(spec(4)["exact_input_bound"], sweep.EXACT_INPUT_BOUND)
 
+  def test_the_builder_declares_the_contract_and_root_selection(self):
+    _, _, argv = self.build(self.index_of("G1"))
+    self.assertEqual(argv[argv.index("--exact-contract") + 1], "reduction")
+    self.assertEqual(argv[argv.index("--root-selection") + 1], "most-live")
+    declared = spec(4)
+    self.assertEqual(
+      (declared["exact_contract"], declared["root_selection"]),
+      ("reduction", "most-live"),
+    )
+
   def test_every_probe_value_is_within_the_exact_input_bound(self):
     from test.lib import tensor_free_form_inputs
     from test.unit import test_tensor_free_form_case as fixtures

@@ -1,17 +1,18 @@
 #include "reify/tensor_free_form.hpp"
 
 #include <algorithm>
-#include <functional>
-#include <limits>
-#include <optional>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <map>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -429,6 +430,24 @@ namespace refractir::reify {
       }
 
       [[nodiscard]] const std::vector<PoolValue> &pool() const { return pool_; }
+
+      /// The placed nodes the given pool values depend on, themselves
+      /// included: what pruning keeps when these values are the roots.
+      [[nodiscard]] std::unordered_set<std::int32_t>
+      liveNodesOf(const std::vector<std::uint32_t> &roots) const {
+        std::unordered_set<std::int32_t> live;
+        std::vector<std::uint32_t> stack(roots.begin(), roots.end());
+        while (!stack.empty()) {
+          const auto value = stack.back();
+          stack.pop_back();
+          const auto node = pool_[value].node;
+          if (node < 0 || !live.insert(node).second)
+            continue;
+          for (const auto operand: nodes_[static_cast<std::size_t>(node)].operands)
+            stack.push_back(static_cast<std::uint32_t>(operand));
+        }
+        return live;
+      }
       [[nodiscard]] const std::vector<NodeRecord> &nodes() const { return nodes_; }
       [[nodiscard]] std::uint32_t nodesPlaced() const {
         return static_cast<std::uint32_t>(nodes_.size());
@@ -1378,10 +1397,18 @@ namespace refractir::reify {
         std::optional<std::uint32_t> best;
         std::uint32_t bestSatisfied = 0;
         const bool requireComputed = request.results[index].requireComputed;
+        const bool mostLive = request.rootSelection == FreeFormRootSelection::MostLive;
         const auto choose = [&]() {
           best.reset();
           bestSatisfied = 0;
-          std::uint32_t bestScore = 0;
+          // Requirements first, then a computed root; `MostLive` then ranks by
+          // the nodes a candidate keeps alive beyond the roots already chosen.
+          // With that field fixed at zero the order is the deepest-root order.
+          using Key =
+              std::tuple<std::uint32_t, std::uint32_t, std::size_t, std::uint32_t, std::uint32_t>;
+          Key bestKey{};
+          const auto covered =
+              mostLive ? growth.liveNodesOf(roots) : std::unordered_set<std::int32_t>{};
           for (const auto candidate: growth.valuesOfType(type)) {
             if (std::find(roots.begin(), roots.end(), candidate) != roots.end())
               continue;
@@ -1391,12 +1418,17 @@ namespace refractir::reify {
             for (const auto *requirement: covering)
               satisfied += satisfiesRequirement(candidate, *requirement) ? 1U : 0U;
             const auto &value = growth.pool()[candidate];
-            const std::uint32_t score =
-                (covering.empty() || satisfied == covering.size() ? 1U << 30 : satisfied << 28) +
-                (value.node >= 0 ? 1U << 27 : 0U) + (value.depth << 16) + candidate;
-            if (!best || score > bestScore) {
+            std::size_t gain = 0;
+            if (mostLive)
+              for (const auto node: growth.liveNodesOf({candidate}))
+                gain += covered.count(node) == 0 ? 1U : 0U;
+            const Key key{
+                covering.empty() || satisfied == covering.size() ? 1U << 30 : satisfied << 28,
+                value.node >= 0 ? 1U : 0U, gain, value.depth, candidate
+            };
+            if (!best || key > bestKey) {
               best = candidate;
-              bestScore = score;
+              bestKey = key;
               bestSatisfied = satisfied;
             }
           }
@@ -2047,8 +2079,8 @@ namespace refractir::reify {
     }
   } // namespace
 
-  double
-  freeFormMagnitudeBound(const TensorRegion &region, const FreeFormLoop &loop, double inputBound) {
+  FreeFormMagnitudes
+  freeFormMagnitudes(const TensorRegion &region, const FreeFormLoop &loop, double inputBound) {
     std::map<std::string, double> current;
     for (const auto &input: loop.inputs) {
       const auto &name = input.value.name;
@@ -2057,15 +2089,18 @@ namespace refractir::reify {
                           ? windowInputBound(loop, name, inputBound)
                           : inputBound;
     }
-    double worst = 0.0;
+    FreeFormMagnitudes magnitudes;
     for (const auto &[name, bound]: current)
-      worst = std::max(worst, bound);
+      magnitudes.largest = std::max(magnitudes.largest, bound);
+    const auto sums = region.orderSensitiveValues();
     // Each trip reads the states the previous trip wrote; invariants, window
     // tiles included, keep the bound they started with.
     for (std::uint32_t trip = 0; trip < loop.tripCount; ++trip) {
       const auto bounds = region.magnitudeBounds(current);
       for (const auto &[name, bound]: bounds)
-        worst = std::max(worst, bound);
+        magnitudes.largest = std::max(magnitudes.largest, bound);
+      for (const auto &name: sums)
+        magnitudes.largestSum = std::max(magnitudes.largestSum, bounds.at(name));
       for (const auto &[state, result]: loop.updates)
         current[state] = bounds.at(result);
     }
@@ -2073,9 +2108,23 @@ namespace refractir::reify {
       auto folded = current.at(loop.finalTerms.front());
       for (std::size_t index = 1; index < loop.finalTerms.size(); ++index)
         folded = foldBound(loop.finalOp, folded, current.at(loop.finalTerms[index]));
-      worst = std::max(worst, folded);
+      magnitudes.largest = std::max(magnitudes.largest, folded);
     }
-    return worst;
+    return magnitudes;
+  }
+
+  double
+  freeFormMagnitudeBound(const TensorRegion &region, const FreeFormLoop &loop, double inputBound) {
+    return freeFormMagnitudes(region, loop, inputBound).largest;
+  }
+
+  bool freeFormWithinExactContract(
+      const FreeFormMagnitudes &magnitudes, FreeFormExactContract contract
+  ) {
+    if (contract == FreeFormExactContract::AllValues)
+      return magnitudes.largest <= kExactF32IntegerBound;
+    return magnitudes.largestSum <= kExactReductionBound &&
+           magnitudes.largest <= kFiniteMarginBound;
   }
 
   FreeFormAssembly assembleCanonicalLoop(const TensorRegion &region, std::uint32_t tripCount) {

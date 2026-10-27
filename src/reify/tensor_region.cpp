@@ -334,6 +334,15 @@ namespace refractir::reify {
     return bounds;
   }
 
+  std::vector<std::string> TensorRegion::orderSensitiveValues() const {
+    const auto live = liveNodes();
+    std::vector<std::string> names;
+    for (std::size_t position = 0; position < nodes_.size(); ++position)
+      if (live[position] && nodes_[position].op == TensorOp::Sum)
+        names.push_back(values_[static_cast<std::size_t>(nodes_[position].result)].name);
+    return names;
+  }
+
   std::vector<std::string> TensorRegion::renderInstructions() const {
     const auto live = liveNodes();
     std::vector<std::string> instructions;

@@ -1767,6 +1767,117 @@ namespace {
     requireBound(freeFormMagnitudeBound(region, loop, 1.0), 37.0, "a window fill of -9");
   }
 
+  // Only `sum` results are order-sensitive; a dead sum is not listed.
+  void orderSensitiveValuesAreLiveSums() {
+    TensorRegion region({{"%acc_x", type({2, 4})}});
+    region.add("%total", TensorOp::Sum, {"%acc_x"}, 1, true);
+    region.add("%dead", TensorOp::Sum, {"%acc_x"}, 0, true);
+    region.add("%top", TensorOp::ReduceMax, {"%acc_x"}, 1, true);
+    region.add("%both", TensorOp::Add, {"%total", "%top"});
+    region.add("%wide", TensorOp::Broadcast, {"%both"}, 0, false, {2, 4});
+    region.add("%next_x", TensorOp::Add, {"%acc_x", "%wide"});
+    region.setResults({"%next_x"});
+    require(
+        region.orderSensitiveValues() == std::vector<std::string>{"%total"},
+        "only the live sum is order-sensitive"
+    );
+  }
+
+  // The sum bound tracks `sum` results alone; a body with no sum has none.
+  void magnitudesTrackSums() {
+    TensorRegion summed({{"%acc_x", type({2, 4})}});
+    summed.add("%reduced", TensorOp::Sum, {"%acc_x"}, 1, true);
+    summed.add("%wide", TensorOp::Broadcast, {"%reduced"}, 0, false, {2, 4});
+    summed.add("%next_x", TensorOp::Add, {"%acc_x", "%wide"});
+    summed.setResults({"%next_x"});
+    FreeFormLoop loop;
+    loop.inputs = {state("%acc_x", {2, 4}, "%x")};
+    loop.results = {"%next_x"};
+    loop.updates = {{"%acc_x", "%next_x"}};
+    loop.finalTerms = {"%acc_x"};
+    loop.tripCount = 2;
+    // Trip 1: sum 4, next 5; trip 2: sum 20, next 25.
+    const auto magnitudes = freeFormMagnitudes(summed, loop, 1.0);
+    requireBound(magnitudes.largestSum, 20.0, "the sum bound over two trips");
+    requireBound(magnitudes.largest, 25.0, "the overall bound over two trips");
+
+    TensorRegion squared({{"%acc_x", type({2, 4})}});
+    squared.add("%next_x", TensorOp::Mul, {"%acc_x", "%acc_x"});
+    squared.setResults({"%next_x"});
+    requireBound(freeFormMagnitudes(squared, loop, 2.0).largestSum, 0.0, "no sum, no sum bound");
+  }
+
+  // The reduction contract admits large elementwise values that stay finite,
+  // refuses a sum beyond 2^23, and refuses anything that could overflow.
+  void reductionContractBounds() {
+    using Contract = FreeFormExactContract;
+    const FreeFormMagnitudes elementwise{4294967296.0, 0.0};
+    require(
+        !freeFormWithinExactContract(elementwise, Contract::AllValues) &&
+            freeFormWithinExactContract(elementwise, Contract::Reductions),
+        "2^32 elementwise is exact only where order does not matter"
+    );
+    const FreeFormMagnitudes bigSum{16.0 * kExactReductionBound, 2.0 * kExactReductionBound};
+    require(
+        !freeFormWithinExactContract(bigSum, Contract::Reductions), "a sum beyond 2^23 is refused"
+    );
+    const FreeFormMagnitudes overflowing{2.0 * kFiniteMarginBound, 0.0};
+    require(
+        !freeFormWithinExactContract(overflowing, Contract::Reductions),
+        "a value beyond 2^64 is refused"
+    );
+    require(
+        freeFormWithinExactContract(
+            {kExactReductionBound, kExactReductionBound}, Contract::Reductions
+        ),
+        "the limits themselves are admitted"
+    );
+  }
+
+  FreeFormRequest growthRequest(std::uint32_t seed, FreeFormRootSelection selection) {
+    FreeFormRequest request;
+    request.inputs = {state("%acc_x", {4, 4}, "%x"), state("%acc_y", {4, 4}, "%y")};
+    request.results = {{"%next_x", type({4, 4})}, {"%next_y", type({4, 4})}};
+    request.policy = FreeFormPolicy::Unguided;
+    request.features = {true, true, true};
+    request.limits.maxNodes = 16;
+    request.seed = seed;
+    request.rootSelection = selection;
+    return request;
+  }
+
+  // Root selection happens after growth, so both selections prune the same
+  // grown graph; keeping the most nodes alive must keep more of it overall.
+  void mostLiveRootsKeepMoreNodes() {
+    std::uint32_t deepest = 0;
+    std::uint32_t mostLive = 0;
+    for (std::uint32_t seed = 1; seed <= 40; ++seed) {
+      deepest +=
+          buildFreeFormRegion(growthRequest(seed, FreeFormRootSelection::Deepest)).structure.nodes;
+      mostLive +=
+          buildFreeFormRegion(growthRequest(seed, FreeFormRootSelection::MostLive)).structure.nodes;
+    }
+    require(
+        mostLive > deepest, "most-live roots kept " + std::to_string(mostLive) +
+                                " live nodes against " + std::to_string(deepest)
+    );
+  }
+
+  // The default stays the deepest root, so the frozen corpus replays.
+  void deepestRootsAreTheDefault() {
+    for (std::uint32_t seed = 1; seed <= 12; ++seed) {
+      auto unset = growthRequest(seed, FreeFormRootSelection::Deepest);
+      unset.rootSelection = FreeFormRequest{}.rootSelection;
+      require(
+          render(buildFreeFormRegion(unset).region) ==
+              render(
+                  buildFreeFormRegion(growthRequest(seed, FreeFormRootSelection::Deepest)).region
+              ),
+          "an unset root selection must build the deepest-root body"
+      );
+    }
+  }
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -1928,6 +2039,16 @@ int main(int argc, char **argv) {
       magnitudeReductionsAndShapes();
     else if (name == "magnitude-window-fill")
       magnitudeWindowFill();
+    else if (name == "order-sensitive-values-are-live-sums")
+      orderSensitiveValuesAreLiveSums();
+    else if (name == "magnitudes-track-sums")
+      magnitudesTrackSums();
+    else if (name == "reduction-contract-bounds")
+      reductionContractBounds();
+    else if (name == "most-live-roots-keep-more-nodes")
+      mostLiveRootsKeepMoreNodes();
+    else if (name == "deepest-roots-are-the-default")
+      deepestRootsAreTheDefault();
     else if (name == "three-state-source") {
       std::cout << threeStateSource();
       return 0;
