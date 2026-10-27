@@ -359,6 +359,9 @@ class _Session:
       return "gpu_budget"
     if self.free_bytes(self.work) < budget["min_free_bytes"]:
       return "disk_guard"
+    # Checked before each kernel, so a restart after this stop dispatches nothing.
+    if self.infrastructure_exceeded():
+      return "infrastructure_failure_rate"
     return None
 
   def kernel_directory(self, seed):
@@ -473,9 +476,6 @@ class _Session:
         elapsed_s=self.clock() - now,
         disk_bytes=_disk_bytes(directory),
       )
-      if self.infrastructure_exceeded():
-        reason = "infrastructure_failure_rate"
-        break
     reason = reason or "seed_block_complete"
     self.log.append("stop", reason=reason, gpu_workers_dispatched=self.dispatched)
     return report(self.work, reason)

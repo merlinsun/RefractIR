@@ -388,6 +388,19 @@ class SweepReportTests(SweepFixture):
 
 
 class SweepEdgeTests(SweepFixture):
+  def test_a_restart_after_an_infrastructure_stop_dispatches_nothing(self):
+    script = Script(
+      statuses={
+        (S0 + index, 1, I0, "p2"): ("environment_unavailable", "CUDA device 0")
+        for index in range(10)
+      }
+    )
+    self.run_sweep(spec(10), script)
+    dispatched = len(script.pairs)
+    report = self.run_sweep(spec(10), script)
+    self.assertEqual(len(script.pairs), dispatched)
+    self.assertEqual(report["stop_reason"], "infrastructure_failure_rate")
+
   def test_a_builder_refusal_is_recorded_and_consumes_its_seed(self):
     script = Script(refused={S0 + 1})
     self.run_sweep(spec(3), script)
