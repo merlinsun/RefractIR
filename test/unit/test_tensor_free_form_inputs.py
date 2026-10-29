@@ -1,5 +1,6 @@
 """Contract tests for free-form runtime inputs derived without a certificate."""
 
+import math
 import struct
 import unittest
 from unittest import mock
@@ -164,11 +165,103 @@ class WindowProbeTests(unittest.TestCase):
     self.assertFalse(any(address >= window["active"] for address in read))
     self.assertEqual(probes[3].probe, "i3-unused-rows")
 
+  def test_a_one_trip_window_has_no_late_row_probe(self):
+    region = {
+      **WINDOW_REGION,
+      "trip_count": 1,
+      "window": {**WINDOW_REGION["window"], "active": 2},
+    }
+    probes = inputs.window_probes(region, group=0, column=4)
+    self.assertEqual(
+      [probe.probe for probe in probes], ["i0-base", "i1-read-plus-one", "i3-unused-rows"]
+    )
+    base, unused = probes[0].values[0], probes[2].values[0]
+    self.assertEqual(unused[:2], base[:2])
+    self.assertEqual(unused[2], tuple(1 - value for value in base[2]))
+
+  def test_one_trip_columns_take_slots_of_their_own(self):
+    slots = {
+      inputs.window_base_proposal(WINDOW_REGION, group=group, column=column).seed
+      for group in range(3)
+      for column in range(6)
+    }
+    self.assertEqual(len(slots), 18)
+    self.assertEqual(inputs.window_base_proposal(WINDOW_REGION, group=1, column=0).seed, 4)
+
+  def corner(self, name):
+    probes = {probe.probe: probe for probe in inputs.corner_probes(WINDOW_REGION, group=1, column=2)}
+    base = inputs.window_probes(WINDOW_REGION, group=1, column=2)[0]
+    return probes[name], base
+
+  @staticmethod
+  def elements(probe):
+    """(parameter, row, column, value) for every element of a probe."""
+    return [
+      (index, r, c, value)
+      for index, matrix in enumerate(probe.values)
+      for r, row in enumerate(matrix)
+      for c, value in enumerate(row)
+    ]
+
+  def test_corner_probes_are_named_in_order_and_carry_their_bytes(self):
+    probes = inputs.corner_probes(WINDOW_REGION, group=1, column=2)
+    self.assertEqual([probe.probe for probe in probes], list(inputs.CORNER_PROBES))
+    for probe in probes:
+      packed = struct.pack(
+        f"<{len(probe.data) // 4}f", *(value for *_, value in self.elements(probe))
+      )
+      self.assertEqual(probe.data, packed)
+
+  def test_the_signed_zero_probe_mixes_both_zeros(self):
+    probe, base = self.corner("i4-signed-zero")
+    signs = set()
+    for (index, r, c, value), (*_, original) in zip(self.elements(probe), self.elements(base)):
+      if (r + c) % 2 == 0:
+        self.assertEqual(value, 0.0)
+        self.assertEqual(math.copysign(1.0, value), -1.0 if original < 0 else 1.0)
+        signs.add(math.copysign(1.0, value))
+      else:
+        self.assertEqual(value, original)
+    self.assertEqual(signs, {1.0, -1.0})
+
+  def test_the_denormal_probe_straddles_the_smallest_normal(self):
+    probe, base = self.corner("i5-denormal")
+    smallest_normal = 2.0**-126
+    values = [value for *_, value in self.elements(probe)]
+    for value, (*_, original) in zip(values, self.elements(base)):
+      self.assertEqual(value, original * 2.0**-127)
+    self.assertTrue(any(0 < abs(value) < smallest_normal for value in values))
+    self.assertTrue(any(abs(value) >= smallest_normal for value in values))
+
+  def test_the_cancel_probe_pairs_large_values_of_opposite_sign(self):
+    probe, base = self.corner("i6-cancel")
+    for (index, r, c, value), (*_, original) in zip(self.elements(probe), self.elements(base)):
+      self.assertEqual(value, (2.0**23 if (r + c) % 2 == 0 else -(2.0**23)) + original)
+
+  def test_the_ties_probe_puts_each_neighbour_sum_on_a_rounding_tie(self):
+    probe, _ = self.corner("i7-ties")
+    for index, r, c, value in self.elements(probe):
+      if (r + c) % 2 == 0:
+        self.assertEqual(value, 2.0**24)
+      else:
+        self.assertEqual(abs(value) % 2, 1.0)
+        rounded = struct.unpack("<f", struct.pack("<f", 2.0**24 + value))[0]
+        self.assertEqual(abs(rounded - (2.0**24 + value)), 1.0)
+
+  def test_the_large_probe_reaches_toward_two_to_the_thirty(self):
+    probe, base = self.corner("i8-large")
+    values = []
+    for (index, r, c, value), (*_, original) in zip(self.elements(probe), self.elements(base)):
+      scale = 2.0**28 if (r + c) % 2 == 0 else 2.0**22
+      self.assertEqual(value, original * scale)
+      values.append(abs(value))
+    self.assertGreater(max(values), 2.0**29)
+
   def test_an_unusable_window_is_refused(self):
     with self.assertRaises(inputs.SpecError):
       inputs.window_probes(WINDOW_REGION, group=3, column=0)
     with self.assertRaises(inputs.SpecError):
-      inputs.window_probes(WINDOW_REGION, group=0, column=4)
+      inputs.window_probes(WINDOW_REGION, group=0, column=6)
     with self.assertRaises(inputs.SpecError):
       inputs.window_probes(
         {**WINDOW_REGION, "window": {**WINDOW_REGION["window"], "stride": 0, "active": 1}},

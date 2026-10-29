@@ -35,6 +35,8 @@ if str(_ROOT) not in sys.path:
   sys.path.insert(0, str(_ROOT))
 
 from test.lib import tensor_execution  # noqa: E402
+from test.lib.tensor_free_form_inputs import CORNER_PROBES  # noqa: E402
+from test.lib.tensor_target_case import LOOP_HINT  # noqa: E402
 
 SCHEMA = "refractir.moving-window-sweep.v1"
 INPUTS = ("i0-base", "i3-unused-rows")
@@ -52,6 +54,14 @@ EXACT_CONTRACT = "reduction"
 # Keep the most grown nodes alive when choosing result roots: larger live
 # bodies are where H2b observed layout conversions.
 ROOT_SELECTION = "most-live"
+# Operations whose result order or precision a backend may choose: `sum`
+# accumulates in a lane order the backend picks. Exact under the reduction
+# contract on I0-I3, but not on a corner probe, where a path difference in a
+# body that contains one is restricted rather than quarantined.
+UNSPECIFIED = frozenset({"sum"})
+# Literal bounds are constants Triton folds; runtime bounds are unspecialized
+# kernel parameters with the same values (`symirc --tensor-loop-bound`).
+LOOP_BOUNDS = ("literal", "runtime")
 INFRASTRUCTURE_WINDOW = 100
 INFRASTRUCTURE_MAX = 5
 COMPLETED = "completed"
@@ -81,8 +91,34 @@ def _part_one():
 
 _STUDY = _part_one()
 COLUMNS = _STUDY.COLUMNS
+# One-trip windows, interior and tail. Every study column runs four or more
+# trips, so Triton never compiled a loop whose body runs once. A zero-trip
+# loop is outside the tensor profile, which requires one to eight trips.
+ONE_TRIP_COLUMNS = (
+  {
+    "column": 4,
+    "shape": [2, 8],
+    "trips": 1,
+    "stride": 1,
+    "backing_rows": 5,
+    "active": 2,
+    "regime": "interior",
+  },
+  {
+    "column": 5,
+    "shape": [3, 4],
+    "trips": 1,
+    "stride": 1,
+    "backing_rows": 5,
+    "active": 2,
+    "regime": "tail",
+  },
+)
 POLICIES = _STUDY.POLICIES
 PROBES = _STUDY.PROBES
+# Inputs a declaration may name: the window probes, whose values stay within
+# the exact-input bound, and the corner-value probes, which do not.
+KNOWN_INPUTS = PROBES + CORNER_PROBES
 MIN_FREE_BYTES = _STUDY.MIN_FREE_BYTES
 
 
@@ -107,6 +143,9 @@ def sweep_spec(
   sample_every,
   gpu_workers,
   wall_clock_s,
+  columns=COLUMNS,
+  inputs=INPUTS,
+  loop_bound="literal",
 ):
   """The declaration frozen before the first builder call."""
   _positive(seed_start, "seed_start")
@@ -117,22 +156,41 @@ def sweep_spec(
   configurations = [dict(configuration) for configuration in configurations]
   if not configurations:
     raise SweepRefused("at least one launch configuration is required")
+  inputs = list(inputs)
+  if (
+    not inputs
+    or len(set(inputs)) != len(inputs)
+    or not set(inputs) <= set(KNOWN_INPUTS)
+  ):
+    raise SweepRefused(f"inputs are distinct names from {list(KNOWN_INPUTS)}")
+  columns = [dict(column) for column in columns]
+  if [column["column"] for column in columns] != list(range(len(columns))):
+    raise SweepRefused("columns are numbered in order from zero")
   for configuration in configurations:
-    if set(configuration) != {"num_warps", "num_stages"}:
-      raise SweepRefused("a configuration states exactly num_warps and num_stages")
+    if set(configuration) - {"loop_hint"} != {"num_warps", "num_stages"}:
+      raise SweepRefused(
+        "a configuration states num_warps, num_stages, and at most a loop_hint"
+      )
     _positive(configuration["num_warps"], "num_warps")
     _positive(configuration["num_stages"], "num_stages")
+    hint = configuration.get("loop_hint")
+    if hint is not None and (type(hint) is not str or not LOOP_HINT.fullmatch(hint)):
+      raise SweepRefused(f"unknown loop hint {hint!r}")
+  if loop_bound not in LOOP_BOUNDS:
+    raise SweepRefused(f"loop_bound must be one of {list(LOOP_BOUNDS)}")
   return {
     "schema": SCHEMA,
     "seed_start": seed_start,
     "seed_count": seed_count,
     "configurations": configurations,
-    "inputs": list(INPUTS),
+    "inputs": inputs,
+    "columns": columns,
     "max_nodes": MAX_NODES,
     "max_multiplications": MAX_MULTIPLICATIONS,
     "exact_input_bound": EXACT_INPUT_BOUND,
     "exact_contract": EXACT_CONTRACT,
     "root_selection": ROOT_SELECTION,
+    "loop_bound": loop_bound,
     "enable_fp_fusion": False,
     "order": ORDER,
     "sample_every": sample_every,
@@ -147,7 +205,7 @@ def sweep_spec(
 
 
 @functools.lru_cache(maxsize=8)
-def _block_cells(seed_start, block):
+def _block_cells(seed_start, block, column_count):
   """One block's (group, column, policy) cells, each exactly once.
 
   Policies take turns in a seeded order, so every prefix holds each policy
@@ -157,7 +215,7 @@ def _block_cells(seed_start, block):
   """
   rng = random.Random(f"{SCHEMA}:{ORDER}:{seed_start}:{block}")
   pairs = [
-    (group, column) for group in range(len(GROUPS)) for column in range(len(COLUMNS))
+    (group, column) for group in range(len(GROUPS)) for column in range(column_count)
   ]
   policies = rng.sample(range(len(POLICIES)), len(POLICIES))
   visits = {policy: rng.sample(pairs, len(pairs)) for policy in policies}
@@ -168,11 +226,12 @@ def _block_cells(seed_start, block):
 
 def kernel_request(spec, index):
   """Map a seed-block index to its group, shape column, and policy."""
-  block, offset = divmod(index, len(GROUPS) * len(COLUMNS) * len(POLICIES))
-  group_index, column_index, policy_index = _block_cells(spec["seed_start"], block)[
-    offset
-  ]
-  column = COLUMNS[column_index]
+  columns = spec["columns"]
+  block, offset = divmod(index, len(GROUPS) * len(columns) * len(POLICIES))
+  group_index, column_index, policy_index = _block_cells(
+    spec["seed_start"], block, len(columns)
+  )[offset]
+  column = columns[column_index]
   group = GROUPS[group_index]
   requirement = {
     "G0": "reduction",
@@ -193,6 +252,7 @@ def kernel_request(spec, index):
     "exact_input_bound": spec["exact_input_bound"],
     "exact_contract": spec["exact_contract"],
     "root_selection": spec["root_selection"],
+    "loop_bound": spec["loop_bound"],
   }
 
 
@@ -267,12 +327,20 @@ def _sha(output):
   return None if output is None else hashlib.sha256(output).hexdigest()
 
 
-def evaluate(pairs):
-  """Apply the three oracles to one kernel's paired runs."""
+def evaluate(pairs, *, operations=None):
+  """Apply the three oracles to one kernel's paired runs.
+
+  A corner-value input is not bounded, so its values may leave the finite
+  range SIR defines. Its non-finite runs are skipped rather than candidates;
+  only a disagreement over whether the output is finite remains one. In a
+  body with an `UNSPECIFIED` operation, its finite outputs are not compared.
+  """
+  restricted = operations is None or bool(UNSPECIFIED & set(operations))
   candidates = []
   infrastructure = False
   for pair in pairs:
     where = {"configuration": pair["configuration"], "input": pair["input"]}
+    corner = pair["input"] in CORNER_PROBES
     for path in ("p1", "p2"):
       run = pair[path]
       if run["status"] == SKIPPED:
@@ -289,10 +357,15 @@ def evaluate(pairs):
             **where,
           }
         )
-      elif not _finite(run["output"]):
+      elif not _finite(run["output"]) and not corner:
         candidates.append({"kind": "non_finite", "path": path, **where})
     first, second = pair["p1"].get("output"), pair["p2"].get("output")
-    if pair["p1"]["status"] == pair["p2"]["status"] == COMPLETED and first != second:
+    both_completed = pair["p1"]["status"] == pair["p2"]["status"] == COMPLETED
+    if both_completed and corner and not (_finite(first) or _finite(second)):
+      continue
+    if both_completed and corner and restricted and _finite(first) and _finite(second):
+      continue
+    if both_completed and first != second:
       # Non-finite values are undefined in SIR, so a difference among them is
       # grouped apart from a difference between defined outputs.
       kind = (
@@ -338,6 +411,10 @@ def _pair_line(pair):
         "status": pair[path]["status"],
         "reason": pair[path].get("reason", ""),
         "output_sha256": _sha(pair[path].get("output")),
+        # Recorded because a non-finite corner run is skipped, not quarantined.
+        "finite": (
+          _finite(pair[path]["output"]) if pair[path]["status"] == COMPLETED else None
+        ),
       }
       for path in ("p1", "p2")
     },
@@ -442,7 +519,7 @@ class _Session:
           # Every input at this setting compiles the same kernel, so the rest
           # would only repeat the timeout.
           skip = f"P2 compilation timed out on {name} at this configuration"
-    candidates, infrastructure = evaluate(pairs)
+    candidates, infrastructure = evaluate(pairs, operations=built.get("operations"))
     exposure = self.operations["screen"](kernel) if sampled else None
     if not (candidates or sampled):
       _prune(pairs)
@@ -461,6 +538,7 @@ class _Session:
       typed_fingerprint=built.get("typed_fingerprint"),
       connectivity_signature=built.get("connectivity_signature"),
       live_nodes=built.get("live_nodes"),
+      operations=built.get("operations"),
       source_sha256=built.get("source_sha256"),
       pairs=[_pair_line(pair) for pair in pairs],
       candidates=[signature(candidate) for candidate in candidates],
@@ -540,9 +618,9 @@ def _disk_bytes(directory):
 
 
 def _pair_name(configuration, name):
-  return (
-    f"warps-{configuration['num_warps']}-stages-{configuration['num_stages']}-{name}"
-  )
+  hint = configuration.get("loop_hint")
+  hint = "" if hint is None else hint.replace("=", "-") + "-"
+  return f"warps-{configuration['num_warps']}-stages-{configuration['num_stages']}-{hint}{name}"
 
 
 def _histogram(values):
@@ -714,6 +792,20 @@ def ttgir_encodings(text):
   ]
 
 
+def ttgir_loop_bounds(text):
+  """`scf.for` loops by upper bound: an `arith.constant`, or anything else.
+
+  A dynamic bound is what a runtime loop-bound kernel should leave in TTGIR;
+  a constant one means Triton folded the trip count.
+  """
+  constants = set(
+    re.findall(r"^\s*(%[\w.]+) = arith\.constant\b", text, flags=re.MULTILINE)
+  )
+  bounds = re.findall(r"\bscf\.for %[\w.]+ = %[\w.]+ to (%[\w.]+) step\b", text)
+  dynamic = sum(bound not in constants for bound in bounds)
+  return {"constant": len(bounds) - dynamic, "dynamic": dynamic}
+
+
 def pair_result(run, bundle):
   """A `tensor_target_run.TargetRun` as the driver's per-path observation."""
   artifacts = Path(bundle) / "target-runs"
@@ -809,6 +901,8 @@ def device_operations(
     try:
       probes = tensor_free_form_inputs.window_probes(
         region, group=group, column=column["column"]
+      ) + tensor_free_form_inputs.corner_probes(
+        region, group=group, column=column["column"]
       )
     except tensor_free_form_inputs.SpecError as error:
       return {"kind": "refused", "reason": f"window probes: {error}"}
@@ -829,9 +923,12 @@ def device_operations(
       "typed_fingerprint": live.get("typed_fingerprint"),
       "connectivity_signature": live.get("connectivity_signature"),
       "live_nodes": nodes,
+      "operations": list(live.get("ops") or []),
     }
 
-  def bundle(kernel, directory, name, *, num_warps, num_stages, source=None):
+  def bundle(
+    kernel, directory, name, *, num_warps, num_stages, loop_hint=None, source=None
+  ):
     region = kernel["region"]
     parameters = tensor_free_form_inputs.parameters(region)
     data = bytes(kernel["probe_values"][name])
@@ -854,6 +951,8 @@ def device_operations(
       output_row_padding=1,
       output_offset=1,
       num_stages=num_stages,
+      loop_bound=kernel["request"].get("loop_bound", "literal"),
+      loop_hint=loop_hint,
     )
     return data
 
@@ -880,9 +979,9 @@ def device_operations(
     result["compiler"] = _STUDY.compiler_stage_observation(compiled)
     ttgir = compiled / "compiler-ttgir.ir"
     if ttgir.is_file():
-      result["compiler"]["encodings"] = ttgir_encodings(
-        ttgir.read_text(encoding="utf-8")
-      )
+      text = ttgir.read_text(encoding="utf-8")
+      result["compiler"]["encodings"] = ttgir_encodings(text)
+      result["compiler"]["loop_bounds"] = ttgir_loop_bounds(text)
     return result
 
   def screen(kernel):
@@ -952,17 +1051,34 @@ def main(argv=None):
   parser.add_argument("--symiri", type=Path, default=_ROOT / "symiri")
   parser.add_argument("--timeout", type=float, default=300.0)
   parser.add_argument("--device", type=int, default=0, help="GPU for compiled runs")
+  parser.add_argument(
+    "--one-trip-columns", action="store_true", help="add the two one-trip columns"
+  )
+  parser.add_argument("--inputs", nargs="+", default=list(INPUTS), choices=KNOWN_INPUTS)
+  parser.add_argument("--loop-bound", choices=LOOP_BOUNDS, default="literal")
+  parser.add_argument(
+    "--loop-hints",
+    nargs="+",
+    default=["none"],
+    help="tl.range hints crossed with warps and stages; none adds no hint",
+  )
   arguments = parser.parse_args(argv)
   declared = sweep_spec(
     seed_start=arguments.seed_start,
     seed_count=arguments.seed_count,
     configurations=[
       {"num_warps": warps, "num_stages": stages}
-      for warps, stages in itertools.product(arguments.warps, arguments.stages)
+      | ({} if hint == "none" else {"loop_hint": hint})
+      for warps, stages, hint in itertools.product(
+        arguments.warps, arguments.stages, arguments.loop_hints
+      )
     ],
     sample_every=arguments.sample_every,
     gpu_workers=arguments.gpu_workers,
     wall_clock_s=arguments.wall_clock_hours * 3600.0,
+    columns=COLUMNS + ONE_TRIP_COLUMNS if arguments.one_trip_columns else COLUMNS,
+    inputs=arguments.inputs,
+    loop_bound=arguments.loop_bound,
   )
   operations = device_operations(
     exporter=arguments.exporter,

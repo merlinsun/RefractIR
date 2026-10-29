@@ -146,6 +146,65 @@ fun @kernel(%window_buffer: tensor [7, 8] f32, %x: tensor [2, 8] f32, %y: tensor
   ret %next_x;
 }
 """
+ONE_TRIP_REGION = {
+  **WINDOW_REGION,
+  "shape": [3, 4],
+  "trip_count": 1,
+  "parameters": [
+    {"name": "%window_buffer", "shape": [5, 4], "dtype": "f32"},
+    {"name": "%x", "shape": [3, 4], "dtype": "f32"},
+    {"name": "%y", "shape": [3, 4], "dtype": "f32"},
+  ],
+  "window_source": {"parameter": "%window_buffer", "shape": [5, 4], "dtype": "f32"},
+  "window": {"rows": 3, "stride": 1, "active": 2, "source": "%window_buffer"},
+}
+
+ONE_TRIP_SOURCE = """\
+fun @kernel(%window_buffer: tensor [5, 4] f32, %x: tensor [3, 4] f32, %y: tensor [3, 4] f32) : tensor [3, 4] f32 {
+  let mut %i: i32 = undef;
+  let mut %tile: tensor [3, 4] f32 = undef;
+  let mut %next_x: tensor [3, 4] f32 = undef;
+^entry:
+  %next_x = tensor mul %x, 0.0;
+  %i = 0;
+  br ^header;
+^header:
+  br %i < 1, ^body, ^exit;
+^body:
+  %tile = tensor window %window_buffer, %i, 0.0, [3, 1, 2];
+  %next_x = tensor add %x, %tile;
+  %i = %i + 1;
+  br ^header;
+^exit:
+  ret %next_x;
+}
+"""
+
+
+@unittest.skipUnless(SYMIRI.is_file(), "symiri is unavailable")
+class OneTripWindowTests(unittest.TestCase):
+  """A one-trip window body runs its body exactly once under P0."""
+
+  def test_p0_adds_the_one_tile_and_pads_the_inactive_row(self):
+    from test.lib import tensor_target_reference
+
+    base = tensor_free_form_inputs.window_probes(ONE_TRIP_REGION, group=0, column=5)[0]
+    backing, x = base.values[0], base.values[1]
+    with tempfile.TemporaryDirectory() as directory:
+      case = tensor_free_form_case.build_bundle(
+        Path(directory) / "bundle",
+        region={**ONE_TRIP_REGION, "num_warps": 1},
+        source=ONE_TRIP_SOURCE,
+        proposal=base,
+      )
+      observation = tensor_target_reference.observe(case, symiri=SYMIRI)
+    self.assertTrue(observation.completed, observation.reason + observation.stderr)
+    expected = [
+      x[r][c] + (backing[r][c] if r < 2 else 0.0) for r in range(3) for c in range(4)
+    ]
+    self.assertEqual(list(struct.unpack("<12f", observation.output)), expected)
+
+
 class FreeFormCaseTests(unittest.TestCase):
   """A bundle carries the proposal's bytes and no reference."""
 

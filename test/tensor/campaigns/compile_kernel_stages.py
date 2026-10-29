@@ -3,8 +3,9 @@
 The paired runner has no compile-only mode, so the toolchain capability check
 (plan section 6.5, H2a) compiles the kernel file directly with
 `triton.compile` and keeps each setting's TTIR, TTGIR, LLIR, and PTX. Every
-kernel parameter is a pointer of one declared type, which holds for the
-moving-window emissions and for a standalone dot kernel written the same way.
+kernel parameter is a pointer of one declared type, as in the moving-window
+emissions and a standalone dot kernel written the same way, except a runtime
+loop bound, which is an i32.
 A setting that fails to compile is recorded with its error, and the others
 still run. The table states, per warp count, whether TTGIR differs between
 `num_stages` values, which decides whether that axis is kept.
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import runpy
 import sys
@@ -23,11 +25,24 @@ SCHEMA = "refractir.compile-kernel-stages.v1"
 STAGES = ("ttir", "ttgir", "llir", "ptx")
 
 
+def _signature(kernel, arg_type):
+  """Pointers of the declared type; an integer-defaulted parameter is an i32.
+
+  `symirc --tensor-loop-bound runtime` passes each loop bound as a parameter
+  defaulting to its literal, so it compiles as a runtime integer.
+  """
+  defaults = inspect.signature(kernel.fn).parameters
+  return {
+    name: "i32" if type(defaults[name].default) is int else arg_type
+    for name in kernel.arg_names
+  }
+
+
 def _compile(kernel, *, arg_type, num_warps, num_stages):
   import triton
   from triton.compiler import ASTSource
 
-  source = ASTSource(fn=kernel, signature={name: arg_type for name in kernel.arg_names})
+  source = ASTSource(fn=kernel, signature=_signature(kernel, arg_type))
   return triton.compile(
     source,
     options={

@@ -22,6 +22,7 @@ PROPOSAL_SCHEMA = "refractir.free-form-input-proposal.v1"
 WINDOW_PROBE_SCHEMA = "refractir.free-form-window-probes.v1"
 PATTERNS = ("distinct-integer", "mixed-sign", "repeated-value", "seeded-random")
 WINDOW_PROBES = ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows")
+CORNER_PROBES = ("i4-signed-zero", "i5-denormal", "i6-cancel", "i7-ties", "i8-large")
 _MASK = 0xFFFFFFFFFFFFFFFF
 
 
@@ -233,13 +234,22 @@ def _window_roles(region):
   }
 
 
-def _window_rows(roles, *, group, column):
-  """The base backing and state values for one source slot."""
+def _slot(group, column):
+  """One source slot per (group, column).
+
+  Columns 0-3 keep the slots the controlled study froze; the one-trip columns
+  4 and 5 follow all of them, so no earlier probe changes its bytes.
+  """
   if type(group) is not int or not 0 <= group < 3:
     raise SpecError("window probe group must be in [0, 3)")
-  if type(column) is not int or not 0 <= column < 4:
-    raise SpecError("window probe column must be in [0, 4)")
-  slot = 4 * group + column
+  if type(column) is not int or not 0 <= column < 6:
+    raise SpecError("window probe column must be in [0, 6)")
+  return 4 * group + column if column < 4 else 12 + 2 * group + column - 4
+
+
+def _window_rows(roles, *, group, column):
+  """The base backing and state values for one source slot."""
+  slot = _slot(group, column)
   rows, columns = roles["backing"]["shape"]
   state_rows = roles["window"]["rows"]
   states = roles["states"]
@@ -303,11 +313,12 @@ def window_base_proposal(region, *, group, column):
 
 
 def window_probes(region, *, group, column):
-  """The four frozen window probes I0-I3 for one source slot.
+  """The frozen window probes I0-I3 for one source slot.
 
   I1 adds one to every backing position any trip reads, I2 replaces the last
   active row, and I3 flips the rows at or above the active bound that no trip
-  reads. The states are identical in all four.
+  reads. The states are identical in all of them. I2 needs a later trip to read
+  a row the first window does not, so a one-trip window has no I2.
   """
   roles = _window_roles(region)
   slot, base_values = _window_rows(roles, group=group, column=column)
@@ -316,7 +327,8 @@ def window_probes(region, *, group, column):
   backing_name = roles["backing"]["name"]
   read = _read_positions(roles)
   late = window["active"] - 1
-  if late < window["rows"]:
+  one_trip = roles["trips"] == 1
+  if late < window["rows"] and not one_trip:
     raise SpecError("the late row is read by the first window")
   if late not in read:
     raise SpecError("the late row is not reachable by any trip")
@@ -341,7 +353,7 @@ def window_probes(region, *, group, column):
   unused = clone(base_values, [list(row) for row in base_values[backing_name]])
   for address in range(window["active"], rows):
     unused[backing_name][address] = [1 - value for value in unused[backing_name][address]]
-  return (
+  probes = (
     _pack_window_proposal(roles, base, pattern="window-base", probe="i0-base", seed=slot),
     _pack_window_proposal(
       roles, read_plus, pattern="window-read-plus-one", probe="i1-read-plus-one", seed=slot
@@ -352,4 +364,57 @@ def window_probes(region, *, group, column):
     _pack_window_proposal(
       roles, unused, pattern="window-unused-rows", probe="i3-unused-rows", seed=slot
     ),
+  )
+  return tuple(probe for probe in probes if not (one_trip and probe.probe == "i2-late-row"))
+
+
+def _odd(value):
+  """1 or 3 from the base value: 2^24 plus either is a rounding tie, and
+  round-to-nearest-even takes 2^24 + 1 down and 2^24 + 3 up. (Below 2^24 the
+  spacing is 1, so 2^24 minus an odd integer is exact, not a tie.)"""
+  return 1 if abs(value) % 4 < 2 else 3
+
+
+# Each corner recipe maps one I0 element, at row r and column c of its
+# parameter, to a value that exercises one floating-point corner. Even (r + c)
+# and odd (r + c) elements alternate, so neighbours in a row or a column pair
+# up. Every value is exactly representable in f32.
+_CORNERS = {
+  # Half the elements become a zero carrying the base value's sign.
+  "i4-signed-zero": lambda v, even: (-0.0 if v < 0 else 0.0) if even else float(v),
+  # 2^-127 is subnormal; 2 and 3 times it are normal: values straddle FLT_MIN.
+  "i5-denormal": lambda v, even: v * 2.0**-127,
+  # Large values of opposite sign whose sum cancels to the small base values.
+  "i6-cancel": lambda v, even: (2.0**23 if even else -(2.0**23)) + v,
+  # 2^24 beside 1 or 3: their sum lies halfway between two floats.
+  "i7-ties": lambda v, even: 2.0**24 if even else float(_odd(v)),
+  # Magnitudes near 2^30 beside magnitudes near 2^24.
+  "i8-large": lambda v, even: v * (2.0**28 if even else 2.0**22),
+}
+
+
+def corner_probes(region, *, group, column):
+  """The corner-value probes I4-I8 for one source slot, derived from I0.
+
+  Unlike I0-I3 they are not bounded by the exact-input contract: they put
+  signed zeros, subnormals, cancellation, rounding ties, and large magnitudes
+  into every parameter, the window backing and both states alike.
+  """
+  roles = _window_roles(region)
+  slot, base = _window_rows(roles, group=group, column=column)
+  return tuple(
+    _pack_window_proposal(
+      roles,
+      {
+        name: [
+          [_CORNERS[probe](value, (r + c) % 2 == 0) for c, value in enumerate(row)]
+          for r, row in enumerate(matrix)
+        ]
+        for name, matrix in base.items()
+      },
+      pattern=f"window-{probe[3:]}",
+      probe=probe,
+      seed=slot,
+    )
+    for probe in CORNER_PROBES
   )

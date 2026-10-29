@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -61,8 +62,10 @@ class Script:
     interrupt=None,
     live_nodes=None,
     compiler=None,
+    operations=None,
   ):
     self.refused = set(refused)
+    self.operations_by_seed = operations or {}
     self.live_nodes = live_nodes or {}
     self.compiler = compiler or {}
     self.outputs = outputs or {}
@@ -88,6 +91,7 @@ class Script:
       "typed_fingerprint": f"fp-{seed}",
       "connectivity_signature": "c0",
       "live_nodes": self.live_nodes.get(seed, 9),
+      "operations": self.operations_by_seed.get(seed, ["add", "max"]),
     }
 
   def run_pair(self, request):
@@ -275,6 +279,10 @@ def observed(conversions, *, loop=1, encodings=("blocked",)):
   }
 
 
+def region_operations(path):
+  return json.loads(Path(path).read_text())["live_dag"]["ops"]
+
+
 def ticking(step):
   """A session clock that advances `step` seconds on every reading."""
   readings = iter(range(0, 10**9, step))
@@ -288,15 +296,19 @@ def cell(request):
 class SeedOrderTests(unittest.TestCase):
   """Each block of 96 seeds is a seeded, policy-stratified permutation."""
 
-  def requests(self, start=S0, count=192):
-    declared = sweep.sweep_spec(
+  def declared(self, start=S0, count=192, **options):
+    return sweep.sweep_spec(
       seed_start=start,
       seed_count=count,
       configurations=CONFIGURATIONS,
       sample_every=20,
       gpu_workers=1000,
       wall_clock_s=3600.0,
+      **options,
     )
+
+  def requests(self, start=S0, count=192, **options):
+    declared = self.declared(start, count, **options)
     return [sweep.kernel_request(declared, index) for index in range(count)]
 
   def test_every_block_covers_each_cell_once(self):
@@ -318,6 +330,34 @@ class SeedOrderTests(unittest.TestCase):
     other = [cell(request) for request in self.requests(start=S0 + 7)]
     self.assertNotEqual(first[:96], other[:96])
 
+  def test_the_declaration_states_its_columns(self):
+    self.assertEqual(spec(4)["columns"], [dict(column) for column in sweep.COLUMNS])
+    widened = self.declared(columns=sweep.COLUMNS + sweep.ONE_TRIP_COLUMNS)
+    self.assertEqual([column["trips"] for column in widened["columns"]][4:], [1, 1])
+
+  def test_one_trip_columns_widen_every_block(self):
+    columns = sweep.COLUMNS + sweep.ONE_TRIP_COLUMNS
+    cells = len(sweep.GROUPS) * len(columns) * len(sweep.POLICIES)
+    requests = self.requests(count=2 * cells, columns=columns)
+    for block in (requests[:cells], requests[cells:]):
+      self.assertEqual(len({cell(request) for request in block}), cells)
+    self.assertEqual(
+      {
+        request["column"]["trips"]
+        for request in requests
+        if request["column"]["column"] >= 4
+      },
+      {1},
+    )
+
+  def test_policies_take_turns_with_one_trip_columns(self):
+    counts = dict.fromkeys(sweep.POLICIES, 0)
+    for request in self.requests(
+      count=144, columns=sweep.COLUMNS + sweep.ONE_TRIP_COLUMNS
+    ):
+      counts[request["policy"]] += 1
+      self.assertLessEqual(max(counts.values()) - min(counts.values()), 1)
+
   def test_the_declaration_names_the_order(self):
     self.assertEqual(spec(4)["order"], sweep.ORDER)
 
@@ -332,6 +372,147 @@ class SeedOrderTests(unittest.TestCase):
       )
       self.assertEqual(request["requirement"], expected)
       self.assertEqual(request["padded"], (sweep.GROUPS.index(group) + column) % 2 == 1)
+
+
+INF = struct.pack("<4f", 1.0, float("inf"), 3.0, 4.0)
+I8 = "i8-large"
+
+
+class CornerInputTests(SweepFixture):
+  """Corner-value inputs keep the path oracle; their non-finite runs are skipped."""
+
+  def declared(self, count=1, inputs=(I0, I3, I8)):
+    return sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=count,
+      configurations=CONFIGURATIONS[:1],
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      inputs=inputs,
+    )
+
+  def test_the_declaration_states_its_inputs_and_refuses_unknown_ones(self):
+    self.assertEqual(spec(4)["inputs"], [I0, I3])
+    self.assertEqual(self.declared()["inputs"], [I0, I3, I8])
+    with self.assertRaises(sweep.SweepRefused):
+      self.declared(inputs=(I0, "i9-unknown"))
+    with self.assertRaises(sweep.SweepRefused):
+      self.declared(inputs=(I0, I0))
+
+  def test_a_corner_run_non_finite_on_both_paths_is_not_a_candidate(self):
+    script = Script(outputs={(S0, 1, I8, "p1"): INF, (S0, 1, I8, "p2"): NAN})
+    self.run_sweep(self.declared(), script)
+    self.assertEqual(self.candidates(), [])
+    self.assertEqual([k["status"] for k in self.kernels()], ["agreement"])
+
+  def test_the_pair_line_marks_a_skipped_non_finite_run(self):
+    script = Script(outputs={(S0, 1, I8, "p1"): INF, (S0, 1, I8, "p2"): INF})
+    self.run_sweep(self.declared(), script)
+    pairs = {pair["input"]: pair for pair in self.kernels()[0]["pairs"]}
+    self.assertEqual(pairs[I8]["p1"]["finite"], False)
+    self.assertEqual(pairs[I0]["p1"]["finite"], True)
+
+  def test_a_corner_run_finite_on_one_path_only_is_a_candidate(self):
+    script = Script(outputs={(S0, 1, I8, "p1"): INF})
+    self.run_sweep(self.declared(), script)
+    self.assertEqual(
+      [(c["kind"], c["input"]) for c in self.candidates()],
+      [("non_finite_path_difference", I8)],
+    )
+
+  def test_a_finite_corner_path_difference_is_a_candidate(self):
+    script = Script(outputs={(S0, 1, I8, "p2"): TWO})
+    self.run_sweep(self.declared(), script)
+    self.assertEqual(
+      [(c["kind"], c["input"]) for c in self.candidates()], [("path_difference", I8)]
+    )
+
+  def test_a_corner_input_never_enters_the_unused_row_oracle(self):
+    script = Script(outputs={(S0, 1, I8, "p1"): TWO, (S0, 1, I8, "p2"): TWO})
+    self.run_sweep(self.declared(), script)
+    self.assertEqual(self.candidates(), [])
+
+  def test_a_corner_difference_in_a_sum_body_is_restricted(self):
+    script = Script(outputs={(S0, 1, I8, "p2"): TWO}, operations={S0: ["sum", "add"]})
+    self.run_sweep(self.declared(), script)
+    self.assertEqual(self.candidates(), [])
+    self.assertEqual(self.kernels()[0]["operations"], ["sum", "add"])
+
+  def test_an_exact_difference_in_a_sum_body_is_still_a_candidate(self):
+    script = Script(
+      outputs={(S0, 1, I0, "p2"): TWO, (S0, 1, I3, "p2"): TWO},
+      operations={S0: ["sum"]},
+    )
+    self.run_sweep(self.declared(), script)
+    self.assertEqual(
+      {(c["kind"], c["input"]) for c in self.candidates()},
+      {("path_difference", I0), ("path_difference", I3)},
+    )
+
+  def test_an_exact_input_keeps_its_non_finite_candidate(self):
+    script = Script(outputs={(S0, 1, I0, "p1"): INF, (S0, 1, I0, "p2"): INF})
+    self.run_sweep(self.declared(), script)
+    self.assertIn(
+      ("non_finite", I0), {(c["kind"], c.get("input")) for c in self.candidates()}
+    )
+
+
+class LoopOptionTests(SweepFixture):
+  """The declaration states the loop-bound mode and each configuration's hint."""
+
+  def declared(self, configurations=CONFIGURATIONS, **options):
+    return sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=1,
+      configurations=configurations,
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      **options,
+    )
+
+  def test_the_declaration_states_the_loop_bound(self):
+    self.assertEqual(spec(4)["loop_bound"], "literal")
+    declared = self.declared(loop_bound="runtime")
+    self.assertEqual(declared["loop_bound"], "runtime")
+    self.assertEqual(sweep.kernel_request(declared, 0)["loop_bound"], "runtime")
+    with self.assertRaises(sweep.SweepRefused):
+      self.declared(loop_bound="symbolic")
+
+  def test_a_configuration_may_state_a_loop_hint(self):
+    hinted = {"num_warps": 1, "num_stages": 1, "loop_hint": "loop_unroll_factor=2"}
+    self.assertEqual(self.declared([hinted])["configurations"], [hinted])
+    for wrong in (
+      {**hinted, "loop_hint": "warp_specialize=1"},
+      {**hinted, "unroll": 2},
+    ):
+      with self.subTest(configuration=wrong), self.assertRaises(sweep.SweepRefused):
+        self.declared([wrong])
+
+  def test_a_hinted_configuration_runs_in_its_own_directory(self):
+    plain = {"num_warps": 1, "num_stages": 1}
+    hinted = {**plain, "loop_hint": "loop_unroll_factor=2"}
+    script = Script()
+    self.run_sweep(self.declared([plain, hinted]), script)
+    names = {
+      path.name for path in (self.work / "kernels" / f"seed-{S0}" / "pairs").iterdir()
+    }
+    self.assertIn("warps-1-stages-1-i0-base", names)
+    self.assertIn("warps-1-stages-1-loop_unroll_factor-2-i0-base", names)
+    self.assertEqual(len(script.pairs), 4)
+
+  def test_ttgir_loops_are_counted_by_their_upper_bound(self):
+    text = """\
+    %c0_i32 = arith.constant 0 : i32
+    %c4_i32 = arith.constant 4 : i32
+    %c1_i32 = arith.constant 1 : i32
+    %3 = scf.for %arg3 = %c0_i32 to %c4_i32 step %c1_i32 iter_args(%arg4 = %2) -> (tensor<8xf32>)  : i32 {
+    %7 = scf.for %arg5 = %c0_i32 to %arg2 step %c1_i32 iter_args(%arg6 = %3) -> (tensor<8xf32>)  : i32 {
+    scf.for %arg7 = %c0_i32 to %arg2 step %c1_i32  : i32 {
+"""
+    self.assertEqual(sweep.ttgir_loop_bounds(text), {"constant": 1, "dynamic": 2})
+    self.assertEqual(sweep.ttgir_loop_bounds(""), {"constant": 0, "dynamic": 0})
 
 
 class SweepReportTests(SweepFixture):
@@ -535,7 +716,11 @@ class DeviceBindingTests(unittest.TestCase):
       "num_warps": 1,
       "max_nodes": 16,
       "structure": {"nodes": 9},
-      "live_dag": {"typed_fingerprint": "fp", "connectivity_signature": "cs"},
+      "live_dag": {
+        "typed_fingerprint": "fp",
+        "connectivity_signature": "cs",
+        "ops": ["sum", "max"],
+      },
     }
     (self.root / "region.json").write_text(json.dumps(region))
     (self.root / "program.sir").write_text(fixtures.WINDOW_SOURCE)
@@ -581,7 +766,10 @@ class DeviceBindingTests(unittest.TestCase):
       ),
       ("fp", "cs", 9),
     )
-    self.assertEqual(set(built["probe_values"]), set(sweep.PROBES))
+    self.assertEqual(
+      set(built["probe_values"]), set(sweep.PROBES) | set(sweep.CORNER_PROBES)
+    )
+    self.assertEqual(built["operations"], region_operations(self.root / "region.json"))
 
   def test_the_builder_declares_the_exact_input_bound(self):
     _, _, argv = self.build(self.index_of("G1"))
@@ -613,6 +801,45 @@ class DeviceBindingTests(unittest.TestCase):
           self.assertLessEqual(
             max(abs(value) for value in values), sweep.EXACT_INPUT_BOUND
           )
+
+  def test_one_trip_columns_admit_bodies_with_the_real_exporter(self):
+    exporter = (
+      Path(__file__).resolve().parents[2] / "build" / "bin" / "tensor_free_form_export"
+    )
+    if not exporter.is_file():
+      self.skipTest("the free-form exporter is not built")
+    columns = sweep.COLUMNS + sweep.ONE_TRIP_COLUMNS
+    declared = sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=288,
+      configurations=CONFIGURATIONS,
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      columns=columns,
+    )
+    for column in (4, 5):
+      with self.subTest(column=column):
+        admitted = []
+        for index in range(288):
+          request = sweep.kernel_request(declared, index)
+          if (
+            request["column"]["column"] != column or request["group"] != "unconstrained"
+          ):
+            continue
+          out = self.root / f"one-trip-{index}"
+          completed = subprocess.run(
+            sweep._export_command(exporter, request, out),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+          )
+          if completed.returncode == 0:
+            region = json.loads((out / "region.json").read_text(encoding="utf-8"))
+            admitted.append(region["trip_count"])
+        self.assertTrue(admitted, f"no one-trip body admitted in column {column}")
+        self.assertEqual(set(admitted), {1})
 
   def test_the_unconstrained_group_exports_without_a_requirement(self):
     request, built, argv = self.build(self.index_of("unconstrained"))
@@ -690,6 +917,46 @@ class DeviceBindingTests(unittest.TestCase):
       )
     self.assertEqual(run.call_args.kwargs["device_id"], 3)
 
+  def test_the_paired_run_bundles_the_loop_bound_and_hint(self):
+    from unittest import mock
+
+    from test.lib import tensor_target_run as target
+
+    operations = sweep.device_operations(
+      exporter=self.exporter,
+      symirc=self.root / "symirc",
+      symiri=self.root / "symiri",
+      toolchain={"exporter_sha256": "fake"},
+    )
+    request, built, _ = self.build(self.index_of("G0"))
+    request = {**request, "loop_bound": "runtime"}
+    kernel = {**built, "seed": request["seed"], "request": request}
+    with mock.patch.object(target, "run", side_effect=RuntimeError("stop here")):
+      operations["run_pair"](
+        {
+          "kernel": kernel,
+          "configuration": {"num_warps": 1, "num_stages": 1, "loop_hint": "flatten"},
+          "input": I0,
+          "directory": str(self.root / "pair"),
+        }
+      )
+    case = json.loads((self.root / "pair" / "bundle" / "case.json").read_text())
+    self.assertEqual((case["loop_bound"], case["loop_hint"]), ("runtime", "flatten"))
+
+  def test_the_command_line_declares_loop_bound_and_hints(self):
+    declared = self.declared_by(
+      "--loop-bound", "runtime", "--warps", "1", "--loop-hints", "none", "num_stages=2"
+    )
+    self.assertEqual(declared["loop_bound"], "runtime")
+    self.assertEqual(
+      declared["configurations"],
+      [
+        {"num_warps": 1, "num_stages": 1},
+        {"num_warps": 1, "num_stages": 1, "loop_hint": "num_stages=2"},
+      ],
+    )
+    self.assertEqual(self.declared_by()["loop_bound"], "literal")
+
   def test_the_command_line_passes_the_device(self):
     import contextlib
     import io
@@ -707,6 +974,35 @@ class DeviceBindingTests(unittest.TestCase):
       self.assertEqual(bind.call_args.kwargs["device_id"], 5)
       sweep.main(arguments)
       self.assertEqual(bind.call_args.kwargs["device_id"], 0)
+
+  def declared_by(self, *extra):
+    """The declaration `main` hands to the sweep for these extra arguments."""
+    import contextlib
+    import io
+    from unittest import mock
+
+    with (
+      mock.patch.object(sweep, "device_operations", return_value={}),
+      mock.patch.object(sweep, "run_sweep", return_value={}) as run,
+      contextlib.redirect_stdout(io.StringIO()),
+    ):
+      arguments = ["--work", str(self.root / "w"), "--seed-start", str(S0)]
+      arguments += ["--seed-count", "4", "--gpu-workers", "8"]
+      arguments += ["--wall-clock-hours", "1", "--exporter", str(self.exporter)]
+      sweep.main(arguments + list(extra))
+    return run.call_args.args[1]
+
+  def test_the_command_line_declares_the_inputs(self):
+    self.assertEqual(self.declared_by()["inputs"], [I0, I3])
+    self.assertEqual(
+      self.declared_by("--inputs", I0, "i4-signed-zero")["inputs"],
+      [I0, "i4-signed-zero"],
+    )
+
+  def test_the_command_line_adds_the_one_trip_columns(self):
+    self.assertEqual(len(self.declared_by()["columns"]), 4)
+    widened = self.declared_by("--one-trip-columns")["columns"]
+    self.assertEqual([column["trips"] for column in widened], [4, 4, 8, 8, 1, 1])
 
   def test_a_target_run_becomes_path_statuses_outputs_and_raw_paths(self):
     from test.lib import tensor_target_run as target
@@ -790,7 +1086,11 @@ class FakeTriton:
         }
       )
 
-    triton.jit = JITFunction
+    def jit(fn=None, **options):
+      """Bare `@triton.jit`, or `@triton.jit(...)` with keyword options."""
+      return JITFunction(fn) if fn is not None else JITFunction
+
+    triton.jit = jit
     triton.compile = compile
     triton.compiler = compiler
     triton.language = language
@@ -820,6 +1120,20 @@ class CompileOnlyTests(unittest.TestCase):
       return self.stages.compile_matrix(
         self.kernel, warps=[1, 4], stages=[1, 2], out=self.root / "out"
       )
+
+  def test_a_runtime_loop_bound_is_compiled_as_an_integer(self):
+    self.kernel.write_text(
+      "import triton\n\n"
+      '@triton.jit(do_not_specialize=["_sir_i_bound"])\n'
+      "def kernel(x_ptr, out_ptr, _sir_i_bound=4):\n"
+      "    pass\n"
+    )
+    fake = FakeTriton()
+    self.compile(fake)
+    signature, _ = fake.calls[0]
+    self.assertEqual(
+      signature, {"x_ptr": "*fp32", "out_ptr": "*fp32", "_sir_i_bound": "i32"}
+    )
 
   def test_each_setting_is_compiled_once_and_its_stages_are_saved(self):
     fake = FakeTriton()
