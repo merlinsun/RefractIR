@@ -23,9 +23,11 @@ SIR's domain is finite: NaN and infinities are undefined behaviour in P0 ([float
 |---|---|---|
 | Specified | `add`, `sub`, `mul`, `min`, `max`, `rmin`, `rmax`, and data movement (`window`, `transpose`, `expand`, `broadcast`) | bit-exact against P0 at any finite value |
 | Pinned by a launch option | elementwise operations under `enable_fp_fusion=False`, which forbids contracting a multiply and an add into one rounding | bit-exact once pinned |
-| Unspecified | `sum`, whose lane order the backend chooses; `div` and `exp` when their PTX is approximate | enclosure, or excluded from the comparison |
+| Unspecified | `sum`, whose lane order the backend chooses; `div`, `exp`, and `rem`, whose lowerings are not one correctly rounded operation | enclosure, or excluded from the comparison |
 
 `min` and `max` resolve a tie between zeros of opposite sign by the IEEE minNum/maxNum rule; Triton leaves that tie open, so the emitter computes it explicitly ([the Triton backend](../src/backend/triton_backend.cpp)). SIR has no `sqrt`, `dot`, or low-precision floating-point type, so none of them appears in a generated kernel.
+
+On the Triton build of the 2026-10-29 server run, `/` lowers to `div.full.f32` (approximate), `exp` to `ex2.approx.f32`, and `rem` to `div.rn.f32`, `cvt.rzi.f32.f32`, and `fma.rn.f32`, which compute a - trunc(a / b) * b. That formula is not IEEE `fmod`: when a / b rounds up to an integer, the truncated quotient is one too large. Every other operation in the table above lowers to one `.rn` instruction, `min.f32`, or `max.f32`, plus the exact signed-zero tie computation.
 
 ## Unspecified results
 
@@ -35,7 +37,7 @@ The moving-window sweep compares a `sum` body's outputs on the exact window prob
 
 ## Evidence
 
-[fp_contract_evidence.py](../test/tensor/campaigns/fp_contract_evidence.py) emits each floating-point tensor operation alone, compiles it without a launch at one warp and one stage with fusion off, and lists the PTX f32 instructions. An operation belongs to the specified class only if none of its instructions is approximate (`.approx`, `div.full`) or flushes subnormals (`.ftz`). Run it where Triton and the CUDA toolchain are installed:
+[fp_contract_evidence.py](../test/tensor/campaigns/fp_contract_evidence.py) emits each floating-point tensor operation alone, compiles it without a launch at one warp and one stage with fusion off, and lists the PTX f32 instructions. An operation belongs to the specified class only if none of its instructions is approximate (`.approx`, `div.full`), flushes subnormals (`.ftz`), or is a fused multiply-add. Fusion is off, so an `fma` in a one-operation kernel means the operation is computed by a formula. Run it where Triton and the CUDA toolchain are installed:
 
 ```bash
 python test/tensor/campaigns/fp_contract_evidence.py --out fp-contract-evidence

@@ -8,6 +8,8 @@ PTX f32 instructions the kernel uses then show which operations lower exactly:
   ftz          subnormal inputs or results are flushed to zero.
   fma          a fused multiply-add, which rounds once for two operations.
 
+An operation is specified only if none of the three appears.
+
 The table backs the specified / pinned / unspecified classes of
 `docs/tensor-paths-and-fp-contract.md`. Compiling needs Triton and the CUDA
 toolchain; emitting and classifying do not.
@@ -67,7 +69,7 @@ _F32 = re.compile(
 def classify_ptx(text):
   """The distinct f32 instructions in PTX text and what they imply."""
   instructions = sorted(set(_F32.findall(text)))
-  return {
+  found = {
     "instructions": instructions,
     "approximate": any(
       ".approx" in name or name.startswith("div.full") for name in instructions
@@ -75,6 +77,10 @@ def classify_ptx(text):
     "ftz": any(".ftz" in name for name in instructions),
     "fma": any(name.startswith("fma") for name in instructions),
   }
+  # Fusion is off, so an fma in a one-operation kernel means the operation is
+  # computed by a formula (rem: a - trunc(a / b) * b), not one IEEE operation.
+  found["specified"] = not (found["approximate"] or found["ftz"] or found["fma"])
+  return found
 
 
 def _compile_matrix():
@@ -161,6 +167,7 @@ def main(argv=None):
   table = collect(arguments.out, symirc=arguments.symirc.resolve())
   for row in table["ops"]:
     flags = [flag for flag in ("approximate", "ftz", "fma") if row.get(flag)]
+    flags = flags or (["specified"] if row.get("specified") else [])
     detail = ", ".join(row.get("instructions", [])) or row.get("error", "")[:80]
     print(f"{row['op']:<6} {row['status']:<15} {' '.join(flags) or '-':<22} {detail}")
   return 0

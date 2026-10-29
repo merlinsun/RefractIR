@@ -26,6 +26,7 @@ class ClassifyTests(unittest.TestCase):
         "approximate": True,
         "ftz": False,
         "fma": False,
+        "specified": False,
       },
     )
     self.assertFalse(evidence.classify_ptx("div.rn.f32 %f3, %f1, %f2;")["approximate"])
@@ -45,9 +46,18 @@ class ClassifyTests(unittest.TestCase):
         "approximate": False,
         "ftz": False,
         "fma": False,
+        "specified": True,
       },
     )
     self.assertTrue(evidence.classify_ptx("fma.rn.f32 %f4, %f1, %f2, %f3;")["fma"])
+
+  def test_only_correctly_rounded_unfused_instructions_are_specified(self):
+    self.assertTrue(evidence.classify_ptx("add.rn.f32 %f3, %f1, %f2;")["specified"])
+    self.assertTrue(evidence.classify_ptx("div.rn.f32 %f3, %f1, %f2;")["specified"])
+    self.assertFalse(evidence.classify_ptx("div.full.f32 %f3, %f1, %f2;")["specified"])
+    # The server's rem kernel: a - trunc(a / b) * b, not one IEEE operation.
+    rem = "div.rn.f32 %f3, %f1, %f2;\ncvt.rzi.f32.f32 %f4, %f3;\nneg.f32 %f5, %f4;\nfma.rn.f32 %f6, %f5, %f2, %f1;"
+    self.assertFalse(evidence.classify_ptx(rem)["specified"])
 
   def test_non_float_instructions_are_ignored(self):
     self.assertEqual(evidence.classify_ptx("add.s32 %r1, %r2, 1;")["instructions"], [])
