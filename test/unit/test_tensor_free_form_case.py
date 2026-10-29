@@ -185,6 +185,36 @@ class FreeFormCaseTests(unittest.TestCase):
     self.assertEqual(default.record["launch"]["num_stages"], 1)
     self.assertEqual(staged.record["launch"]["num_stages"], 3)
 
+  def test_a_bundle_states_a_runtime_loop_bound_and_omits_the_literal_one(self):
+    proposal = tensor_free_form_inputs.proposal(REGION, pattern="distinct-integer", seed=0)
+    default = tensor_free_form_case.build_bundle(
+      self.bundle, region=REGION, source=SOURCE, proposal=proposal
+    )
+    runtime = tensor_free_form_case.build_bundle(
+      Path(self.directory.name) / "runtime",
+      region=REGION,
+      source=SOURCE,
+      proposal=proposal,
+      loop_bound="runtime",
+    )
+    self.assertNotIn("loop_bound", default.record)
+    self.assertEqual(runtime.record["loop_bound"], "runtime")
+
+  def test_a_bundle_states_a_loop_hint_only_when_given(self):
+    proposal = tensor_free_form_inputs.proposal(REGION, pattern="distinct-integer", seed=0)
+    default = tensor_free_form_case.build_bundle(
+      self.bundle, region=REGION, source=SOURCE, proposal=proposal
+    )
+    hinted = tensor_free_form_case.build_bundle(
+      Path(self.directory.name) / "hinted",
+      region=REGION,
+      source=SOURCE,
+      proposal=proposal,
+      loop_hint="flatten",
+    )
+    self.assertNotIn("loop_hint", default.record)
+    self.assertEqual(hinted.record["loop_hint"], "flatten")
+
   def test_the_dense_layout_lists_axes_fastest_first(self):
     layout = tensor_free_form_case.dense_layout([2, 3])
     self.assertEqual(layout["element_strides"], [3, 1])

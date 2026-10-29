@@ -174,7 +174,9 @@ def emit_kernel(case, symirc, artifact_dir):
   """Emit one ordinary Triton kernel and return its path with both logs.
 
   The command line is the ordinary `symirc` invocation for the case's profile:
-  v2 and v3 carry the layout manifest, v4 carries only the profile version. The
+  v2 and v3 carry the layout manifest, v4 carries only the profile version, and
+  a bundle's `loop_bound` and `loop_hint` add `--tensor-loop-bound` and
+  `--tensor-loop-hint`. The
   kernel is written to a temporary name, parsed, then moved into place, so a
   failed emission leaves no kernel artifact. A failure returns a missing path
   with the compiler's stderr and stdout; callers turn that into a compile
@@ -212,6 +214,10 @@ def emit_kernel(case, symirc, artifact_dir):
     command[1:1] = ["--tensor-layout-manifest", str(layout_path)]
   elif case.manifest["profile"] == "tensor-v4":
     command[1:1] = ["--tensor-profile-version", "v4"]
+  if "loop_bound" in case.manifest:
+    command[1:1] = ["--tensor-loop-bound", case.manifest["loop_bound"]]
+  if "loop_hint" in case.manifest:
+    command[1:1] = ["--tensor-loop-hint", case.manifest["loop_hint"]]
   try:
     result = subprocess.run(
       command,

@@ -273,6 +273,9 @@ def _prepare_emission(case, symirc, artifacts):
     "softmax_lowering": case.record["softmax_lowering"],
     "layout_manifest": layout_manifest,
   }
+  for key in ("loop_bound", "loop_hint"):
+    if key in case.record:
+      options[key] = case.record[key]
   emission = tensor_emission.build_ordinary(
     sir=case.source,
     executable=symirc,

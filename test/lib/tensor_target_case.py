@@ -40,6 +40,12 @@ INVALID_CASE = "invalid_case"
 DIGEST_MISMATCH = "digest_mismatch"
 INVALID_LAYOUT = "invalid_layout"
 UNSUPPORTED_GRID = "unsupported_grid"
+
+# How the emitted kernel receives counted-loop bounds (`symirc --tensor-loop-bound`).
+LITERAL_LOOP_BOUND = "literal"
+RUNTIME_LOOP_BOUND = "runtime"
+# The `tl.range` hints `symirc --tensor-loop-hint` accepts.
+LOOP_HINT = re.compile(r"(num_stages|loop_unroll_factor)=[1-8]|flatten")
 INVALID_SOURCE = "invalid_source"
 FRONTEND_UNAVAILABLE = "frontend_unavailable"
 REFERENCE_NOT_ALLOWED = "reference_not_allowed"
@@ -150,6 +156,8 @@ def write(
   launch,
   execution,
   profile=PROFILE_V2,
+  loop_bound=LITERAL_LOOP_BOUND,
+  loop_hint=None,
 ):
   """Write one target-only bundle and return the case it declares.
 
@@ -158,7 +166,9 @@ def write(
   fields, so a caller never supplies either. The frozen entry, softmax lowering,
   and one-tile grid are written as the schema states them. The record is
   validated before anything is written. Frontend acceptance is left to `load`,
-  which owns the native interpreter.
+  which owns the native interpreter. A runtime `loop_bound` is stated; the
+  literal default is omitted, so earlier bundles keep their bytes; so is an
+  absent `loop_hint`.
   """
   _require(isinstance(source, str), INVALID_CASE, "source must be text")
   source_bytes = source.encode("utf-8")
@@ -209,6 +219,10 @@ def write(
     "reference": {"kind": "none"},
     "comparison": {"kind": "none"},
   }
+  if loop_bound != LITERAL_LOOP_BOUND:
+    manifest["loop_bound"] = loop_bound
+  if loop_hint is not None:
+    manifest["loop_hint"] = loop_hint
   _validate_bundle(manifest, source_bytes=source_bytes, inputs_bytes=inputs_bytes)
   try:
     case_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -268,6 +282,20 @@ def _validate_bundle(manifest, *, source_bytes, inputs_bytes, root=None):
     manifest.get("softmax_lowering") == "direct",
     INVALID_CASE,
     "softmax_lowering must be direct",
+  )
+  _require(
+    manifest.get("loop_bound", RUNTIME_LOOP_BOUND) == RUNTIME_LOOP_BOUND,
+    INVALID_CASE,
+    f"loop_bound is {RUNTIME_LOOP_BOUND} when stated; literal bounds omit it",
+  )
+  _require(
+    "loop_hint" not in manifest
+    or (
+      isinstance(manifest["loop_hint"], str)
+      and LOOP_HINT.fullmatch(manifest["loop_hint"]) is not None
+    ),
+    INVALID_CASE,
+    "loop_hint must be num_stages=N, loop_unroll_factor=N (N in 1..8), or flatten",
   )
   if root is not None and (Path(root) / REFERENCE_FILE).exists():
     raise TargetCaseError(

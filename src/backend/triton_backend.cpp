@@ -162,9 +162,22 @@ namespace refractir {
 
   TritonBackend::TritonBackend(
       std::ostream &out, std::string entry, std::string softmaxLowering, TensorProfile profile,
-      std::vector<TritonBufferLayout> layouts
-  ) : out_(out), entry_(std::move(entry)), softmaxLowering_(std::move(softmaxLowering)),
-      profile_(profile), layouts_(std::move(layouts)) {}
+      std::vector<TritonBufferLayout> layouts, TritonLoopOptions loops
+  ) :
+      out_(out), entry_(std::move(entry)), softmaxLowering_(std::move(softmaxLowering)),
+      profile_(profile), layouts_(std::move(layouts)), loops_(std::move(loops)) {}
+
+  std::optional<std::string> parseTritonLoopHint(const std::string &text) {
+    if (text == "flatten")
+      return "flatten=True";
+    for (const std::string key: {"num_stages", "loop_unroll_factor"}) {
+      const auto prefix = key + "=";
+      if (text.size() == prefix.size() + 1 && text.starts_with(prefix) && text.back() >= '1' &&
+          text.back() <= '8')
+        return text;
+    }
+    return std::nullopt;
+  }
 
   const FunDecl &TritonBackend::findEntry(const Program &program) const {
     auto it = std::find_if(program.funs.begin(), program.funs.end(), [&](const FunDecl &function) {
@@ -1038,6 +1051,7 @@ namespace refractir {
     parameterPointers_.clear();
     parameterOffsets_.clear();
     usedPythonNames_.clear();
+    boundParameters_.clear();
     temporaryId_ = 0;
     indent_ = 0;
     for (const auto &param: function.params)
@@ -1090,18 +1104,25 @@ namespace refractir {
       const auto body = cfg.indexOf.at(branch.thenLabel.name);
       const auto variable = pythonName(loop.inductionVariable);
       const auto type = types_.at(loop.inductionVariable);
+      std::string bound = std::to_string(loop.bound);
+      if (loops_.bound == TritonLoopBound::Runtime) {
+        bound = freshPythonName(variable + "_bound");
+        boundParameters_.emplace_back(bound, loop.bound);
+      }
       addLine(variable + " = tl.full((), " + std::to_string(loop.initialValue) + ", " +
               dtypeName(type) + ")");
-      addLine("for " + variable + " in tl.range(" + std::to_string(loop.initialValue) + ", " +
-              std::to_string(loop.bound) + "):");
+      const auto hint = loops_.hint.empty() ? "" : ", " + loops_.hint;
+      addLine(
+          "for " + variable + " in tl.range(" + std::to_string(loop.initialValue) + ", " + bound +
+          hint + "):"
+      );
       const auto bodyStartLine = body_.size();
       ++indent_;
       emitFlow(body, loop.exit, static_cast<int>(loopIndex));
       if (body_.size() == bodyStartLine)
         addLine("pass");
       --indent_;
-      addLine(variable + " = tl.full((), " + std::to_string(loop.bound) + ", " +
-              dtypeName(type) + ")");
+      addLine(variable + " = tl.full((), " + bound + ", " + dtypeName(type) + ")");
       values_[loop.inductionVariable] = Value{type, variable, {}};
     };
 
@@ -1163,16 +1184,23 @@ namespace refractir {
 
     out_ << "import triton\n";
     out_ << "import triton.language as tl\n\n";
-    out_ << "@triton.jit\n";
-    out_ << "def kernel(";
-    for (std::size_t i = 0; i < function.params.size(); ++i) {
-      if (i)
-        out_ << ", ";
-      out_ << parameterPointers_.at(function.params[i].name.name);
+    // A specialized integer argument equal to one becomes a constant, so the
+    // runtime bounds are excluded from specialization to keep one-trip loops.
+    out_ << "@triton.jit";
+    if (!boundParameters_.empty()) {
+      out_ << "(do_not_specialize=[";
+      for (std::size_t i = 0; i < boundParameters_.size(); ++i)
+        out_ << (i ? ", " : "") << '"' << boundParameters_[i].first << '"';
+      out_ << "])";
     }
-    if (!function.params.empty())
-      out_ << ", ";
-    out_ << "out_ptr):\n";
+    out_ << "\n";
+    out_ << "def kernel(";
+    for (const auto &param: function.params)
+      out_ << parameterPointers_.at(param.name.name) << ", ";
+    out_ << "out_ptr";
+    for (const auto &[name, literal]: boundParameters_)
+      out_ << ", " << name << "=" << literal;
+    out_ << "):\n";
     for (const auto &line: body_)
       out_ << "    " << line << "\n";
   }

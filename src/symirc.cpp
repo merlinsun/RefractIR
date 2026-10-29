@@ -34,6 +34,8 @@ int main(int argc, char **argv) {
     ("tensor-layout-manifest", "Triton target: JSON file with physical tensor buffer layouts", cxxopts::value<std::string>())
     ("entry", "Triton entry function", cxxopts::value<std::string>()->default_value("kernel"))
     ("tensor-softmax-lowering", "Triton softmax lowering: direct|decomposed", cxxopts::value<std::string>()->default_value("direct"))
+    ("tensor-loop-bound", "Triton counted-loop bounds: literal|runtime", cxxopts::value<std::string>()->default_value("literal"))
+    ("tensor-loop-hint", "Triton counted-loop hint: num_stages=N|loop_unroll_factor=N|flatten", cxxopts::value<std::string>())
     ("keep-require", "Triton target: reject emission when source require checks are retained", cxxopts::value<bool>()->default_value("false"))
     ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("structured-lowering", "Emit structured control flow (loops/ifs) instead of goto; implies --require-reducible (C target)", cxxopts::value<bool>()->default_value("false"))
@@ -189,6 +191,22 @@ int main(int argc, char **argv) {
       tensorOptions.entry = result["entry"].as<std::string>();
       tensorOptions.tensorSoftmaxLowering = result["tensor-softmax-lowering"].as<std::string>();
       tensorOptions.tensorProfile = checkOpts.tensorProfile;
+      const auto loopBound = result["tensor-loop-bound"].as<std::string>();
+      if (loopBound != "literal" && loopBound != "runtime") {
+        std::cerr << "Error: --tensor-loop-bound must be literal or runtime\n";
+        return 1;
+      }
+      tensorOptions.tritonLoops.bound =
+          loopBound == "runtime" ? TritonLoopBound::Runtime : TritonLoopBound::Literal;
+      if (result.count("tensor-loop-hint")) {
+        const auto hint = parseTritonLoopHint(result["tensor-loop-hint"].as<std::string>());
+        if (!hint) {
+          std::cerr << "Error: --tensor-loop-hint must be num_stages=N, loop_unroll_factor=N "
+                       "(N in 1..8), or flatten\n";
+          return 1;
+        }
+        tensorOptions.tritonLoops.hint = *hint;
+      }
       if (result.count("tensor-layout-manifest"))
         tensorOptions.tritonBufferLayouts =
             readTritonBufferLayouts(result["tensor-layout-manifest"].as<std::string>());

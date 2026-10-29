@@ -576,7 +576,8 @@ test-tensor-solver: $(TARGET_SOLVER)
 
 test-tensor-emit: $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 	REFRACTIR_SYMIRC=./$(TARGET_COMPILER) REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) \
-	  $(PY) -m unittest test.unit.test_tensor_emit test.unit.test_tensor_signed_zero_extrema
+	  $(PY) -m unittest test.unit.test_tensor_emit test.unit.test_tensor_signed_zero_extrema \
+	    test.unit.test_tensor_loop_options
 
 test-tensor-runner: $(TARGET_INTERP) $(TARGET_COMPILER)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \

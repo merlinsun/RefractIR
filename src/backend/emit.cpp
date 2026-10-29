@@ -430,7 +430,7 @@ namespace refractir {
     try {
       TritonBackend backend(
           rendered, opts.entry, opts.tensorSoftmaxLowering, tensorProfile(opts.tensorProfile),
-          opts.tritonBufferLayouts
+          opts.tritonBufferLayouts, opts.tritonLoops
       );
       backend.emit(prog);
     } catch (const std::exception &e) {

@@ -8,6 +8,7 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Added
 
+- `symirc --tensor-loop-bound runtime` emits counted-loop bounds as unspecialized kernel parameters defaulting to the SIR literal, and `--tensor-loop-hint` adds one `tl.range` hint to every counted loop; target bundles state them as `loop_bound` and `loop_hint`.
 - Qualification retries retain unresolved candidates as production blockers; repair-batch delivery verifies authoritative records and captured implementation bytes.
 - Tensor free-form assembly: window backing parameters (`windowSources`), `--window-buffer-rows`, bounded window requirements with live-graph witnesses, and the live-DAG record.
 - Free-form window requirements give a transpose on a non-square result a six-node bounded return bridge, while square and non-transpose requirements keep three; this admits the G2 `[2,8]` extrema-transpose slot within the unchanged node budget.

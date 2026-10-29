@@ -20,6 +20,7 @@
 
 #include "analysis/tensor.hpp"
 #include "ast/ast.hpp"
+#include "backend/triton_backend.hpp"
 #include "backend/triton_layout.hpp"
 
 namespace refractir {
@@ -52,6 +53,8 @@ namespace refractir {
     std::string entry = "kernel";
     // Triton numerical softmax lowering: direct or decomposed.
     std::string tensorSoftmaxLowering = "direct";
+    // Triton counted loops: literal or runtime bounds, and an optional range hint.
+    TritonLoopOptions tritonLoops;
     // Tensor-v1 remains the default. Tensor-v2 selects its larger static
     // tensor bound and, as those capabilities ship, its loop subset.
     TensorProfileId tensorProfile = TensorProfileId::V1;

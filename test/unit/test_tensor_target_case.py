@@ -452,6 +452,51 @@ class TargetOnlyBundleTests(unittest.TestCase):
     self.assertEqual(raised.exception.status, "invalid_case")
     self.assertIn("num_warps", str(raised.exception))
 
+  def test_an_unknown_loop_bound_is_refused(self):
+    _bundle(self.root)
+    _edit_manifest(
+      self.root, lambda manifest: manifest.__setitem__("loop_bound", "symbolic")
+    )
+
+    with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+      self._load()
+
+    self.assertEqual(raised.exception.status, "invalid_case")
+    self.assertIn("loop_bound", str(raised.exception))
+
+  def test_a_literal_loop_bound_is_stated_by_omission(self):
+    written = tensor_target_case.write(
+      self.root,
+      source=VALID_SOURCE,
+      inputs=[dict(INPUT_RECORD)],
+      output=dict(OUTPUT_RECORD),
+      launch=dict(LAUNCH),
+      execution=copy.deepcopy(EXECUTION),
+      loop_bound="literal",
+    )
+
+    self.assertNotIn("loop_bound", written.record)
+    self.assertEqual(self._load().record, written.record)
+
+  def test_a_loop_hint_is_stated_and_an_unknown_one_refused(self):
+    written = tensor_target_case.write(
+      self.root,
+      source=VALID_SOURCE,
+      inputs=[dict(INPUT_RECORD)],
+      output=dict(OUTPUT_RECORD),
+      launch=dict(LAUNCH),
+      execution=copy.deepcopy(EXECUTION),
+      loop_hint="loop_unroll_factor=2",
+    )
+    self.assertEqual(written.record["loop_hint"], "loop_unroll_factor=2")
+    self.assertEqual(self._load().record, written.record)
+    for hint in ("warp_specialize=1", "num_stages=9", ""):
+      with self.subTest(hint=hint):
+        _edit_manifest(self.root, lambda manifest: manifest.__setitem__("loop_hint", hint))
+        with self.assertRaises(tensor_target_case.TargetCaseError) as raised:
+          self._load()
+        self.assertIn("loop_hint", str(raised.exception))
+
   def test_a_foreign_schema_or_kind_is_refused(self):
     for field, value in (
       ("schema", "refractir.tensor-case.v2"),

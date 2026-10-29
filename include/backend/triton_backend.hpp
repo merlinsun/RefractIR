@@ -1,10 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "analysis/tensor.hpp"
@@ -13,11 +15,30 @@
 
 namespace refractir {
 
+  // How a counted loop's bound reaches the kernel. A literal bound is a constant
+  // Triton folds; a runtime bound is a kernel parameter defaulting to the same
+  // literal, so the compiler sees an unknown trip count while the launch and the
+  // semantics stay those of the literal program.
+  enum class TritonLoopBound { Literal, Runtime };
+
+  // How every counted loop is emitted. `hint` is one `tl.range` keyword
+  // argument, such as `num_stages=2`; it changes how Triton schedules the loop,
+  // never what the loop computes.
+  struct TritonLoopOptions {
+    TritonLoopBound bound = TritonLoopBound::Literal;
+    std::string hint;
+  };
+
+  // The `tl.range` keyword for `num_stages=N`, `loop_unroll_factor=N` (N in
+  // [1, 8]), or `flatten`; nothing for any other text.
+  std::optional<std::string> parseTritonLoopHint(const std::string &text);
+
   class TritonBackend {
   public:
     TritonBackend(
         std::ostream &out, std::string entry, std::string softmaxLowering,
-        TensorProfile profile = {}, std::vector<TritonBufferLayout> layouts = {}
+        TensorProfile profile = {}, std::vector<TritonBufferLayout> layouts = {},
+        TritonLoopOptions loops = {}
     );
 
     void emit(const Program &program);
@@ -34,6 +55,9 @@ namespace refractir {
     std::string softmaxLowering_;
     TensorProfile profile_;
     std::vector<TritonBufferLayout> layouts_;
+    TritonLoopOptions loops_;
+    // Runtime loop-bound parameters and their literal defaults, in loop order.
+    std::vector<std::pair<std::string, std::int32_t>> boundParameters_;
     const FunDecl *function_ = nullptr;
     std::unordered_map<std::string, TypePtr> types_;
     std::unordered_map<std::string, Value> values_;

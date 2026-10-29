@@ -18,7 +18,7 @@ symirc prog.sir --target python -o prog.py
 
 ## Triton tensor target
 
-`--target triton` emits a JIT module under the profile selected by `--tensor-profile-version v1|v2|v3|v4` (default `v1`). The selected entry defaults to `@kernel`; `--tensor-softmax-lowering direct|decomposed` selects one of the two supported softmax implementations.
+`--target triton` emits a JIT module under the profile selected by `--tensor-profile-version v1|v2|v3|v4` (default `v1`). The selected entry defaults to `@kernel`; `--tensor-softmax-lowering direct|decomposed` selects one of the two supported softmax implementations. `--tensor-loop-bound runtime` passes each counted loop's bound as a kernel parameter (`<induction>_bound`, after `out_ptr`) whose default is the SIR literal and which is excluded from Triton's specialization, so the compiler sees an unknown trip count, even for one trip, while an unchanged launch computes the literal program; `literal` (the default) emits the bound as a constant. `--tensor-loop-hint num_stages=N|loop_unroll_factor=N|flatten` (N from 1 to 8) adds that keyword to every counted loop's `tl.range`; it changes how Triton schedules the loop, not what the loop computes.
 
 ```bash
 symirc tensor.sir --target triton --entry kernel -o tensor_kernel.py

@@ -108,6 +108,14 @@ with open(path, "w", encoding="utf-8") as output:
     output.write("kernel = object()\\n")
 """
 
+# Writes its own command line into the kernel, so a test can read the flags.
+ARGV_SYMIRC = """\
+import sys
+path = sys.argv[sys.argv.index("-o") + 1]
+with open(path, "w", encoding="utf-8") as output:
+    output.write("kernel = object()\\n# " + " ".join(sys.argv[1:]) + "\\n")
+"""
+
 STUB_WORKER = """\
 import argparse
 import json
@@ -233,6 +241,35 @@ class TargetRunTests(unittest.TestCase):
     self.assertEqual(saved["output_sha256"], hashlib.sha256(bytes.fromhex(AGREE_HEX)).hexdigest())
     actual_path = self.bundle / "interpreter-runs" / "interpret" / "actual.bin"
     self.assertEqual(actual_path.read_bytes(), bytes.fromhex(AGREE_HEX))
+
+  def screen_with_argv_symirc(self, **fields):
+    self.symirc = _write_script(Path(self.directory.name) / "argv-symirc", ARGV_SYMIRC)
+    self.write_bundle(**fields)
+    self.configure({"interpret": {"phase": "runtime", "actual": AGREE_HEX}})
+    self.run_screen()
+    kernel = self.bundle / "interpreter-runs" / "interpret" / "kernel.py"
+    return kernel.read_text(encoding="utf-8")
+
+  def test_a_runtime_loop_bound_reaches_the_emitter(self):
+    kernel = self.screen_with_argv_symirc(loop_bound="runtime")
+    self.assertIn("--tensor-loop-bound runtime", kernel)
+
+  def test_a_literal_loop_bound_emits_without_the_flag(self):
+    kernel = self.screen_with_argv_symirc()
+    self.assertNotIn("--tensor-loop-bound", kernel)
+
+  def test_a_loop_hint_reaches_the_emitter_and_the_record(self):
+    kernel = self.screen_with_argv_symirc(loop_hint="num_stages=2")
+    self.assertIn("--tensor-loop-hint num_stages=2", kernel)
+    saved = self.bundle / "interpreter-runs" / "interpreter-run.json"
+    record = json.loads(saved.read_text(encoding="utf-8"))
+    self.assertEqual(record["emission"]["emitter"]["options"]["loop_hint"], "num_stages=2")
+
+  def test_the_emission_options_state_a_runtime_loop_bound(self):
+    self.screen_with_argv_symirc(loop_bound="runtime")
+    saved = self.bundle / "interpreter-runs" / "interpreter-run.json"
+    record = json.loads(saved.read_text(encoding="utf-8"))
+    self.assertEqual(record["emission"]["emitter"]["options"]["loop_bound"], "runtime")
 
   def test_screening_preserves_a_failure_as_a_diagnostic(self):
     self.write_bundle()
