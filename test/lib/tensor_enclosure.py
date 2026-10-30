@@ -22,6 +22,7 @@ The width of an output lane is the number of f32 steps from lo to hi.
 from __future__ import annotations
 
 import json
+import math
 import re
 import struct
 from dataclasses import dataclass
@@ -312,17 +313,96 @@ def enclose(source, inputs, scalars=None):
   return _Machine(source, inputs, scalars).run()
 
 
-def enclose_bundle(bundle):
-  """The output interval for a target bundle's program and recorded inputs."""
-  bundle = Path(bundle)
-  record = json.loads((bundle / "case.json").read_text(encoding="utf-8"))
-  data = (bundle / "inputs.bin").read_bytes()
-  inputs, scalars = {}, {}
-  for spec in record["inputs"]:
-    chunk = data[spec["byte_offset"] : spec["byte_offset"] + spec["byte_length"]]
+def enclose_values(source, parameters, data):
+  """The output interval for input bytes laid out in parameter order.
+
+  `parameters` are records with `name`, `shape`, and `dtype`, as a region or a
+  bundle states them; a scalar i32 is a trip count, every other input f32.
+  """
+  inputs, scalars, offset = {}, {}, 0
+  for spec in parameters:
+    count = int(np.prod(spec["shape"])) if spec["shape"] else 1
+    chunk = data[offset : offset + 4 * count]
+    offset += 4 * count
     if spec["dtype"] == "i32" and spec["shape"] == []:
       scalars[spec["name"]] = struct.unpack("<i", chunk)[0]
       continue
     values = [Fraction(value) for (value,) in struct.iter_unpack("<f", chunk)]
     inputs[spec["name"]] = np.array(values, dtype=object).reshape(spec["shape"])
-  return enclose((bundle / "program.sir").read_text(encoding="utf-8"), inputs, scalars)
+  if offset != len(data):
+    raise ValueError(
+      f"the parameters describe {offset} bytes, the data has {len(data)}"
+    )
+  return enclose(source, inputs, scalars)
+
+
+def enclose_bundle(bundle):
+  """The output interval for a target bundle's program and recorded inputs."""
+  bundle = Path(bundle)
+  record = json.loads((bundle / "case.json").read_text(encoding="utf-8"))
+  return enclose_values(
+    (bundle / "program.sir").read_text(encoding="utf-8"),
+    record["inputs"],
+    (bundle / "inputs.bin").read_bytes(),
+  )
+
+
+_POSITIVE_ZERO = struct.pack("<f", 0.0)
+
+
+def check_lanes(interval, output):
+  """Each output lane against its enclosure, for the enclosure oracle.
+
+  A point lane (lo equals hi) must hold that f32 value bit for bit, except
+  that a zero point accepts either zero: the sign of a sum of zeros depends on
+  where the sum starts and in which order it adds. A widened lane must hold a
+  value between its bounds. Classes: `point`, `point_zero`, `inside`, and the
+  violations `point_mismatch` and `outside`.
+  """
+  lows, highs = list(interval.lo.flat), list(interval.hi.flat)
+  if len(output) != 4 * len(lows):
+    raise ValueError(f"{len(output)} output bytes for {len(lows)} lanes")
+  report = {
+    "lanes": [],
+    "violations": [],
+    "point_lanes": 0,
+    "widened_lanes": 0,
+    "widest_ulps": 0,
+  }
+  for index, (low, high) in enumerate(zip(lows, highs)):
+    word = output[4 * index : 4 * index + 4]
+    (value,) = struct.unpack("<f", word)
+    if low == high:
+      report["point_lanes"] += 1
+      if not math.isfinite(value):
+        kind = "point_mismatch"
+      elif low == 0:
+        kind = (
+          "point"
+          if word == _POSITIVE_ZERO
+          else "point_zero"
+          if value == 0
+          else "point_mismatch"
+        )
+      else:
+        kind = "point" if word == struct.pack("<f", float(low)) else "point_mismatch"
+    else:
+      report["widened_lanes"] += 1
+      report["widest_ulps"] = max(report["widest_ulps"], ulps(low, high))
+      kind = (
+        "inside"
+        if math.isfinite(value) and low <= Fraction(value) <= high
+        else "outside"
+      )
+    report["lanes"].append(kind)
+    if kind in ("point_mismatch", "outside"):
+      report["violations"].append(
+        {
+          "index": index,
+          "class": kind,
+          "bits": word[::-1].hex(),
+          "lo": str(low),
+          "hi": str(high),
+        }
+      )
+  return report

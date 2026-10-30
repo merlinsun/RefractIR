@@ -246,5 +246,85 @@ class EnclosureTests(unittest.TestCase):
       tensor_enclosure.enclose(SPECIFIED.replace("tensor sub", "tensor div"), {})
 
 
+def f32_bits(value):
+  return struct.pack("<f", value)
+
+
+@unittest.skipUnless(np is not None, "numpy is unavailable")
+class LaneCheckTests(unittest.TestCase):
+  """One output's lanes against its enclosure (enclosure-oracle plan, E1)."""
+
+  def interval(self, pairs):
+    lo = np.array([Fraction(low) for low, _ in pairs], dtype=object)
+    hi = np.array([Fraction(high) for _, high in pairs], dtype=object)
+    return tensor_enclosure.Interval(lo, hi)
+
+  def classes(self, pairs, values):
+    report = tensor_enclosure.check_lanes(
+      self.interval(pairs), b"".join(f32_bits(value) for value in values)
+    )
+    return report
+
+  def test_a_point_lane_with_other_bits_is_a_point_mismatch(self):
+    report = self.classes([(3, 3), (1, 1)], [3.0, f32(1.0 + 2.0**-23)])
+    self.assertEqual(report["lanes"], ["point", "point_mismatch"])
+    self.assertEqual([v["index"] for v in report["violations"]], [1])
+
+  def test_a_value_one_step_outside_a_widened_lane_is_outside(self):
+    low, high = Fraction(1), Fraction(f32(1.0 + 4 * 2.0**-23))
+    below = float(np.nextafter(np.float32(1.0), np.float32(0.0)))
+    report = self.classes([(low, high)] * 4, [1.0, float(high), 1.0 + 2.0**-23, below])
+    self.assertEqual(report["lanes"], ["inside", "inside", "inside", "outside"])
+    self.assertEqual(report["violations"][0]["class"], "outside")
+
+  def test_a_zero_point_lane_accepts_either_zero_sign(self):
+    report = self.classes([(0, 0), (0, 0)], [0.0, -0.0])
+    self.assertEqual(report["lanes"], ["point", "point_zero"])
+    self.assertEqual(report["violations"], [])
+
+  def test_output_bytes_of_the_wrong_length_are_refused(self):
+    with self.assertRaises(ValueError):
+      tensor_enclosure.check_lanes(self.interval([(1, 1), (2, 2)]), f32_bits(1.0))
+
+  def test_the_report_counts_point_and_widened_lanes_and_the_widest(self):
+    step = Fraction(f32(1.0 + 2.0**-23))
+    report = self.classes([(1, 1), (1, step), (2, 2)], [1.0, 1.0, 2.0])
+    self.assertEqual(
+      (report["point_lanes"], report["widened_lanes"], report["widest_ulps"]), (2, 1, 1)
+    )
+
+  def test_a_non_finite_value_is_outside_every_lane(self):
+    report = self.classes([(1, 1), (1, 2)], [float("inf"), float("nan")])
+    self.assertEqual(report["lanes"], ["point_mismatch", "outside"])
+
+
+@unittest.skipUnless(np is not None, "numpy is unavailable")
+class EncloseValuesTests(unittest.TestCase):
+  def test_input_bytes_that_do_not_fit_the_parameters_are_refused(self):
+    probe = tensor_free_form_inputs.window_base_proposal(
+      TRIP_REGION, group=0, column=0, trips=2
+    )
+    with self.assertRaises(ValueError):
+      tensor_enclosure.enclose_values(
+        with_trip_parameter(SUMMED), TRIP_REGION["parameters"], probe.data + b"\0\0\0\0"
+      )
+
+  def test_values_give_the_bundles_enclosure(self):
+    probe = tensor_free_form_inputs.window_base_proposal(
+      TRIP_REGION, group=0, column=0, trips=2
+    )
+    source = with_trip_parameter(SUMMED)
+    with tempfile.TemporaryDirectory() as directory:
+      case = tensor_free_form_case.build_bundle(
+        Path(directory) / "bundle", region=TRIP_REGION, source=source, proposal=probe
+      )
+      from_bundle = tensor_enclosure.enclose_bundle(case.path)
+    from_values = tensor_enclosure.enclose_values(
+      source, TRIP_REGION["parameters"], probe.data
+    )
+    self.assertEqual(list(from_values.lo.flat), list(from_bundle.lo.flat))
+    self.assertEqual(list(from_values.hi.flat), list(from_bundle.hi.flat))
+
+
 if __name__ == "__main__":
   unittest.main()
