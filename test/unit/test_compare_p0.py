@@ -177,14 +177,63 @@ class CompareP0Tests(unittest.TestCase):
     [mismatch] = self.compare()["disagreements"]
     self.assertIsNone(mismatch["words"])
 
-  def test_a_sum_body_on_a_corner_probe_is_restricted(self):
+  def test_a_sum_body_on_a_corner_probe_is_enclosed_when_p0_fits(self):
+    # The paths were checked against the enclosure in the sweep; here P0 is.
     self.kernel(S0, [(WARPS_1, I6, "0" * 64, "1" * 64)], ops=("sum", "add"))
     report = self.compare()
-    self.assertEqual(report["by_probe"][I6], {"restricted": 2})
+    self.assertEqual(report["by_probe"][I6], {"enclosed": 2})
+    self.assertEqual(report["p0_runs"], 1)
+    self.assertEqual(report["bodies"], {"agree": 1})
+    self.assertEqual(
+      (report["disagreements"], report["p0_enclosure_failures"]), ([], [])
+    )
+
+  def observation(self, status, output=None):
+    from test.lib import tensor_target_reference as reference
+
+    return reference.ReferenceObservation(status, output=output)
+
+  def test_p0_outside_its_enclosure_is_reported_apart_from_candidates(self):
+    from unittest import mock
+
+    from test.lib import tensor_target_reference as reference
+
+    wrong = self.p0_output(I6)[:8] + struct.pack("<f", 99.0) + self.p0_output(I6)[12:]
+    self.kernel(S0, [(WARPS_1, I6, "0" * 64, "1" * 64)], ops=("sum",))
+    with mock.patch.object(
+      compare_p0, "_observe", return_value=self.observation(reference.COMPLETED, wrong)
+    ):
+      report = self.compare()
+    self.assertEqual(report["by_probe"][I6], {"p0_outside_enclosure": 2})
+    [failure] = report["p0_enclosure_failures"]
+    self.assertEqual((failure["seed"], failure["input"]), (S0, I6))
+    self.assertEqual([lane["index"] for lane in failure["lanes"]], [2])
     self.assertEqual(report["disagreements"], [])
 
+  def test_an_unenclosable_restricted_pair_stays_restricted(self):
+    from unittest import mock
+
+    from test.lib import tensor_enclosure
+
+    self.kernel(S0, [(WARPS_1, I6, "0" * 64, "1" * 64)], ops=("sum",))
+    with mock.patch.object(
+      tensor_enclosure, "enclose_bundle", side_effect=tensor_enclosure.Unsupported("x")
+    ):
+      self.assertEqual(self.compare()["by_probe"][I6], {"restricted": 2})
+
+  def test_p0_undefined_behaviour_on_a_restricted_pair_is_its_own_class(self):
+    from unittest import mock
+
+    from test.lib import tensor_target_reference as reference
+
+    self.kernel(S0, [(WARPS_1, I6, "0" * 64, "1" * 64)], ops=("sum",))
+    with mock.patch.object(
+      compare_p0, "_observe", return_value=self.observation(reference.UB)
+    ):
+      self.assertEqual(self.compare()["by_probe"][I6], {"p0_ub": 2})
+
   def test_a_sum_body_on_a_steered_input_is_restricted(self):
-    self.assertIn("steer-tie", compare_p0.sweep.UNBOUNDED_INPUTS)
+    self.assertIn("steer-tie", compare_p0.sweep.UNBOUNDED_INPUTS)  # restricted like I6
     self.assertIn("i6-cancel", compare_p0.sweep.UNBOUNDED_INPUTS)
 
   def test_a_sum_body_on_an_exact_probe_is_compared(self):

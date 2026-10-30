@@ -10,9 +10,15 @@ Each recorded path output is classed as:
 
   agree        P0 produced the same bytes.
   differ       P0 completed with other bytes.
-  restricted   not compared: the body contains an operation whose result
-               order or precision the backend chooses (`sum`), on a corner
-               probe whose values the exact-input contract does not bound.
+  enclosed     the body contains an operation whose order the backend
+               chooses (`sum`), on an input the exact-input contract does not
+               bound; the sweep checked each path against the input's output
+               enclosure, and P0's output lies inside it too.
+  p0_outside_enclosure
+               P0's output leaves that enclosure: the enclosure or P0 is
+               wrong, not Triton. Listed in `p0_enclosure_failures`, never a
+               disagreement.
+  restricted   such a pair whose enclosure cannot be computed: not compared.
   p0_ub        P0 stopped on undefined behaviour, such as a non-finite value.
   unavailable  P0 or the path left nothing to compare, or the bundle is gone.
 
@@ -116,6 +122,33 @@ def _words(expected, bundle, path, recorded):
   ][:MAX_WORDS]
 
 
+def _enclosure(bundle):
+  """The bundle's output enclosure, or None when it cannot be computed."""
+  from test.lib import tensor_enclosure
+
+  try:
+    return tensor_enclosure.enclose_bundle(bundle)
+  except (
+    OSError,
+    ValueError,
+    tensor_enclosure.NonFinite,
+    tensor_enclosure.Unsupported,
+  ):
+    return None
+
+
+def _enclosed(observation, enclosure):
+  """P0 against the enclosure: a class and the lanes it violates."""
+  from test.lib import tensor_enclosure
+
+  if observation.status == tensor_target_reference.UB:
+    return "p0_ub", []
+  if not observation.completed:
+    return "unavailable", []
+  violations = tensor_enclosure.check_lanes(enclosure, observation.output)["violations"]
+  return ("p0_outside_enclosure" if violations else "enclosed"), violations
+
+
 def _classify(observation, recorded, restricted):
   if restricted:
     return "restricted"
@@ -132,6 +165,7 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
   by_probe = collections.defaultdict(collections.Counter)
   bodies = collections.Counter()
   disagreements = []
+  enclosure_failures = []
   kernels = 0
   p0_runs = 0
   for shard in shards:
@@ -142,7 +176,7 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
       root = shard / "kernels" / f"seed-{seed}"
       operations = _operations(root)
       unspecified = operations is None or bool(UNSPECIFIED & set(operations))
-      observations = {}
+      observations, enclosures = {}, {}
       verdicts = collections.Counter()
       for pair in line.get("pairs", []):
         if _skipped(pair):
@@ -150,6 +184,11 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
         name = pair["input"]
         restricted = name in sweep.UNBOUNDED_INPUTS and unspecified
         bundle = _bundle(root, pair)
+        if restricted and name not in enclosures:
+          enclosures[name] = _enclosure(bundle)
+        # A restricted pair is compared through its enclosure when it has one.
+        restricted = restricted and enclosures[name] is None
+        enclosed = name in enclosures and enclosures[name] is not None
         if name not in observations or not observations[name].completed:
           if not restricted:
             p0_runs += 1
@@ -166,9 +205,22 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
             )
           )
         observation = observations[name]
+        if enclosed:
+          enclosure_verdict, lanes = _enclosed(observation, enclosures[name])
+          if lanes and not any(
+            failure["seed"] == seed and failure["input"] == name
+            for failure in enclosure_failures
+          ):
+            enclosure_failures.append(
+              {"shard": str(shard), "seed": seed, "input": name, "lanes": lanes}
+            )
         for path in ("p1", "p2"):
           recorded = (pair.get(path) or {}).get("output_sha256")
-          verdict = _classify(observation, recorded, restricted)
+          verdict = (
+            enclosure_verdict
+            if enclosed
+            else _classify(observation, recorded, restricted)
+          )
           by_probe[name][verdict] += 1
           verdicts[verdict] += 1
           if verdict == "differ":
@@ -191,7 +243,7 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
         "differ"
         if verdicts["differ"]
         else "agree"
-        if set(verdicts) == {"agree"}
+        if set(verdicts) <= {"agree", "enclosed"}
         else "other"
       ] += 1
   return {
@@ -203,6 +255,7 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
     "p0_runs": p0_runs,
     "by_probe": {name: dict(counts) for name, counts in sorted(by_probe.items())},
     "bodies": dict(bodies),
+    "p0_enclosure_failures": enclosure_failures,
     "disagreements": disagreements,
   }
 
@@ -232,7 +285,7 @@ def main(argv=None):
   return 0
 
 
-_COLUMNS = ("agree", "differ", "restricted", "p0_ub", "unavailable")
+_COLUMNS = ("agree", "differ", "enclosed", "restricted", "p0_ub", "unavailable")
 
 
 if __name__ == "__main__":
