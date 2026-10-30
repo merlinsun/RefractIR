@@ -361,6 +361,10 @@ namespace refractir {
   // Under round-to-nearest, +0.0 + -0.0 = +0.0 and -0.0 + -0.0 = -0.0, so the
   // sum of two zeros is the maximum's tie-break and the negated sum of their
   // negations is the minimum's; every other pair keeps the Triton call.
+  //
+  // The two zero tests are nested `tl.where` conditions rather than one `&`:
+  // Triton's interpreter types a rank-0 operand's `== 0.0` as float32 when it
+  // meets a tile, and rejects the bitwise and that compiled Triton accepts.
   std::string TritonBackend::signedZeroExtremum(
       bool minimum, const std::string &left, const std::string &right
   ) {
@@ -369,8 +373,9 @@ namespace refractir {
     addLine(a + " = " + left);
     addLine(b + " = " + right);
     const auto tie = minimum ? "-((-" + a + ") + (-" + b + "))" : "(" + a + " + " + b + ")";
-    return "tl.where((" + a + " == 0.0) & (" + b + " == 0.0), " + tie + ", " +
-           (minimum ? "tl.minimum(" : "tl.maximum(") + a + ", " + b + "))";
+    const auto extremum = (minimum ? "tl.minimum(" : "tl.maximum(") + a + ", " + b + ")";
+    return "tl.where(" + a + " == 0.0, tl.where(" + b + " == 0.0, " + tie + ", " + extremum +
+           "), " + extremum + ")";
   }
 
   // The reduction form of the same tie-break. When the extreme value is zero,
@@ -378,6 +383,7 @@ namespace refractir {
   // for a maximum, -0.0 for a minimum. The sign is read from the lane's bits,
   // and an integer maximum over a 0/1 marker combines the lanes; summing the
   // zero lanes instead would depend on the identity a reduction starts from.
+  // The marker nests its two tests, as the elementwise tie does.
   std::string TritonBackend::signedZeroReduction(
       bool minimum, const std::string &lanes, std::uint32_t axis, const char *keep
   ) {
@@ -389,8 +395,8 @@ namespace refractir {
     addLine(extreme + " = " + (minimum ? "tl.min(" : "tl.max(") + values + arguments);
     const auto sign = std::string(minimum ? " < 0" : " >= 0");
     addLine(
-        winning + " = tl.max(tl.where((" + values + " == 0.0) & (" + values +
-        ".to(tl.int32, bitcast=True)" + sign + "), 1, 0)" + arguments
+        winning + " = tl.max(tl.where(" + values + " == 0.0, tl.where(" + values +
+        ".to(tl.int32, bitcast=True)" + sign + ", 1, 0), 0)" + arguments
     );
     const auto zero = minimum ? "tl.where(" + winning + " > 0, -0.0, 0.0)"
                               : "tl.where(" + winning + " > 0, 0.0, -0.0)";
