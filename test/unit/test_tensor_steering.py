@@ -84,7 +84,9 @@ class P0:
       shapes=tuple(tuple(record["shape"]) for record in parameters),
       dtype="f32",
       values=(),
-      data=struct.pack(f"<{len(values)}f", *values),
+      data=tensor_steering.pack(
+        [(record["name"], record["shape"]) for record in parameters], values
+      ),
     )
     case = tensor_free_form_case.build_bundle(
       self.scratch / f"run-{self.runs}",
@@ -229,6 +231,30 @@ class SteeringTests(unittest.TestCase):
     )
     self.assertEqual(sorted(outcome.accepted), ["tie"])
     self.assertEqual({trial["property"] for trial in outcome.trials}, {"tie"})
+
+  def test_a_trip_parameter_stays_fixed_while_the_inputs_are_steered(self):
+    from test.unit.test_tensor_enclosure import TRIP_REGION, with_trip_parameter
+
+    source = with_trip_parameter(SUMMED)
+    parameters = [
+      (record["name"], record["shape"]) for record in TRIP_REGION["parameters"]
+    ]
+    for trips in (1, 2):
+      with self.subTest(trips=trips):
+        result = tensor_steering.steer(
+          source,
+          parameters,
+          self.base + [trips],
+          prop="tie",
+          p0=P0(source, TRIP_REGION, self.scratch / f"p0-{trips}"),
+          scratch=self.scratch / "smt",
+        )
+        self.assertEqual(result.status, "accepted", result.reason)
+        self.assertEqual(result.values[-1], trips)
+
+  def test_values_pack_a_scalar_trip_count_as_i32(self):
+    data = tensor_steering.pack([("%x", [2]), ("%trips", [])], [1.5, -2.0, 3])
+    self.assertEqual(data, struct.pack("<2f", 1.5, -2.0) + struct.pack("<i", 3))
 
   def test_a_miss_is_retried_then_refused(self):
     result = self.steer(SPECIFIED, "cancel", lane=0, p0=lambda values: None, attempts=3)

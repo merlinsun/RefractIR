@@ -154,6 +154,7 @@ def sweep_spec(
   columns=COLUMNS,
   inputs=INPUTS,
   loop_bound="literal",
+  trip_parameter=False,
 ):
   """The declaration frozen before the first builder call."""
   _positive(seed_start, "seed_start")
@@ -203,6 +204,7 @@ def sweep_spec(
     "root_selection": ROOT_SELECTION,
     "loop_bound": loop_bound,
     **steering,
+    **({"trip_parameter": True} if trip_parameter else {}),
     "enable_fp_fusion": False,
     "order": ORDER,
     "sample_every": sample_every,
@@ -234,6 +236,12 @@ def _block_cells(seed_start, block, column_count):
   return tuple(
     (*visits[policy][turn], policy) for turn in range(len(pairs)) for policy in policies
   )
+
+
+def _trips(spec, index, column):
+  """The case's trip count: seeded, uniform over zero to the column's trips."""
+  rng = random.Random(f"{SCHEMA}:trips:{spec['seed_start']}:{index}")
+  return rng.randint(0, column["trips"])
 
 
 def kernel_request(spec, index):
@@ -275,6 +283,7 @@ def kernel_request(spec, index):
       if "steering" in spec
       else {}
     ),
+    **({"trips": _trips(spec, index, column)} if spec.get("trip_parameter") else {}),
   }
 
 
@@ -781,6 +790,8 @@ def _export_command(exporter, request, out):
   ]
   if request["requirement"] is not None:
     command += ["--window-requirement", request["requirement"]]
+  if "trips" in request:
+    command += ["--trip-parameter"]
   return command + [
     "--max-attempts",
     "1",
@@ -879,6 +890,26 @@ def _toolchain(exporter, symirc, symiri):
   }
 
 
+def screen_variants(kernel):
+  """The interpreter-only exposure runs for a sampled kernel.
+
+  The one-trip-shorter run edits the literal trip count, so a kernel whose
+  loop runs to a trip parameter has none.
+  """
+  variants = {
+    "i0-base": ("i0-base", None),
+    "i1-read-plus-one": ("i1-read-plus-one", None),
+    "i2-late-row": ("i2-late-row", None),
+  }
+  if not kernel["region"].get("trip_parameter"):
+    trips = kernel["region"]["trip_count"]
+    variants["i0-base-tminus"] = (
+      "i0-base",
+      _STUDY._trip_variant(kernel["source"], trips - 1),
+    )
+  return variants
+
+
 def z3_identity():
   """The `z3` binary steering runs, or None when it is not on the path."""
   path = shutil.which("z3")
@@ -911,7 +942,7 @@ def _steered(request, region, source, probes, symiri, directory):
       shapes=tuple(tuple(record["shape"]) for record in parameters),
       dtype="f32",
       values=(),
-      data=struct.pack(f"<{len(values)}f", *values),
+      data=tensor_steering.pack(shapes, values),
     )
     case = tensor_free_form_case.build_bundle(
       directory / f"p0-{len(runs)}",
@@ -924,7 +955,7 @@ def _steered(request, region, source, probes, symiri, directory):
 
   steering = request["steering"]
   bases = {
-    name: list(struct.unpack(f"<{len(probes[name]) // 4}f", bytes(probes[name])))
+    name: tensor_steering.unpack(shapes, bytes(probes[name]))
     for name in steering["bases"]
   }
   search = tensor_steering.steer_body(
@@ -938,7 +969,7 @@ def _steered(request, region, source, probes, symiri, directory):
     budget_s=steering["budget_s"],
   )
   values = {
-    f"steer-{name}": list(struct.pack(f"<{len(result.values)}f", *result.values))
+    f"steer-{name}": list(tensor_steering.pack(shapes, result.values))
     for name, result in search.accepted.items()
   }
   summary = {
@@ -997,10 +1028,11 @@ def device_operations(
     # The unconstrained group reuses the G0 probe recipe for its column.
     group = GROUPS.index(request["group"]) % 3
     try:
+      trips = request.get("trips")
       probes = tensor_free_form_inputs.window_probes(
-        region, group=group, column=column["column"]
+        region, group=group, column=column["column"], trips=trips
       ) + tensor_free_form_inputs.corner_probes(
-        region, group=group, column=column["column"]
+        region, group=group, column=column["column"], trips=trips
       )
     except tensor_free_form_inputs.SpecError as error:
       return {"kind": "refused", "reason": f"window probes: {error}"}
@@ -1094,13 +1126,7 @@ def device_operations(
   def screen(kernel):
     """Interpreter-only exposure statistics for a sampled kernel."""
     root = Path(kernel["directory"]) / "exposure"
-    trips = kernel["region"]["trip_count"]
-    variants = {
-      "i0-base": ("i0-base", None),
-      "i1-read-plus-one": ("i1-read-plus-one", None),
-      "i2-late-row": ("i2-late-row", None),
-      "i0-base-tminus": ("i0-base", _STUDY._trip_variant(kernel["source"], trips - 1)),
-    }
+    variants = screen_variants(kernel)
     outputs = {}
     for key, (name, source) in variants.items():
       directory = root / key
@@ -1119,6 +1145,8 @@ def device_operations(
     base_status, base = outputs["i0-base"]
 
     def compare(key):
+      if key not in outputs:
+        return "not_applicable"
       status, actual = outputs[key]
       if base is None or actual is None:
         return {"status": "unavailable", "base": base_status, "variant": status}
@@ -1164,6 +1192,11 @@ def main(argv=None):
   parser.add_argument("--inputs", nargs="+", default=list(INPUTS), choices=KNOWN_INPUTS)
   parser.add_argument("--loop-bound", choices=LOOP_BOUNDS, default="literal")
   parser.add_argument(
+    "--trip-parameter",
+    action="store_true",
+    help="run each loop to a trip count chosen per case, zero included",
+  )
+  parser.add_argument(
     "--loop-hints",
     nargs="+",
     default=["none"],
@@ -1186,6 +1219,7 @@ def main(argv=None):
     columns=COLUMNS + ONE_TRIP_COLUMNS if arguments.one_trip_columns else COLUMNS,
     inputs=arguments.inputs,
     loop_bound=arguments.loop_bound,
+    trip_parameter=arguments.trip_parameter,
   )
   operations = device_operations(
     exporter=arguments.exporter,

@@ -193,7 +193,7 @@ def _ints(text):
 class _Machine:
   """Runs the straight-line blocks and counted loop of an exported body."""
 
-  def __init__(self, source, inputs):
+  def __init__(self, source, inputs, scalars=None):
     self.blocks = {}
     label = None
     for line in source.splitlines():
@@ -204,7 +204,7 @@ class _Machine:
       elif label is not None and line and line != "}":
         self.blocks[label].append(line)
     self.values = {name: Interval.point(values) for name, values in inputs.items()}
-    self.scalars = {}
+    self.scalars = dict(scalars or {})
 
   def operand(self, text):
     text = text.strip()
@@ -271,21 +271,28 @@ class _Machine:
           continue
         if line.startswith("ret "):
           return self.values[line[4:].rstrip(";")]
+        if line.startswith("assume "):
+          # P0 refuses an input outside an assumed range; the inputs here passed it.
+          continue
         jump = re.fullmatch(r"br (\^\w+);", line)
-        branch = re.fullmatch(r"br (%\w+) < (\d+), (\^\w+), (\^\w+);", line)
+        branch = re.fullmatch(r"br (%\w+) < (%\w+|\d+), (\^\w+), (\^\w+);", line)
         if jump:
           label = jump.group(1)
         elif branch:
           name, bound, taken, other = branch.groups()
-          label = taken if self.scalars[name] < int(bound) else other
+          limit = self.scalars[bound] if bound.startswith("%") else int(bound)
+          label = taken if self.scalars[name] < limit else other
         else:
           raise Unsupported(line)
         break
     raise Unsupported("the program did not return")
 
 
-def enclose(source, inputs):
-  """The output interval of an exported body for named input arrays."""
+def enclose(source, inputs, scalars=None):
+  """The output interval of an exported body for named input arrays.
+
+  `scalars` gives scalar i32 parameters, such as a loop's trip count.
+  """
   for op in re.findall(r"= tensor (\w+)", source):
     if op not in (
       "add",
@@ -302,7 +309,7 @@ def enclose(source, inputs):
       "broadcast",
     ):
       raise Unsupported(f"tensor {op}")
-  return _Machine(source, inputs).run()
+  return _Machine(source, inputs, scalars).run()
 
 
 def enclose_bundle(bundle):
@@ -310,9 +317,12 @@ def enclose_bundle(bundle):
   bundle = Path(bundle)
   record = json.loads((bundle / "case.json").read_text(encoding="utf-8"))
   data = (bundle / "inputs.bin").read_bytes()
-  inputs = {}
+  inputs, scalars = {}, {}
   for spec in record["inputs"]:
     chunk = data[spec["byte_offset"] : spec["byte_offset"] + spec["byte_length"]]
+    if spec["dtype"] == "i32" and spec["shape"] == []:
+      scalars[spec["name"]] = struct.unpack("<i", chunk)[0]
+      continue
     values = [Fraction(value) for (value,) in struct.iter_unpack("<f", chunk)]
     inputs[spec["name"]] = np.array(values, dtype=object).reshape(spec["shape"])
-  return enclose((bundle / "program.sir").read_text(encoding="utf-8"), inputs)
+  return enclose((bundle / "program.sir").read_text(encoding="utf-8"), inputs, scalars)

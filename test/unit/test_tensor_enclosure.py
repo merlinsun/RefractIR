@@ -88,6 +88,25 @@ SUMMED = (
 )
 
 
+def with_trip_parameter(source):
+  """The same body, its loop run to an i32 `%trips` parameter ranged 0..2."""
+  return (
+    source.replace(
+      "%y: tensor [2, 8] f32) : tensor", "%y: tensor [2, 8] f32, %trips: i32) : tensor"
+    )
+    .replace("^entry:\n", "^entry:\n  assume %trips >= 0;\n  assume %trips <= 2;\n")
+    .replace("br %i < 2,", "br %i < %trips,")
+  )
+
+
+TRIP_REGION = {
+  **REGION,
+  "parameters": REGION["parameters"]
+  + [{"name": "%trips", "shape": [], "dtype": "i32", "role": "trip_count"}],
+  "trip_parameter": {"name": "%trips", "max": 2},
+}
+
+
 def proposals():
   base = tensor_free_form_inputs.window_base_proposal(REGION, group=0, column=0)
   return [base, *tensor_free_form_inputs.corner_probes(REGION, group=0, column=0)]
@@ -202,6 +221,25 @@ class EnclosureTests(unittest.TestCase):
     product = tensor_enclosure.apply("mul", [wide, point])
     self.assertEqual((product.lo[0], product.hi[0]), (-4, -2))
     self.assertEqual(tensor_enclosure.apply("max", [wide, point]).widths(), [2**23])
+
+  def test_a_trip_parameter_body_is_enclosed_for_each_trip_count(self):
+    for source in (SPECIFIED, SUMMED):
+      for trips in (0, 1, 2):
+        with self.subTest(trips=trips, summed="sum" in source):
+          probe = tensor_free_form_inputs.window_base_proposal(
+            TRIP_REGION, group=0, column=0, trips=trips
+          )
+          with tempfile.TemporaryDirectory() as directory:
+            case = tensor_free_form_case.build_bundle(
+              Path(directory) / "bundle",
+              region=TRIP_REGION,
+              source=with_trip_parameter(source),
+              proposal=probe,
+            )
+            enclosure = tensor_enclosure.enclose_bundle(case.path)
+            observation = tensor_target_reference.observe(case, symiri=SYMIRI)
+          self.assert_contains(enclosure, observation)
+          self.assertEqual(set(enclosure.widths()), {0})
 
   def test_an_unsupported_statement_is_refused(self):
     with self.assertRaises(tensor_enclosure.Unsupported):

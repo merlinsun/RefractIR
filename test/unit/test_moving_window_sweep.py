@@ -591,6 +591,50 @@ class SteeredInputTests(SweepFixture):
       self.assertEqual(self.candidates(), [])
 
 
+class TripParameterTests(unittest.TestCase):
+  """A declaration may run each body's loop to a trip count chosen per case."""
+
+  def declared(self, count=288, **options):
+    return sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=count,
+      configurations=CONFIGURATIONS[:1],
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      columns=sweep.COLUMNS + sweep.ONE_TRIP_COLUMNS,
+      **options,
+    )
+
+  def test_the_declaration_states_a_trip_parameter_only_when_asked(self):
+    self.assertNotIn("trip_parameter", self.declared())
+    self.assertNotIn("trips", sweep.kernel_request(self.declared(), 0))
+    self.assertTrue(self.declared(trip_parameter=True)["trip_parameter"])
+
+  def test_each_case_chooses_a_trip_count_up_to_its_column(self):
+    declared = self.declared(trip_parameter=True)
+    requests = [sweep.kernel_request(declared, index) for index in range(288)]
+    for request in requests:
+      self.assertIn(request["trips"], range(request["column"]["trips"] + 1))
+    self.assertEqual(
+      [request["trips"] for request in requests],
+      [sweep.kernel_request(declared, index)["trips"] for index in range(288)],
+    )
+    chosen = {request["trips"] for request in requests}
+    self.assertIn(0, chosen)
+    self.assertIn(8, chosen)
+
+  def test_the_export_command_asks_for_the_trip_parameter(self):
+    request = sweep.kernel_request(self.declared(trip_parameter=True), 0)
+    self.assertIn(
+      "--trip-parameter", sweep._export_command(Path("x"), request, Path("o"))
+    )
+    plain = sweep.kernel_request(self.declared(), 0)
+    self.assertNotIn(
+      "--trip-parameter", sweep._export_command(Path("x"), plain, Path("o"))
+    )
+
+
 class SweepReportTests(SweepFixture):
   """The pilot's acceptance measurements, computed from the retained records."""
 
@@ -1068,6 +1112,35 @@ class DeviceBindingTests(unittest.TestCase):
       sweep.main(arguments + list(extra))
     return run.call_args.args[1]
 
+  def test_the_command_line_declares_a_trip_parameter(self):
+    self.assertTrue(self.declared_by("--trip-parameter")["trip_parameter"])
+
+  def test_the_builder_appends_the_cases_trip_count_to_every_probe(self):
+    from test.unit import test_tensor_free_form_case as fixtures
+
+    region = json.loads((self.root / "region.json").read_text())
+    region["parameters"] = region["parameters"] + [
+      {"name": "%trips", "shape": [], "dtype": "i32", "role": "trip_count"}
+    ]
+    region["trip_parameter"] = {"name": "%trips", "max": 4}
+    (self.root / "region.json").write_text(json.dumps(region))
+    (self.root / "program.sir").write_text(fixtures.WINDOW_SOURCE)
+    request = {**sweep.kernel_request(spec(96), self.index_of("G0")), "trips": 2}
+    built = self.operations["build"]({**request, "directory": str(self.root / "trips")})
+    self.assertEqual(built["kind"], "admitted", built.get("reason"))
+    for name, values in built["probe_values"].items():
+      with self.subTest(probe=name):
+        self.assertEqual(bytes(values)[-4:], struct.pack("<i", 2))
+
+  def test_a_trip_parameter_kernel_has_no_trip_minus_one_screen(self):
+    literal = {"region": {"trip_count": 4}, "source": "br %i < 4, ^body, ^exit;"}
+    self.assertIn("i0-base-tminus", sweep.screen_variants(literal))
+    parameter = {
+      "region": {"trip_count": 4, "trip_parameter": {"name": "%trips", "max": 4}},
+      "source": "br %i < %trips, ^body, ^exit;",
+    }
+    self.assertNotIn("i0-base-tminus", sweep.screen_variants(parameter))
+
   def test_the_command_line_accepts_steered_inputs(self):
     declared = self.declared_by("--inputs", I0, "steer-tie")
     self.assertEqual(declared["inputs"], [I0, "steer-tie"])
@@ -1079,7 +1152,7 @@ class DeviceBindingTests(unittest.TestCase):
     from test.lib import tensor_steering
 
     accepted = tensor_steering.Steered(
-      "accepted", "cancel", 0, values=[float(index) for index in range(72)]
+      "accepted", "cancel", 0, values=[float(index) for index in range(88)]
     )
     search = tensor_steering.BodySearch(
       accepted={"cancel": accepted}, trials=[{"property": "cancel"}], z3_seconds=1.5
@@ -1098,7 +1171,7 @@ class DeviceBindingTests(unittest.TestCase):
     self.assertEqual(built["steered"], ["steer-cancel"])
     self.assertEqual(
       bytes(built["probe_values"]["steer-cancel"]),
-      struct.pack("<72f", *accepted.values),
+      struct.pack("<88f", *accepted.values),
     )
     self.assertEqual(
       built["steering"], {"z3_seconds": 1.5, "trials": 1, "accepted": ["cancel"]}

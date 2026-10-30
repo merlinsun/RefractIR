@@ -129,8 +129,16 @@ class _Body:
       elif label and line and line != "}":
         self.blocks[label].append(line)
     self.values, self.scalars = {}, {}
+    # One entry per input element: a solver variable, or a fixed scalar i32
+    # parameter (a trip count), which is the path and is never steered.
+    self.slots = []
     position = 0
     for name, shape in parameters:
+      if list(shape) == []:
+        self.scalars[name] = int(inputs[position])
+        self.slots.append(self.scalars[name])
+        position += 1
+        continue
       count = int(np.prod(shape))
       lanes = np.empty(count, dtype=object)
       for index in range(count):
@@ -138,6 +146,7 @@ class _Body:
         self.lines.append(f"(declare-const {variable} Real)")
         lanes[index] = Node(variable, float(inputs[position + index]), "input")
         self.inputs.append(lanes[index])
+        self.slots.append(lanes[index])
       position += count
       self.values[name] = lanes.reshape(shape)
 
@@ -262,21 +271,50 @@ class _Body:
           else:
             raise Unsupported(expression)
           continue
+        if line.startswith("assume "):
+          # P0 enforces the assumed range of a scalar parameter.
+          continue
         if line.startswith("ret "):
           return list(
             np.asarray(self.values[line[4:].rstrip(";")], dtype=object).reshape(-1)
           )
         jump = re.fullmatch(r"br (\^\w+);", line)
-        branch = re.fullmatch(r"br (%\w+) < (\d+), (\^\w+), (\^\w+);", line)
+        branch = re.fullmatch(r"br (%\w+) < (%\w+|\d+), (\^\w+), (\^\w+);", line)
         if jump:
           label = jump.group(1)
         elif branch:
           name, bound, taken, other = branch.groups()
-          label = taken if self.scalars[name] < int(bound) else other
+          limit = self.scalars[bound] if bound.startswith("%") else int(bound)
+          label = taken if self.scalars[name] < limit else other
         else:
           raise Unsupported(line)
         break
     raise Unsupported("the body did not return")
+
+
+def pack(parameters, values):
+  """Input bytes for (name, shape) parameters: f32 lanes, an i32 for a scalar."""
+  data, position = bytearray(), 0
+  for _, shape in parameters:
+    if list(shape) == []:
+      data += struct.pack("<i", int(values[position]))
+      position += 1
+      continue
+    count = int(np.prod(shape))
+    data += struct.pack(f"<{count}f", *values[position : position + count])
+    position += count
+  return bytes(data)
+
+
+def unpack(parameters, data):
+  """The values `pack` wrote, in parameter order."""
+  values, offset = [], 0
+  for _, shape in parameters:
+    count = 1 if list(shape) == [] else int(np.prod(shape))
+    code = "<i" if list(shape) == [] else f"<{count}f"
+    values += list(struct.unpack_from(code, data, offset))
+    offset += 4 * count
+  return values
 
 
 def evaluate(source, parameters, inputs):
@@ -433,14 +471,14 @@ def _halfway(exact):
 
 
 def _check(prop, lane, inputs, source, parameters, p0, aim_index, fix_first):
-  """Whether P0 confirms the property for these f32 inputs, or why not."""
-  if prop == "signed-zero" and any(value == 0 for value in inputs):
-    return "an input rounded to zero", {}
+  """Whether P0 confirms the property for these inputs, or why not."""
   try:
     body = _Body(source, parameters, inputs, fix_first=fix_first)
     outputs = body.run()
   except NonFinite:
     return "the model leaves the finite range", {}
+  if prop == "signed-zero" and any(node.value == 0 for node in body.inputs):
+    return "an input rounded to zero", {}
   produced = p0(inputs)
   if produced is None:
     return "p0_not_completed", {}
@@ -514,9 +552,12 @@ def _attempt(
       result.reason = verdict
       return
     inputs = []
-    for i in body.inputs:
+    for slot in body.slots:
+      if not isinstance(slot, Node):
+        inputs.append(slot)
+        continue
       try:
-        inputs.append(float(round_f32(model[i.term])))
+        inputs.append(float(round_f32(model[slot.term])))
       except NonFinite:
         inputs.append(math.inf)
     miss, evidence = _check(
