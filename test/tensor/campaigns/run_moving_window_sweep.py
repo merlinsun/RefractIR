@@ -358,13 +358,49 @@ def _sha(output):
   return None if output is None else hashlib.sha256(output).hexdigest()
 
 
-def evaluate(pairs, *, operations=None):
+def _enclosure_check(pair, enclosure):
+  """Check both paths' lanes against the enclosure; record and return violations.
+
+  The pair line keeps the lane counts and each path's violation count.
+  """
+  from test.lib import tensor_enclosure
+
+  candidates, summary = [], {"violations": {}}
+  where = {"configuration": pair["configuration"], "input": pair["input"]}
+  for path in ("p1", "p2"):
+    report = tensor_enclosure.check_lanes(enclosure, pair[path]["output"])
+    summary.update(
+      point_lanes=report["point_lanes"],
+      widened_lanes=report["widened_lanes"],
+      widest_ulps=report["widest_ulps"],
+    )
+    summary["violations"][path] = len(report["violations"])
+    for kind in ("point_mismatch", "outside"):
+      positions = [v["index"] for v in report["violations"] if v["class"] == kind]
+      if positions:
+        candidates.append(
+          {
+            "kind": f"enclosure_{kind}",
+            "path": path,
+            "positions": positions[:MAX_POSITIONS],
+            **where,
+          }
+        )
+  pair["enclosure"] = summary
+  return candidates
+
+
+def evaluate(pairs, *, operations=None, enclosures=None):
   """Apply the three oracles to one kernel's paired runs.
 
   A corner-value input is not bounded, so its values may leave the finite
   range SIR defines. Its non-finite runs are skipped rather than candidates;
   only a disagreement over whether the output is finite remains one. In a
-  body with an `UNSPECIFIED` operation, its finite outputs are not compared.
+  body with an `UNSPECIFIED` operation, its finite outputs are checked lane by
+  lane against the input's enclosure when the builder computed one: a lane
+  outside it, or a point lane with other bits, is a candidate, while two
+  paths that differ inside it are not. Without an enclosure they are not
+  compared.
   """
   restricted = operations is None or bool(UNSPECIFIED & set(operations))
   candidates = []
@@ -395,7 +431,15 @@ def evaluate(pairs, *, operations=None):
     if both_completed and corner and not (_finite(first) or _finite(second)):
       continue
     if both_completed and corner and restricted and _finite(first) and _finite(second):
-      continue
+      enclosure = (enclosures or {}).get(pair["input"])
+      if enclosure is not None and enclosure != "unavailable":
+        if len(first) == len(second) == 4 * len(list(enclosure.lo.flat)):
+          candidates.extend(_enclosure_check(pair, enclosure))
+          continue
+        # A wrong output length is the path oracle's to report.
+        pair["enclosure"] = "unavailable"
+      else:
+        continue
     if both_completed and first != second:
       # Non-finite values are undefined in SIR, so a difference among them is
       # grouped apart from a difference between defined outputs.
@@ -437,6 +481,7 @@ def _pair_line(pair):
     "kernel_sha256": pair.get("kernel_sha256"),
     "inputs_sha256": pair.get("inputs_sha256"),
     "compiler": pair.get("compiler"),
+    **({"enclosure": pair["enclosure"]} if "enclosure" in pair else {}),
     **{
       path: {
         "status": pair[path]["status"],
@@ -555,7 +600,9 @@ class _Session:
           # Every input at this setting compiles the same kernel, so the rest
           # would only repeat the timeout.
           skip = f"P2 compilation timed out on {name} at this configuration"
-    candidates, infrastructure = evaluate(pairs, operations=built.get("operations"))
+    candidates, infrastructure = evaluate(
+      pairs, operations=built.get("operations"), enclosures=built.get("enclosures")
+    )
     exposure = self.operations["screen"](kernel) if sampled else None
     if not (candidates or sampled):
       _prune(pairs)
@@ -910,6 +957,27 @@ def screen_variants(kernel):
   return variants
 
 
+def _enclosures(source, region, probe_values):
+  """Each unbounded probe's output enclosure, or `unavailable`.
+
+  Kept with the kernel for `evaluate`; it is never written to the run log.
+  """
+  from test.lib import tensor_enclosure, tensor_free_form_inputs
+
+  parameters = tensor_free_form_inputs.parameters(region)
+  enclosures = {}
+  for name, values in probe_values.items():
+    if name not in UNBOUNDED_INPUTS:
+      continue
+    try:
+      enclosures[name] = tensor_enclosure.enclose_values(
+        source, parameters, bytes(values)
+      )
+    except (tensor_enclosure.NonFinite, tensor_enclosure.Unsupported):
+      enclosures[name] = "unavailable"
+  return enclosures
+
+
 def z3_identity():
   """The `z3` binary steering runs, or None when it is not on the path."""
   path = shutil.which("z3")
@@ -1049,6 +1117,11 @@ def device_operations(
         request, region, source, probe_values, symiri, directory / "steering"
       )
       probe_values.update(steered)
+    enclosures = (
+      _enclosures(source, region, probe_values)
+      if UNSPECIFIED & set(live.get("ops") or [])
+      else {}
+    )
     return {
       "kind": "admitted",
       "directory": str(directory),
@@ -1057,6 +1130,7 @@ def device_operations(
       "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
       "probe_values": probe_values,
       "steered": sorted(steered),
+      "enclosures": enclosures,
       **({"steering": summary} if request.get("steer") else {}),
       "layouts": layouts,
       "typed_fingerprint": live.get("typed_fingerprint"),

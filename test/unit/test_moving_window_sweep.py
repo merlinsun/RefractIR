@@ -64,10 +64,12 @@ class Script:
     compiler=None,
     operations=None,
     steered=None,
+    enclosures=None,
   ):
     self.refused = set(refused)
     self.operations_by_seed = operations or {}
     self.steered = steered or {}
+    self.enclosures = enclosures or {}
     self.live_nodes = live_nodes or {}
     self.compiler = compiler or {}
     self.outputs = outputs or {}
@@ -95,6 +97,7 @@ class Script:
       "live_nodes": self.live_nodes.get(seed, 9),
       "operations": self.operations_by_seed.get(seed, ["add", "max"]),
       "steered": self.steered.get(seed, []),
+      **({"enclosures": self.enclosures[seed]} if seed in self.enclosures else {}),
     }
 
   def run_pair(self, request):
@@ -635,6 +638,93 @@ class TripParameterTests(unittest.TestCase):
     )
 
 
+def lanes(*bounds):
+  """An enclosure over four lanes from (lo, hi) pairs."""
+  from fractions import Fraction
+
+  import numpy as np
+
+  from test.lib import tensor_enclosure
+
+  return tensor_enclosure.Interval(
+    np.array([Fraction(low) for low, _ in bounds], dtype=object),
+    np.array([Fraction(high) for _, high in bounds], dtype=object),
+  )
+
+
+def _numpy_available():
+  try:
+    import numpy  # noqa: F401
+  except ImportError:
+    return False
+  return True
+
+
+@unittest.skipUnless(_numpy_available(), "numpy is unavailable")
+class EnclosureCheckTests(SweepFixture):
+  """A restricted sum output is checked lane by lane against its enclosure."""
+
+  def declared(self):
+    return sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=1,
+      configurations=CONFIGURATIONS[:1],
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      inputs=(I0, I3, I8),
+    )
+
+  def run_with(self, enclosure, **outputs):
+    script = Script(
+      operations={S0: ["sum", "add"]},
+      enclosures={S0: {I8: enclosure}},
+      outputs={(S0, 1, I8, path): value for path, value in outputs.items()},
+    )
+    self.run_sweep(self.declared(), script)
+    return self.candidates()
+
+  def test_a_path_missing_a_point_lane_is_a_candidate(self):
+    found = self.run_with(lanes((1, 1), (2, 2), (3, 3), (4, 4)), p2=TWO)
+    self.assertEqual(
+      [(c["kind"], c["path"], c["positions"]) for c in found],
+      [("enclosure_point_mismatch", "p2", [3])],
+    )
+
+  def test_a_path_difference_inside_the_enclosure_is_not_a_candidate(self):
+    self.assertEqual(self.run_with(lanes((1, 1), (2, 2), (3, 3), (4, 5)), p2=TWO), [])
+
+  def test_a_value_outside_a_widened_lane_is_a_candidate(self):
+    found = self.run_with(lanes((1, 1), (2, 2), (3, 3), (3.5, 4.5)), p2=TWO)
+    self.assertEqual(
+      [(c["kind"], c["path"]) for c in found], [("enclosure_outside", "p2")]
+    )
+
+  def test_an_unavailable_enclosure_keeps_the_restriction(self):
+    self.assertEqual(self.run_with("unavailable", p2=TWO), [])
+
+  def test_an_output_of_another_length_is_not_checked(self):
+    short = struct.pack("<3f", 1.0, 2.0, 3.0)
+    found = self.run_with(lanes((1, 1), (2, 2), (3, 3), (4, 4)), p2=short)
+    self.assertEqual([c["kind"] for c in found], ["path_difference"])
+    pairs = {pair["input"]: pair for pair in self.kernels()[0]["pairs"]}
+    self.assertEqual(pairs[I8]["enclosure"], "unavailable")
+
+  def test_the_pair_line_records_the_enclosure_check(self):
+    self.run_with(lanes((1, 1), (2, 2), (3, 3), (4, 5)), p2=TWO)
+    pairs = {pair["input"]: pair for pair in self.kernels()[0]["pairs"]}
+    self.assertEqual(
+      pairs[I8]["enclosure"],
+      {
+        "point_lanes": 3,
+        "widened_lanes": 1,
+        "widest_ulps": 2**21,
+        "violations": {"p1": 0, "p2": 0},
+      },
+    )
+    self.assertNotIn("enclosure", pairs[I0])
+
+
 class SweepReportTests(SweepFixture):
   """The pilot's acceptance measurements, computed from the retained records."""
 
@@ -1111,6 +1201,29 @@ class DeviceBindingTests(unittest.TestCase):
       arguments += ["--wall-clock-hours", "1", "--exporter", str(self.exporter)]
       sweep.main(arguments + list(extra))
     return run.call_args.args[1]
+
+  def test_the_builder_encloses_unbounded_probes_of_sum_bodies(self):
+    built = self.operations["build"](
+      {
+        **sweep.kernel_request(spec(96), self.index_of("G0")),
+        "directory": str(self.root / "e"),
+      }
+    )
+    self.assertEqual(sorted(built["enclosures"]), sorted(sweep.CORNER_PROBES))
+    for enclosure in built["enclosures"].values():
+      self.assertEqual(len(list(enclosure.lo.flat)), 16)
+
+  def test_the_builder_encloses_nothing_for_a_body_without_sum(self):
+    region = json.loads((self.root / "region.json").read_text())
+    region["live_dag"]["ops"] = ["max", "add"]
+    (self.root / "region.json").write_text(json.dumps(region))
+    built = self.operations["build"](
+      {
+        **sweep.kernel_request(spec(96), self.index_of("G0")),
+        "directory": str(self.root / "n"),
+      }
+    )
+    self.assertEqual(built["enclosures"], {})
 
   def test_the_command_line_declares_a_trip_parameter(self):
     self.assertTrue(self.declared_by("--trip-parameter")["trip_parameter"])
