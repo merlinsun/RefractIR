@@ -583,6 +583,34 @@ namespace refractir {
       return simpleIntegerAtom(expr.first);
     }
 
+    // The range `assume %name >= lo;` and `assume %name <= hi;` state in the
+    // entry block for an i32 entry parameter, if both are present.
+    std::optional<std::pair<std::int64_t, std::int64_t>>
+    assumedParameterRange(const FunDecl &function, const std::string &name) {
+      const auto param = std::find_if(
+          function.params.begin(), function.params.end(),
+          [&](const ParamDecl &candidate) { return candidate.name.name == name; }
+      );
+      if (param == function.params.end() || TypeUtils::asTensor(param->type) ||
+          TypeUtils::getIntBitWidth(param->type) != 32 || function.blocks.empty())
+        return std::nullopt;
+      std::optional<std::int64_t> low;
+      std::optional<std::int64_t> high;
+      for (const auto &instruction: function.blocks.front().instrs) {
+        const auto *assume = std::get_if<AssumeInstr>(&instruction);
+        if (!assume || simpleLocal(assume->cond.lhs) != name)
+          continue;
+        const auto value = simpleInteger(assume->cond.rhs);
+        if (value && assume->cond.op == RelOp::GE)
+          low = *value;
+        else if (value && assume->cond.op == RelOp::LE)
+          high = *value;
+      }
+      if (!low || !high)
+        return std::nullopt;
+      return std::pair{*low, *high};
+    }
+
     std::optional<std::string> assignedLocal(const Instr &instruction) {
       const auto *assignment = std::get_if<AssignInstr>(&instruction);
       if (!assignment || !assignment->lhs.accesses.empty())
@@ -683,7 +711,21 @@ namespace refractir {
       if (branch->cond->op != RelOp::LT)
         return fail("tensor-profile: counted-loop condition must use <", header);
       const auto induction = simpleLocal(branch->cond->lhs);
-      const auto bound = simpleInteger(branch->cond->rhs);
+      auto bound = simpleInteger(branch->cond->rhs);
+      const auto boundParameter = bound ? std::nullopt : simpleLocal(branch->cond->rhs);
+      std::optional<std::pair<std::int64_t, std::int64_t>> range;
+      if (boundParameter) {
+        range = assumedParameterRange(function, *boundParameter);
+        if (!range)
+          return fail(
+              "tensor-profile: a parameter loop bound must be an i32 entry parameter ranged by "
+              "`assume " +
+                  *boundParameter + " >= lo;` and `assume " + *boundParameter +
+                  " <= hi;` in ^entry",
+              header
+          );
+        bound = range->second;
+      }
       if (!induction || !bound)
         return fail("tensor-profile: counted-loop header must compare induction variable", header);
 
@@ -729,7 +771,17 @@ namespace refractir {
         return fail("tensor-profile: induction variable may only be initialized and incremented", header);
       if (initial < INT32_MIN || initial > INT32_MAX || *bound < INT32_MIN || *bound > INT32_MAX ||
           *bound <= initial || *bound - initial > 8)
-        return fail("tensor-profile: loop trip count must be in [1, 8] without i32 overflow", header);
+        return fail(
+            range ? "tensor-profile: a parameter loop bound's range must allow one to eight trips"
+                  : "tensor-profile: loop trip count must be in [1, 8] without i32 overflow",
+            header
+        );
+      // A parameter bound below the start would leave the induction variable
+      // at its start, not at the bound, after the loop.
+      if (range && range->first < initial)
+        return fail(
+            "tensor-profile: a parameter loop bound's range starts below the loop's start", header
+        );
 
       const auto latch = natural.latches.front();
       const auto *latchBranch = std::get_if<BrTerm>(&function.blocks[latch].term);
@@ -745,6 +797,8 @@ namespace refractir {
       loop.inductionVariable = *induction;
       loop.initialValue = static_cast<std::int32_t>(initial);
       loop.bound = static_cast<std::int32_t>(*bound);
+      if (boundParameter)
+        loop.boundParameter = *boundParameter;
       loop.tripCount = static_cast<std::uint32_t>(*bound - initial);
       loop.parentIndex = natural.parent;
       loop.blocks = natural.blocks;

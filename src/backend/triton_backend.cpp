@@ -1111,7 +1111,13 @@ namespace refractir {
       const auto variable = pythonName(loop.inductionVariable);
       const auto type = types_.at(loop.inductionVariable);
       std::string bound = std::to_string(loop.bound);
-      if (loops_.bound == TritonLoopBound::Runtime) {
+      if (!loop.boundParameter.empty()) {
+        // The trip count is the scalar argument, loaded once before the loop;
+        // the analysis guarantees it is at least the start, so the induction
+        // variable leaves the loop at it.
+        bound = nextTemporary("loop_bound");
+        addLine(bound + " = tl.load(" + parameterPointers_.at(loop.boundParameter) + ")");
+      } else if (loops_.bound == TritonLoopBound::Runtime) {
         bound = freshPythonName(variable + "_bound");
         boundParameters_.emplace_back(bound, loop.bound);
       }

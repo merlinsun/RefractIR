@@ -8,12 +8,12 @@ A tensor kernel has no irreducible control flow; its path is the set of runtime-
 
 | Path component | How a generated kernel sets it |
 |---|---|
-| Trip count of each counted loop | a literal in SIR; `symirc --tensor-loop-bound runtime` passes it as an unspecialized kernel parameter whose default is the literal |
+| Trip count of each counted loop | a literal in SIR, or an `i32` entry parameter whose range `assume` statements give; `symirc --tensor-loop-bound runtime` passes a literal as an unspecialized kernel parameter whose default is the literal |
 | Lanes masked at a window boundary | the window's rows, stride, and active bound |
 | Arm of each per-lane `select` | not generated |
 | Scalar branches | outside the tensor profile, which allows only counted-loop headers to branch |
 
-The tensor profile requires one to eight trips per counted loop ([tensor capability analysis](../src/analysis/tensor.cpp)); a zero-trip loop is outside it. A runtime bound with its literal default computes the literal program, so P0 needs no change to compare it. Excluding the parameter from specialization matters because Triton turns an integer argument equal to one into a constant.
+A literal bound gives one to eight trips ([tensor capability analysis](../src/analysis/tensor.cpp)). A parameter bound `%n` needs `assume %n >= lo;` and `assume %n <= hi;` in `^entry`, with `lo` at or above the loop's start and `hi` allowing one to eight trips, so the loop may run zero times; P0 runs the trips the argument gives and refuses an argument outside the range, and the emitted kernel loads the argument once and loops to it. A runtime bound with its literal default computes the literal program, so P0 needs no change to compare it. Excluding the parameter from specialization matters because Triton turns an integer argument equal to one into a constant.
 
 ## Comparison classes
 

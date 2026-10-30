@@ -29,7 +29,11 @@ namespace refractir {
     std::size_t exit = 0;
     std::string inductionVariable;
     std::int32_t initialValue = 0;
+    // The literal bound, or for a parameter bound its assumed maximum.
     std::int32_t bound = 0;
+    // The i32 entry parameter the loop runs to; empty for a literal bound.
+    std::string boundParameter;
+    // The most trips the loop can run; a parameter-bounded loop may run none.
     std::uint32_t tripCount = 0;
     int parentIndex = -1;
     std::vector<std::size_t> blocks;
