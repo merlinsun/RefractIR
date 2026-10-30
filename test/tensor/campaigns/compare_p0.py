@@ -136,7 +136,7 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
       verdicts = collections.Counter()
       for pair in line.get("pairs", []):
         name = pair["input"]
-        restricted = name in sweep.CORNER_PROBES and unspecified
+        restricted = name in sweep.UNBOUNDED_INPUTS and unspecified
         bundle = _bundle(root, pair)
         if name not in observations or not observations[name].completed:
           if not restricted:

@@ -195,6 +195,41 @@ class SteeringTests(unittest.TestCase):
   def test_a_product_of_two_computed_values_is_linearized(self):
     self.assertTrue(self.steer(SPECIFIED, "signed-zero", lane=0).linearized)
 
+  def test_a_body_search_returns_each_accepted_property_once(self):
+    bases = {"i0-base": self.base}
+    outcome = tensor_steering.steer_body(
+      SUMMED, PARAMETERS, bases, p0=self.p0(SUMMED), scratch=self.scratch / "smt"
+    )
+    self.assertEqual(sorted(outcome.accepted), ["cancel", "tie"])
+    tie = outcome.accepted["tie"]
+    self.assertEqual((tie.status, tie.property), ("accepted", "tie"))
+    self.assertTrue(
+      all(trial["property"] in tensor_steering.PROPERTIES for trial in outcome.trials)
+    )
+
+  def test_a_body_search_stops_at_its_budget(self):
+    outcome = tensor_steering.steer_body(
+      SUMMED,
+      PARAMETERS,
+      {"i0-base": self.base},
+      p0=self.p0(SUMMED),
+      scratch=self.scratch / "smt",
+      budget_s=0,
+    )
+    self.assertEqual((outcome.accepted, outcome.trials), ({}, []))
+
+  def test_a_body_search_tries_only_the_requested_properties(self):
+    outcome = tensor_steering.steer_body(
+      SUMMED,
+      PARAMETERS,
+      {"i0-base": self.base},
+      p0=self.p0(SUMMED),
+      scratch=self.scratch / "smt",
+      properties=("tie",),
+    )
+    self.assertEqual(sorted(outcome.accepted), ["tie"])
+    self.assertEqual({trial["property"] for trial in outcome.trials}, {"tie"})
+
   def test_a_miss_is_retried_then_refused(self):
     result = self.steer(SPECIFIED, "cancel", lane=0, p0=lambda values: None, attempts=3)
     self.assertEqual(result.status, "refused")

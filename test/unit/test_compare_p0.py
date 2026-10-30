@@ -158,6 +158,10 @@ class CompareP0Tests(unittest.TestCase):
     self.assertEqual(report["by_probe"][I6], {"restricted": 2})
     self.assertEqual(report["disagreements"], [])
 
+  def test_a_sum_body_on_a_steered_input_is_restricted(self):
+    self.assertIn("steer-tie", compare_p0.sweep.UNBOUNDED_INPUTS)
+    self.assertIn("i6-cancel", compare_p0.sweep.UNBOUNDED_INPUTS)
+
   def test_a_sum_body_on_an_exact_probe_is_compared(self):
     self.kernel(S0, [(WARPS_1, I0, "0" * 64, sha(self.p0_output(I0)))], ops=("sum",))
     self.assertEqual(self.compare()["by_probe"][I0], {"differ": 1, "agree": 1})

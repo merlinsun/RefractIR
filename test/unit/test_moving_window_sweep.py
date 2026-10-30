@@ -63,9 +63,11 @@ class Script:
     live_nodes=None,
     compiler=None,
     operations=None,
+    steered=None,
   ):
     self.refused = set(refused)
     self.operations_by_seed = operations or {}
+    self.steered = steered or {}
     self.live_nodes = live_nodes or {}
     self.compiler = compiler or {}
     self.outputs = outputs or {}
@@ -92,6 +94,7 @@ class Script:
       "connectivity_signature": "c0",
       "live_nodes": self.live_nodes.get(seed, 9),
       "operations": self.operations_by_seed.get(seed, ["add", "max"]),
+      "steered": self.steered.get(seed, []),
     }
 
   def run_pair(self, request):
@@ -513,6 +516,79 @@ class LoopOptionTests(SweepFixture):
 """
     self.assertEqual(sweep.ttgir_loop_bounds(text), {"constant": 1, "dynamic": 2})
     self.assertEqual(sweep.ttgir_loop_bounds(""), {"constant": 0, "dynamic": 0})
+
+
+STEER = "steer-cancel"
+
+
+class SteeredInputTests(SweepFixture):
+  """Steered inputs exist only for bodies that yield them; they are unbounded."""
+
+  def declared(self, inputs=(I0, I3, STEER)):
+    return sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=1,
+      configurations=CONFIGURATIONS[:1],
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      inputs=inputs,
+    )
+
+  def test_the_steered_inputs_name_the_helpers_properties(self):
+    from test.lib import tensor_steering
+
+    self.assertEqual(
+      sweep.STEERED_INPUTS,
+      tuple(f"steer-{name}" for name in tensor_steering.PROPERTIES),
+    )
+
+  def test_the_declaration_records_steering_only_when_a_steered_input_is_named(self):
+    self.assertNotIn("steering", spec(4))
+    declared = self.declared()
+    self.assertEqual(
+      declared["steering"],
+      {"budget_s": 60.0, "lanes": 4, "bases": ["i0-base", "i5-denormal"]},
+    )
+    self.assertEqual(sweep.kernel_request(declared, 0)["steer"], ["cancel"])
+    self.assertNotIn("steer", sweep.kernel_request(spec(4), 0))
+
+  def test_a_steered_input_the_body_did_not_yield_is_skipped(self):
+    script = Script()
+    self.run_sweep(self.declared(), script)
+    [kernel] = self.kernels()
+    pairs = {pair["input"]: pair for pair in kernel["pairs"]}
+    self.assertEqual(pairs[STEER]["p1"]["status"], sweep.SKIPPED)
+    self.assertEqual(pairs[STEER]["p2"]["status"], sweep.SKIPPED)
+    self.assertNotIn((S0, 1, STEER), script.pairs)
+    self.assertEqual(kernel["status"], "agreement")
+    dispatched = [
+      line for line in lines(self.work / "run-log.jsonl") if line["event"] == "dispatch"
+    ]
+    self.assertEqual(len(dispatched), 2)
+
+  def test_a_yielded_steered_input_is_dispatched(self):
+    script = Script(steered={S0: [STEER]})
+    self.run_sweep(self.declared(), script)
+    self.assertIn((S0, 1, STEER), script.pairs)
+
+  def test_a_steered_input_is_unbounded_like_a_corner_probe(self):
+    with self.subTest("non-finite on both paths"):
+      script = Script(
+        steered={S0: [STEER]},
+        outputs={(S0, 1, STEER, "p1"): INF, (S0, 1, STEER, "p2"): NAN},
+      )
+      self.run_sweep(self.declared(), script)
+      self.assertEqual(self.candidates(), [])
+    with self.subTest("sum body"):
+      self.work = self.work.with_name("sum")
+      script = Script(
+        steered={S0: [STEER]},
+        outputs={(S0, 1, STEER, "p2"): TWO},
+        operations={S0: ["sum"]},
+      )
+      self.run_sweep(self.declared(), script)
+      self.assertEqual(self.candidates(), [])
 
 
 class SweepReportTests(SweepFixture):
@@ -991,6 +1067,56 @@ class DeviceBindingTests(unittest.TestCase):
       arguments += ["--wall-clock-hours", "1", "--exporter", str(self.exporter)]
       sweep.main(arguments + list(extra))
     return run.call_args.args[1]
+
+  def test_the_command_line_accepts_steered_inputs(self):
+    declared = self.declared_by("--inputs", I0, "steer-tie")
+    self.assertEqual(declared["inputs"], [I0, "steer-tie"])
+    self.assertEqual(declared["steering"]["budget_s"], 60.0)
+
+  def test_the_builder_steers_only_the_declared_properties(self):
+    from unittest import mock
+
+    from test.lib import tensor_steering
+
+    accepted = tensor_steering.Steered(
+      "accepted", "cancel", 0, values=[float(index) for index in range(72)]
+    )
+    search = tensor_steering.BodySearch(
+      accepted={"cancel": accepted}, trials=[{"property": "cancel"}], z3_seconds=1.5
+    )
+    request = {
+      **sweep.kernel_request(spec(96), self.index_of("G0")),
+      "steer": ["cancel", "tie"],
+      "steering": {"budget_s": 60.0, "lanes": 4, "bases": ["i0-base", "i5-denormal"]},
+    }
+    with mock.patch.object(tensor_steering, "steer_body", return_value=search) as steer:
+      built = self.operations["build"](
+        {**request, "directory": str(self.root / "steered")}
+      )
+    self.assertEqual(steer.call_args.kwargs["properties"], ("cancel", "tie"))
+    self.assertEqual(sorted(steer.call_args.args[2]), ["i0-base", "i5-denormal"])
+    self.assertEqual(built["steered"], ["steer-cancel"])
+    self.assertEqual(
+      bytes(built["probe_values"]["steer-cancel"]),
+      struct.pack("<72f", *accepted.values),
+    )
+    self.assertEqual(
+      built["steering"], {"z3_seconds": 1.5, "trials": 1, "accepted": ["cancel"]}
+    )
+
+  def test_the_z3_identity_names_the_binary(self):
+    import hashlib
+    import shutil
+
+    identity = sweep.z3_identity()
+    path = shutil.which("z3")
+    if path is None:
+      self.assertIsNone(identity)
+    else:
+      self.assertEqual(
+        identity["sha256"], hashlib.sha256(Path(path).read_bytes()).hexdigest()
+      )
+      self.assertIn("Z3 version", identity["version"])
 
   def test_the_command_line_declares_the_inputs(self):
     self.assertEqual(self.declared_by()["inputs"], [I0, I3])

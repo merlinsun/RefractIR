@@ -118,7 +118,15 @@ POLICIES = _STUDY.POLICIES
 PROBES = _STUDY.PROBES
 # Inputs a declaration may name: the window probes, whose values stay within
 # the exact-input bound, and the corner-value probes, which do not.
-KNOWN_INPUTS = PROBES + CORNER_PROBES
+# Inputs steered toward a floating-point property per body (`tensor_steering`).
+# A body yields a steered input only when P0 confirms the property, so a
+# declared steered input is skipped for the bodies that yield none.
+STEERED_INPUTS = ("steer-signed-zero", "steer-cancel", "steer-tie")
+KNOWN_INPUTS = PROBES + CORNER_PROBES + STEERED_INPUTS
+# Inputs whose values the exact-input contract does not bound.
+UNBOUNDED_INPUTS = frozenset(CORNER_PROBES + STEERED_INPUTS)
+# Steering per body: Z3 seconds, lanes tried per property, linearization bases.
+STEERING = {"budget_s": 60.0, "lanes": 4, "bases": ["i0-base", "i5-denormal"]}
 MIN_FREE_BYTES = _STUDY.MIN_FREE_BYTES
 
 
@@ -178,6 +186,9 @@ def sweep_spec(
       raise SweepRefused(f"unknown loop hint {hint!r}")
   if loop_bound not in LOOP_BOUNDS:
     raise SweepRefused(f"loop_bound must be one of {list(LOOP_BOUNDS)}")
+  steering = (
+    {} if not set(inputs) & set(STEERED_INPUTS) else {"steering": dict(STEERING)}
+  )
   return {
     "schema": SCHEMA,
     "seed_start": seed_start,
@@ -191,6 +202,7 @@ def sweep_spec(
     "exact_contract": EXACT_CONTRACT,
     "root_selection": ROOT_SELECTION,
     "loop_bound": loop_bound,
+    **steering,
     "enable_fp_fusion": False,
     "order": ORDER,
     "sample_every": sample_every,
@@ -253,6 +265,16 @@ def kernel_request(spec, index):
     "exact_contract": spec["exact_contract"],
     "root_selection": spec["root_selection"],
     "loop_bound": spec["loop_bound"],
+    **(
+      {
+        "steer": [
+          name[len("steer-") :] for name in spec["inputs"] if name in STEERED_INPUTS
+        ],
+        "steering": spec["steering"],
+      }
+      if "steering" in spec
+      else {}
+    ),
   }
 
 
@@ -340,7 +362,7 @@ def evaluate(pairs, *, operations=None):
   infrastructure = False
   for pair in pairs:
     where = {"configuration": pair["configuration"], "input": pair["input"]}
-    corner = pair["input"] in CORNER_PROBES
+    corner = pair["input"] in UNBOUNDED_INPUTS
     for path in ("p1", "p2"):
       run = pair[path]
       if run["status"] == SKIPPED:
@@ -498,6 +520,11 @@ class _Session:
     for configuration in self.spec["configurations"]:
       skip = None
       for name in self.spec["inputs"]:
+        if name in STEERED_INPUTS and name not in built.get("steered", ()):
+          pairs.append(
+            _skipped_pair(configuration, name, "the body yielded no steered input")
+          )
+          continue
         if skip is not None:
           pairs.append(_skipped_pair(configuration, name, skip))
           continue
@@ -848,7 +875,78 @@ def _toolchain(exporter, symirc, symiri):
     "triton": identity,
     "triton_library_sha256": library_sha256,
     "python": sys.version.split()[0],
+    "z3": z3_identity(),
   }
+
+
+def z3_identity():
+  """The `z3` binary steering runs, or None when it is not on the path."""
+  path = shutil.which("z3")
+  if path is None:
+    return None
+  version = subprocess.run([path, "--version"], capture_output=True, text=True).stdout
+  return {"path": path, "sha256": _STUDY._file_sha256(path), "version": version.strip()}
+
+
+def _steered(request, region, source, probes, symiri, directory):
+  """Steer the declared properties; the accepted inputs and a summary."""
+  from test.lib import (
+    tensor_free_form_case,
+    tensor_free_form_inputs,
+    tensor_steering,
+    tensor_target_reference,
+  )
+
+  parameters = tensor_free_form_inputs.parameters(region)
+  shapes = [(record["name"], record["shape"]) for record in parameters]
+  runs = []
+
+  def p0(values):
+    runs.append(None)
+    proposal = tensor_free_form_inputs.Proposal(
+      schema=tensor_free_form_inputs.WINDOW_PROBE_SCHEMA,
+      pattern="steered",
+      seed=0,
+      names=tuple(record["name"] for record in parameters),
+      shapes=tuple(tuple(record["shape"]) for record in parameters),
+      dtype="f32",
+      values=(),
+      data=struct.pack(f"<{len(values)}f", *values),
+    )
+    case = tensor_free_form_case.build_bundle(
+      directory / f"p0-{len(runs)}",
+      region={**region, "num_warps": 1},
+      source=source,
+      proposal=proposal,
+    )
+    observation = tensor_target_reference.observe(case, symiri=symiri)
+    return observation.output if observation.completed else None
+
+  steering = request["steering"]
+  bases = {
+    name: list(struct.unpack(f"<{len(probes[name]) // 4}f", bytes(probes[name])))
+    for name in steering["bases"]
+  }
+  search = tensor_steering.steer_body(
+    source,
+    shapes,
+    bases,
+    p0=p0,
+    scratch=directory / "smt",
+    properties=tuple(request["steer"]),
+    lanes=steering["lanes"],
+    budget_s=steering["budget_s"],
+  )
+  values = {
+    f"steer-{name}": list(struct.pack(f"<{len(result.values)}f", *result.values))
+    for name, result in search.accepted.items()
+  }
+  summary = {
+    "z3_seconds": round(search.z3_seconds, 3),
+    "trials": len(search.trials),
+    "accepted": sorted(search.accepted),
+  }
+  return values, summary
 
 
 def device_operations(
@@ -912,13 +1010,22 @@ def device_operations(
         [column["backing_rows"], column["shape"][1]], row_padding=3, element_offset=1
       )
     live = region.get("live_dag") or {}
+    probe_values = {probe.probe: list(probe.data) for probe in probes}
+    steered = {}
+    if request.get("steer"):
+      steered, summary = _steered(
+        request, region, source, probe_values, symiri, directory / "steering"
+      )
+      probe_values.update(steered)
     return {
       "kind": "admitted",
       "directory": str(directory),
       "region": region,
       "source": source,
       "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
-      "probe_values": {probe.probe: list(probe.data) for probe in probes},
+      "probe_values": probe_values,
+      "steered": sorted(steered),
+      **({"steering": summary} if request.get("steer") else {}),
       "layouts": layouts,
       "typed_fingerprint": live.get("typed_fingerprint"),
       "connectivity_signature": live.get("connectivity_signature"),

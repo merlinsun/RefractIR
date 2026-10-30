@@ -33,7 +33,7 @@ On the Triton build of the 2026-10-29 server run, `/` lowers to `div.full.f32` (
 
 A `sum` of n terms x_i, computed in any order with round-to-nearest-even, lies within gamma_(n-1) * sum|x_i| of the exact sum, where gamma_k = k*u / (1 - k*u) and u = 2^-24. When every term is a multiple of one power of two g and sum|x_i| <= 2^24 * g, every partial sum is representable, so every order gives the exact sum. [tensor_enclosure.py](../test/lib/tensor_enclosure.py) evaluates a body over these bounds; an output lane whose enclosure is a single value is compared bit-exactly.
 
-The moving-window sweep compares a `sum` body's outputs on the exact window probes I0 to I3, where the exporter's reduction contract keeps every sum within 2^23 for inputs of magnitude at most 5. On the corner probes, which that contract does not bound, a path difference in a body containing `sum` is not a candidate.
+The moving-window sweep compares a `sum` body's outputs on the exact window probes I0 to I3, where the exporter's reduction contract keeps every sum within 2^23 for inputs of magnitude at most 5. On the corner probes and steered inputs, which that contract does not bound, a path difference in a body containing `sum` is not a candidate.
 
 ## Evidence
 

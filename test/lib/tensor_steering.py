@@ -533,3 +533,67 @@ def _attempt(
       + ")"
     )
   result.reason = f"no accepted input in {attempts} attempts"
+
+
+@dataclass
+class BodySearch:
+  """Every steering trial on one body and the first accepted input per property."""
+
+  accepted: dict = field(default_factory=dict)
+  trials: list = field(default_factory=list)
+  z3_seconds: float = 0.0
+
+
+def steer_body(
+  source,
+  parameters,
+  bases,
+  *,
+  p0,
+  scratch,
+  properties=PROPERTIES,
+  lanes=4,
+  budget_s=60.0,
+  attempts=5,
+):
+  """Try each property on up to `lanes` lanes (or sums), linearized at each base.
+
+  `bases` maps a name to the input values a product is linearized at. A
+  property stops at its first accepted input; the search stops when the body's
+  Z3 time reaches `budget_s`. A query started just under the budget may run
+  past it.
+  """
+  search = BodySearch()
+  for prop in properties:
+    for base_name, base in bases.items():
+      for lane in range(lanes):
+        if prop in search.accepted or search.z3_seconds >= budget_s:
+          break
+        result = steer(
+          source,
+          parameters,
+          base,
+          prop=prop,
+          lane=lane,
+          p0=p0,
+          scratch=scratch,
+          attempts=attempts,
+          timeout_s=max(1, int(budget_s - search.z3_seconds)),
+        )
+        search.z3_seconds += result.z3_seconds
+        search.trials.append(
+          {
+            "property": prop,
+            "base": base_name,
+            "lane": lane,
+            "status": result.status,
+            "reason": result.reason,
+            "attempts": len(result.attempts),
+            "z3_seconds": round(result.z3_seconds, 3),
+            "linearized": result.linearized,
+            "evidence": result.evidence,
+          }
+        )
+        if result.status == "accepted":
+          search.accepted[prop] = result
+  return search
