@@ -112,6 +112,31 @@ class CompareP0Tests(unittest.TestCase):
     self.assertEqual(report["bodies"], {"agree": 1})
     self.assertEqual(report["disagreements"], [])
 
+  def skipped(self, name="steer-tie"):
+    """A pair the sweep skipped (a steered input the body did not yield): no bundle."""
+    self.kernel_lines[-1]["pairs"].append(
+      {
+        "configuration": WARPS_1,
+        "input": name,
+        "p1": {"status": "skipped", "output_sha256": None},
+        "p2": {"status": "skipped", "output_sha256": None},
+      }
+    )
+
+  def test_a_skipped_pair_counts_nowhere(self):
+    good = sha(self.p0_output(I0))
+    self.kernel(S0, [(WARPS_1, I0, good, good)])
+    self.skipped()
+    report = self.compare()
+    self.assertEqual(report["by_probe"], {I0: {"agree": 2}})
+    self.assertEqual(report["p0_runs"], 1)
+
+  def test_a_skipped_pair_leaves_the_body_agreeing(self):
+    good = sha(self.p0_output(I0))
+    self.kernel(S0, [(WARPS_1, I0, good, good)], ops=("sum", "add"))
+    self.skipped()
+    self.assertEqual(self.compare()["bodies"], {"agree": 1})
+
   def test_p0_runs_once_per_body_and_input(self):
     good = sha(self.p0_output(I0))
     self.kernel(S0, [(WARPS_1, I0, good, good), (WARPS_4, I0, good, good)])

@@ -91,6 +91,20 @@ class EncloseSweepBodiesTests(unittest.TestCase):
     self.assertEqual(report["unsupported"], 1)
     self.assertEqual(len(report["bodies"]), 1)
 
+  def test_a_skipped_pair_is_not_missing(self):
+    self.kernel(S0, SUMMED, ["i0-base"])
+    self.lines[-1]["pairs"].append(
+      {
+        "configuration": WARPS_1,
+        "input": "steer-tie",
+        "p1": {"status": "skipped"},
+        "p2": {"status": "skipped"},
+      }
+    )
+    report = self.report()
+    self.assertEqual(report["missing"], 0)
+    self.assertEqual(report["bodies"][0]["widths_by_input"], {"i0-base": 0})
+
   def test_the_command_line_writes_the_report(self):
     self.kernel(S0, SUMMED, ["i0-base"])
     self.report()

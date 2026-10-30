@@ -54,6 +54,8 @@ def enclose_shards(shards):
       root = shard / "kernels" / f"seed-{line['seed']}"
       widths = {}
       for pair in line.get("pairs", []):
+        if _compare._skipped(pair):
+          continue
         name = pair["input"]
         if name in widths:
           continue

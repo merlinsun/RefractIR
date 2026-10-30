@@ -16,6 +16,8 @@ Each recorded path output is classed as:
   p0_ub        P0 stopped on undefined behaviour, such as a non-finite value.
   unavailable  P0 or the path left nothing to compare, or the bundle is gone.
 
+A pair the sweep skipped on both paths is not compared or counted.
+
 A disagreement names the body's operations, the path, and the output; when
 the sweep retained the raw output, it also lists the differing words.
 """
@@ -66,6 +68,14 @@ def _operations(root):
   except (OSError, ValueError):
     return None
   return list((region.get("live_dag") or {}).get("ops") or [])
+
+
+def _skipped(pair):
+  """A pair the sweep chose not to dispatch, such as a steered input the body
+  did not yield: it has no outputs and no bundle, so it is not compared."""
+  return all(
+    (pair.get(path) or {}).get("status") == sweep.SKIPPED for path in ("p1", "p2")
+  )
 
 
 def _bundle(root, pair):
@@ -135,6 +145,8 @@ def compare(shards, *, symiri, scratch, timeout_s=120.0):
       observations = {}
       verdicts = collections.Counter()
       for pair in line.get("pairs", []):
+        if _skipped(pair):
+          continue
         name = pair["input"]
         restricted = name in sweep.UNBOUNDED_INPUTS and unspecified
         bundle = _bundle(root, pair)
