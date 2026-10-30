@@ -2004,6 +2004,8 @@ namespace refractir::reify {
       first = false;
       source << parameterName(input, index) << ": " << tensorTypeText(input.value.type);
     }
+    if (!loop.tripParameter.empty())
+      source << (first ? "" : ", ") << loop.tripParameter << ": i32";
     source << ") : " << tensorTypeText(returnType) << " {\n"
            << "  let mut %i: i32 = undef;\n";
     for (const auto &input: loop.inputs) {
@@ -2026,10 +2028,15 @@ namespace refractir::reify {
         continue;
       source << "  " << input.value.name << " = " << parameterName(input, index) << ";\n";
     }
+    if (!loop.tripParameter.empty())
+      source << "  assume " << loop.tripParameter << " >= 0;\n"
+             << "  assume " << loop.tripParameter << " <= " << loop.tripCount << ";\n";
+    const auto bound =
+        loop.tripParameter.empty() ? std::to_string(loop.tripCount) : loop.tripParameter;
     source << "  %i = 0;\n"
            << "  br ^header;\n"
            << "^header:\n"
-           << "  br %i < " << loop.tripCount << ", ^body, ^exit;\n"
+           << "  br %i < " << bound << ", ^body, ^exit;\n"
            << "^body:\n";
     for (const auto &window: loop.windows) {
       source << "  " << window.result << " = tensor window " << window.source << ", "

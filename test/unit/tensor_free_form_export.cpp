@@ -60,6 +60,8 @@ namespace {
     std::uint32_t seed = 0;
     Shape shape{2, 2};
     std::uint32_t tripCount = 2;
+    /// The loop runs to an i32 `%trips` parameter ranged 0..tripCount.
+    bool tripParameter = false;
     std::uint32_t stateCount = 2;
     std::uint32_t maxNodes = 12;
     std::uint32_t numWarps = 4;
@@ -234,6 +236,8 @@ namespace {
           options.rootSelection = FreeFormRootSelection::MostLive;
         else
           throw std::invalid_argument("unknown free-form root selection: " + selection);
+      } else if (flag == "--trip-parameter") {
+        options.tripParameter = true;
       } else if (flag == "--require-computed-roots") {
         options.requireComputedRoots = true;
       } else if (flag == "--num-warps") {
@@ -264,6 +268,10 @@ namespace {
       throw std::invalid_argument("free-form export admits two to four states");
     if (options.tripCount == 0 || options.tripCount > 64)
       throw std::invalid_argument("free-form export trip count must be in [1, 64]");
+    if (options.tripParameter && options.tripCount > 8)
+      throw std::invalid_argument(
+          "free-form export: a trip parameter's range must allow one to eight trips"
+      );
     if (options.numWarps != 1 && options.numWarps != 2 && options.numWarps != 4 &&
         options.numWarps != 8)
       throw std::invalid_argument("free-form export num_warps must be 1, 2, 4, or 8");
@@ -547,6 +555,8 @@ namespace {
           std::string(stateNames[index]), built.inputSpec.results[index]
       );
     loop.tripCount = options.tripCount;
+    if (options.tripParameter)
+      loop.tripParameter = "%trips";
     if (options.windowEnabled) {
       loop.windows = {options.window};
       if (options.windowBufferRows != 0)
@@ -600,9 +610,12 @@ namespace {
            << ",\"dtype\":" << jsonString(options.dtype)
            << ",\"policy\":" << jsonString(std::string(freeFormPolicyName(options.policy)))
            << ",\"seed\":" << options.seed << ",\"shape\":" << shapeJson(options.shape)
-           << ",\"trip_count\":" << options.tripCount << ",\"state_count\":" << options.stateCount
-           << ",\"max_nodes\":" << options.maxNodes << ",\"max_rank\":" << options.maxRank
-           << ",\"num_warps\":" << options.numWarps;
+           << ",\"trip_count\":" << options.tripCount << ",\"trip_parameter\":"
+           << (options.tripParameter
+                   ? "{\"name\":\"%trips\",\"max\":" + std::to_string(options.tripCount) + "}"
+                   : std::string("null"))
+           << ",\"state_count\":" << options.stateCount << ",\"max_nodes\":" << options.maxNodes
+           << ",\"max_rank\":" << options.maxRank << ",\"num_warps\":" << options.numWarps;
     if (options.exactInputBound > 0.0)
       record << ",\"exact_range\":{\"input_bound\":"
              << refractir::formatDouble(options.exactInputBound) << ",\"contract\":\""
@@ -692,6 +705,10 @@ namespace {
              << jsonString(input.role == FreeFormRole::State ? "state" : "invariant")
              << ",\"init\":\"runtime\"}";
     }
+    if (options.tripParameter)
+      record << (first ? "" : ",")
+             << "{\"name\":\"%trips\",\"shape\":[],\"dtype\":\"i32\",\"role\":\"trip_count\","
+                "\"init\":\"runtime\"}";
     record << "],\"window_requirement\":";
     if (options.windowRequirement.empty())
       record << "null";

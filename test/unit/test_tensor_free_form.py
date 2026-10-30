@@ -666,6 +666,86 @@ class FreeFormExportTests(unittest.TestCase):
         return output
     self.fail(f"no seed within the bound satisfied the {requirement} requirement")
 
+  def _trip_parameter_export(self, directory, *extra, trips="4", seeds=range(1, 25)):
+    for seed in seeds:
+      output = Path(directory) / f"seed-{seed}"
+      result = self.export(
+        "--policy", "reduction-heavy", "--seed", str(seed), "--shape", "4,4",
+        "--trip-count", trips, "--states", "2", "--window", "4,1,6",
+        "--window-buffer-rows", "8", "--profile", "v3", "--max-attempts", "4",
+        *extra, "--out", str(output),
+      )
+      if result.returncode == 0:
+        return output, result
+    return None, result
+
+  def test_a_trip_parameter_bounds_the_loop(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output, result = self._trip_parameter_export(directory, "--trip-parameter")
+      self.assertIsNotNone(output, result.stdout + result.stderr)
+      source = (output / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("%trips: i32", source)
+      self.assertIn("assume %trips >= 0;", source)
+      self.assertIn("assume %trips <= 4;", source)
+      self.assertIn("br %i < %trips, ^body, ^exit;", source)
+
+  def test_a_trip_parameter_is_recorded_as_the_last_scalar_parameter(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output, result = self._trip_parameter_export(directory, "--trip-parameter")
+      self.assertIsNotNone(output, result.stdout + result.stderr)
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["trip_parameter"], {"name": "%trips", "max": 4})
+      last = record["parameters"][-1]
+      self.assertEqual(
+        (last["name"], last["shape"], last["dtype"], last["role"]),
+        ("%trips", [], "i32", "trip_count"),
+      )
+
+  def test_a_trip_parameter_program_passes_the_tensor_profile(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output, result = self._trip_parameter_export(directory, "--trip-parameter")
+      self.assertIsNotNone(output, result.stdout + result.stderr)
+      checked = check_source(
+        (output / "program.sir").read_text(encoding="utf-8"), tensor_profile="v3"
+      )
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_without_a_trip_parameter_the_bound_stays_literal(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output, result = self._trip_parameter_export(directory)
+      self.assertIsNotNone(output, result.stdout + result.stderr)
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      self.assertIsNone(record["trip_parameter"])
+      self.assertIn("br %i < 4, ^body, ^exit;", (output / "program.sir").read_text())
+
+  def test_p0_runs_an_exported_trip_parameter_body_for_each_trip_count(self):
+    from test.lib import tensor_target_reference
+
+    with tempfile.TemporaryDirectory() as directory:
+      output, result = self._trip_parameter_export(directory, "--trip-parameter")
+      self.assertIsNotNone(output, result.stdout + result.stderr)
+      region = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      source = (output / "program.sir").read_text(encoding="utf-8")
+      outputs = {}
+      for trips in range(5):
+        probe = tensor_free_form_inputs.window_probes(region, group=0, column=1, trips=trips)[0]
+        case = tensor_free_form_case.build_bundle(
+          Path(directory) / f"bundle-{trips}", region=region, source=source, proposal=probe
+        )
+        self.assertEqual(case.record["inputs"][-1]["shape"], [])
+        observation = tensor_target_reference.observe(case, symiri=SYMIRI)
+        self.assertTrue(observation.completed, observation.stderr)
+        outputs[trips] = observation.output
+      self.assertGreater(len(set(outputs.values())), 1)
+
+  def test_a_trip_parameter_beyond_eight_trips_is_refused(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output, result = self._trip_parameter_export(
+        directory, "--trip-parameter", trips="9", seeds=[1]
+      )
+      self.assertIsNone(output)
+      self.assertIn("one to eight", result.stdout + result.stderr)
+
   def test_a_reduction_requirement_reaches_the_window_result(self):
     with tempfile.TemporaryDirectory() as directory:
       output = self._requirement_export(directory, "reduction")

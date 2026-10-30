@@ -345,6 +345,10 @@ namespace refractir::reify {
     /// Each state together with the result that rewrites it.
     std::vector<std::pair<std::string, std::string>> updates;
     std::uint32_t tripCount = 2;
+    /// Nonempty: the loop runs to this i32 entry parameter, emitted after the
+    /// runtime inputs and ranged by `assume` from 0 to `tripCount`, which is
+    /// then the most trips; the loop may run none.
+    std::string tripParameter;
     /// The returned expression: the terms folded left with `finalOp` after the
     /// loop. Each term names a state or an invariant.
     std::vector<std::string> finalTerms;

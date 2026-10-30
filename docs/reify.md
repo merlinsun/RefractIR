@@ -292,6 +292,7 @@ The test exporter exposes the study's construction requests:
 | `--max-attempts N`, `--max-multiplications N` | set the builder's internal limits instead of only recording them |
 | `--exact-input-bound B` | refuses a body whose value magnitudes, bounded across every loop trip from inputs of magnitude at most `B`, break the exact contract; records `exact_range` |
 | `--exact-contract all\|reduction` | the contract `--exact-input-bound` checks: `all` keeps every value within 2^24; `reduction` keeps `sum` results within 2^23 and every value within 2^64 (default `all`) |
+| `--trip-parameter` | runs the loop to an `i32` parameter `%trips`, ranged by `assume` from 0 to `--trip-count` (at most 8) and recorded as the last parameter and as `trip_parameter`; the probe recipes then take the case's trip count |
 | `--root-selection deepest\|most-live` | picks each result root as the deepest value, or as the value that keeps the most grown nodes alive beyond the roots already chosen (default `deepest`) |
 
 Without division, every body value is an integer, so exactness is a question of magnitude. The bound is interval reasoning over magnitudes, iterated for the declared trip count. The `reduction` contract rests on two facts: with fusion off, an elementwise f32 operation rounds identically on the interpreter and the GPU, and only a `sum`'s lane order is left to the backend. The default root selection and the absence of both flags leave the builder's output and record unchanged.

@@ -194,7 +194,16 @@ def _window_roles(region):
     raise SpecError("window probes need f32 parameters")
   if len(backing["shape"]) != 2:
     raise SpecError("the window backing parameter must be a matrix")
-  states = [record for record in records if record["name"] != backing_name]
+  trip = region.get("trip_parameter")
+  trip_name = trip.get("name") if isinstance(trip, dict) else None
+  if trip is not None and (
+    trip_name not in records_by_name
+    or records_by_name[trip_name]["shape"] != []
+    or records_by_name[trip_name]["dtype"] != "i32"
+    or type(trip.get("max")) is not int
+  ):
+    raise SpecError("the trip parameter must be a recorded i32 scalar with a max")
+  states = [record for record in records if record["name"] not in (backing_name, trip_name)]
   if len(states) != 2:
     raise SpecError("window probes need exactly two state parameters")
   if any(state["dtype"] != "f32" for state in states):
@@ -228,6 +237,8 @@ def _window_roles(region):
     "states": states,
     "window": window,
     "trips": trips,
+    "trip_parameter": trip_name,
+    "trip_max": trip["max"] if trip_name else None,
   }
 
 
@@ -266,15 +277,38 @@ def _window_rows(roles, *, group, column):
   return slot, values
 
 
-def _pack_window_proposal(roles, values, *, pattern, probe, seed):
-  """Pack one probe's rows in the region's recorded parameter order."""
+def _trip_values(roles, trips):
+  """The trip parameter's value for a probe: the case's chosen trip count."""
+  name = roles["trip_parameter"]
+  if name is None:
+    if trips is not None:
+      raise SpecError("a literal-bound loop takes no trip count")
+    return {}
+  if type(trips) is not int or not 0 <= trips <= roles["trip_max"]:
+    raise SpecError(f"the trip count must be an integer in [0, {roles['trip_max']}]")
+  return {name: trips}
+
+
+def _pack_window_proposal(roles, values, *, pattern, probe, seed, trips=None):
+  """Pack one probe's rows in the region's recorded parameter order.
+
+  The trip parameter, when the loop has one, is packed as an i32 scalar.
+  """
+  values = {**values, **_trip_values(roles, trips)}
   names = tuple(record["name"] for record in roles["parameters"])
   shapes = tuple(tuple(record["shape"]) for record in roles["parameters"])
   payload = bytearray()
-  rows = tuple(tuple(tuple(values[name][r]) for r in range(len(values[name]))) for name in names)
-  for row in rows:
-    for values_row in row:
+  rows = []
+  for name in names:
+    if name == roles["trip_parameter"]:
+      rows.append((values[name],))
+      payload.extend(struct.pack("<i", values[name]))
+      continue
+    matrix = tuple(tuple(values[name][r]) for r in range(len(values[name])))
+    rows.append(matrix)
+    for values_row in matrix:
       payload.extend(struct.pack(f"<{len(values_row)}f", *values_row))
+  rows = tuple(rows)
   return Proposal(
     schema=WINDOW_PROBE_SCHEMA,
     pattern=pattern,
@@ -300,16 +334,16 @@ def _read_positions(roles):
   return read
 
 
-def window_base_proposal(region, *, group, column):
+def window_base_proposal(region, *, group, column, trips=None):
   """The I0 probe: role-separated states and backing, before any perturbation."""
   roles = _window_roles(region)
   slot, values = _window_rows(roles, group=group, column=column)
   return _pack_window_proposal(
-    roles, values, pattern="window-base", probe="i0-base", seed=slot
+    roles, values, pattern="window-base", probe="i0-base", seed=slot, trips=trips
   )
 
 
-def window_probes(region, *, group, column):
+def window_probes(region, *, group, column, trips=None):
   """The frozen window probes I0-I3 for one source slot.
 
   I1 adds one to every backing position any trip reads, I2 replaces the last
@@ -351,15 +385,15 @@ def window_probes(region, *, group, column):
   for address in range(window["active"], rows):
     unused[backing_name][address] = [1 - value for value in unused[backing_name][address]]
   probes = (
-    _pack_window_proposal(roles, base, pattern="window-base", probe="i0-base", seed=slot),
+    _pack_window_proposal(roles, base, pattern="window-base", probe="i0-base", seed=slot, trips=trips),
     _pack_window_proposal(
-      roles, read_plus, pattern="window-read-plus-one", probe="i1-read-plus-one", seed=slot
+      roles, read_plus, pattern="window-read-plus-one", probe="i1-read-plus-one", seed=slot, trips=trips
     ),
     _pack_window_proposal(
-      roles, late_probe, pattern="window-late-row", probe="i2-late-row", seed=slot
+      roles, late_probe, pattern="window-late-row", probe="i2-late-row", seed=slot, trips=trips
     ),
     _pack_window_proposal(
-      roles, unused, pattern="window-unused-rows", probe="i3-unused-rows", seed=slot
+      roles, unused, pattern="window-unused-rows", probe="i3-unused-rows", seed=slot, trips=trips
     ),
   )
   return tuple(probe for probe in probes if not (one_trip and probe.probe == "i2-late-row"))
@@ -390,7 +424,7 @@ _CORNERS = {
 }
 
 
-def corner_probes(region, *, group, column):
+def corner_probes(region, *, group, column, trips=None):
   """The corner-value probes I4-I8 for one source slot, derived from I0.
 
   Unlike I0-I3 they are not bounded by the exact-input contract: they put
@@ -412,6 +446,7 @@ def corner_probes(region, *, group, column):
       pattern=f"window-{probe[3:]}",
       probe=probe,
       seed=slot,
+      trips=trips,
     )
     for probe in CORNER_PROBES
   )

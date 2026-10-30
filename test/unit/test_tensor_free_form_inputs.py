@@ -257,6 +257,43 @@ class WindowProbeTests(unittest.TestCase):
       values.append(abs(value))
     self.assertGreater(max(values), 2.0**29)
 
+  TRIP_REGION = {
+    **WINDOW_REGION,
+    "parameters": WINDOW_REGION["parameters"]
+    + [{"name": "%trips", "shape": [], "dtype": "i32", "role": "trip_count"}],
+    "trip_parameter": {"name": "%trips", "max": 4},
+  }
+
+  def test_probes_end_with_the_chosen_trip_count(self):
+    for trips in (0, 1, 4):
+      with self.subTest(trips=trips):
+        probes = inputs.window_probes(self.TRIP_REGION, group=0, column=0, trips=trips)
+        plain = inputs.window_probes(WINDOW_REGION, group=0, column=0)
+        for probe, without in zip(probes, plain):
+          self.assertEqual(probe.names[-1], "%trips")
+          self.assertEqual(probe.shapes[-1], ())
+          self.assertEqual(probe.data, without.data + struct.pack("<i", trips))
+
+  def test_corner_and_base_probes_carry_the_trip_count_too(self):
+    corner = inputs.corner_probes(self.TRIP_REGION, group=1, column=2, trips=3)
+    plain = inputs.corner_probes(WINDOW_REGION, group=1, column=2)
+    self.assertEqual([p.data for p in corner], [p.data + struct.pack("<i", 3) for p in plain])
+    base = inputs.window_base_proposal(self.TRIP_REGION, group=0, column=0, trips=2)
+    self.assertEqual(base.data[-4:], struct.pack("<i", 2))
+
+  def test_a_trip_parameter_region_needs_a_trip_count(self):
+    with self.assertRaises(inputs.SpecError):
+      inputs.window_probes(self.TRIP_REGION, group=0, column=0)
+
+  def test_a_trip_count_outside_the_range_is_refused(self):
+    for trips in (-1, 5):
+      with self.subTest(trips=trips), self.assertRaises(inputs.SpecError):
+        inputs.window_probes(self.TRIP_REGION, group=0, column=0, trips=trips)
+
+  def test_a_trip_count_for_a_literal_loop_is_refused(self):
+    with self.assertRaises(inputs.SpecError):
+      inputs.window_probes(WINDOW_REGION, group=0, column=0, trips=2)
+
   def test_an_unusable_window_is_refused(self):
     with self.assertRaises(inputs.SpecError):
       inputs.window_probes(WINDOW_REGION, group=3, column=0)
