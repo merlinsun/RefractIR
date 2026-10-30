@@ -86,11 +86,8 @@ def parameters(spec):
       raise SpecError(f"parameter {name} is declared twice")
     names.add(name)
     shape = record.get("shape")
-    if (
-      not isinstance(shape, list)
-      or not shape
-      or any(type(extent) is not int or extent <= 0 for extent in shape)
-    ):
+    # A scalar parameter has shape []; every listed extent is positive.
+    if not isinstance(shape, list) or any(type(extent) is not int or extent <= 0 for extent in shape):
       raise SpecError(f"parameter {name} needs a positive shape")
     dtype = record.get("dtype")
     if dtype not in ("f32", "i32"):

@@ -13,7 +13,7 @@ A tensor kernel has no irreducible control flow; its path is the set of runtime-
 | Arm of each per-lane `select` | not generated |
 | Scalar branches | outside the tensor profile, which allows only counted-loop headers to branch |
 
-A literal bound gives one to eight trips ([tensor capability analysis](../src/analysis/tensor.cpp)). A parameter bound `%n` needs `assume %n >= lo;` and `assume %n <= hi;` in `^entry`, with `lo` at or above the loop's start and `hi` allowing one to eight trips, so the loop may run zero times; P0 runs the trips the argument gives and refuses an argument outside the range, and the emitted kernel loads the argument once and loops to it. A runtime bound with its literal default computes the literal program, so P0 needs no change to compare it. Excluding the parameter from specialization matters because Triton turns an integer argument equal to one into a constant.
+A literal bound gives one to eight trips ([tensor capability analysis](../src/analysis/tensor.cpp)). A parameter bound `%n` needs `assume %n >= lo;` and `assume %n <= hi;` in `^entry`, with `lo` at or above the loop's start and `hi` allowing one to eight trips, so the loop may run zero times; P0 runs the trips the argument gives and refuses an argument outside the range, and the emitted kernel loads the argument once and loops to it. A scalar parameter travels in a bundle as a one-element input of shape `[]`. A runtime bound with its literal default computes the literal program, so P0 needs no change to compare it. Excluding the parameter from specialization matters because Triton turns an integer argument equal to one into a constant.
 
 ## Comparison classes
 

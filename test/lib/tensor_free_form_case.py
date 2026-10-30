@@ -23,8 +23,13 @@ def element_count(shape):
 
 
 def dense_layout(shape):
-  """The row-major layout of one dense tensor, with axes fastest first."""
-  if not shape or any(type(extent) is not int or extent <= 0 for extent in shape):
+  """The row-major layout of one dense tensor, with axes fastest first.
+
+  A scalar has shape `[]`: one element, no strides.
+  """
+  if not isinstance(shape, (list, tuple)) or any(
+    type(extent) is not int or extent <= 0 for extent in shape
+  ):
     raise tensor_target_case.TargetCaseError(
       tensor_target_case.INVALID_LAYOUT, f"a dense layout needs a positive shape, got {shape!r}"
     )
