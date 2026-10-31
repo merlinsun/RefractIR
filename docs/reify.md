@@ -294,6 +294,7 @@ The test exporter exposes the study's construction requests:
 | `--exact-contract all\|reduction` | the contract `--exact-input-bound` checks: `all` keeps every value within 2^24; `reduction` keeps `sum` results within 2^23 and every value within 2^64 (default `all`) |
 | `--trip-parameter` | runs the loop to an `i32` parameter `%trips`, ranged by `assume` from 0 to `--trip-count` (at most 8) and recorded as the last parameter and as `trip_parameter`; the probe recipes then take the case's trip count |
 | `--branch-parameter` | adds an `i32` parameter `%sel`, assumed 0 or 1, after `%trips`; each trip it chooses whether the states take their results (`^keep`) or the results rotated among states of one type (`^swap`); recorded as `branch_parameter`, and the probe recipes then take the case's selector |
+| `--canonical-out` | also writes `canonical.sir`, the body's canonical adapter in the graph-region signature, when the record's `canonical.accepted` is true; [build_gluon_corpus.py](../test/tensor/campaigns/build_gluon_corpus.py) uses it to route free-form bodies to the Gluon layout runner |
 | `--outer-trips N` | wraps the counted loop in an outer counted loop `%o` of `N` trips, the states carried across both levels; recorded as `outer_trips`, and refused when the outer and inner trips exceed the profile's eight body executions |
 | `--root-selection deepest\|most-live` | picks each result root as the deepest value, or as the value that keeps the most grown nodes alive beyond the roots already chosen (default `deepest`) |
 

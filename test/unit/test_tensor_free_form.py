@@ -716,6 +716,33 @@ class FreeFormExportTests(unittest.TestCase):
           return
       self.fail("a scan body must appear within 20 seeds")
 
+  def test_the_canonical_adapter_is_written_only_when_asked_for(self):
+    with tempfile.TemporaryDirectory() as directory:
+      plain, output = self.path_export(directory)
+      self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+      self.assertFalse((output / "canonical.sir").exists())
+      asked, output = self.path_export(directory, "--canonical-out")
+      self.assertEqual(asked.returncode, 0, asked.stdout + asked.stderr)
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      canonical = output / "canonical.sir"
+      self.assertEqual(canonical.exists(), record["canonical"]["accepted"])
+      if canonical.exists():
+        text = canonical.read_text(encoding="utf-8")
+        self.assertRegex(text, r"^fun @kernel\(%x: tensor \[2, 4\] f32\)")
+        checked = check_source(text, tensor_profile="v2")
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_a_windowed_body_writes_no_canonical_adapter(self):
+    with tempfile.TemporaryDirectory() as directory:
+      output = Path(directory) / "windowed"
+      result = self.export(
+        "--policy", "unguided", "--seed", "1", "--shape", "2,8", "--profile", "v3",
+        "--trip-count", "4", "--window", "2,1,5", "--window-buffer-rows", "7",
+        "--canonical-out", "--out", str(output),
+      )
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      self.assertFalse((output / "canonical.sir").exists())
+
   def test_an_unsupported_feature_is_refused(self):
     with tempfile.TemporaryDirectory() as directory:
       result = self.export("--features", "rotate", "--out", directory)

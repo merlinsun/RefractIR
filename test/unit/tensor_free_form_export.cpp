@@ -63,6 +63,7 @@ namespace {
     /// The loop runs to an i32 `%trips` parameter ranged 0..tripCount.
     bool tripParameter = false;
     bool branchParameter = false;
+    bool canonicalOut = false;
     std::uint32_t outerTrips = 0;
     std::uint32_t stateCount = 2;
     std::uint32_t maxNodes = 12;
@@ -248,6 +249,8 @@ namespace {
           throw std::invalid_argument("unknown free-form root selection: " + selection);
       } else if (flag == "--trip-parameter") {
         options.tripParameter = true;
+      } else if (flag == "--canonical-out") {
+        options.canonicalOut = true;
       } else if (flag == "--branch-parameter") {
         options.branchParameter = true;
       } else if (flag == "--outer-trips") {
@@ -621,6 +624,10 @@ namespace {
 
     std::filesystem::create_directories(options.output);
     writeFile(options.output / "program.sir", source);
+    // Opt-in: the canonical adapter is the graph-region signature the Gluon
+    // lowering reads, so writing it lets one body reach that route too.
+    if (options.canonicalOut && !canonical.source.empty())
+      writeFile(options.output / "canonical.sir", canonical.source);
     std::ostringstream record;
     record << "{\"schema\":\"refractir.free-form-region.v1\",\"entry\":\"kernel\","
            << "\"profile\":" << jsonString(options.profile)
