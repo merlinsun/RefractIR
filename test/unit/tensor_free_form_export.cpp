@@ -62,6 +62,8 @@ namespace {
     std::uint32_t tripCount = 2;
     /// The loop runs to an i32 `%trips` parameter ranged 0..tripCount.
     bool tripParameter = false;
+    bool branchParameter = false;
+    std::uint32_t outerTrips = 0;
     std::uint32_t stateCount = 2;
     std::uint32_t maxNodes = 12;
     std::uint32_t numWarps = 4;
@@ -244,6 +246,10 @@ namespace {
           throw std::invalid_argument("unknown free-form root selection: " + selection);
       } else if (flag == "--trip-parameter") {
         options.tripParameter = true;
+      } else if (flag == "--branch-parameter") {
+        options.branchParameter = true;
+      } else if (flag == "--outer-trips") {
+        options.outerTrips = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--require-computed-roots") {
         options.requireComputedRoots = true;
       } else if (flag == "--num-warps") {
@@ -563,6 +569,9 @@ namespace {
     loop.tripCount = options.tripCount;
     if (options.tripParameter)
       loop.tripParameter = "%trips";
+    if (options.branchParameter)
+      loop.branchParameter = "%sel";
+    loop.outerTrips = options.outerTrips;
     if (options.windowEnabled) {
       loop.windows = {options.window};
       if (options.windowBufferRows != 0)
@@ -620,6 +629,10 @@ namespace {
            << (options.tripParameter
                    ? "{\"name\":\"%trips\",\"max\":" + std::to_string(options.tripCount) + "}"
                    : std::string("null"))
+           // Recorded only when used, so existing exports keep their bytes.
+           << (options.branchParameter ? ",\"branch_parameter\":\"%sel\"" : "")
+           << (options.outerTrips > 1 ? ",\"outer_trips\":" + std::to_string(options.outerTrips)
+                                      : std::string())
            << ",\"state_count\":" << options.stateCount << ",\"max_nodes\":" << options.maxNodes
            << ",\"max_rank\":" << options.maxRank << ",\"num_warps\":" << options.numWarps;
     if (options.exactInputBound > 0.0)
@@ -715,9 +728,15 @@ namespace {
              << jsonString(input.role == FreeFormRole::State ? "state" : "invariant")
              << ",\"init\":\"runtime\"}";
     }
-    if (options.tripParameter)
+    if (options.tripParameter) {
       record << (first ? "" : ",")
              << "{\"name\":\"%trips\",\"shape\":[],\"dtype\":\"i32\",\"role\":\"trip_count\","
+                "\"init\":\"runtime\"}";
+      first = false;
+    }
+    if (options.branchParameter)
+      record << (first ? "" : ",")
+             << "{\"name\":\"%sel\",\"shape\":[],\"dtype\":\"i32\",\"role\":\"branch\","
                 "\"init\":\"runtime\"}";
     record << "],\"window_requirement\":";
     if (options.windowRequirement.empty())

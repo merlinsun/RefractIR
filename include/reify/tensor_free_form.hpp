@@ -357,13 +357,20 @@ namespace refractir::reify {
     /// runtime inputs and ranged by `assume` from 0 to `tripCount`, which is
     /// then the most trips; the loop may run none.
     std::string tripParameter;
+    /// Nonempty: an i32 entry parameter, assumed 0 or 1, that each trip
+    /// chooses whether the states take their results (0) or the results
+    /// rotated among states of one type (1); both arms are emitted.
+    std::string branchParameter;
+    /// Above one: an outer counted loop `%o` runs the counted loop this many
+    /// times, the states carried across both levels.
+    std::uint32_t outerTrips = 0;
     /// The returned expression: the terms folded left with `finalOp` after the
     /// loop. Each term names a state or an invariant.
     std::vector<std::string> finalTerms;
     TensorOp finalOp = TensorOp::Add;
     /// Locals the enclosing function already owns, so region temporaries and
     /// snapshots do not reuse them.
-    std::vector<std::string> reservedNames{"%i", "%out"};
+    std::vector<std::string> reservedNames{"%i", "%o", "%out"};
     /// Window productions, one per window-initialized invariant.
     std::vector<FreeFormWindow> windows;
   };

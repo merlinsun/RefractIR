@@ -1563,3 +1563,73 @@ class NarrowSweepTests(unittest.TestCase):
   def test_where_is_a_known_feature_compared_bit_for_bit(self):
     self.assertIn("where", sweep.KNOWN_FEATURES)
     self.assertFalse({"where lt", "where le", "where eq"} & sweep.UNSPECIFIED)
+
+
+class PathPlannerTests(unittest.TestCase):
+  """Branch selectors and outer loops in a sweep declaration (plan L4)."""
+
+  def declared(self, **options):
+    return sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=48,
+      configurations=CONFIGURATIONS,
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      **options,
+    )
+
+  def test_a_branch_declaration_draws_each_cases_selector_from_its_seed(self):
+    declared = self.declared(branch_parameter=True)
+    self.assertTrue(declared["branch_parameter"])
+    draws = [sweep.kernel_request(declared, index)["branch"] for index in range(48)]
+    self.assertEqual(set(draws), {0, 1})
+    self.assertEqual(
+      draws, [sweep.kernel_request(declared, i)["branch"] for i in range(48)]
+    )
+    argv = sweep._export_command("exporter", sweep.kernel_request(declared, 0), "out")
+    self.assertIn("--branch-parameter", argv)
+    self.assertNotIn("branch", sweep.kernel_request(self.declared(), 0))
+    self.assertNotIn("branch_parameter", self.declared())
+
+  def test_outer_trips_reach_the_export_command(self):
+    declared = self.declared(outer_trips=2)
+    self.assertEqual(declared["outer_trips"], 2)
+    argv = sweep._export_command("exporter", sweep.kernel_request(declared, 0), "out")
+    self.assertEqual(argv[argv.index("--outer-trips") + 1], "2")
+    self.assertNotIn(
+      "--outer-trips",
+      sweep._export_command(
+        "exporter", sweep.kernel_request(self.declared(), 0), "out"
+      ),
+    )
+    with self.assertRaises(sweep.SweepRefused):
+      self.declared(outer_trips=1)
+
+  def test_nested_columns_admit_nested_bodies_with_the_real_exporter(self):
+    exporter = (
+      Path(__file__).resolve().parents[2] / "build" / "bin" / "tensor_free_form_export"
+    )
+    if not exporter.is_file():
+      self.skipTest("the free-form exporter is not built")
+    declared = self.declared(
+      columns=sweep.NESTED_COLUMNS, outer_trips=2, branch_parameter=True
+    )
+    found = set()
+    with tempfile.TemporaryDirectory() as directory:
+      for index in range(48):
+        request = sweep.kernel_request(declared, index)
+        out = Path(directory) / str(index)
+        completed = subprocess.run(
+          sweep._export_command(exporter, request, out),
+          capture_output=True,
+          text=True,
+          check=False,
+          timeout=60,
+        )
+        if completed.returncode == 0:
+          source = (out / "program.sir").read_text()
+          self.assertIn("^outer_latch:", source)
+          self.assertIn("^swap:", source)
+          found.add(request["column"]["column"])
+    self.assertEqual(found, {column["column"] for column in sweep.NESTED_COLUMNS})

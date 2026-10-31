@@ -137,6 +137,28 @@ DOT_COLUMNS = (
     "regime": "tail",
   },
 )
+# Two-trip windows for nested loops: two outer trips of two inner trips keep
+# within the profile's eight body executions (2 + 2 x 2 = 6).
+NESTED_COLUMNS = (
+  {
+    "column": 0,
+    "shape": [2, 8],
+    "trips": 2,
+    "stride": 1,
+    "backing_rows": 5,
+    "active": 3,
+    "regime": "interior",
+  },
+  {
+    "column": 1,
+    "shape": [3, 4],
+    "trips": 2,
+    "stride": 2,
+    "backing_rows": 6,
+    "active": 4,
+    "regime": "tail",
+  },
+)
 # Exporter features; a declaration that names none keeps the study's set.
 DEFAULT_FEATURES = ("extrema", "transpose", "expand")
 KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot", "narrow", "where"))
@@ -183,6 +205,8 @@ def sweep_spec(
   trip_parameter=False,
   features=None,
   required_operation=None,
+  branch_parameter=False,
+  outer_trips=None,
 ):
   """The declaration frozen before the first builder call.
 
@@ -225,6 +249,8 @@ def sweep_spec(
       raise SweepRefused(f"features are names from {sorted(KNOWN_FEATURES)}")
   if required_operation is not None and type(required_operation) is not str:
     raise SweepRefused("required_operation names one operation")
+  if outer_trips is not None and (type(outer_trips) is not int or outer_trips < 2):
+    raise SweepRefused("outer_trips must be an integer of at least two")
   steering = (
     {} if not set(inputs) & set(STEERED_INPUTS) else {"steering": dict(STEERING)}
   )
@@ -245,6 +271,8 @@ def sweep_spec(
     **({"trip_parameter": True} if trip_parameter else {}),
     **({"features": features} if features is not None else {}),
     **({"required_operation": required_operation} if required_operation else {}),
+    **({"branch_parameter": True} if branch_parameter else {}),
+    **({"outer_trips": outer_trips} if outer_trips is not None else {}),
     "enable_fp_fusion": False,
     "order": ORDER,
     "sample_every": sample_every,
@@ -282,6 +310,12 @@ def _trips(spec, index, column):
   """The case's trip count: seeded, uniform over zero to the column's trips."""
   rng = random.Random(f"{SCHEMA}:trips:{spec['seed_start']}:{index}")
   return rng.randint(0, column["trips"])
+
+
+def _branch(spec, index):
+  """The case's branch selector: seeded, 0 or 1 with equal odds."""
+  rng = random.Random(f"{SCHEMA}:branch:{spec['seed_start']}:{index}")
+  return rng.randint(0, 1)
 
 
 def kernel_request(spec, index):
@@ -325,6 +359,8 @@ def kernel_request(spec, index):
       else {}
     ),
     **({"trips": _trips(spec, index, column)} if spec.get("trip_parameter") else {}),
+    **({"branch": _branch(spec, index)} if spec.get("branch_parameter") else {}),
+    **({"outer_trips": spec["outer_trips"]} if "outer_trips" in spec else {}),
   }
 
 
@@ -888,6 +924,10 @@ def _export_command(exporter, request, out):
     command += ["--window-requirement", request["requirement"]]
   if "trips" in request:
     command += ["--trip-parameter"]
+  if "branch" in request:
+    command += ["--branch-parameter"]
+  if "outer_trips" in request:
+    command += ["--outer-trips", str(request["outer_trips"])]
   return command + [
     "--max-attempts",
     "1",
@@ -1145,11 +1185,11 @@ def device_operations(
     # The unconstrained group reuses the G0 probe recipe for its column.
     group = GROUPS.index(request["group"]) % 3
     try:
-      trips = request.get("trips")
+      path = {"trips": request.get("trips"), "branch": request.get("branch")}
       probes = tensor_free_form_inputs.window_probes(
-        region, group=group, column=column["column"], trips=trips
+        region, group=group, column=column["column"], **path
       ) + tensor_free_form_inputs.corner_probes(
-        region, group=group, column=column["column"], trips=trips
+        region, group=group, column=column["column"], **path
       )
     except tensor_free_form_inputs.SpecError as error:
       return {"kind": "refused", "reason": f"window probes: {error}"}
@@ -1317,8 +1357,21 @@ def main(argv=None):
     action="store_true",
     help="use the two 16 x 16 dot columns instead of the study's columns",
   )
+  parser.add_argument(
+    "--nested-columns",
+    action="store_true",
+    help="use the two two-trip columns that leave room for outer trips",
+  )
   parser.add_argument("--features", nargs="+", choices=sorted(KNOWN_FEATURES))
   parser.add_argument("--required-operation", help="refuse bodies without it")
+  parser.add_argument(
+    "--branch-parameter",
+    action="store_true",
+    help="choose each case's branch arm from its seed",
+  )
+  parser.add_argument(
+    "--outer-trips", type=int, help="nest the counted loop this often"
+  )
   parser.add_argument("--inputs", nargs="+", default=list(INPUTS), choices=KNOWN_INPUTS)
   parser.add_argument("--loop-bound", choices=LOOP_BOUNDS, default="literal")
   parser.add_argument(
@@ -1348,6 +1401,8 @@ def main(argv=None):
     wall_clock_s=arguments.wall_clock_hours * 3600.0,
     columns=DOT_COLUMNS
     if arguments.dot_columns
+    else NESTED_COLUMNS
+    if arguments.nested_columns
     else COLUMNS + ONE_TRIP_COLUMNS
     if arguments.one_trip_columns
     else COLUMNS,
@@ -1356,6 +1411,8 @@ def main(argv=None):
     trip_parameter=arguments.trip_parameter,
     features=arguments.features,
     required_operation=arguments.required_operation,
+    branch_parameter=arguments.branch_parameter,
+    outer_trips=arguments.outer_trips,
   )
   operations = device_operations(
     exporter=arguments.exporter,

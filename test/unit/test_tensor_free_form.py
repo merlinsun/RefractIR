@@ -576,6 +576,124 @@ class FreeFormExportTests(unittest.TestCase):
           return
       self.fail("a where body must appear within 20 seeds")
 
+  def path_export(self, directory, *extra, seed=3, states="2"):
+    output = Path(directory) / ("-".join(extra) or "plain")
+    result = self.export(
+      "--policy", "unguided", "--seed", str(seed), "--shape", "2,4", "--dtype", "f32",
+      "--profile", "v3", "--states", states, "--trip-count", "2", *extra,
+      "--out", str(output),
+    )
+    return result, output
+
+  def test_a_branch_parameter_chooses_between_kept_and_rotated_states(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result, output = self.path_export(directory, "--branch-parameter")
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["branch_parameter"], "%sel")
+      source = (output / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("%sel: i32", source)
+      self.assertIn("assume %sel >= 0;", source)
+      self.assertIn("assume %sel <= 1;", source)
+      self.assertRegex(source, r"br %sel < 1, \^keep, \^swap;")
+      checked = check_source(source, tensor_profile="v3")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+  def test_p0_follows_the_selector(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result, output = self.path_export(directory, "--branch-parameter")
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      source = (output / "program.sir").read_text(encoding="utf-8")
+      states = struct.pack("<16f", *[1.0, 2.0, -1.0, 0.5] * 4)
+      outputs = []
+      for selector in (0, 1):
+        ran, bytes_ = run_typed(source, states + struct.pack("<i", selector), tensor_profile="v3")
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        outputs.append(bytes_)
+      ran, _ = run_typed(source, states + struct.pack("<i", 2), tensor_profile="v3")
+      self.assertNotEqual(ran.returncode, 0, "a selector outside its assumed range is refused")
+
+  def test_outer_trips_nest_the_counted_loop(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result, output = self.path_export(directory, "--outer-trips", "2")
+      self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+      record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+      self.assertEqual(record["outer_trips"], 2)
+      source = (output / "program.sir").read_text(encoding="utf-8")
+      self.assertIn("br %o < 2, ^outer_body, ^exit;", source)
+      self.assertIn("br %i < 2, ^body, ^outer_latch;", source)
+      checked = check_source(source, tensor_profile="v3")
+      self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+      ran, _ = run_typed(source, struct.pack("<16f", *[1.0] * 16), tensor_profile="v3")
+      self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+
+  def test_too_many_nested_trips_are_refused(self):
+    with tempfile.TemporaryDirectory() as directory:
+      result, _ = self.path_export(directory, "--outer-trips", "3")
+      self.assertNotEqual(result.returncode, 0)
+      self.assertIn("eight", result.stdout + result.stderr)
+
+  def test_the_magnitude_bound_counts_every_nested_trip(self):
+    grew = False
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 6):
+        bounds = []
+        for extra in ((), ("--outer-trips", "2")):
+          result, output = self.path_export(
+            Path(directory) / str(seed), "--exact-input-bound", "5", *extra, seed=seed
+          )
+          if result.returncode != 0:
+            break
+          record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+          bounds.append(record["exact_range"]["magnitude_bound"])
+        if len(bounds) == 2:
+          self.assertGreaterEqual(bounds[1], bounds[0])
+          grew = grew or bounds[1] > bounds[0]
+    self.assertTrue(grew, "two outer trips must raise some body's bound")
+
+  def branch_window_export(self, directory):
+    """The first seed whose windowed branch body meets the exact contract."""
+    for seed in range(1, 21):
+      output = Path(directory) / f"branch-window-{seed}"
+      result = self.export(
+        "--policy", "unguided", "--seed", str(seed), "--shape", "2,8", "--dtype", "f32",
+        "--profile", "v3", "--trip-count", "4", "--window", "2,1,5",
+        "--window-buffer-rows", "7", "--branch-parameter", "--exact-input-bound", "5",
+        "--out", str(output),
+      )
+      if result.returncode == 0:
+        region = json.loads((output / "region.json").read_text(encoding="utf-8"))
+        return region, (output / "program.sir").read_text(encoding="utf-8")
+    self.fail("no windowed branch body within 20 seeds")
+
+  def test_window_probes_carry_the_branch_selector(self):
+    with tempfile.TemporaryDirectory() as directory:
+      region, _ = self.branch_window_export(directory)
+      probes = tensor_free_form_inputs.window_probes(region, group=0, column=0, branch=1)
+      for probe in probes:
+        self.assertEqual(probe.names[-1], "%sel")
+        self.assertEqual(struct.unpack("<i", probe.data[-4:])[0], 1)
+      with self.assertRaises(tensor_free_form_inputs.SpecError):
+        tensor_free_form_inputs.window_probes(region, group=0, column=0, branch=2)
+      with self.assertRaises(tensor_free_form_inputs.SpecError):
+        tensor_free_form_inputs.window_probes(region, group=0, column=0)
+
+  def test_the_enclosure_follows_the_selector_like_p0(self):
+    from test.lib import tensor_enclosure
+
+    with tempfile.TemporaryDirectory() as directory:
+      region, source = self.branch_window_export(directory)
+      parameters = tensor_free_form_inputs.parameters(region)
+      for branch in (0, 1):
+        probe = tensor_free_form_inputs.window_base_proposal(
+          region, group=0, column=0, branch=branch
+        )
+        interval = tensor_enclosure.enclose_values(source, parameters, probe.data)
+        ran, output = run_typed(source, probe.data, tensor_profile="v3")
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        p0 = struct.unpack(f"<{len(output) // 4}f", output)
+        self.assertEqual([float(v) for v in interval.lo.flat], list(p0))
+
   def test_an_unsupported_feature_is_refused(self):
     with tempfile.TemporaryDirectory() as directory:
       result = self.export("--features", "rotate", "--out", directory)

@@ -1989,11 +1989,39 @@ namespace refractir::reify {
     return text;
   }
 
+  namespace {
+    /// The updates of a branch's other arm: each state takes the result of the
+    /// next state of the same type, cyclically.
+    std::vector<std::pair<std::string, std::string>>
+    rotatedUpdates(const TensorRegion &region, const FreeFormLoop &loop) {
+      auto rotated = loop.updates;
+      bool changed = false;
+      for (std::size_t index = 0; index < loop.updates.size(); ++index) {
+        const auto &type = region.typeOf(loop.updates[index].first);
+        for (std::size_t step = 1; step < loop.updates.size(); ++step) {
+          const auto &other = loop.updates[(index + step) % loop.updates.size()];
+          if (sameType(region.typeOf(other.first), type)) {
+            rotated[index].second = other.second;
+            changed = changed || other.second != loop.updates[index].second;
+            break;
+          }
+        }
+      }
+      if (!changed)
+        throw std::invalid_argument("a branch parameter needs two states of one type");
+      return rotated;
+    }
+  } // namespace
+
   std::string assembleCountedLoop(const TensorRegion &region, const FreeFormLoop &loop) {
     if (loop.entry.empty())
       throw std::invalid_argument("counted loop needs an entry name");
     if (loop.tripCount == 0 || loop.tripCount > 64)
       throw std::invalid_argument("counted loop trip count must be in [1, 64]");
+    if (loop.outerTrips > 1 && loop.outerTrips * (loop.tripCount + 1) > 8)
+      throw std::invalid_argument(
+          "counted loop: outer and inner trips exceed eight total body executions"
+      );
     if (loop.inputs.empty())
       throw std::invalid_argument("counted loop needs at least one input");
     if (loop.results.empty())
@@ -2076,8 +2104,19 @@ namespace refractir::reify {
     auto reserved = loop.reservedNames;
     for (const auto &source: loop.windowSources)
       reserved.push_back(source.parameter);
-    const auto declarations = region.renderDeclarations(updates, reserved);
-    const auto body = region.renderBody(updates, reserved);
+    auto declarations = region.renderDeclarations(updates, reserved);
+    std::vector<std::string> body = region.renderInstructions();
+    const auto kept = region.renderStateUpdates(updates, reserved);
+    std::vector<std::string> swapped;
+    if (!loop.branchParameter.empty()) {
+      const auto rotated = rotatedUpdates(region, loop);
+      swapped = region.renderStateUpdates(rotated, reserved);
+      for (auto &line: region.renderDeclarations(rotated, reserved))
+        if (std::find(declarations.begin(), declarations.end(), line) == declarations.end())
+          declarations.push_back(std::move(line));
+    } else {
+      body.insert(body.end(), kept.begin(), kept.end());
+    }
     // A window backing parameter lives in the signature, so it cannot share a
     // name with any local the region declares (a live node or a snapshot).
     for (const auto &source: loop.windowSources) {
@@ -2109,10 +2148,16 @@ namespace refractir::reify {
       first = false;
       source << parameterName(input, index) << ": " << tensorTypeText(input.value.type);
     }
-    if (!loop.tripParameter.empty())
+    if (!loop.tripParameter.empty()) {
       source << (first ? "" : ", ") << loop.tripParameter << ": i32";
+      first = false;
+    }
+    if (!loop.branchParameter.empty())
+      source << (first ? "" : ", ") << loop.branchParameter << ": i32";
     source << ") : " << tensorTypeText(returnType) << " {\n"
            << "  let mut %i: i32 = undef;\n";
+    if (loop.outerTrips > 1)
+      source << "  let mut %o: i32 = undef;\n";
     for (const auto &input: loop.inputs) {
       source << "  let mut " << input.value.name << ": " << tensorTypeText(input.value.type)
              << " = ";
@@ -2136,12 +2181,22 @@ namespace refractir::reify {
     if (!loop.tripParameter.empty())
       source << "  assume " << loop.tripParameter << " >= 0;\n"
              << "  assume " << loop.tripParameter << " <= " << loop.tripCount << ";\n";
+    if (!loop.branchParameter.empty())
+      source << "  assume " << loop.branchParameter << " >= 0;\n"
+             << "  assume " << loop.branchParameter << " <= 1;\n";
     const auto bound =
         loop.tripParameter.empty() ? std::to_string(loop.tripCount) : loop.tripParameter;
+    const bool nested = loop.outerTrips > 1;
+    if (nested)
+      source << "  %o = 0;\n"
+             << "  br ^outer;\n"
+             << "^outer:\n"
+             << "  br %o < " << loop.outerTrips << ", ^outer_body, ^exit;\n"
+             << "^outer_body:\n";
     source << "  %i = 0;\n"
            << "  br ^header;\n"
            << "^header:\n"
-           << "  br %i < " << bound << ", ^body, ^exit;\n"
+           << "  br %i < " << bound << ", ^body, " << (nested ? "^outer_latch" : "^exit") << ";\n"
            << "^body:\n";
     for (const auto &window: loop.windows) {
       source << "  " << window.result << " = tensor window " << window.source << ", "
@@ -2150,9 +2205,22 @@ namespace refractir::reify {
     }
     for (const auto &instruction: body)
       source << instruction << '\n';
+    if (!loop.branchParameter.empty()) {
+      source << "  br " << loop.branchParameter << " < 1, ^keep, ^swap;\n" << "^keep:\n";
+      for (const auto &line: kept)
+        source << line << '\n';
+      source << "  br ^latch;\n" << "^swap:\n";
+      for (const auto &line: swapped)
+        source << line << '\n';
+      source << "  br ^latch;\n" << "^latch:\n";
+    }
     source << "  %i = %i + 1;\n"
-           << "  br ^header;\n"
-           << "^exit:\n";
+           << "  br ^header;\n";
+    if (nested)
+      source << "^outer_latch:\n"
+             << "  %o = %o + 1;\n"
+             << "  br ^outer;\n";
+    source << "^exit:\n";
     if (loop.finalTerms.size() == 1) {
       source << "  ret " << loop.finalTerms.front() << ";\n";
     } else {
@@ -2205,16 +2273,20 @@ namespace refractir::reify {
     for (const auto &[name, bound]: current)
       magnitudes.largest = std::max(magnitudes.largest, bound);
     const auto sums = region.orderSensitiveValues();
+    const auto rotated = loop.branchParameter.empty() ? loop.updates : rotatedUpdates(region, loop);
     // Each trip reads the states the previous trip wrote; invariants, window
-    // tiles included, keep the bound they started with.
-    for (std::uint32_t trip = 0; trip < loop.tripCount; ++trip) {
+    // tiles included, keep the bound they started with. A branch may take
+    // either arm, so a state keeps the larger of its two results.
+    const auto trips = loop.tripCount * std::max<std::uint32_t>(loop.outerTrips, 1);
+    for (std::uint32_t trip = 0; trip < trips; ++trip) {
       const auto bounds = region.magnitudeBounds(current);
       for (const auto &[name, bound]: bounds)
         magnitudes.largest = std::max(magnitudes.largest, bound);
       for (const auto &name: sums)
         magnitudes.largestSum = std::max(magnitudes.largestSum, bounds.at(name));
-      for (const auto &[state, result]: loop.updates)
-        current[state] = bounds.at(result);
+      for (std::size_t index = 0; index < loop.updates.size(); ++index)
+        current[loop.updates[index].first] =
+            std::max(bounds.at(loop.updates[index].second), bounds.at(rotated[index].second));
     }
     if (!loop.finalTerms.empty()) {
       auto folded = current.at(loop.finalTerms.front());
