@@ -369,10 +369,108 @@ namespace refractir {
         case TensorOp::ReduceMin:
         case TensorOp::ReduceMax:
         case TensorOp::Window:
+        case TensorOp::Dot:
           return true;
         default:
           return false;
       }
+    }
+
+    void eachTensorAtom(const Expr &expr, const std::function<void(const TensorAtom &)> &visit);
+
+    void eachTensorAtom(const Atom &atom, const std::function<void(const TensorAtom &)> &visit) {
+      std::visit(
+          [&](const auto &value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, TensorAtom>) {
+              visit(value);
+            } else if constexpr (std::is_same_v<T, SelectAtom>) {
+              if (value.cond) {
+                eachTensorAtom(value.cond->lhs, visit);
+                eachTensorAtom(value.cond->rhs, visit);
+              }
+              if (value.maskExpr)
+                eachTensorAtom(*value.maskExpr, visit);
+            } else if constexpr (std::is_same_v<T, CallAtom>) {
+              for (const auto &arg: value.args)
+                if (arg)
+                  eachTensorAtom(*arg, visit);
+            }
+          },
+          atom.v
+      );
+    }
+
+    void eachTensorAtom(const Expr &expr, const std::function<void(const TensorAtom &)> &visit) {
+      eachTensorAtom(expr.first, visit);
+      for (const auto &tail: expr.rest)
+        eachTensorAtom(tail.atom, visit);
+    }
+
+    /// Every tensor atom of a function: initializers, instructions, branch
+    /// conditions, and returned values.
+    void
+    eachTensorAtom(const FunDecl &function, const std::function<void(const TensorAtom &)> &visit) {
+      for (const auto &local: function.lets)
+        if (local.init && local.init->kind == InitVal::Kind::Atom)
+          eachTensorAtom(*std::get<AtomPtr>(local.init->value), visit);
+      for (const auto &block: function.blocks) {
+        for (const auto &instruction: block.instrs) {
+          std::visit(
+              [&](const auto &ins) {
+                using T = std::decay_t<decltype(ins)>;
+                if constexpr (std::is_same_v<T, AssignInstr>) {
+                  eachTensorAtom(ins.rhs, visit);
+                } else if constexpr (std::is_same_v<T, StoreInstr>) {
+                  eachTensorAtom(ins.ptr, visit);
+                  eachTensorAtom(ins.val, visit);
+                } else if constexpr (std::is_same_v<T, AssumeInstr> ||
+                                     std::is_same_v<T, RequireInstr>) {
+                  eachTensorAtom(ins.cond.lhs, visit);
+                  eachTensorAtom(ins.cond.rhs, visit);
+                }
+              },
+              instruction
+          );
+        }
+        if (const auto branch = std::get_if<BrTerm>(&block.term); branch && branch->cond) {
+          eachTensorAtom(branch->cond->lhs, visit);
+          eachTensorAtom(branch->cond->rhs, visit);
+        }
+        if (const auto ret = std::get_if<RetTerm>(&block.term); ret && ret->value)
+          eachTensorAtom(*ret->value, visit);
+      }
+    }
+
+    std::optional<Shape> localShape(const FunDecl &function, const Coef &coef) {
+      const auto id = std::get_if<LocalOrSymId>(&coef);
+      const auto local = id ? std::get_if<LocalId>(id) : nullptr;
+      if (!local)
+        return std::nullopt;
+      auto shapeOf = [](const TypePtr &type) -> std::optional<Shape> {
+        const auto tensor = TypeUtils::asTensor(type);
+        return tensor ? std::optional<Shape>(tensor->shape) : std::nullopt;
+      };
+      for (const auto &param: function.params)
+        if (param.name.name == local->name)
+          return shapeOf(param.type);
+      for (const auto &let: function.lets)
+        if (let.name.name == local->name)
+          return shapeOf(let.type);
+      return std::nullopt;
+    }
+
+    /// Triton's `tl.dot` needs every extent to be at least 16; powers of two
+    /// keep every operand lane valid, so no padded lane enters a product.
+    bool dotExtentsFitTriton(const FunDecl &function, const TensorAtom &atom) {
+      const auto left = localShape(function, atom.operands.at(0));
+      const auto right = localShape(function, atom.operands.at(1));
+      if (!left || !right || left->size() != 2 || right->size() != 2)
+        return false;
+      for (const auto extent: {(*left)[0], (*left)[1], (*right)[1]})
+        if (extent < 16 || (extent & (extent - 1)) != 0)
+          return false;
+      return true;
     }
 
     bool atomHasUnsupportedV3TensorOperation(const Atom &atom);
@@ -916,6 +1014,16 @@ namespace refractir {
         diags.error(
             "tensor-profile: tensor window requires tensor-v2 or tensor-v3", function.span
         );
+      eachTensorAtom(function, [&](const TensorAtom &atom) {
+        if (atom.op != TensorOp::Dot)
+          return;
+        if (profile.id != TensorProfileId::V2 && profile.id != TensorProfileId::V3)
+          diags.error("tensor-profile: dot requires tensor-v2 or tensor-v3", atom.span);
+        else if (!dotExtentsFitTriton(function, atom))
+          diags.error(
+              "tensor-profile: dot extents must be powers of two of at least 16", atom.span
+          );
+      });
       if (profile.id == TensorProfileId::V1) {
         if (function.blocks.size() != 1 ||
             !std::holds_alternative<RetTerm>(function.blocks.front().term))

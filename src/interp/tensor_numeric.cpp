@@ -297,6 +297,25 @@ namespace refractir {
         return tensorOrScalar(resultType.shape, std::move(output));
       }
 
+      if (atom.op == TensorOp::Dot) {
+        // The exact inner product rounded once, like `sum`: products of f32
+        // values are exact in the reference precision.
+        const auto &left = operands.at(0);
+        const auto &right = operands.at(1);
+        const auto inner = left.tensorShape.at(1);
+        std::vector<RuntimeValue> output;
+        output.reserve(tensorElementCount(resultType.shape));
+        for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
+          const auto coords = coordinates(i, resultType.shape);
+          RefFloat<Bits> total = 0;
+          for (std::uint32_t k = 0; k < inner; ++k)
+            total += readFloat<Bits>(scalarAt(left, {coords[0], k}, left.tensorShape)) *
+                     readFloat<Bits>(scalarAt(right, {k, coords[1]}, right.tensorShape));
+          output.push_back(roundToF32<Bits>(total));
+        }
+        return tensorOrScalar(resultType.shape, std::move(output));
+      }
+
       if (atom.op == TensorOp::Softmax) {
         const auto &input = operands.at(0);
         if (input.kind != RuntimeValue::Kind::Tensor || input.tensorShape != resultType.shape)

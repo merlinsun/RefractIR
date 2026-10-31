@@ -50,6 +50,15 @@ fun @kernel(%x: tensor [4, 8] f32) : tensor [4, 1] f32 {{
   ret %out;
 }}
 """
+# `tl.dot` needs every extent to be at least 16.
+_DOT = """\
+fun @kernel(%x: tensor [16, 16] f32, %y: tensor [16, 16] f32) : tensor [16, 16] f32 {
+  let mut %out: tensor [16, 16] f32 = undef;
+^entry:
+  %out = tensor dot %x, %y;
+  ret %out;
+}
+"""
 # Each operation with the lowest tensor profile that accepts it: v3 has no
 # `div` or `exp`, and only v4 has `rem`.
 OPS = {
@@ -59,6 +68,7 @@ OPS = {
   **{op: ("v3", _BINARY.format(op=op)) for op in ("min", "max")},
   "exp": ("v2", _UNARY.format(op="exp")),
   **{op: ("v3", _REDUCTION.format(op=op)) for op in ("sum", "rmin", "rmax")},
+  "dot": ("v3", _DOT),
 }
 
 _F32 = re.compile(

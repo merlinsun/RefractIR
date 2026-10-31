@@ -8,6 +8,8 @@ Spec: [docs/SPEC_v0.2.3.md](./docs/SPEC_v0.2.3.md), which doubles as the release
 
 ### Added
 
+- `tensor dot %a, %b` multiplies `[M, K]` by `[K, N]` under tensor-v2 and tensor-v3 (extents powers of two of at least 16): `i32` is exact with int8-range operands (wider is undefined) and lowers to `tl.dot` on `int8`; `f32` is the exact inner product rounded once, lowered with `input_precision="ieee"` and compared through an enclosure.
+- `issue_feature_census.py` tags Triton issue reproducers by feature and inferred symptom and ranks candidate generator extensions by wrong-result issues (rule D7).
 - `symirc --tensor-loop-bound runtime` emits counted-loop bounds as unspecialized kernel parameters defaulting to the SIR literal, and `--tensor-loop-hint` adds one `tl.range` hint to every counted loop; target bundles state them as `loop_bound` and `loop_hint`.
 - Moving-window sweep declarations state their columns, inputs, loop-bound mode, and per-configuration loop hints: two one-trip window columns, five corner-value probes (signed zero, subnormal, cancellation, rounding ties, large magnitudes) whose non-finite runs are skipped and whose `sum` bodies are not path-compared, and a TTGIR count of loops with constant and dynamic bounds.
 - `compare_p0.py` compares retained sweep outputs with the SIR interpreter, once per body and input, and names the differing words where raw outputs were kept.

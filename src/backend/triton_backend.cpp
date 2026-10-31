@@ -803,6 +803,16 @@ namespace refractir {
       }
       return "tl.broadcast_to(" + operand + ", " + pythonShape(targetTileShape) + ")";
     }
+    if (atom.op == TensorOp::Dot) {
+      // SIR makes an integer operand outside int8 undefined, so the cast to
+      // the only integer input `tl.dot` accepts loses nothing. f32 operands
+      // are multiplied in IEEE f32, not TF32.
+      if (isInteger)
+        return "tl.dot(" + operands[0] + ".to(tl.int8), " + operands[1] +
+               ".to(tl.int8), out_dtype=tl.int32)";
+      return "tl.dot(" + operands[0] + ", " + operands[1] +
+             ", input_precision=\"ieee\", out_dtype=tl.float32)";
+    }
     if (atom.op == TensorOp::Transpose)
       return "tl.permute(" + operands.front() + ", " + tupleText(atom.attribute) + ")";
     if (atom.op == TensorOp::Add)

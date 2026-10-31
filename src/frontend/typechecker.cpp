@@ -1352,6 +1352,29 @@ namespace refractir {
       return makeResult(left->shape, left->elem);
     }
 
+    if (atom.op == TensorOp::Dot) {
+      if (!requireOperandCount(2))
+        return Ty{std::monostate{}};
+      const auto left = TypeUtils::asTensor(resolveOperand(0));
+      const auto right = TypeUtils::asTensor(resolveOperand(1));
+      if (!left || !right || left->shape.size() != 2 || right->shape.size() != 2) {
+        diags.error("tensor-dot: operands must be rank-two tensors", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (!isTensorScalar(left->elem) || !TypeUtils::areTypesEqual(left->elem, right->elem)) {
+        diags.error("tensor-dot: operands must share an i32 or f32 element type", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (left->shape[1] != right->shape[0]) {
+        diags.error("tensor-dot: inner extents differ", atom.span);
+        return Ty{std::monostate{}};
+      }
+      const Shape output{left->shape[0], right->shape[1]};
+      if (!validateShape(output))
+        return Ty{std::monostate{}};
+      return makeResult(output, left->elem);
+    }
+
     if (atom.op == TensorOp::Add || atom.op == TensorOp::Sub || atom.op == TensorOp::Mul ||
         atom.op == TensorOp::Div || atom.op == TensorOp::Min || atom.op == TensorOp::Max ||
         atom.op == TensorOp::And || atom.op == TensorOp::Or || atom.op == TensorOp::Xor) {

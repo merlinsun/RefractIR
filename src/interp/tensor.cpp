@@ -362,6 +362,37 @@ namespace refractir {
       return tensorOrScalar(resultType.shape, std::move(output));
     }
 
+    if (atom.op == TensorOp::Dot) {
+      if (resultType.element != TensorElement::I32)
+        throw std::runtime_error("numerical tensor dot requires the reference evaluator");
+      const auto &left = operands.at(0);
+      const auto &right = operands.at(1);
+      const auto inner = left.tensorShape.at(1);
+      // Triton multiplies integer tiles as int8; a wider operand is undefined
+      // rather than silently truncated, so the program states the range.
+      auto int8Operand = [](const RuntimeValue &value) {
+        const auto lane = normalizeScalar(value, TensorElement::I32).intVal;
+        if (lane < INT8_MIN || lane > INT8_MAX)
+          throw UndefinedBehaviorError("UB: tensor dot operand outside int8");
+        return static_cast<std::int64_t>(lane);
+      };
+      std::vector<RuntimeValue> output;
+      output.reserve(tensorElementCount(resultType.shape));
+      for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
+        const auto coords = coordinates(i, resultType.shape);
+        std::int64_t total = 0;
+        for (std::uint32_t k = 0; k < inner; ++k)
+          total += int8Operand(scalarAt(left, {coords[0], k}, left.tensorShape)) *
+                   int8Operand(scalarAt(right, {k, coords[1]}, right.tensorShape));
+        RuntimeValue lane;
+        lane.kind = RuntimeValue::Kind::Int;
+        lane.bits = 32;
+        lane.intVal = total;
+        output.push_back(lane);
+      }
+      return tensorOrScalar(resultType.shape, std::move(output));
+    }
+
     if (atom.op == TensorOp::Add || atom.op == TensorOp::Sub || atom.op == TensorOp::Mul ||
         atom.op == TensorOp::Min || atom.op == TensorOp::Max || atom.op == TensorOp::And ||
         atom.op == TensorOp::Or || atom.op == TensorOp::Xor) {
