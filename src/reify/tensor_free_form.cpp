@@ -62,6 +62,8 @@ namespace refractir::reify {
       return op == TensorOp::Sum || op == TensorOp::ReduceMin || op == TensorOp::ReduceMax;
     }
 
+    bool isNarrow(TensorOp op) { return op == TensorOp::NarrowF16 || op == TensorOp::NarrowBF16; }
+
     bool isExtrema(TensorOp op) {
       return op == TensorOp::Min || op == TensorOp::Max || op == TensorOp::ReduceMin ||
              op == TensorOp::ReduceMax;
@@ -248,7 +250,8 @@ namespace refractir::reify {
             if ((action.op == TensorOp::Transpose && features_.transpose) ||
                 (action.op == TensorOp::Expand && features_.expand) ||
                 (isExtrema(action.op) && features_.extrema) ||
-                (action.op == TensorOp::Dot && features_.dot))
+                (action.op == TensorOp::Dot && features_.dot) ||
+                (isNarrow(action.op) && features_.narrow))
               weight *= 3.0;
             weight *= requirementMultiplier(action);
             weights.push_back(weight);
@@ -618,6 +621,19 @@ namespace refractir::reify {
               mul.type = type;
               mul.traits = traitsOf(TensorOp::Mul, lhs, rhs, type);
               push(mul);
+            }
+          }
+        }
+
+        if (features_.narrow && element == TensorElement::F32) {
+          for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
+            for (const auto op: {TensorOp::NarrowF16, TensorOp::NarrowBF16}) {
+              Action narrow{};
+              narrow.op = op;
+              narrow.lhs = index;
+              narrow.type = pool_[static_cast<std::size_t>(index)].type;
+              narrow.traits = traitsOf(op, index, -1, narrow.type);
+              push(narrow);
             }
           }
         }

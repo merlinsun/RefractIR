@@ -524,6 +524,36 @@ class FreeFormExportTests(unittest.TestCase):
           return
       self.fail("an i32 dot body must appear within 20 seeds")
 
+  def narrow_export(self, seed, directory, *extra):
+    output = Path(directory) / f"narrow-{seed}"
+    result = self.export(
+      "--policy", "unguided", "--seed", str(seed), "--shape", "2,8", "--dtype", "f32",
+      "--profile", "v3", "--features", "narrow", *extra, "--out", str(output),
+    )
+    return result, output
+
+  def test_a_narrow_body_appears_records_its_feature_and_checks(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        result, output = self.narrow_export(seed, directory)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+        self.assertTrue(record["features"]["narrow"])
+        source = (output / "program.sir").read_text(encoding="utf-8")
+        if "tensor narrow " in source:
+          checked = check_source(source, tensor_profile="v3")
+          self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+          return
+      self.fail("a narrow body must appear within 20 seeds")
+
+  def test_an_f16_narrow_past_its_range_is_refused_by_the_exact_contract(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        result, output = self.narrow_export(seed, directory, "--exact-input-bound", "70000")
+        if result.returncode == 0:
+          source = (output / "program.sir").read_text(encoding="utf-8")
+          self.assertNotIn("tensor narrow f16 ", source, seed)
+
   def test_an_unsupported_feature_is_refused(self):
     with tempfile.TemporaryDirectory() as directory:
       result = self.export("--features", "rotate", "--out", directory)

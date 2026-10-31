@@ -399,3 +399,30 @@ class DotEnclosureTests(unittest.TestCase):
     for low, high, value in zip(result.lo.flat, result.hi.flat, expected.flat):
       self.assertLessEqual(low, Fraction(float(np.float32(value))))
       self.assertGreaterEqual(high, Fraction(float(np.float32(value))))
+
+
+@unittest.skipUnless(np is not None, "numpy is unavailable")
+class NarrowEnclosureTests(unittest.TestCase):
+  """`tensor narrow` is one correctly rounded conversion (plan L2)."""
+
+  def test_a_point_narrows_to_the_format_and_an_interval_to_its_rounded_ends(self):
+    values = [0.1, 1 + 3 * 2**-11, 65519.0, -(2.0**-30)]
+    point = tensor_enclosure.Interval.point(
+      np.array([Fraction(v) for v in values], dtype=object)
+    )
+    f16 = tensor_enclosure.apply("narrow f16", [point])
+    self.assertEqual(
+      [float(v) for v in f16.lo.flat], [float(np.float16(v)) for v in values]
+    )
+    self.assertEqual(set(f16.widths()), {0})
+    wide = tensor_enclosure.Interval(
+      np.array([Fraction(1)], dtype=object),
+      np.array([Fraction(1 + 2**-9)], dtype=object),
+    )
+    bf16 = tensor_enclosure.apply("narrow bf16", [wide])
+    self.assertEqual((bf16.lo[0], bf16.hi[0]), (1, 1))
+    with self.assertRaises(tensor_enclosure.NonFinite):
+      tensor_enclosure.apply(
+        "narrow f16",
+        [tensor_enclosure.Interval.point(np.array([Fraction(65520)], dtype=object))],
+      )

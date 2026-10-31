@@ -139,7 +139,7 @@ DOT_COLUMNS = (
 )
 # Exporter features; a declaration that names none keeps the study's set.
 DEFAULT_FEATURES = ("extrema", "transpose", "expand")
-KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot",))
+KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot", "narrow"))
 POLICIES = _STUDY.POLICIES
 PROBES = _STUDY.PROBES
 # Inputs a declaration may name: the window probes, whose values stay within
@@ -602,7 +602,12 @@ class _Session:
     directory = self.kernel_directory(request["seed"])
     built = self.operations["build"]({**request, "directory": str(directory)})
     required = self.spec.get("required_operation")
-    if built["kind"] == "admitted" and required and required not in built["operations"]:
+    # An operation with formats (`narrow f16`) is required by its first word.
+    if (
+      built["kind"] == "admitted"
+      and required
+      and required not in {op.split()[0] for op in built["operations"]}
+    ):
       built = {"kind": "refused", "reason": f"the body has no {required}"}
     if built["kind"] != "admitted":
       return directory, dict(

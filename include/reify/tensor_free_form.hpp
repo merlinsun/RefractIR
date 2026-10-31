@@ -83,6 +83,8 @@ namespace refractir::reify {
     /// `tensor dot` of two rank-two values whose extents Triton's `tl.dot`
     /// accepts; it counts as a multiplication.
     bool dot = false;
+    /// `tensor narrow f16` and `tensor narrow bf16` of f32 values.
+    bool narrow = false;
   };
 
   /// Bounds the builder honours. `maxNodes` counts emitted tensor operations;

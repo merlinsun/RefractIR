@@ -1515,6 +1515,13 @@ class DotSweepTests(SweepFixture):
     self.assertIn("dot", by_seed[S0 + 1]["reason"])
     self.assertNotIn(S0 + 1, [seed for seed, _, _ in script.pairs])
 
+  def test_a_required_operation_matches_any_of_its_formats(self):
+    declared = self.declared(count=2, required_operation="narrow")
+    script = Script(operations={S0: ["narrow bf16", "add"], S0 + 1: ["add"]})
+    self.run_sweep(declared, script)
+    by_seed = {line["seed"]: line["status"] for line in self.kernels()}
+    self.assertEqual(by_seed, {S0: "agreement", S0 + 1: "refused"})
+
   def test_dot_bodies_are_compared_through_their_enclosure(self):
     self.assertIn("dot", sweep.UNSPECIFIED)
 
@@ -1545,3 +1552,10 @@ class DotSweepTests(SweepFixture):
         ):
           found.add(request["column"]["column"])
       self.assertEqual(found, {column["column"] for column in sweep.DOT_COLUMNS})
+
+
+class NarrowSweepTests(unittest.TestCase):
+  def test_narrow_is_a_known_feature_compared_bit_for_bit(self):
+    self.assertIn("narrow", sweep.KNOWN_FEATURES)
+    self.assertNotIn("narrow f16", sweep.UNSPECIFIED)
+    self.assertNotIn("narrow bf16", sweep.UNSPECIFIED)

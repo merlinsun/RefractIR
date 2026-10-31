@@ -1,7 +1,9 @@
 #include "reify/tensor_region.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -96,10 +98,11 @@ namespace refractir::reify {
     const bool transpose = op == TensorOp::Transpose;
     const bool expand = op == TensorOp::Expand;
     const bool dot = op == TensorOp::Dot;
-    if (!binary && !reduction && !broadcast && !transpose && !expand && !dot)
+    const bool narrow = op == TensorOp::NarrowF16 || op == TensorOp::NarrowBF16;
+    if (!binary && !reduction && !broadcast && !transpose && !expand && !dot && !narrow)
       throw std::invalid_argument(
           "tensor region supports add, sub, mul, min, max, sum, rmin, rmax, broadcast, "
-          "transpose, expand and dot"
+          "transpose, expand, dot and narrow"
       );
     const std::size_t expectedOperands = binary || dot ? 2 : 1;
     if (operandNames.size() != expectedOperands)
@@ -118,6 +121,10 @@ namespace refractir::reify {
       resultType.shape = broadcastShape(firstType.shape, secondType.shape);
       if (!attribute.empty())
         throw std::invalid_argument("tensor region binary operation does not accept attributes");
+    } else if (narrow) {
+      if (!attribute.empty())
+        throw std::invalid_argument("tensor region narrow does not accept attributes");
+      resultType.shape = firstType.shape;
     } else if (dot) {
       const auto &secondType = values_[static_cast<std::size_t>(operands[1])].type;
       if (firstType.element != secondType.element)
@@ -224,6 +231,8 @@ namespace refractir::reify {
       out << ", " << shapeText(node.attribute);
     } else if (node.op == TensorOp::Expand) {
       out << ", " << node.axis;
+    } else if (node.op == TensorOp::NarrowF16 || node.op == TensorOp::NarrowBF16) {
+      // The format is part of the operator name; there is no attribute.
     } else {
       out << ", " << shapeText(node.attribute);
     }
@@ -317,6 +326,15 @@ namespace refractir::reify {
         case TensorOp::Max:
           result = std::max(operand(0), operand(1));
           break;
+        case TensorOp::NarrowF16:
+        case TensorOp::NarrowBF16: {
+          // Rounding to p significant bits moves a value up by at most a
+          // relative 2^-(p-1); past the format's range it is not finite.
+          const bool half = node.op == TensorOp::NarrowF16;
+          const double grown = operand(0) * (1.0 + std::ldexp(1.0, half ? -10 : -7));
+          result = half && grown > 65504.0 ? std::numeric_limits<double>::infinity() : grown;
+          break;
+        }
         case TensorOp::Dot: {
           // K products, each bounded like `mul`.
           const auto &shape = values_[static_cast<std::size_t>(node.operands.at(0))].type.shape;

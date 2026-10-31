@@ -173,6 +173,8 @@ namespace {
             options.features.extrema = true;
           else if (item == "dot")
             options.features.dot = true;
+          else if (item == "narrow")
+            options.features.narrow = true;
           else
             throw std::invalid_argument("unknown free-form feature: " + item);
           if (end == std::string::npos)
@@ -631,7 +633,8 @@ namespace {
            << ",\"expand\":" << (options.features.expand ? "true" : "false") << ",\"extrema\":"
            << (options.features.extrema ? "true" : "false")
            // Recorded only when asked for, so existing exports keep their bytes.
-           << (options.features.dot ? ",\"dot\":true" : "") << "},"
+           << (options.features.dot ? ",\"dot\":true" : "")
+           << (options.features.narrow ? ",\"narrow\":true" : "") << "},"
            << "\"window\":";
     if (options.windowEnabled) {
       const auto sourceExtent =

@@ -77,6 +77,38 @@ def round_f32(value, mode="nearest"):
   return result
 
 
+# Formats `tensor narrow` rounds to: significand bits, least normal exponent,
+# and largest finite value.
+_NARROW = {
+  "narrow f16": (11, -14, Fraction(65504)),
+  "narrow bf16": (8, -126, Fraction(255 * 2**120)),
+}
+
+
+def _narrow(value, precision, min_exponent, largest):
+  """Round an f32 to a narrower format, to nearest with ties to even."""
+  value = Fraction(value)
+  if value == 0:
+    return value
+  magnitude = abs(value)
+  exponent = magnitude.numerator.bit_length() - magnitude.denominator.bit_length()
+  if Fraction(2) ** exponent > magnitude:
+    exponent -= 1
+  quantum = Fraction(2) ** (max(exponent, min_exponent) - (precision - 1))
+  steps = value / quantum
+  low = steps.numerator // steps.denominator
+  remainder = steps - low
+  count = (
+    low + 1
+    if remainder > Fraction(1, 2) or (remainder == Fraction(1, 2) and low % 2)
+    else low
+  )
+  result = count * quantum
+  if abs(result) > largest:
+    raise NonFinite(f"{float(value):g} is outside the narrowed format's range")
+  return result
+
+
 def _ordinal(value):
   """f32 values in order as integers; both zeros are 0."""
   bits = struct.unpack("<I", struct.pack("<f", float(value)))[0]
@@ -197,6 +229,11 @@ def apply(op, operands, *, axis=None, keep=False):
   """One tensor operation on interval operands."""
   if op == "dot":
     return _dot(*operands)
+  if op in _NARROW:
+    # Rounding is nondecreasing, so the ends of an interval round to its ends.
+    narrow = np.vectorize(lambda value: _narrow(value, *_NARROW[op]), otypes=[object])
+    (a,) = operands
+    return Interval(narrow(a.lo), narrow(a.hi))
   if op in ("add", "sub", "mul", "min", "max"):
     a, b = operands
     if op == "add":
@@ -264,6 +301,9 @@ class _Machine:
         )
 
       return source.map(window)
+    if op == "narrow":
+      fmt, name = rest.split()
+      return apply(f"narrow {fmt}", [self.values[name]])
     if op in ("sum", "rmin", "rmax"):
       name, axis, keep = (part.strip() for part in rest.split(","))
       return apply(op, [self.values[name]], axis=int(axis), keep=keep == "keep")
@@ -341,6 +381,7 @@ def enclose(source, inputs, scalars=None):
       "expand",
       "broadcast",
       "dot",
+      "narrow",
     ):
       raise Unsupported(f"tensor {op}")
   return _Machine(source, inputs, scalars).run()
