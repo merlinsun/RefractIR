@@ -31,6 +31,10 @@ The target enforces the selected bounded profile and emits one program instance.
 
 `tensor window %source, %index, <fill>, [rows, stride, active]` reads a tile of `rows` rows starting at `index * stride` from a tensor parameter and produces `[rows, d1 … dn]` with the source's element type. The emitter computes the base in 64-bit arithmetic and masks each lane with the conjunction of the result's shape validity and `base < active`, so an inactive logical position and an execution-tile pad both read the literal `fill` through `other=`. The fill is a defined value that participates in every consumer. Windows are admitted under the v2 and v3 profiles only; a negative index is undefined behaviour.
 
+### Scalar branches
+
+A tensor kernel may branch on a comparison of `i32` scalars (entry parameters, locals, or literals) outside a loop header, provided the branch forms a diamond: two single-block arms that both fall through to one join block. The emitter writes `if (lhs < rhs):` and `else:` with each arm's statements, which Triton turns into one `scf.if`.
+
 ### Tensor dot
 
 `tensor dot %a, %b` multiplies a `[M, K]` tensor by a `[K, N]` tensor of the same element type and produces `[M, N]`. An `i32` result is the exact inner product; every operand lane must lie in the int8 range, and a lane outside it is undefined behaviour, so the emitter can pass `int8` operands to `tl.dot` with an `int32` accumulator. An `f32` result is the exact inner product rounded once, like `sum`; the emitter asks for `input_precision="ieee"`, so Triton does not substitute TF32. Dot is admitted under the v2 and v3 profiles, with `M`, `K`, and `N` powers of two of at least 16, the smallest tile `tl.dot` accepts; no lane is padded.

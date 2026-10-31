@@ -1070,6 +1070,26 @@ namespace refractir {
     );
   }
 
+  namespace {
+    const char *pythonRelation(RelOp op) {
+      switch (op) {
+        case RelOp::EQ:
+          return "==";
+        case RelOp::NE:
+          return "!=";
+        case RelOp::LT:
+          return "<";
+        case RelOp::LE:
+          return "<=";
+        case RelOp::GT:
+          return ">";
+        case RelOp::GE:
+          return ">=";
+      }
+      return "?";
+    }
+  } // namespace
+
   void TritonBackend::emitFunction(const FunDecl &function) {
     function_ = &function;
     values_.clear();
@@ -1098,6 +1118,9 @@ namespace refractir {
       throw std::runtime_error("tensor-profile: failed to analyze Triton entry control flow");
     std::unordered_map<std::size_t, std::size_t> loopAtPreheader;
     std::unordered_map<std::size_t, std::size_t> loopAtLatch;
+    std::unordered_map<std::size_t, TensorScalarBranch> branchAt;
+    for (const auto &branch: analysis->branches)
+      branchAt.emplace(branch.block, branch);
     for (std::size_t i = 0; i < analysis->loops.size(); ++i) {
       loopAtPreheader.emplace(analysis->loops[i].preheader, i);
       loopAtLatch.emplace(analysis->loops[i].latch, i);
@@ -1200,6 +1223,27 @@ namespace refractir {
           return;
         }
         if (const auto *branch = std::get_if<BrTerm>(&term)) {
+          if (const auto diamond = branchAt.find(blockIndex); diamond != branchAt.end()) {
+            // Each arm is one block, so both arms are straight-line code that
+            // Triton turns into one scf.if over the values they assign.
+            addLine(
+                "if (" + lowerExpr(branch->cond->lhs) + " " + pythonRelation(branch->cond->op) +
+                " " + lowerExpr(branch->cond->rhs) + "):"
+            );
+            for (const auto arm: {diamond->second.thenBlock, diamond->second.elseBlock}) {
+              if (arm == diamond->second.elseBlock)
+                addLine("else:");
+              const auto armStart = body_.size();
+              ++indent_;
+              for (const auto &instruction: function.blocks[arm].instrs)
+                emitInstruction(instruction);
+              if (body_.size() == armStart)
+                addLine("pass");
+              --indent_;
+            }
+            blockIndex = diamond->second.join;
+            continue;
+          }
           if (branch->isConditional)
             throw std::runtime_error(
                 "tensor-profile: only counted-loop headers may branch conditionally"

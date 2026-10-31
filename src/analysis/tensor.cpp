@@ -8,6 +8,7 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_set>
+#include <variant>
 #include "analysis/cfg.hpp"
 #include "analysis/dominators.hpp"
 #include "analysis/loop_info.hpp"
@@ -739,6 +740,55 @@ namespace refractir {
       return true;
     }
 
+    bool isI32ScalarOperand(const FunDecl &function, const Expr &expr) {
+      if (simpleInteger(expr))
+        return true;
+      const auto name = simpleLocal(expr);
+      if (!name)
+        return false;
+      auto i32 = [](const TypePtr &type) {
+        const auto bits = TypeUtils::getIntBitWidth(type);
+        return TypeUtils::isScalar(type) && bits && *bits == 32;
+      };
+      for (const auto &param: function.params)
+        if (param.name.name == *name)
+          return i32(param.type);
+      for (const auto &let: function.lets)
+        if (let.name.name == *name)
+          return i32(let.type);
+      return false;
+    }
+
+    /// The diamond a non-header conditional branch forms, or the rule it breaks.
+    std::variant<TensorScalarBranch, std::string> scalarDiamond(
+        const FunDecl &function, const CFG &cfg, std::size_t block,
+        const std::vector<char> &loopHeader
+    ) {
+      const auto &branch = std::get<BrTerm>(function.blocks[block].term);
+      if (!branch.cond || !isI32ScalarOperand(function, branch.cond->lhs) ||
+          !isI32ScalarOperand(function, branch.cond->rhs))
+        return std::string("tensor-profile: a scalar branch must compare i32 scalars");
+      const std::string diamond = "tensor-profile: a scalar branch must form a diamond";
+      const auto thenIt = cfg.indexOf.find(branch.thenLabel.name);
+      const auto elseIt = cfg.indexOf.find(branch.elseLabel.name);
+      if (thenIt == cfg.indexOf.end() || elseIt == cfg.indexOf.end() ||
+          thenIt->second == elseIt->second)
+        return diamond;
+      std::optional<std::size_t> join;
+      for (const auto arm: {thenIt->second, elseIt->second}) {
+        const auto *next = std::get_if<BrTerm>(&function.blocks[arm].term);
+        if (loopHeader[arm] || cfg.pred[arm].size() != 1 || !next || next->isConditional)
+          return diamond;
+        const auto target = cfg.indexOf.find(next->dest.name);
+        if (target == cfg.indexOf.end() || (join && *join != target->second))
+          return diamond;
+        join = target->second;
+      }
+      if (*join == block || loopHeader[*join])
+        return diamond;
+      return TensorScalarBranch{block, thenIt->second, elseIt->second, *join};
+    }
+
   } // namespace
 
   std::optional<TensorLoopAnalysis> analyzeTensorLoops(
@@ -777,6 +827,18 @@ namespace refractir {
       diags.error(message, function.blocks[block].span);
       return std::optional<TensorLoopAnalysis>{};
     };
+
+    std::vector<char> branchBlock(cfg.blocks.size(), 0);
+    for (std::size_t block = 0; block < function.blocks.size(); ++block) {
+      const auto *term = std::get_if<BrTerm>(&function.blocks[block].term);
+      if (!term || !term->isConditional || loopHeader[block])
+        continue;
+      auto diamond = scalarDiamond(function, cfg, block, loopHeader);
+      if (const auto *message = std::get_if<std::string>(&diamond))
+        return fail(*message, block);
+      result.branches.push_back(std::get<TensorScalarBranch>(diamond));
+      branchBlock[block] = 1;
+    }
 
     for (std::size_t index = 0; index < loopInfo.loops.size(); ++index) {
       const auto &natural = loopInfo.loops[index];
@@ -915,7 +977,7 @@ namespace refractir {
         const auto *term = std::get_if<BrTerm>(&function.blocks[block].term);
         if (!term)
           return fail("tensor-profile: counted-loop body cannot return or terminate early", block);
-        if (term->isConditional && !loopHeader[block])
+        if (term->isConditional && !loopHeader[block] && !branchBlock[block])
           return fail("tensor-profile: only counted-loop headers may branch conditionally", block);
         if (!term->isConditional) {
           const auto destination = cfg.indexOf.find(term->dest.name);
@@ -953,7 +1015,7 @@ namespace refractir {
         inAnyLoop[block] = 1;
     for (std::size_t block = 0; block < function.blocks.size(); ++block) {
       const auto *branch = std::get_if<BrTerm>(&function.blocks[block].term);
-      if (branch && branch->isConditional && !loopHeader[block])
+      if (branch && branch->isConditional && !loopHeader[block] && !branchBlock[block])
         return fail("tensor-profile: conditional branches must be canonical counted-loop headers", block);
       if (loopLatch[block] && !loopHeader[block] && !inAnyLoop[block])
         return fail("tensor-profile: loop latch is outside its natural loop", block);

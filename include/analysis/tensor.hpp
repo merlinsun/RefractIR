@@ -39,8 +39,18 @@ namespace refractir {
     std::vector<std::size_t> blocks;
   };
 
+  /// A scalar `if` diamond: `block` branches on a comparison of i32 scalars
+  /// to two single-block arms that both fall through to `join`.
+  struct TensorScalarBranch {
+    std::size_t block = 0;
+    std::size_t thenBlock = 0;
+    std::size_t elseBlock = 0;
+    std::size_t join = 0;
+  };
+
   struct TensorLoopAnalysis {
     std::vector<TensorCountedLoop> loops;
+    std::vector<TensorScalarBranch> branches;
     std::uint32_t totalBodyExecutions = 0;
   };
 
