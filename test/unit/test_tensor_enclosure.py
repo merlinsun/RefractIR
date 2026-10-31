@@ -328,3 +328,74 @@ class EncloseValuesTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+DOT_SOURCE = """\
+fun @kernel(%a: tensor [16, 16] f32, %b: tensor [16, 16] f32) : tensor [16, 16] f32 {
+  let mut %out: tensor [16, 16] f32 = undef;
+^entry:
+  %out = tensor dot %a, %b;
+  ret %out;
+}
+"""
+
+
+def dot_point(values, shape=(16, 16)):
+  array = np.array([Fraction(value) for value in values], dtype=object).reshape(shape)
+  return tensor_enclosure.Interval.point(array)
+
+
+@unittest.skipUnless(np is not None, "numpy is unavailable")
+class DotEnclosureTests(unittest.TestCase):
+  """f32 `tensor dot` over every accumulation order (plan L1)."""
+
+  def test_an_exact_inner_product_is_a_point(self):
+    a = [(i % 7) - 3 for i in range(256)]
+    b = [(i % 5) - 2 for i in range(256)]
+    result = tensor_enclosure.apply("dot", [dot_point(a), dot_point(b)])
+    expected = np.array(a).reshape(16, 16) @ np.array(b).reshape(16, 16)
+    self.assertEqual(set(result.widths()), {0})
+    self.assertEqual([int(v) for v in result.lo.flat], [int(v) for v in expected.flat])
+
+  def test_a_rounded_inner_product_holds_both_orders(self):
+    a = [0] * 256
+    a[0] = 2**24
+    for k in range(1, 16):
+      a[k] = 1
+    result = tensor_enclosure.apply("dot", [dot_point(a), dot_point([1] * 256)])
+    # Accumulating in order loses every one; P0 rounds 2^24 + 15 once.
+    self.assertLessEqual(result.lo[0, 0], 2**24)
+    self.assertGreaterEqual(result.hi[0, 0], 2**24 + 16)
+    self.assertEqual(result.widths()[16:], [0] * 240)
+
+  def test_the_bound_is_gamma_k_of_the_absolute_products(self):
+    a = dot_point([Fraction(2**23 + 3)] * 256)
+    b = dot_point([1] * 256)
+    result = tensor_enclosure.apply("dot", [a, b])
+    exact = 16 * (2**23 + 3)
+    gamma = Fraction(16, 2**24) / (1 - Fraction(16, 2**24))
+    self.assertGreaterEqual(result.lo[0, 0], exact - gamma * exact)
+    self.assertLessEqual(result.hi[0, 0], exact + gamma * exact)
+    self.assertGreater(result.widths()[0], 0)
+
+  def test_an_interval_operand_takes_every_corner_product(self):
+    one, two = Fraction(1), Fraction(2)
+    wide = tensor_enclosure.Interval(
+      np.full((16, 16), -two, dtype=object), np.full((16, 16), one, dtype=object)
+    )
+    result = tensor_enclosure.apply("dot", [wide, dot_point([1] * 256)])
+    low, high = result.lo[0, 0], result.hi[0, 0]
+    self.assertTrue(-33 < low <= -32 and 16 <= high < 17, (low, high))
+
+  def test_a_body_with_dot_is_enclosed_and_contains_p0(self):
+    a = [((i * 7) % 11) / 4 for i in range(256)]
+    b = [((i * 3) % 13) / 8 - 0.5 for i in range(256)]
+    inputs = {
+      "%a": np.array([Fraction(v) for v in a], dtype=object).reshape(16, 16),
+      "%b": np.array([Fraction(v) for v in b], dtype=object).reshape(16, 16),
+    }
+    result = tensor_enclosure.enclose(DOT_SOURCE, inputs)
+    expected = np.array(a).reshape(16, 16) @ np.array(b).reshape(16, 16)
+    for low, high, value in zip(result.lo.flat, result.hi.flat, expected.flat):
+      self.assertLessEqual(low, Fraction(float(np.float32(value))))
+      self.assertGreaterEqual(high, Fraction(float(np.float32(value))))

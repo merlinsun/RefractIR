@@ -159,6 +159,27 @@ class SteeringTests(unittest.TestCase):
     self.assertTrue(all(value != 0 for value in result.values))
     self.assertEqual(struct.unpack("<I", p0(result.values)[:4])[0], 0x80000000)
 
+  def test_a_body_with_an_unmodelled_operation_is_refused_not_raised(self):
+    dot = """\
+fun @kernel(%a: tensor [16, 16] f32, %b: tensor [16, 16] f32) : tensor [16, 16] f32 {
+  let mut %out: tensor [16, 16] f32 = undef;
+^entry:
+  %out = tensor dot %a, %b;
+  ret %out;
+}
+"""
+    result = tensor_steering.steer(
+      dot,
+      [("%a", [16, 16]), ("%b", [16, 16])],
+      [1.0] * 512,
+      prop="cancel",
+      lane=0,
+      p0=lambda values: None,
+      scratch=self.scratch / "smt",
+    )
+    self.assertEqual(result.status, "refused")
+    self.assertIn("dot", result.reason)
+
   def test_a_signed_zero_from_sums_of_nonzero_inputs_is_refused(self):
     # SPECIFIED's lane 0 adds f32 values: 0 rounds to +0.0, and any nonzero
     # result is at least 2^-149 in magnitude, so -0.0 is out of reach.

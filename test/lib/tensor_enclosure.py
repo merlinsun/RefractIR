@@ -163,8 +163,40 @@ def _sum(a, axis, keep):
   return Interval(low, high)
 
 
+def _dot(a, b):
+  """An [M, K] by [K, N] inner product accumulated in any order.
+
+  Each lane sums K exact products. Whether the backend rounds each product or
+  fuses it into the accumulation, the result lies within
+  gamma_K * sum|a_ik * b_kj| of the exact inner product.
+  """
+  inner = a.lo.shape[1]
+  gamma = inner * U / (1 - inner * U)
+  rows, columns = a.lo.shape[0], b.lo.shape[1]
+  low = np.empty((rows, columns), dtype=object)
+  high = np.empty((rows, columns), dtype=object)
+  for i, j in np.ndindex(rows, columns):
+    products = []
+    for k in range(inner):
+      corners = [
+        x * y for x in (a.lo[i, k], a.hi[i, k]) for y in (b.lo[k, j], b.hi[k, j])
+      ]
+      products.append((min(corners), max(corners)))
+    los = [lo for lo, _ in products]
+    his = [hi for _, hi in products]
+    if los == his and _exact_in_any_order(los):
+      low[i, j] = high[i, j] = round_f32(sum(los))
+      continue
+    magnitude = sum(max(abs(lo), abs(hi)) for lo, hi in products)
+    low[i, j] = round_f32(sum(los) - gamma * magnitude, "up")
+    high[i, j] = round_f32(sum(his) + gamma * magnitude, "down")
+  return Interval(low, high)
+
+
 def apply(op, operands, *, axis=None, keep=False):
   """One tensor operation on interval operands."""
+  if op == "dot":
+    return _dot(*operands)
   if op in ("add", "sub", "mul", "min", "max"):
     a, b = operands
     if op == "add":
@@ -308,6 +340,7 @@ def enclose(source, inputs, scalars=None):
       "transpose",
       "expand",
       "broadcast",
+      "dot",
     ):
       raise Unsupported(f"tensor {op}")
   return _Machine(source, inputs, scalars).run()

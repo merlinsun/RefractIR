@@ -58,7 +58,7 @@ ROOT_SELECTION = "most-live"
 # accumulates in a lane order the backend picks. Exact under the reduction
 # contract on I0-I3, but not on a corner probe, where a path difference in a
 # body that contains one is restricted rather than quarantined.
-UNSPECIFIED = frozenset({"sum"})
+UNSPECIFIED = frozenset({"sum", "dot"})
 # Literal bounds are constants Triton folds; runtime bounds are unspecialized
 # kernel parameters with the same values (`symirc --tensor-loop-bound`).
 LOOP_BOUNDS = ("literal", "runtime")
@@ -114,6 +114,32 @@ ONE_TRIP_COLUMNS = (
     "regime": "tail",
   },
 )
+# Square windows of 16 rows, the smallest tile `tl.dot` accepts, whose backing
+# stays within the profile's 512 elements: interior, and a tail whose second
+# trip reads past the active bound.
+DOT_COLUMNS = (
+  {
+    "column": 0,
+    "shape": [16, 16],
+    "trips": 2,
+    "stride": 8,
+    "backing_rows": 32,
+    "active": 24,
+    "regime": "interior",
+  },
+  {
+    "column": 1,
+    "shape": [16, 16],
+    "trips": 2,
+    "stride": 8,
+    "backing_rows": 32,
+    "active": 20,
+    "regime": "tail",
+  },
+)
+# Exporter features; a declaration that names none keeps the study's set.
+DEFAULT_FEATURES = ("extrema", "transpose", "expand")
+KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot",))
 POLICIES = _STUDY.POLICIES
 PROBES = _STUDY.PROBES
 # Inputs a declaration may name: the window probes, whose values stay within
@@ -155,8 +181,14 @@ def sweep_spec(
   inputs=INPUTS,
   loop_bound="literal",
   trip_parameter=False,
+  features=None,
+  required_operation=None,
 ):
-  """The declaration frozen before the first builder call."""
+  """The declaration frozen before the first builder call.
+
+  `features` and `required_operation` are recorded only when given, so a
+  declaration without them keeps its digest.
+  """
   _positive(seed_start, "seed_start")
   _positive(seed_count, "seed_count")
   _positive(sample_every, "sample_every")
@@ -187,6 +219,12 @@ def sweep_spec(
       raise SweepRefused(f"unknown loop hint {hint!r}")
   if loop_bound not in LOOP_BOUNDS:
     raise SweepRefused(f"loop_bound must be one of {list(LOOP_BOUNDS)}")
+  if features is not None:
+    features = sorted(set(features))
+    if not features or not set(features) <= KNOWN_FEATURES:
+      raise SweepRefused(f"features are names from {sorted(KNOWN_FEATURES)}")
+  if required_operation is not None and type(required_operation) is not str:
+    raise SweepRefused("required_operation names one operation")
   steering = (
     {} if not set(inputs) & set(STEERED_INPUTS) else {"steering": dict(STEERING)}
   )
@@ -205,6 +243,8 @@ def sweep_spec(
     "loop_bound": loop_bound,
     **steering,
     **({"trip_parameter": True} if trip_parameter else {}),
+    **({"features": features} if features is not None else {}),
+    **({"required_operation": required_operation} if required_operation else {}),
     "enable_fp_fusion": False,
     "order": ORDER,
     "sample_every": sample_every,
@@ -273,6 +313,7 @@ def kernel_request(spec, index):
     "exact_contract": spec["exact_contract"],
     "root_selection": spec["root_selection"],
     "loop_bound": spec["loop_bound"],
+    "features": list(spec.get("features", DEFAULT_FEATURES)),
     **(
       {
         "steer": [
@@ -560,6 +601,9 @@ class _Session:
     request = kernel_request(self.spec, index)
     directory = self.kernel_directory(request["seed"])
     built = self.operations["build"]({**request, "directory": str(directory)})
+    required = self.spec.get("required_operation")
+    if built["kind"] == "admitted" and required and required not in built["operations"]:
+      built = {"kind": "refused", "reason": f"the body has no {required}"}
     if built["kind"] != "admitted":
       return directory, dict(
         seed=request["seed"],
@@ -833,7 +877,7 @@ def _export_command(exporter, request, out):
     "--profile",
     "v3",
     "--features",
-    "extrema,transpose,expand",
+    ",".join(request["features"]),
   ]
   if request["requirement"] is not None:
     command += ["--window-requirement", request["requirement"]]
@@ -1263,6 +1307,13 @@ def main(argv=None):
   parser.add_argument(
     "--one-trip-columns", action="store_true", help="add the two one-trip columns"
   )
+  parser.add_argument(
+    "--dot-columns",
+    action="store_true",
+    help="use the two 16 x 16 dot columns instead of the study's columns",
+  )
+  parser.add_argument("--features", nargs="+", choices=sorted(KNOWN_FEATURES))
+  parser.add_argument("--required-operation", help="refuse bodies without it")
   parser.add_argument("--inputs", nargs="+", default=list(INPUTS), choices=KNOWN_INPUTS)
   parser.add_argument("--loop-bound", choices=LOOP_BOUNDS, default="literal")
   parser.add_argument(
@@ -1290,10 +1341,16 @@ def main(argv=None):
     sample_every=arguments.sample_every,
     gpu_workers=arguments.gpu_workers,
     wall_clock_s=arguments.wall_clock_hours * 3600.0,
-    columns=COLUMNS + ONE_TRIP_COLUMNS if arguments.one_trip_columns else COLUMNS,
+    columns=DOT_COLUMNS
+    if arguments.dot_columns
+    else COLUMNS + ONE_TRIP_COLUMNS
+    if arguments.one_trip_columns
+    else COLUMNS,
     inputs=arguments.inputs,
     loop_bound=arguments.loop_bound,
     trip_parameter=arguments.trip_parameter,
+    features=arguments.features,
+    required_operation=arguments.required_operation,
   )
   operations = device_operations(
     exporter=arguments.exporter,

@@ -1475,3 +1475,73 @@ class CompileOnlyTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class DotSweepTests(SweepFixture):
+  """A sweep that declares `dot` (feature-ranked plan, L1)."""
+
+  def declared(self, count=24, **options):
+    return sweep.sweep_spec(
+      seed_start=S0,
+      seed_count=count,
+      configurations=CONFIGURATIONS,
+      sample_every=20,
+      gpu_workers=1000,
+      wall_clock_s=3600.0,
+      **options,
+    )
+
+  def test_declared_features_reach_the_export_command(self):
+    plain = self.declared()
+    self.assertNotIn("features", plain)
+    argv = sweep._export_command("exporter", sweep.kernel_request(plain, 0), "out")
+    self.assertEqual(argv[argv.index("--features") + 1], "extrema,transpose,expand")
+    dot = self.declared(features=["dot", "extrema"], columns=sweep.DOT_COLUMNS)
+    self.assertEqual(dot["features"], ["dot", "extrema"])
+    argv = sweep._export_command("exporter", sweep.kernel_request(dot, 0), "out")
+    self.assertEqual(argv[argv.index("--features") + 1], "dot,extrema")
+
+  def test_an_unknown_feature_is_refused(self):
+    with self.assertRaises(sweep.SweepRefused):
+      self.declared(features=["rotate"])
+
+  def test_a_body_without_the_required_operation_is_refused(self):
+    declared = self.declared(count=2, required_operation="dot")
+    script = Script(operations={S0: ["dot", "add"], S0 + 1: ["add", "sum"]})
+    self.run_sweep(declared, script)
+    by_seed = {line["seed"]: line for line in self.kernels()}
+    self.assertEqual(by_seed[S0]["status"], "agreement")
+    self.assertEqual(by_seed[S0 + 1]["status"], "refused")
+    self.assertIn("dot", by_seed[S0 + 1]["reason"])
+    self.assertNotIn(S0 + 1, [seed for seed, _, _ in script.pairs])
+
+  def test_dot_bodies_are_compared_through_their_enclosure(self):
+    self.assertIn("dot", sweep.UNSPECIFIED)
+
+  def test_dot_columns_admit_dot_bodies_with_the_real_exporter(self):
+    exporter = (
+      Path(__file__).resolve().parents[2] / "build" / "bin" / "tensor_free_form_export"
+    )
+    if not exporter.is_file():
+      self.skipTest("the free-form exporter is not built")
+    declared = self.declared(
+      count=96, columns=sweep.DOT_COLUMNS, features=["dot"], required_operation="dot"
+    )
+    with tempfile.TemporaryDirectory() as directory:
+      found = set()
+      for index in range(96):
+        request = sweep.kernel_request(declared, index)
+        out = Path(directory) / f"dot-{index}"
+        completed = subprocess.run(
+          sweep._export_command(exporter, request, out),
+          capture_output=True,
+          text=True,
+          check=False,
+          timeout=60,
+        )
+        if (
+          completed.returncode == 0
+          and "tensor dot " in (out / "program.sir").read_text()
+        ):
+          found.add(request["column"]["column"])
+      self.assertEqual(found, {column["column"] for column in sweep.DOT_COLUMNS})

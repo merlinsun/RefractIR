@@ -511,7 +511,13 @@ def steer(
   result = Steered("refused", prop, aim)
   for fix_first in (False, True):
     body = _Body(source, parameters, base, fix_first=fix_first)
-    outputs = body.run()
+    try:
+      outputs = body.run()
+    except Unsupported as error:
+      # An operation the linear encoding does not model leaves the body
+      # unsteered; the sweep then skips its steered inputs.
+      result.reason = f"unsupported: {error}"
+      return result
     facts, _, refusal = _surrogate(body, outputs, prop, aim)
     result.linearized = body.linearized
     if refusal:
