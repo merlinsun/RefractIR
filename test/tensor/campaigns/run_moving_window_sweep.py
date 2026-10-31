@@ -821,7 +821,28 @@ def _exposure(admitted):
       (stage.get("loop_construct_count") or 0) > 0 for stage in ttgir
     ),
     "encoding_kinds": kinds,
+    "feature_kernels": _feature_kernels(admitted),
   }
+
+
+def _feature_kernels(admitted):
+  """Admitted kernels with TTGIR in which some paired run keeps each feature."""
+  observed = [
+    [
+      (pair.get("compiler") or {}).get("features")
+      for pair in line["pairs"]
+      if (pair.get("compiler") or {}).get("features") is not None
+    ]
+    for line in admitted
+  ]
+  observed = [features for features in observed if features]
+  counts = {"kernels_with_ttgir": len(observed)}
+  for key in ("dot", "narrow", "select", "if", "scan"):
+    counts[key] = sum(any(f[key] > 0 for f in features) for features in observed)
+  counts["nested_loop"] = sum(
+    any(f["loop_depth"] >= 2 for f in features) for features in observed
+  )
+  return counts
 
 
 def measurements(kernels):
@@ -978,6 +999,33 @@ def ttgir_loop_bounds(text):
   bounds = re.findall(r"\bscf\.for %[\w.]+ = %[\w.]+ to (%[\w.]+) step\b", text)
   dynamic = sum(bound not in constants for bound in bounds)
   return {"constant": len(bounds) - dynamic, "dynamic": dynamic}
+
+
+def _loop_depth(text):
+  """The deepest nesting of `scf.for` regions, read from their indentation."""
+  open_loops, deepest = [], 0
+  for line in text.splitlines():
+    indent = len(line) - len(line.lstrip())
+    if open_loops and indent == open_loops[-1] and line.strip().startswith("}"):
+      open_loops.pop()
+    if re.search(r"\bscf\.for\b", line):
+      open_loops.append(indent)
+      deepest = max(deepest, len(open_loops))
+  return deepest
+
+
+def ttgir_features(text):
+  """How often each extension feature survives in TTGIR (rule D9)."""
+  return {
+    "dot": len(re.findall(r"\btt\.dot\b", text)),
+    "narrow": len(
+      re.findall(r"\b(?:tt\.fp_to_fp|arith\.truncf)\b[^\n]*x(?:bf16|f16)>", text)
+    ),
+    "select": len(re.findall(r"\barith\.select\b", text)),
+    "if": len(re.findall(r"\bscf\.if\b", text)),
+    "scan": len(re.findall(r'"tt\.scan"|\btt\.scan\b(?!\.)', text)),
+    "loop_depth": _loop_depth(text),
+  }
 
 
 def pair_result(run, bundle):
@@ -1284,6 +1332,7 @@ def device_operations(
       text = ttgir.read_text(encoding="utf-8")
       result["compiler"]["encodings"] = ttgir_encodings(text)
       result["compiler"]["loop_bounds"] = ttgir_loop_bounds(text)
+      result["compiler"]["features"] = ttgir_features(text)
     return result
 
   def screen(kernel):

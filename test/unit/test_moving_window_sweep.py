@@ -1637,3 +1637,81 @@ class PathPlannerTests(unittest.TestCase):
           self.assertIn("^swap:", source)
           found.add(request["column"]["column"])
     self.assertEqual(found, {column["column"] for column in sweep.NESTED_COLUMNS})
+
+
+class ExposureTests(unittest.TestCase):
+  """Per-feature exposure counted in TTGIR (plan L7, rule D9)."""
+
+  TTGIR = """\
+#blocked = #ttg.blocked<{sizePerThread = [1, 1]}>
+module {
+  tt.func public @kernel(%arg0: !tt.ptr<f32>) {
+    %c0 = arith.constant 0 : i32
+    %0 = scf.for %i = %c0 to %n step %c1 iter_args(%a = %x) -> (tensor<16x16xf32>) : i32 {
+      %1 = scf.for %j = %c0 to %c2 step %c1 iter_args(%b = %a) -> (tensor<16x16xf32>) : i32 {
+        %2 = tt.dot %b, %b, %acc, inputPrecision = ieee : tensor<16x16xf32>
+        scf.yield %2 : tensor<16x16xf32>
+      }
+      %3 = scf.if %cond -> (tensor<16x16xf32>) {
+        scf.yield %1 : tensor<16x16xf32>
+      } else {
+        scf.yield %a : tensor<16x16xf32>
+      }
+      scf.yield %3 : tensor<16x16xf32>
+    } {tt.num_stages = 1 : i32}
+    %4 = arith.select %m, %0, %0 : tensor<16x16xi1>, tensor<16x16xf32>
+    %5 = tt.fp_to_fp %4, rounding = rtne : tensor<16x16xf32> -> tensor<16x16xbf16>
+    %6 = arith.truncf %4 : tensor<16x16xf32> to tensor<16x16xf16>
+    %7 = "tt.scan"(%4) <{axis = 1 : i32, reverse = false}> ({
+    ^bb0(%l: f32, %r: f32):
+      %8 = arith.addf %l, %r : f32
+      tt.scan.return %8 : f32
+    }) : (tensor<16x16xf32>) -> tensor<16x16xf32>
+    %9 = scf.for %k = %c0 to %c2 step %c1 iter_args(%c = %7) -> (tensor<16x16xf32>) : i32 {
+      scf.yield %c : tensor<16x16xf32>
+    }
+    tt.return
+  }
+}
+"""
+
+  def test_each_feature_is_counted_and_loops_report_their_depth(self):
+    self.assertEqual(
+      sweep.ttgir_features(self.TTGIR),
+      {"dot": 1, "narrow": 2, "select": 1, "if": 1, "scan": 1, "loop_depth": 2},
+    )
+
+  def test_an_empty_module_exposes_nothing(self):
+    self.assertEqual(
+      sweep.ttgir_features(""),
+      {"dot": 0, "narrow": 0, "select": 0, "if": 0, "scan": 0, "loop_depth": 0},
+    )
+
+  def test_the_exposure_counts_kernels_whose_pairs_show_each_feature(self):
+    def kernel(*features):
+      return {
+        "status": "agreement",
+        "infrastructure": False,
+        "pairs": [
+          {"compiler": {"status": "observed", "features": dict(feature)}}
+          for feature in features
+        ],
+      }
+
+    none = {"dot": 0, "narrow": 0, "select": 0, "if": 0, "scan": 0, "loop_depth": 1}
+    admitted = [
+      kernel({**none, "dot": 1}, none),
+      kernel(none, {**none, "if": 2, "loop_depth": 2}),
+      kernel(none),
+      {
+        "status": "agreement",
+        "infrastructure": False,
+        "pairs": [{"compiler": {"status": "unavailable"}}],
+      },
+    ]
+    exposure = sweep.measurements(admitted)["exposure"]["feature_kernels"]
+    self.assertEqual(exposure["kernels_with_ttgir"], 3)
+    self.assertEqual(
+      {key: exposure[key] for key in ("dot", "if", "nested_loop", "scan")},
+      {"dot": 1, "if": 1, "nested_loop": 1, "scan": 0},
+    )
