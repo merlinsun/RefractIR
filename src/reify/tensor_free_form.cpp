@@ -67,6 +67,17 @@ namespace refractir::reify {
              op == TensorOp::ReduceMax;
     }
 
+    /// The extents the tensor profile admits for `tensor dot`: [M, K] by
+    /// [K, N], each a power of two of at least 16.
+    bool dotFitsTriton(const Shape &left, const Shape &right) {
+      if (left.size() != 2 || right.size() != 2 || left[1] != right[0])
+        return false;
+      for (const auto extent: {left[0], left[1], right[1]})
+        if (extent < 16 || (extent & (extent - 1)) != 0)
+          return false;
+      return true;
+    }
+
     bool sameType(const TensorTypeInfo &left, const TensorTypeInfo &right) {
       return left.shape == right.shape && left.element == right.element;
     }
@@ -236,7 +247,8 @@ namespace refractir::reify {
             // asked to exercise.
             if ((action.op == TensorOp::Transpose && features_.transpose) ||
                 (action.op == TensorOp::Expand && features_.expand) ||
-                (isExtrema(action.op) && features_.extrema))
+                (isExtrema(action.op) && features_.extrema) ||
+                (action.op == TensorOp::Dot && features_.dot))
               weight *= 3.0;
             weight *= requirementMultiplier(action);
             weights.push_back(weight);
@@ -541,7 +553,7 @@ namespace refractir::reify {
           // shape; a binary action's result is the broadcast of both operands.
           traits.shapeChange =
               (isReduction(op) || op == TensorOp::Broadcast || op == TensorOp::Transpose ||
-               op == TensorOp::Expand) &&
+               op == TensorOp::Expand || op == TensorOp::Dot) &&
               type.shape != left.type.shape;
           return traits;
         };
@@ -606,6 +618,28 @@ namespace refractir::reify {
               mul.type = type;
               mul.traits = traitsOf(TensorOp::Mul, lhs, rhs, type);
               push(mul);
+            }
+          }
+        }
+
+        if (features_.dot && multiplications_ < limits_.maxMultiplications) {
+          // Ordered pairs: a dot is not commutative, and a value may meet itself.
+          for (std::int32_t lhs = 0; lhs < static_cast<std::int32_t>(pool_.size()); ++lhs) {
+            for (std::int32_t rhs = 0; rhs < static_cast<std::int32_t>(pool_.size()); ++rhs) {
+              const auto &left = pool_[static_cast<std::size_t>(lhs)].type;
+              const auto &right = pool_[static_cast<std::size_t>(rhs)].type;
+              if (!dotFitsTriton(left.shape, right.shape))
+                continue;
+              const Shape shape{left.shape[0], right.shape[1]};
+              if (!withinLimits(shape, limits_))
+                continue;
+              Action dot{};
+              dot.op = TensorOp::Dot;
+              dot.lhs = lhs;
+              dot.rhs = rhs;
+              dot.type = TensorTypeInfo{shape, element};
+              dot.traits = traitsOf(TensorOp::Dot, lhs, rhs, dot.type);
+              push(dot);
             }
           }
         }
@@ -725,7 +759,7 @@ namespace refractir::reify {
         pool_.push_back(std::move(value));
         for (const auto operand: operands)
           ++pool_[static_cast<std::size_t>(operand)].consumers;
-        if (action.op == TensorOp::Mul)
+        if (action.op == TensorOp::Mul || action.op == TensorOp::Dot)
           ++multiplications_;
         nodes_.push_back(
             NodeRecord{action.op, std::move(operands), action.axis, action.keepDims,
@@ -1154,7 +1188,7 @@ namespace refractir::reify {
         if (isReduction(op))
           ++reductions;
         if ((isReduction(op) || op == TensorOp::Broadcast || op == TensorOp::Transpose ||
-             op == TensorOp::Expand) &&
+             op == TensorOp::Expand || op == TensorOp::Dot) &&
             !graph.nodeOperands[node].empty() &&
             graph.valueTypes[value].shape !=
                 graph.valueTypes[static_cast<std::size_t>(graph.nodeOperands[node].front())].shape)

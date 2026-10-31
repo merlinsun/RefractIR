@@ -3,13 +3,14 @@
 import json
 import re
 import os
+import struct
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from test.lib import tensor_free_form_case, tensor_free_form_inputs, tensor_target_case
-from test.unit.tensor_support import SYMIRI, check_source, describe_entry
+from test.unit.tensor_support import SYMIRI, check_source, describe_entry, run_typed
 
 FREE_FORM_API = Path(
   os.environ.get("REFRACTIR_TENSOR_FREE_FORM_API", "build/bin/tensor_free_form_api")
@@ -455,6 +456,73 @@ class FreeFormExportTests(unittest.TestCase):
             seen[operation] = True
       self.assertTrue(seen["transpose"], "a transposable body must appear within 20 seeds")
       self.assertTrue(seen["expand"], "an expandable body must appear within 20 seeds")
+
+  def dot_export(self, seed, shape, directory, *extra):
+    output = Path(directory) / f"seed-{seed}-{shape}"
+    result = self.export(
+      "--policy", "unguided", "--seed", str(seed), "--shape", shape, "--dtype", "f32",
+      "--profile", "v3", "--features", "dot", *extra, "--out", str(output),
+    )
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+    return record, (output / "program.sir").read_text(encoding="utf-8")
+
+  def test_dot_is_recorded_only_when_asked_for(self):
+    with tempfile.TemporaryDirectory() as directory:
+      record, _ = self.dot_export(1, "16,16", directory)
+      self.assertEqual(
+        record["features"],
+        {"transpose": False, "expand": False, "extrema": False, "dot": True},
+      )
+
+  def test_a_dot_body_appears_on_16_by_16_states_and_checks(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        record, source = self.dot_export(seed, "16,16", directory)
+        if "tensor dot " in source:
+          self.assertIn("dot", record["structure"]["operator_counts"])
+          checked = check_source(source, tensor_profile="v3")
+          self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+          return
+      self.fail("a dot body must appear within 20 seeds")
+
+  def test_p0_runs_a_generated_dot_body(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        _, source = self.dot_export(seed, "16,16", directory)
+        if "tensor dot " in source:
+          values = struct.pack("<512f", *([1.0, -1.0, 2.0, 0.5] * 128))
+          result, output = run_typed(source, values, tensor_profile="v3")
+          self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+          self.assertEqual(len(output), 4 * 256)
+          return
+      self.fail("a dot body must appear within 20 seeds")
+
+  def test_dot_is_never_built_below_triton_tile_extents(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 11):
+        _, source = self.dot_export(seed, "8,16", directory)
+        self.assertNotIn("tensor dot ", source)
+
+  def test_dot_counts_as_a_multiplication(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        record, _ = self.dot_export(seed, "16,16", directory, "--max-multiplications", "1")
+        counts = record["structure"]["operator_counts"]
+        self.assertLessEqual(counts.get("mul", 0) + counts.get("dot", 0), 1, seed)
+
+  def test_dot_on_i32_states_is_offered_too(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        output = Path(directory) / f"i32-{seed}"
+        result = self.export(
+          "--policy", "unguided", "--seed", str(seed), "--shape", "16,16", "--dtype",
+          "i32", "--profile", "v3", "--features", "dot", "--out", str(output),
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        if "tensor dot " in (output / "program.sir").read_text(encoding="utf-8"):
+          return
+      self.fail("an i32 dot body must appear within 20 seeds")
 
   def test_an_unsupported_feature_is_refused(self):
     with tempfile.TemporaryDirectory() as directory:

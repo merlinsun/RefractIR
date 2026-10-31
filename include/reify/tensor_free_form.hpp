@@ -80,6 +80,9 @@ namespace refractir::reify {
     bool transpose = false;
     bool expand = false;
     bool extrema = false;
+    /// `tensor dot` of two rank-two values whose extents Triton's `tl.dot`
+    /// accepts; it counts as a multiplication.
+    bool dot = false;
   };
 
   /// Bounds the builder honours. `maxNodes` counts emitted tensor operations;

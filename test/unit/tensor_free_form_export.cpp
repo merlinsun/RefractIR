@@ -171,6 +171,8 @@ namespace {
             options.features.expand = true;
           else if (item == "extrema")
             options.features.extrema = true;
+          else if (item == "dot")
+            options.features.dot = true;
           else
             throw std::invalid_argument("unknown free-form feature: " + item);
           if (end == std::string::npos)
@@ -626,8 +628,10 @@ namespace {
       record << ",\"root_selection\":\"most-live\"";
     record << ",\"route\":\"target-only\","
            << "\"features\":{\"transpose\":" << (options.features.transpose ? "true" : "false")
-           << ",\"expand\":" << (options.features.expand ? "true" : "false")
-           << ",\"extrema\":" << (options.features.extrema ? "true" : "false") << "},"
+           << ",\"expand\":" << (options.features.expand ? "true" : "false") << ",\"extrema\":"
+           << (options.features.extrema ? "true" : "false")
+           // Recorded only when asked for, so existing exports keep their bytes.
+           << (options.features.dot ? ",\"dot\":true" : "") << "},"
            << "\"window\":";
     if (options.windowEnabled) {
       const auto sourceExtent =

@@ -95,12 +95,13 @@ namespace refractir::reify {
     const bool broadcast = op == TensorOp::Broadcast;
     const bool transpose = op == TensorOp::Transpose;
     const bool expand = op == TensorOp::Expand;
-    if (!binary && !reduction && !broadcast && !transpose && !expand)
+    const bool dot = op == TensorOp::Dot;
+    if (!binary && !reduction && !broadcast && !transpose && !expand && !dot)
       throw std::invalid_argument(
           "tensor region supports add, sub, mul, min, max, sum, rmin, rmax, broadcast, "
-          "transpose and expand"
+          "transpose, expand and dot"
       );
-    const std::size_t expectedOperands = binary ? 2 : 1;
+    const std::size_t expectedOperands = binary || dot ? 2 : 1;
     if (operandNames.size() != expectedOperands)
       throw std::invalid_argument("tensor region operation has the wrong operand count");
     std::vector<std::int32_t> operands;
@@ -117,6 +118,16 @@ namespace refractir::reify {
       resultType.shape = broadcastShape(firstType.shape, secondType.shape);
       if (!attribute.empty())
         throw std::invalid_argument("tensor region binary operation does not accept attributes");
+    } else if (dot) {
+      const auto &secondType = values_[static_cast<std::size_t>(operands[1])].type;
+      if (firstType.element != secondType.element)
+        throw std::invalid_argument("tensor region dot element types differ");
+      if (firstType.shape.size() != 2 || secondType.shape.size() != 2 ||
+          firstType.shape[1] != secondType.shape[0])
+        throw std::invalid_argument("tensor region dot needs [M, K] and [K, N] operands");
+      if (!attribute.empty())
+        throw std::invalid_argument("tensor region dot does not accept attributes");
+      resultType.shape = {firstType.shape[0], secondType.shape[1]};
     } else if (reduction) {
       if (!attribute.empty())
         throw std::invalid_argument("tensor region reduction does not accept a shape attribute");
@@ -204,12 +215,10 @@ namespace refractir::reify {
     out << "  " << result.name << " = tensor " << tensorOpName(node.op) << ' '
         << values_[static_cast<std::size_t>(node.operands.front())].name;
     if (node.op == TensorOp::Add || node.op == TensorOp::Sub || node.op == TensorOp::Mul ||
-        node.op == TensorOp::Min || node.op == TensorOp::Max) {
+        node.op == TensorOp::Min || node.op == TensorOp::Max || node.op == TensorOp::Dot) {
       out << ", " << values_[static_cast<std::size_t>(node.operands[1])].name;
-    } else if (
-        node.op == TensorOp::Sum || node.op == TensorOp::ReduceMin ||
-        node.op == TensorOp::ReduceMax
-    ) {
+    } else if (node.op == TensorOp::Sum || node.op == TensorOp::ReduceMin ||
+               node.op == TensorOp::ReduceMax) {
       out << ", " << node.axis << ", " << (node.keepDims ? "keep" : "drop");
     } else if (node.op == TensorOp::Transpose) {
       out << ", " << shapeText(node.attribute);
@@ -308,6 +317,14 @@ namespace refractir::reify {
         case TensorOp::Max:
           result = std::max(operand(0), operand(1));
           break;
+        case TensorOp::Dot: {
+          // K products, each bounded like `mul`.
+          const auto &shape = values_[static_cast<std::size_t>(node.operands.at(0))].type.shape;
+          result = operand(0) == 0.0 || operand(1) == 0.0
+                       ? 0.0
+                       : operand(0) * operand(1) * static_cast<double>(shape.at(1));
+          break;
+        }
         case TensorOp::Sum: {
           const auto &shape = values_[static_cast<std::size_t>(node.operands.at(0))].type.shape;
           const auto rank = static_cast<std::int64_t>(shape.size());
@@ -338,7 +355,8 @@ namespace refractir::reify {
     const auto live = liveNodes();
     std::vector<std::string> names;
     for (std::size_t position = 0; position < nodes_.size(); ++position)
-      if (live[position] && nodes_[position].op == TensorOp::Sum)
+      if (live[position] &&
+          (nodes_[position].op == TensorOp::Sum || nodes_[position].op == TensorOp::Dot))
         names.push_back(values_[static_cast<std::size_t>(nodes_[position].result)].name);
     return names;
   }
