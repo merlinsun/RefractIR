@@ -426,3 +426,43 @@ class NarrowEnclosureTests(unittest.TestCase):
         "narrow f16",
         [tensor_enclosure.Interval.point(np.array([Fraction(65520)], dtype=object))],
       )
+
+
+@unittest.skipUnless(np is not None, "numpy is unavailable")
+class WhereEnclosureTests(unittest.TestCase):
+  """`tensor where` picks an arm, or either when the comparison is open (L3)."""
+
+  def lanes(self, pairs):
+    lo = np.array([Fraction(low) for low, _ in pairs], dtype=object)
+    hi = np.array([Fraction(high) for _, high in pairs], dtype=object)
+    return tensor_enclosure.Interval(lo, hi)
+
+  def test_a_decided_comparison_takes_its_arm_and_an_open_one_the_hull(self):
+    a = self.lanes([(0, 0), (5, 5), (1, 3)])
+    b = self.lanes([(1, 1), (1, 1), (2, 2)])
+    x = self.lanes([(10, 10), (10, 10), (10, 10)])
+    y = self.lanes([(-4, -2), (-4, -2), (-4, -2)])
+    result = tensor_enclosure.apply("where lt", [a, b, x, y])
+    self.assertEqual(
+      list(zip(result.lo.flat, result.hi.flat)), [(10, 10), (-4, -2), (-4, 10)]
+    )
+    self.assertEqual(
+      [lo for lo in tensor_enclosure.apply("where eq", [a, a, x, y]).lo.flat][:2],
+      [10, 10],
+    )
+
+  def test_a_body_with_where_is_enclosed(self):
+    source = """\
+fun @kernel(%a: tensor [4] f32, %b: tensor [4] f32) : tensor [4] f32 {
+  let mut %out: tensor [4] f32 = undef;
+^entry:
+  %out = tensor where le %a, %b, %b, %a;
+  ret %out;
+}
+"""
+    inputs = {
+      "%a": np.array([Fraction(v) for v in (1, 2, 3, 4)], dtype=object),
+      "%b": np.array([Fraction(v) for v in (4, 2, 1, 0)], dtype=object),
+    }
+    result = tensor_enclosure.enclose(source, inputs)
+    self.assertEqual([int(v) for v in result.lo.flat], [4, 2, 3, 4])

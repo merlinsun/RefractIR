@@ -1559,3 +1559,7 @@ class NarrowSweepTests(unittest.TestCase):
     self.assertIn("narrow", sweep.KNOWN_FEATURES)
     self.assertNotIn("narrow f16", sweep.UNSPECIFIED)
     self.assertNotIn("narrow bf16", sweep.UNSPECIFIED)
+
+  def test_where_is_a_known_feature_compared_bit_for_bit(self):
+    self.assertIn("where", sweep.KNOWN_FEATURES)
+    self.assertFalse({"where lt", "where le", "where eq"} & sweep.UNSPECIFIED)

@@ -99,12 +99,13 @@ namespace refractir::reify {
     const bool expand = op == TensorOp::Expand;
     const bool dot = op == TensorOp::Dot;
     const bool narrow = op == TensorOp::NarrowF16 || op == TensorOp::NarrowBF16;
-    if (!binary && !reduction && !broadcast && !transpose && !expand && !dot && !narrow)
+    const bool where = isTensorWhere(op);
+    if (!binary && !reduction && !broadcast && !transpose && !expand && !dot && !narrow && !where)
       throw std::invalid_argument(
           "tensor region supports add, sub, mul, min, max, sum, rmin, rmax, broadcast, "
-          "transpose, expand, dot and narrow"
+          "transpose, expand, dot, narrow and where"
       );
-    const std::size_t expectedOperands = binary || dot ? 2 : 1;
+    const std::size_t expectedOperands = where ? 4 : binary || dot ? 2 : 1;
     if (operandNames.size() != expectedOperands)
       throw std::invalid_argument("tensor region operation has the wrong operand count");
     std::vector<std::int32_t> operands;
@@ -121,6 +122,16 @@ namespace refractir::reify {
       resultType.shape = broadcastShape(firstType.shape, secondType.shape);
       if (!attribute.empty())
         throw std::invalid_argument("tensor region binary operation does not accept attributes");
+    } else if (where) {
+      if (!attribute.empty())
+        throw std::invalid_argument("tensor region where does not accept attributes");
+      resultType.shape = firstType.shape;
+      for (std::size_t index = 1; index < operands.size(); ++index) {
+        const auto &type = values_[static_cast<std::size_t>(operands[index])].type;
+        if (type.element != firstType.element)
+          throw std::invalid_argument("tensor region where element types differ");
+        resultType.shape = broadcastShape(resultType.shape, type.shape);
+      }
     } else if (narrow) {
       if (!attribute.empty())
         throw std::invalid_argument("tensor region narrow does not accept attributes");
@@ -231,6 +242,9 @@ namespace refractir::reify {
       out << ", " << shapeText(node.attribute);
     } else if (node.op == TensorOp::Expand) {
       out << ", " << node.axis;
+    } else if (isTensorWhere(node.op)) {
+      for (std::size_t index = 1; index < node.operands.size(); ++index)
+        out << ", " << values_[static_cast<std::size_t>(node.operands[index])].name;
     } else if (node.op == TensorOp::NarrowF16 || node.op == TensorOp::NarrowBF16) {
       // The format is part of the operator name; there is no attribute.
     } else {
@@ -325,6 +339,11 @@ namespace refractir::reify {
         case TensorOp::Min:
         case TensorOp::Max:
           result = std::max(operand(0), operand(1));
+          break;
+        case TensorOp::WhereLt:
+        case TensorOp::WhereLe:
+        case TensorOp::WhereEq:
+          result = std::max(operand(2), operand(3));
           break;
         case TensorOp::NarrowF16:
         case TensorOp::NarrowBF16: {

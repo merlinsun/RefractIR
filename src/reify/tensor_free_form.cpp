@@ -251,7 +251,8 @@ namespace refractir::reify {
                 (action.op == TensorOp::Expand && features_.expand) ||
                 (isExtrema(action.op) && features_.extrema) ||
                 (action.op == TensorOp::Dot && features_.dot) ||
-                (isNarrow(action.op) && features_.narrow))
+                (isNarrow(action.op) && features_.narrow) ||
+                (isTensorWhere(action.op) && features_.where))
               weight *= 3.0;
             weight *= requirementMultiplier(action);
             weights.push_back(weight);
@@ -625,6 +626,53 @@ namespace refractir::reify {
           }
         }
 
+        if (features_.where) {
+          // A comparison of two distinct values picks between one of them and
+          // any other value; the arms ride in `attribute` until `apply`.
+          const auto count = static_cast<std::int32_t>(pool_.size());
+          for (std::int32_t lhs = 0; lhs < count; ++lhs) {
+            for (std::int32_t rhs = lhs + 1; rhs < count; ++rhs) {
+              const auto condition = broadcastShape(
+                  pool_[static_cast<std::size_t>(lhs)].type.shape,
+                  pool_[static_cast<std::size_t>(rhs)].type.shape
+              );
+              if (!condition)
+                continue;
+              for (const auto chosen: {lhs, rhs}) {
+                for (std::int32_t other = 0; other < count; ++other) {
+                  if (other == chosen)
+                    continue;
+                  const auto arms = broadcastShape(
+                      pool_[static_cast<std::size_t>(chosen)].type.shape,
+                      pool_[static_cast<std::size_t>(other)].type.shape
+                  );
+                  const auto shape = arms ? broadcastShape(*condition, *arms) : std::nullopt;
+                  if (!shape || !withinLimits(*shape, limits_))
+                    continue;
+                  for (const auto op: {TensorOp::WhereLt, TensorOp::WhereLe, TensorOp::WhereEq}) {
+                    for (const bool chosenFirst: {true, false}) {
+                      Action where{};
+                      where.op = op;
+                      where.lhs = lhs;
+                      where.rhs = rhs;
+                      where.attribute =
+                          chosenFirst
+                              ? Shape{static_cast<std::uint32_t>(chosen), static_cast<std::uint32_t>(other)}
+                              : Shape{
+                                    static_cast<std::uint32_t>(other),
+                                    static_cast<std::uint32_t>(chosen)
+                                };
+                      where.type = TensorTypeInfo{*shape, element};
+                      where.traits = traitsOf(op, lhs, rhs, where.type);
+                      push(where);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
         if (features_.narrow && element == TensorElement::F32) {
           for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
             for (const auto op: {TensorOp::NarrowF16, TensorOp::NarrowBF16}) {
@@ -763,6 +811,12 @@ namespace refractir::reify {
         std::vector<std::int32_t> operands{action.lhs};
         if (action.rhs >= 0)
           operands.push_back(action.rhs);
+        Shape attribute = action.attribute;
+        if (isTensorWhere(action.op)) {
+          for (const auto arm: action.attribute)
+            operands.push_back(static_cast<std::int32_t>(arm));
+          attribute.clear();
+        }
         PoolValue value;
         value.name = nextName();
         value.type = action.type;
@@ -778,8 +832,9 @@ namespace refractir::reify {
         if (action.op == TensorOp::Mul || action.op == TensorOp::Dot)
           ++multiplications_;
         nodes_.push_back(
-            NodeRecord{action.op, std::move(operands), action.axis, action.keepDims,
-                       action.attribute}
+            NodeRecord{
+                action.op, std::move(operands), action.axis, action.keepDims, std::move(attribute)
+            }
         );
       }
 

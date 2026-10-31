@@ -139,7 +139,7 @@ DOT_COLUMNS = (
 )
 # Exporter features; a declaration that names none keeps the study's set.
 DEFAULT_FEATURES = ("extrema", "transpose", "expand")
-KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot", "narrow"))
+KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot", "narrow", "where"))
 POLICIES = _STUDY.POLICIES
 PROBES = _STUDY.PROBES
 # Inputs a declaration may name: the window probes, whose values stay within

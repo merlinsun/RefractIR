@@ -85,6 +85,9 @@ namespace refractir::reify {
     bool dot = false;
     /// `tensor narrow f16` and `tensor narrow bf16` of f32 values.
     bool narrow = false;
+    /// `tensor where lt|le|eq` choosing between two values by a comparison
+    /// of two values, one of the arms among them.
+    bool where = false;
   };
 
   /// Bounds the builder honours. `maxNodes` counts emitted tensor operations;

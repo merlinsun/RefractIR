@@ -554,6 +554,28 @@ class FreeFormExportTests(unittest.TestCase):
           source = (output / "program.sir").read_text(encoding="utf-8")
           self.assertNotIn("tensor narrow f16 ", source, seed)
 
+  def test_a_where_body_appears_records_its_feature_and_checks(self):
+    with tempfile.TemporaryDirectory() as directory:
+      for seed in range(1, 21):
+        output = Path(directory) / f"where-{seed}"
+        result = self.export(
+          "--policy", "unguided", "--seed", str(seed), "--shape", "2,8", "--dtype",
+          "f32", "--profile", "v3", "--features", "where", "--out", str(output),
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        record = json.loads((output / "region.json").read_text(encoding="utf-8"))
+        self.assertTrue(record["features"]["where"])
+        source = (output / "program.sir").read_text(encoding="utf-8")
+        if "tensor where " in source:
+          self.assertRegex(source, r"tensor where (lt|le|eq) %\w+, %\w+, %\w+, %\w+;")
+          checked = check_source(source, tensor_profile="v3")
+          self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+          values = struct.pack("<32f", *([1.0, -1.0, 2.0, 0.5] * 8))
+          ran, _ = run_typed(source, values, tensor_profile="v3")
+          self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+          return
+      self.fail("a where body must appear within 20 seeds")
+
   def test_an_unsupported_feature_is_refused(self):
     with tempfile.TemporaryDirectory() as directory:
       result = self.export("--features", "rotate", "--out", directory)

@@ -225,10 +225,40 @@ def _dot(a, b):
   return Interval(low, high)
 
 
+def _where(relation, a, b, x, y):
+  """A lane takes x where `a relation b` holds for every value, y where it
+  fails for every value, and the hull of both arms where the intervals leave
+  it open."""
+  a_lo, a_hi, b_lo, b_hi, x_lo, x_hi, y_lo, y_hi = np.broadcast_arrays(
+    a.lo, a.hi, b.lo, b.hi, x.lo, x.hi, y.lo, y.hi
+  )
+  low = np.empty(a_lo.shape, dtype=object)
+  high = np.empty(a_lo.shape, dtype=object)
+  for index in np.ndindex(low.shape):
+    if relation == "lt":
+      holds, fails = a_hi[index] < b_lo[index], a_lo[index] >= b_hi[index]
+    elif relation == "le":
+      holds, fails = a_hi[index] <= b_lo[index], a_lo[index] > b_hi[index]
+    else:
+      point = a_lo[index] == a_hi[index] == b_lo[index] == b_hi[index]
+      holds = point
+      fails = a_hi[index] < b_lo[index] or b_hi[index] < a_lo[index]
+    if holds:
+      low[index], high[index] = x_lo[index], x_hi[index]
+    elif fails:
+      low[index], high[index] = y_lo[index], y_hi[index]
+    else:
+      low[index] = min(x_lo[index], y_lo[index])
+      high[index] = max(x_hi[index], y_hi[index])
+  return Interval(low, high)
+
+
 def apply(op, operands, *, axis=None, keep=False):
   """One tensor operation on interval operands."""
   if op == "dot":
     return _dot(*operands)
+  if op in ("where lt", "where le", "where eq"):
+    return _where(op.split()[1], *operands)
   if op in _NARROW:
     # Rounding is nondecreasing, so the ends of an interval round to its ends.
     narrow = np.vectorize(lambda value: _narrow(value, *_NARROW[op]), otypes=[object])
@@ -304,6 +334,10 @@ class _Machine:
     if op == "narrow":
       fmt, name = rest.split()
       return apply(f"narrow {fmt}", [self.values[name]])
+    if op == "where":
+      relation, names = rest.split(" ", 1)
+      operands = [self.operand(name) for name in names.split(",")]
+      return apply(f"where {relation}", operands)
     if op in ("sum", "rmin", "rmax"):
       name, axis, keep = (part.strip() for part in rest.split(","))
       return apply(op, [self.values[name]], axis=int(axis), keep=keep == "keep")
@@ -382,6 +416,7 @@ def enclose(source, inputs, scalars=None):
       "broadcast",
       "dot",
       "narrow",
+      "where",
     ):
       raise Unsupported(f"tensor {op}")
   return _Machine(source, inputs, scalars).run()
