@@ -252,7 +252,8 @@ namespace refractir::reify {
                 (isExtrema(action.op) && features_.extrema) ||
                 (action.op == TensorOp::Dot && features_.dot) ||
                 (isNarrow(action.op) && features_.narrow) ||
-                (isTensorWhere(action.op) && features_.where))
+                (isTensorWhere(action.op) && features_.where) ||
+                (action.op == TensorOp::Cumsum && features_.scan))
               weight *= 3.0;
             weight *= requirementMultiplier(action);
             weights.push_back(weight);
@@ -669,6 +670,23 @@ namespace refractir::reify {
                   }
                 }
               }
+            }
+          }
+        }
+
+        if (features_.scan) {
+          for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
+            const auto &value = pool_[static_cast<std::size_t>(index)];
+            for (std::size_t axis = 0; axis < value.type.shape.size(); ++axis) {
+              if (value.type.shape[axis] <= 1)
+                continue;
+              Action scan{};
+              scan.op = TensorOp::Cumsum;
+              scan.lhs = index;
+              scan.axis = static_cast<std::int64_t>(axis);
+              scan.type = value.type;
+              scan.traits = traitsOf(TensorOp::Cumsum, index, -1, scan.type);
+              push(scan);
             }
           }
         }

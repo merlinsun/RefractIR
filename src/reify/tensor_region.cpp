@@ -100,10 +100,12 @@ namespace refractir::reify {
     const bool dot = op == TensorOp::Dot;
     const bool narrow = op == TensorOp::NarrowF16 || op == TensorOp::NarrowBF16;
     const bool where = isTensorWhere(op);
-    if (!binary && !reduction && !broadcast && !transpose && !expand && !dot && !narrow && !where)
+    const bool scan = op == TensorOp::Cumsum;
+    if (!binary && !reduction && !broadcast && !transpose && !expand && !dot && !narrow && !where &&
+        !scan)
       throw std::invalid_argument(
           "tensor region supports add, sub, mul, min, max, sum, rmin, rmax, broadcast, "
-          "transpose, expand, dot, narrow and where"
+          "transpose, expand, dot, narrow, where and cumsum"
       );
     const std::size_t expectedOperands = where ? 4 : binary || dot ? 2 : 1;
     if (operandNames.size() != expectedOperands)
@@ -122,6 +124,15 @@ namespace refractir::reify {
       resultType.shape = broadcastShape(firstType.shape, secondType.shape);
       if (!attribute.empty())
         throw std::invalid_argument("tensor region binary operation does not accept attributes");
+    } else if (scan) {
+      if (!attribute.empty() || keepDims)
+        throw std::invalid_argument("tensor region cumsum takes only an axis");
+      const auto rank = static_cast<std::int64_t>(firstType.shape.size());
+      if (axis < -rank || axis >= rank)
+        throw std::invalid_argument("tensor region cumsum axis is outside its input rank");
+      if (axis < 0)
+        axis += rank;
+      resultType.shape = firstType.shape;
     } else if (where) {
       if (!attribute.empty())
         throw std::invalid_argument("tensor region where does not accept attributes");
@@ -240,7 +251,7 @@ namespace refractir::reify {
       out << ", " << node.axis << ", " << (node.keepDims ? "keep" : "drop");
     } else if (node.op == TensorOp::Transpose) {
       out << ", " << shapeText(node.attribute);
-    } else if (node.op == TensorOp::Expand) {
+    } else if (node.op == TensorOp::Expand || node.op == TensorOp::Cumsum) {
       out << ", " << node.axis;
     } else if (isTensorWhere(node.op)) {
       for (std::size_t index = 1; index < node.operands.size(); ++index)
@@ -362,6 +373,7 @@ namespace refractir::reify {
                        : operand(0) * operand(1) * static_cast<double>(shape.at(1));
           break;
         }
+        case TensorOp::Cumsum:
         case TensorOp::Sum: {
           const auto &shape = values_[static_cast<std::size_t>(node.operands.at(0))].type.shape;
           const auto rank = static_cast<std::int64_t>(shape.size());
@@ -393,7 +405,8 @@ namespace refractir::reify {
     std::vector<std::string> names;
     for (std::size_t position = 0; position < nodes_.size(); ++position)
       if (live[position] &&
-          (nodes_[position].op == TensorOp::Sum || nodes_[position].op == TensorOp::Dot))
+          (nodes_[position].op == TensorOp::Sum || nodes_[position].op == TensorOp::Dot ||
+           nodes_[position].op == TensorOp::Cumsum))
         names.push_back(values_[static_cast<std::size_t>(nodes_[position].result)].name);
     return names;
   }

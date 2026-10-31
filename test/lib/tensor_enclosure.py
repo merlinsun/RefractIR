@@ -175,21 +175,45 @@ def _exact_in_any_order(terms):
   return sum(nonzero) <= 2**24 * min(_grain(term) for term in nonzero)
 
 
-def _sum(a, axis, keep):
-  count = a.lo.shape[axis]
+def _enclose_sum(los, his):
+  """Bounds of a sum of these interval terms over every order of addition."""
+  count = len(los)
+  if los == his and _exact_in_any_order(los):
+    point = round_f32(sum(los))
+    return point, point
   gamma = (count - 1) * U / (1 - (count - 1) * U)
+  magnitude = sum(max(abs(lo), abs(hi)) for lo, hi in zip(los, his))
+  return (
+    round_f32(sum(los) - gamma * magnitude, "up"),
+    round_f32(sum(his) + gamma * magnitude, "down"),
+  )
+
+
+def _cumsum(a, axis):
+  """Each prefix enclosed as a sum of its own terms; a scan may associate
+  every prefix differently."""
+  low_lanes = np.moveaxis(a.lo, axis, -1)
+  high_lanes = np.moveaxis(a.hi, axis, -1)
+  low = np.empty(low_lanes.shape, dtype=object)
+  high = np.empty(low_lanes.shape, dtype=object)
+  for index in np.ndindex(low_lanes.shape[:-1]):
+    los, his = list(low_lanes[index]), list(high_lanes[index])
+    for end in range(1, len(los) + 1):
+      low[index + (end - 1,)], high[index + (end - 1,)] = _enclose_sum(
+        los[:end], his[:end]
+      )
+  return Interval(np.moveaxis(low, -1, axis), np.moveaxis(high, -1, axis))
+
+
+def _sum(a, axis, keep):
   low_lanes = np.moveaxis(a.lo, axis, -1)
   high_lanes = np.moveaxis(a.hi, axis, -1)
   low = np.empty(low_lanes.shape[:-1], dtype=object)
   high = np.empty(low_lanes.shape[:-1], dtype=object)
   for index in np.ndindex(low.shape):
-    los, his = list(low_lanes[index]), list(high_lanes[index])
-    if los == his and _exact_in_any_order(los):
-      low[index] = high[index] = round_f32(sum(los))
-      continue
-    magnitude = sum(max(abs(lo), abs(hi)) for lo, hi in zip(los, his))
-    low[index] = round_f32(sum(los) - gamma * magnitude, "up")
-    high[index] = round_f32(sum(his) + gamma * magnitude, "down")
+    low[index], high[index] = _enclose_sum(
+      list(low_lanes[index]), list(high_lanes[index])
+    )
   if keep:
     low, high = np.expand_dims(low, axis), np.expand_dims(high, axis)
   return Interval(low, high)
@@ -274,6 +298,8 @@ def apply(op, operands, *, axis=None, keep=False):
       return _product(a, b)
     return _monotone(np.minimum if op == "min" else np.maximum, a, b)
   (a,) = operands
+  if op == "cumsum":
+    return _cumsum(a, axis)
   if op == "sum":
     return _sum(a, axis, keep)
   if op in ("rmin", "rmax"):
@@ -338,6 +364,9 @@ class _Machine:
       relation, names = rest.split(" ", 1)
       operands = [self.operand(name) for name in names.split(",")]
       return apply(f"where {relation}", operands)
+    if op == "cumsum":
+      name, axis = (part.strip() for part in rest.split(","))
+      return apply(op, [self.values[name]], axis=int(axis))
     if op in ("sum", "rmin", "rmax"):
       name, axis, keep = (part.strip() for part in rest.split(","))
       return apply(op, [self.values[name]], axis=int(axis), keep=keep == "keep")
@@ -417,6 +446,7 @@ def enclose(source, inputs, scalars=None):
       "dot",
       "narrow",
       "where",
+      "cumsum",
     ):
       raise Unsupported(f"tensor {op}")
   return _Machine(source, inputs, scalars).run()

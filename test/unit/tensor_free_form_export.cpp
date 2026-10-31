@@ -179,6 +179,8 @@ namespace {
             options.features.narrow = true;
           else if (item == "where")
             options.features.where = true;
+          else if (item == "scan")
+            options.features.scan = true;
           else
             throw std::invalid_argument("unknown free-form feature: " + item);
           if (end == std::string::npos)
@@ -650,7 +652,8 @@ namespace {
            // Recorded only when asked for, so existing exports keep their bytes.
            << (options.features.dot ? ",\"dot\":true" : "")
            << (options.features.narrow ? ",\"narrow\":true" : "")
-           << (options.features.where ? ",\"where\":true" : "") << "},"
+           << (options.features.where ? ",\"where\":true" : "")
+           << (options.features.scan ? ",\"scan\":true" : "") << "},"
            << "\"window\":";
     if (options.windowEnabled) {
       const auto sourceExtent =

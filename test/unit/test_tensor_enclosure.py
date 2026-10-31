@@ -466,3 +466,39 @@ fun @kernel(%a: tensor [4] f32, %b: tensor [4] f32) : tensor [4] f32 {
     }
     result = tensor_enclosure.enclose(source, inputs)
     self.assertEqual([int(v) for v in result.lo.flat], [4, 2, 3, 4])
+
+
+@unittest.skipUnless(np is not None, "numpy is unavailable")
+class CumsumEnclosureTests(unittest.TestCase):
+  """Each prefix of a `tensor cumsum` is enclosed like a sum of its terms (L6)."""
+
+  def test_exact_prefixes_are_points_and_rounded_ones_are_widened(self):
+    exact = tensor_enclosure.Interval.point(
+      np.array([[Fraction(v) for v in (1, 2, 3, 4)]], dtype=object)
+    )
+    result = tensor_enclosure.apply("cumsum", [exact], axis=1)
+    self.assertEqual([int(v) for v in result.lo.flat], [1, 3, 6, 10])
+    self.assertEqual(set(result.widths()), {0})
+    rounded = tensor_enclosure.Interval.point(
+      np.array([[Fraction(2**24), Fraction(1), Fraction(1)]], dtype=object)
+    )
+    result = tensor_enclosure.apply("cumsum", [rounded], axis=1)
+    self.assertEqual(result.widths()[0], 0)
+    self.assertLessEqual(result.lo[0, 1], 2**24)
+    self.assertGreaterEqual(result.hi[0, 2], 2**24 + 2)
+    self.assertGreater(result.widths()[2], 0)
+
+  def test_a_body_with_cumsum_is_enclosed(self):
+    source = """\
+fun @kernel(%a: tensor [2, 4] f32) : tensor [2, 4] f32 {
+  let mut %out: tensor [2, 4] f32 = undef;
+^entry:
+  %out = tensor cumsum %a, 0;
+  ret %out;
+}
+"""
+    inputs = {
+      "%a": np.array([Fraction(v) for v in range(8)], dtype=object).reshape(2, 4)
+    }
+    result = tensor_enclosure.enclose(source, inputs)
+    self.assertEqual([int(v) for v in result.lo.flat], [0, 1, 2, 3, 4, 6, 8, 10])

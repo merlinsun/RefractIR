@@ -88,6 +88,8 @@ namespace refractir::reify {
     /// `tensor where lt|le|eq` choosing between two values by a comparison
     /// of two values, one of the arms among them.
     bool where = false;
+    /// `tensor cumsum` along any axis of extent above one.
+    bool scan = false;
   };
 
   /// Bounds the builder honours. `maxNodes` counts emitted tensor operations;

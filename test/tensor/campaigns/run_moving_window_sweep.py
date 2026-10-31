@@ -58,7 +58,7 @@ ROOT_SELECTION = "most-live"
 # accumulates in a lane order the backend picks. Exact under the reduction
 # contract on I0-I3, but not on a corner probe, where a path difference in a
 # body that contains one is restricted rather than quarantined.
-UNSPECIFIED = frozenset({"sum", "dot"})
+UNSPECIFIED = frozenset({"sum", "dot", "cumsum"})
 # Literal bounds are constants Triton folds; runtime bounds are unspecialized
 # kernel parameters with the same values (`symirc --tensor-loop-bound`).
 LOOP_BOUNDS = ("literal", "runtime")
@@ -161,7 +161,7 @@ NESTED_COLUMNS = (
 )
 # Exporter features; a declaration that names none keeps the study's set.
 DEFAULT_FEATURES = ("extrema", "transpose", "expand")
-KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot", "narrow", "where"))
+KNOWN_FEATURES = frozenset(DEFAULT_FEATURES + ("dot", "narrow", "where", "scan"))
 POLICIES = _STUDY.POLICIES
 PROBES = _STUDY.PROBES
 # Inputs a declaration may name: the window probes, whose values stay within
