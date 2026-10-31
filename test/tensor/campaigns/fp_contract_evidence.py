@@ -50,6 +50,14 @@ fun @kernel(%x: tensor [4, 8] f32) : tensor [4, 1] f32 {{
   ret %out;
 }}
 """
+_SCAN = """\
+fun @kernel(%x: tensor [4, 8] f32) : tensor [4, 8] f32 {
+  let mut %out: tensor [4, 8] f32 = undef;
+^entry:
+  %out = tensor cumsum %x, 1;
+  ret %out;
+}
+"""
 # `tl.dot` needs every extent to be at least 16.
 _DOT = """\
 fun @kernel(%x: tensor [16, 16] f32, %y: tensor [16, 16] f32) : tensor [16, 16] f32 {
@@ -69,6 +77,7 @@ OPS = {
   "exp": ("v2", _UNARY.format(op="exp")),
   **{op: ("v3", _REDUCTION.format(op=op)) for op in ("sum", "rmin", "rmax")},
   "dot": ("v3", _DOT),
+  "cumsum": ("v3", _SCAN),
   **{
     f"narrow-{fmt}": ("v3", _UNARY.format(op=f"narrow {fmt}"))
     for fmt in ("f16", "bf16")

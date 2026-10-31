@@ -39,6 +39,10 @@ A tensor kernel may branch on a comparison of `i32` scalars (entry parameters, l
 
 `tensor dot %a, %b` multiplies a `[M, K]` tensor by a `[K, N]` tensor of the same element type and produces `[M, N]`. An `i32` result is the exact inner product; every operand lane must lie in the int8 range, and a lane outside it is undefined behaviour, so the emitter can pass `int8` operands to `tl.dot` with an `int32` accumulator. An `f32` result is the exact inner product rounded once, like `sum`; the emitter asks for `input_precision="ieee"`, so Triton does not substitute TF32. Dot is admitted under the v2 and v3 profiles, with `M`, `K`, and `N` powers of two of at least 16, the smallest tile `tl.dot` accepts; no lane is padded.
 
+### Tensor cumsum
+
+`tensor cumsum %x, axis` gives the inclusive prefix sums of `%x` along `axis`, with the operand's shape. An `i32` prefix is exact, and a prefix outside the `i32` range is undefined behaviour. An `f32` prefix is the exact sum of its terms rounded once, like `sum`; Triton's scan may associate each prefix differently, so `f32` results are compared through an enclosure. The emitter writes `tl.cumsum(x, axis=a)`; a padded lane follows every logical lane on its axis, so no logical prefix reads one. `cumsum` is admitted under the v2 and v3 profiles.
+
 ### Tensor narrow
 
 `tensor narrow f16 %x` and `tensor narrow bf16 %x` round every lane of an `f32` value to the named format, to nearest with ties to even, and keep the result as an `f32` value representable in that format; subnormals of the format are kept, and the sign of zero is preserved. A lane that rounds past the format's largest finite value is undefined behaviour. The emitter converts and widens back with `.to(tl.float16, fp_downcast_rounding="rtne").to(tl.float32)` (or `tl.bfloat16`). Narrowing is admitted under the v2 and v3 profiles.

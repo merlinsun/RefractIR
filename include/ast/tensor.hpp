@@ -45,6 +45,7 @@ namespace refractir {
     WhereLt,
     WhereLe,
     WhereEq,
+    Cumsum,
   };
 
   /// `tensor where lt|le|eq %a, %b, %x, %y`: x where a relop b, else y.
@@ -108,6 +109,8 @@ namespace refractir {
         return "where le";
       case TensorOp::WhereEq:
         return "where eq";
+      case TensorOp::Cumsum:
+        return "cumsum";
     }
     return "?";
   }

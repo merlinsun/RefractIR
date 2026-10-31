@@ -1196,7 +1196,7 @@ namespace refractir {
         atom.op == TensorOp::Sum || atom.op == TensorOp::ReduceMin ||
         atom.op == TensorOp::ReduceMax || atom.op == TensorOp::Softmax ||
         atom.op == TensorOp::Exp || atom.op == TensorOp::NarrowF16 ||
-        atom.op == TensorOp::NarrowBF16) {
+        atom.op == TensorOp::NarrowBF16 || atom.op == TensorOp::Cumsum) {
       if (!requireOperandCount(1))
         return Ty{std::monostate{}};
       TypePtr type = resolveOperand(0);
@@ -1327,6 +1327,18 @@ namespace refractir {
           diags.error("tensor-type: exp requires f32 elements", atom.span);
           return Ty{std::monostate{}};
         }
+        return makeResult(sourceShape, elementType);
+      }
+
+      if (atom.op == TensorOp::Cumsum) {
+        if (!TypeUtils::asTensor(type)) {
+          diags.error("tensor-type: cumsum requires a tensor operand", atom.span);
+          return Ty{std::monostate{}};
+        }
+        std::uint32_t axis = 0;
+        if (!checkedAxis(atom.axis, static_cast<std::uint32_t>(sourceShape.size()), axis))
+          return Ty{std::monostate{}};
+        (void) axis;
         return makeResult(sourceShape, elementType);
       }
 

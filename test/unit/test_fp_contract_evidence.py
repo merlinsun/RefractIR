@@ -99,6 +99,7 @@ class EvidenceRunTests(unittest.TestCase):
     self.assertIn("tl.exp(", kernels["exp"])
     self.assertIn("tl.sum(", kernels["sum"])
     self.assertIn('input_precision="ieee"', kernels["dot"])
+    self.assertIn("tl.cumsum(", kernels["cumsum"])
     self.assertIn("tl.float16", kernels["narrow-f16"])
     self.assertIn("tl.bfloat16", kernels["narrow-bf16"])
     self.assertEqual(json.loads((self.out / "evidence.json").read_text()), table)

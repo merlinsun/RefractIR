@@ -344,6 +344,26 @@ namespace refractir {
         return tensorOrScalar(resultType.shape, std::move(output));
       }
 
+      if (atom.op == TensorOp::Cumsum) {
+        // Each prefix is its exact sum rounded once, like `sum`.
+        const auto &input = operands.at(0);
+        const auto axis =
+            normalizeTensorAxis(atom.axis, static_cast<std::uint32_t>(input.tensorShape.size()));
+        std::vector<RuntimeValue> output;
+        output.reserve(tensorElementCount(resultType.shape));
+        for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
+          auto coords = coordinates(i, resultType.shape);
+          const auto last = coords[axis];
+          RefFloat<Bits> total = 0;
+          for (std::uint32_t k = 0; k <= last; ++k) {
+            coords[axis] = k;
+            total += readFloat<Bits>(scalarAt(input, coords, input.tensorShape));
+          }
+          output.push_back(roundToF32<Bits>(total));
+        }
+        return tensorOrScalar(resultType.shape, std::move(output));
+      }
+
       if (isTensorWhere(atom.op)) {
         // The chosen arm is returned with its bits, so a signed zero survives;
         // the comparison treats -0 and +0 as equal, as IEEE does.

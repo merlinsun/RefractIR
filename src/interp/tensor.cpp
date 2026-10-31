@@ -362,6 +362,34 @@ namespace refractir {
       return tensorOrScalar(resultType.shape, std::move(output));
     }
 
+    if (atom.op == TensorOp::Cumsum) {
+      if (resultType.element != TensorElement::I32)
+        throw std::runtime_error("numerical tensor cumsum requires the reference evaluator");
+      const auto &input = operands.at(0);
+      const auto axis =
+          normalizeTensorAxis(atom.axis, static_cast<std::uint32_t>(input.tensorShape.size()));
+      std::vector<RuntimeValue> output;
+      output.reserve(tensorElementCount(resultType.shape));
+      for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
+        auto coords = coordinates(i, resultType.shape);
+        const auto last = coords[axis];
+        std::int64_t total = 0;
+        for (std::uint32_t k = 0; k <= last; ++k) {
+          coords[axis] = k;
+          total += normalizeScalar(scalarAt(input, coords, input.tensorShape), TensorElement::I32)
+                       .intVal;
+          if (total < INT32_MIN || total > INT32_MAX)
+            throw UndefinedBehaviorError("UB: tensor cumsum prefix overflows i32");
+        }
+        RuntimeValue lane;
+        lane.kind = RuntimeValue::Kind::Int;
+        lane.bits = 32;
+        lane.intVal = total;
+        output.push_back(lane);
+      }
+      return tensorOrScalar(resultType.shape, std::move(output));
+    }
+
     if (isTensorWhere(atom.op)) {
       if (resultType.element != TensorElement::I32)
         throw std::runtime_error("numerical tensor where requires the reference evaluator");

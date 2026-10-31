@@ -430,8 +430,8 @@ namespace refractir {
                 out_ << ", ";
                 printList(arg.attribute);
               } else if (arg.op == TensorOp::Expand || arg.op == TensorOp::Softmax ||
-                         arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
-                         arg.op == TensorOp::ReduceMax) {
+                         arg.op == TensorOp::Cumsum || arg.op == TensorOp::Sum ||
+                         arg.op == TensorOp::ReduceMin || arg.op == TensorOp::ReduceMax) {
                 out_ << ", " << arg.axis;
                 if (arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
                     arg.op == TensorOp::ReduceMax)

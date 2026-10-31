@@ -803,6 +803,14 @@ namespace refractir {
       }
       return "tl.broadcast_to(" + operand + ", " + pythonShape(targetTileShape) + ")";
     }
+    if (atom.op == TensorOp::Cumsum) {
+      // A padded lane follows every logical lane on its axis, so no logical
+      // prefix reads one; the result mask then hides the padded prefixes.
+      const auto sourceShape = valueShape(valueType(atom.operands.front()));
+      const auto axis =
+          normalizeTensorAxis(atom.axis, static_cast<std::uint32_t>(sourceShape.size()));
+      return "tl.cumsum(" + operands.front() + ", axis=" + std::to_string(axis) + ")";
+    }
     if (isTensorWhere(atom.op)) {
       const auto relation = atom.op == TensorOp::WhereLt   ? " < "
                             : atom.op == TensorOp::WhereLe ? " <= "

@@ -376,6 +376,7 @@ namespace refractir {
         case TensorOp::WhereLt:
         case TensorOp::WhereLe:
         case TensorOp::WhereEq:
+        case TensorOp::Cumsum:
           return true;
         default:
           return false;

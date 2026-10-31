@@ -561,7 +561,7 @@ test-tensor-frontend: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) $(PY) -m unittest test.unit.test_tensor_frontend \
 	    test.unit.test_tensor_dot test.unit.test_tensor_narrow test.unit.test_tensor_where \
-	    test.unit.test_tensor_scalar_branch
+	    test.unit.test_tensor_scalar_branch test.unit.test_tensor_cumsum
 
 test-tensor-exact: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TENSOR_GRAPH_REGION_EXPORT)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \

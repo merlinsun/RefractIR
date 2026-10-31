@@ -309,6 +309,11 @@ namespace refractir {
         throw ParseError(
             "tensor-window: expected [rows, stride, active]", operatorToken.span
         );
+    } else if (operatorToken.lexeme == "cumsum") {
+      atom.op = TensorOp::Cumsum;
+      parseOperand();
+      comma();
+      atom.axis = parseTensorAxis();
     } else if (operatorToken.lexeme == "softmax") {
       atom.op = TensorOp::Softmax;
       parseOperand();
