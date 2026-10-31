@@ -10,7 +10,7 @@ A tensor kernel has no irreducible control flow; its path is the set of runtime-
 |---|---|
 | Trip count of each counted loop | a literal in SIR, or an `i32` entry parameter whose range `assume` statements give; `symirc --tensor-loop-bound runtime` passes a literal as an unspecialized kernel parameter whose default is the literal |
 | Lanes masked at a window boundary | the window's rows, stride, and active bound |
-| Arm of each per-lane `select` | not generated |
+| Arm of each per-lane `where` | the inputs, through the comparison each lane makes |
 | Scalar branches | outside the tensor profile, which allows only counted-loop headers to branch |
 
 A literal bound gives one to eight trips ([tensor capability analysis](../src/analysis/tensor.cpp)). A parameter bound `%n` needs `assume %n >= lo;` and `assume %n <= hi;` in `^entry`, with `lo` at or above the loop's start and `hi` allowing one to eight trips, so the loop may run zero times; P0 runs the trips the argument gives and refuses an argument outside the range, and the emitted kernel loads the argument once and loops to it. A scalar parameter travels in a bundle as a one-element input of shape `[]`. A runtime bound with its literal default computes the literal program, so P0 needs no change to compare it. Excluding the parameter from specialization matters because Triton turns an integer argument equal to one into a constant.
@@ -21,7 +21,7 @@ SIR's domain is finite: NaN and infinities are undefined behaviour in P0 ([float
 
 | Class | Operations | Comparison |
 |---|---|---|
-| Specified | `add`, `sub`, `mul`, `min`, `max`, `rmin`, `rmax`, `narrow f16`, `narrow bf16` (*evidence pending*), and data movement (`window`, `transpose`, `expand`, `broadcast`) | bit-exact against P0 at any finite value |
+| Specified | `add`, `sub`, `mul`, `min`, `max`, `rmin`, `rmax`, `narrow f16`, `narrow bf16` (*evidence pending*), and data movement (`window`, `transpose`, `expand`, `broadcast`, `where`) | bit-exact against P0 at any finite value |
 | Pinned by a launch option | elementwise operations under `enable_fp_fusion=False`, which forbids contracting a multiply and an add into one rounding | bit-exact once pinned |
 | Unspecified | `sum` and f32 `dot`, whose accumulation order the backend chooses; `div`, `exp`, and `rem`, whose lowerings are not one correctly rounded operation | enclosure, or excluded from the comparison |
 

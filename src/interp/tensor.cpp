@@ -362,6 +362,29 @@ namespace refractir {
       return tensorOrScalar(resultType.shape, std::move(output));
     }
 
+    if (isTensorWhere(atom.op)) {
+      if (resultType.element != TensorElement::I32)
+        throw std::runtime_error("numerical tensor where requires the reference evaluator");
+      std::vector<RuntimeValue> output;
+      output.reserve(tensorElementCount(resultType.shape));
+      for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
+        const auto coords = coordinates(i, resultType.shape);
+        std::vector<RuntimeValue> lanes;
+        for (const auto &operand: operands) {
+          const Shape shape =
+              operand.kind == RuntimeValue::Kind::Tensor ? operand.tensorShape : Shape{};
+          lanes.push_back(normalizeScalar(projectedAt(operand, shape, coords), TensorElement::I32));
+        }
+        const auto a = lanes[0].intVal;
+        const auto b = lanes[1].intVal;
+        const bool holds = atom.op == TensorOp::WhereLt   ? a < b
+                           : atom.op == TensorOp::WhereLe ? a <= b
+                                                          : a == b;
+        output.push_back(holds ? lanes[2] : lanes[3]);
+      }
+      return tensorOrScalar(resultType.shape, std::move(output));
+    }
+
     if (atom.op == TensorOp::Dot) {
       if (resultType.element != TensorElement::I32)
         throw std::runtime_error("numerical tensor dot requires the reference evaluator");

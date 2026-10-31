@@ -1361,6 +1361,38 @@ namespace refractir {
       return makeResult(left->shape, left->elem);
     }
 
+    if (isTensorWhere(atom.op)) {
+      if (!requireOperandCount(4))
+        return Ty{std::monostate{}};
+      TypePtr element;
+      Shape output;
+      for (std::size_t index = 0; index < 4; ++index) {
+        Shape shape;
+        TypePtr operandElement;
+        if (!sourceShapeAndElement(resolveOperand(index, element), shape, operandElement))
+          return Ty{std::monostate{}};
+        if (!isTensorScalar(operandElement) ||
+            (element && !TypeUtils::areTypesEqual(element, operandElement))) {
+          diags.error("tensor-where: operands must share an i32 or f32 element type", atom.span);
+          return Ty{std::monostate{}};
+        }
+        element = operandElement;
+        try {
+          output = tensorBroadcastShape(output, shape);
+        } catch (const std::exception &error) {
+          diags.error(error.what(), atom.span);
+          return Ty{std::monostate{}};
+        }
+      }
+      if (output.empty()) {
+        diags.error("tensor-where: at least one operand must be a tensor", atom.span);
+        return Ty{std::monostate{}};
+      }
+      if (!validateShape(output))
+        return Ty{std::monostate{}};
+      return makeResult(output, element);
+    }
+
     if (atom.op == TensorOp::Dot) {
       if (!requireOperandCount(2))
         return Ty{std::monostate{}};

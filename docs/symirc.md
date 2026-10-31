@@ -39,6 +39,10 @@ The target enforces the selected bounded profile and emits one program instance.
 
 `tensor narrow f16 %x` and `tensor narrow bf16 %x` round every lane of an `f32` value to the named format, to nearest with ties to even, and keep the result as an `f32` value representable in that format; subnormals of the format are kept, and the sign of zero is preserved. A lane that rounds past the format's largest finite value is undefined behaviour. The emitter converts and widens back with `.to(tl.float16, fp_downcast_rounding="rtne").to(tl.float32)` (or `tl.bfloat16`). Narrowing is admitted under the v2 and v3 profiles.
 
+### Tensor where
+
+`tensor where lt|le|eq %a, %b, %x, %y` takes, lane by lane, `x` where `a < b` (`<=`, `==`) holds and `y` elsewhere. All four operands share an element type and broadcast to the result shape. The chosen arm keeps its bits, and `-0.0` and `+0.0` compare equal. The emitter writes `tl.where((a < b), x, y)`. `where` is admitted under the v2 and v3 profiles.
+
 `-I <path>` adds a search path for resolving link-form `decl`s, and may repeat. `--split-by-source` (C only) emits one `<stem>.c` per source file plus a shared `common.h` into the directory given by `-o`.
 
 ## Name mangling

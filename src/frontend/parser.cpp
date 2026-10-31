@@ -227,6 +227,23 @@ namespace refractir {
       parseOperand();
       comma();
       parseOperand();
+    } else if (operatorToken.lexeme == "where") {
+      const auto &relation = consume(TokenKind::Ident, "where relation");
+      if (relation.lexeme == "lt")
+        atom.op = TensorOp::WhereLt;
+      else if (relation.lexeme == "le")
+        atom.op = TensorOp::WhereLe;
+      else if (relation.lexeme == "eq")
+        atom.op = TensorOp::WhereEq;
+      else
+        throw ParseError(
+            "tensor-where: unknown where relation '" + relation.lexeme + "'", relation.span
+        );
+      for (int operand = 0; operand < 4; ++operand) {
+        if (operand)
+          comma();
+        parseOperand();
+      }
     } else if (operatorToken.lexeme == "narrow") {
       const auto &format = consume(TokenKind::Ident, "narrow format");
       if (format.lexeme == "f16")

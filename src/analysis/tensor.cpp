@@ -372,6 +372,9 @@ namespace refractir {
         case TensorOp::Dot:
         case TensorOp::NarrowF16:
         case TensorOp::NarrowBF16:
+        case TensorOp::WhereLt:
+        case TensorOp::WhereLe:
+        case TensorOp::WhereEq:
           return true;
         default:
           return false;
@@ -1017,6 +1020,9 @@ namespace refractir {
             "tensor-profile: tensor window requires tensor-v2 or tensor-v3", function.span
         );
       eachTensorAtom(function, [&](const TensorAtom &atom) {
+        if (isTensorWhere(atom.op) && profile.id != TensorProfileId::V2 &&
+            profile.id != TensorProfileId::V3)
+          diags.error("tensor-profile: where requires tensor-v2 or tensor-v3", atom.span);
         if (atom.op != TensorOp::Dot)
           return;
         if (profile.id != TensorProfileId::V2 && profile.id != TensorProfileId::V3)

@@ -344,6 +344,31 @@ namespace refractir {
         return tensorOrScalar(resultType.shape, std::move(output));
       }
 
+      if (isTensorWhere(atom.op)) {
+        // The chosen arm is returned with its bits, so a signed zero survives;
+        // the comparison treats -0 and +0 as equal, as IEEE does.
+        std::vector<RuntimeValue> output;
+        output.reserve(tensorElementCount(resultType.shape));
+        for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
+          const auto coords = coordinates(i, resultType.shape);
+          std::vector<RuntimeValue> lanes;
+          for (const auto &operand: operands) {
+            const Shape shape =
+                operand.kind == RuntimeValue::Kind::Tensor ? operand.tensorShape : Shape{};
+            lanes.push_back(projectedAt(operand, shape, coords));
+          }
+          const auto a = readFloat<Bits>(lanes[0]);
+          const auto b = readFloat<Bits>(lanes[1]);
+          (void) readFloat<Bits>(lanes[2]);
+          (void) readFloat<Bits>(lanes[3]);
+          const bool holds = atom.op == TensorOp::WhereLt   ? a < b
+                             : atom.op == TensorOp::WhereLe ? a <= b
+                                                            : a == b;
+          output.push_back(holds ? lanes[2] : lanes[3]);
+        }
+        return tensorOrScalar(resultType.shape, std::move(output));
+      }
+
       if (atom.op == TensorOp::NarrowF16 || atom.op == TensorOp::NarrowBF16) {
         const auto &input = operands.at(0);
         const auto format = narrowFormat(atom.op);

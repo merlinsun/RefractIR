@@ -803,6 +803,13 @@ namespace refractir {
       }
       return "tl.broadcast_to(" + operand + ", " + pythonShape(targetTileShape) + ")";
     }
+    if (isTensorWhere(atom.op)) {
+      const auto relation = atom.op == TensorOp::WhereLt   ? " < "
+                            : atom.op == TensorOp::WhereLe ? " <= "
+                                                           : " == ";
+      return "tl.where((" + operands[0] + relation + operands[1] + "), " + operands[2] + ", " +
+             operands[3] + ")";
+    }
     if (atom.op == TensorOp::NarrowF16 || atom.op == TensorOp::NarrowBF16) {
       const auto format = atom.op == TensorOp::NarrowF16 ? "tl.float16" : "tl.bfloat16";
       return operands.front() + ".to(" + format + ", fp_downcast_rounding=\"rtne\").to(tl.float32)";

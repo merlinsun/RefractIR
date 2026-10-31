@@ -42,7 +42,15 @@ namespace refractir {
     Dot,
     NarrowF16,
     NarrowBF16,
+    WhereLt,
+    WhereLe,
+    WhereEq,
   };
+
+  /// `tensor where lt|le|eq %a, %b, %x, %y`: x where a relop b, else y.
+  inline bool isTensorWhere(TensorOp op) noexcept {
+    return op == TensorOp::WhereLt || op == TensorOp::WhereLe || op == TensorOp::WhereEq;
+  }
 
   inline std::string_view tensorOpName(TensorOp op) noexcept {
     switch (op) {
@@ -94,6 +102,12 @@ namespace refractir {
         return "narrow f16";
       case TensorOp::NarrowBF16:
         return "narrow bf16";
+      case TensorOp::WhereLt:
+        return "where lt";
+      case TensorOp::WhereLe:
+        return "where le";
+      case TensorOp::WhereEq:
+        return "where eq";
     }
     return "?";
   }
