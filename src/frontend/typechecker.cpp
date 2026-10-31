@@ -1195,7 +1195,8 @@ namespace refractir {
         atom.op == TensorOp::Broadcast || atom.op == TensorOp::Transpose ||
         atom.op == TensorOp::Sum || atom.op == TensorOp::ReduceMin ||
         atom.op == TensorOp::ReduceMax || atom.op == TensorOp::Softmax ||
-        atom.op == TensorOp::Exp) {
+        atom.op == TensorOp::Exp || atom.op == TensorOp::NarrowF16 ||
+        atom.op == TensorOp::NarrowBF16) {
       if (!requireOperandCount(1))
         return Ty{std::monostate{}};
       TypePtr type = resolveOperand(0);
@@ -1324,6 +1325,14 @@ namespace refractir {
       if (atom.op == TensorOp::Exp) {
         if (!TypeUtils::getFloatBitWidth(elementType)) {
           diags.error("tensor-type: exp requires f32 elements", atom.span);
+          return Ty{std::monostate{}};
+        }
+        return makeResult(sourceShape, elementType);
+      }
+
+      if (atom.op == TensorOp::NarrowF16 || atom.op == TensorOp::NarrowBF16) {
+        if (!TypeUtils::getFloatBitWidth(elementType)) {
+          diags.error("tensor-narrow: narrow requires f32 elements", atom.span);
           return Ty{std::monostate{}};
         }
         return makeResult(sourceShape, elementType);

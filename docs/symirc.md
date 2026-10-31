@@ -35,6 +35,10 @@ The target enforces the selected bounded profile and emits one program instance.
 
 `tensor dot %a, %b` multiplies a `[M, K]` tensor by a `[K, N]` tensor of the same element type and produces `[M, N]`. An `i32` result is the exact inner product; every operand lane must lie in the int8 range, and a lane outside it is undefined behaviour, so the emitter can pass `int8` operands to `tl.dot` with an `int32` accumulator. An `f32` result is the exact inner product rounded once, like `sum`; the emitter asks for `input_precision="ieee"`, so Triton does not substitute TF32. Dot is admitted under the v2 and v3 profiles, with `M`, `K`, and `N` powers of two of at least 16, the smallest tile `tl.dot` accepts; no lane is padded.
 
+### Tensor narrow
+
+`tensor narrow f16 %x` and `tensor narrow bf16 %x` round every lane of an `f32` value to the named format, to nearest with ties to even, and keep the result as an `f32` value representable in that format; subnormals of the format are kept, and the sign of zero is preserved. A lane that rounds past the format's largest finite value is undefined behaviour. The emitter converts and widens back with `.to(tl.float16, fp_downcast_rounding="rtne").to(tl.float32)` (or `tl.bfloat16`). Narrowing is admitted under the v2 and v3 profiles.
+
 `-I <path>` adds a search path for resolving link-form `decl`s, and may repeat. `--split-by-source` (C only) emits one `<stem>.c` per source file plus a shared `common.h` into the directory given by `-o`.
 
 ## Name mangling

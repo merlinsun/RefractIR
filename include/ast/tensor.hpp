@@ -40,6 +40,8 @@ namespace refractir {
     Softmax,
     Window,
     Dot,
+    NarrowF16,
+    NarrowBF16,
   };
 
   inline std::string_view tensorOpName(TensorOp op) noexcept {
@@ -88,6 +90,10 @@ namespace refractir {
         return "window";
       case TensorOp::Dot:
         return "dot";
+      case TensorOp::NarrowF16:
+        return "narrow f16";
+      case TensorOp::NarrowBF16:
+        return "narrow bf16";
     }
     return "?";
   }

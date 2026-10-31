@@ -69,6 +69,10 @@ OPS = {
   "exp": ("v2", _UNARY.format(op="exp")),
   **{op: ("v3", _REDUCTION.format(op=op)) for op in ("sum", "rmin", "rmax")},
   "dot": ("v3", _DOT),
+  **{
+    f"narrow-{fmt}": ("v3", _UNARY.format(op=f"narrow {fmt}"))
+    for fmt in ("f16", "bf16")
+  },
 }
 
 _F32 = re.compile(

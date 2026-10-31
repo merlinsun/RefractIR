@@ -227,6 +227,17 @@ namespace refractir {
       parseOperand();
       comma();
       parseOperand();
+    } else if (operatorToken.lexeme == "narrow") {
+      const auto &format = consume(TokenKind::Ident, "narrow format");
+      if (format.lexeme == "f16")
+        atom.op = TensorOp::NarrowF16;
+      else if (format.lexeme == "bf16")
+        atom.op = TensorOp::NarrowBF16;
+      else
+        throw ParseError(
+            "tensor-narrow: unknown narrow format '" + format.lexeme + "'", format.span
+        );
+      parseOperand();
     } else if (operatorToken.lexeme == "exp") {
       atom.op = TensorOp::Exp;
       parseOperand();

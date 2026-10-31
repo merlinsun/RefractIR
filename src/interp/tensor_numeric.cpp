@@ -1,8 +1,10 @@
 #include "interp/tensor_numeric.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #if defined(REFRACTIR_TENSOR_REF)
@@ -159,6 +161,51 @@ namespace refractir {
       return left;
     }
 
+    /// A binary floating-point format narrower than f32: significand bits
+    /// (with the implicit one), least normal exponent, largest finite value.
+    struct NarrowFormat {
+      const char *name;
+      int precision;
+      int minExponent;
+      double largest;
+    };
+
+    NarrowFormat narrowFormat(TensorOp op) {
+      if (op == TensorOp::NarrowF16)
+        return {"f16", 11, -14, 65504.0};
+      return {"bf16", 8, -126, std::ldexp(255.0, 120)};
+    }
+
+    /// Round an f32 to the format, to nearest with ties to even, in exact
+    /// double arithmetic: the quantum is a power of two and the scaled value
+    /// has at most 24 significant bits.
+    RuntimeValue narrowLane(const RuntimeValue &value, const NarrowFormat &format) {
+      if (value.kind == RuntimeValue::Kind::Undef)
+        throw UndefinedBehaviorError("UB: Reading undef tensor element");
+      const double x = static_cast<double>(static_cast<float>(value.floatVal));
+      double rounded = x;
+      if (x != 0.0) {
+        int exponent = 0;
+        std::frexp(x, &exponent);
+        const int leading = std::max(exponent - 1, format.minExponent);
+        const double quantum = std::ldexp(1.0, leading - (format.precision - 1));
+        const double scaled = x / quantum;
+        const double floor = std::floor(scaled);
+        const double fraction = scaled - floor;
+        double integral = floor;
+        if (fraction > 0.5 || (fraction == 0.5 && std::fmod(floor, 2.0) != 0.0))
+          integral = floor + 1.0;
+        rounded = std::copysign(integral * quantum, x);
+      }
+      if (std::fabs(rounded) > format.largest)
+        throw UndefinedBehaviorError(std::string("UB: tensor narrow overflows ") + format.name);
+      RuntimeValue result;
+      result.kind = RuntimeValue::Kind::Float;
+      result.bits = 32;
+      result.floatVal = static_cast<double>(static_cast<float>(rounded));
+      return result;
+    }
+
     template<unsigned Bits>
     RuntimeValue binaryResult(TensorOp op, const RuntimeValue &left, const RuntimeValue &right) {
       if (op == TensorOp::Rem) {
@@ -294,6 +341,18 @@ namespace refractir {
               )
           );
         }
+        return tensorOrScalar(resultType.shape, std::move(output));
+      }
+
+      if (atom.op == TensorOp::NarrowF16 || atom.op == TensorOp::NarrowBF16) {
+        const auto &input = operands.at(0);
+        const auto format = narrowFormat(atom.op);
+        if (input.kind != RuntimeValue::Kind::Tensor)
+          return narrowLane(input, format);
+        std::vector<RuntimeValue> output;
+        output.reserve(input.arrayVal.size());
+        for (const auto &lane: input.arrayVal)
+          output.push_back(narrowLane(lane, format));
         return tensorOrScalar(resultType.shape, std::move(output));
       }
 

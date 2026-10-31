@@ -21,11 +21,11 @@ SIR's domain is finite: NaN and infinities are undefined behaviour in P0 ([float
 
 | Class | Operations | Comparison |
 |---|---|---|
-| Specified | `add`, `sub`, `mul`, `min`, `max`, `rmin`, `rmax`, and data movement (`window`, `transpose`, `expand`, `broadcast`) | bit-exact against P0 at any finite value |
+| Specified | `add`, `sub`, `mul`, `min`, `max`, `rmin`, `rmax`, `narrow f16`, `narrow bf16` (*evidence pending*), and data movement (`window`, `transpose`, `expand`, `broadcast`) | bit-exact against P0 at any finite value |
 | Pinned by a launch option | elementwise operations under `enable_fp_fusion=False`, which forbids contracting a multiply and an add into one rounding | bit-exact once pinned |
 | Unspecified | `sum` and f32 `dot`, whose accumulation order the backend chooses; `div`, `exp`, and `rem`, whose lowerings are not one correctly rounded operation | enclosure, or excluded from the comparison |
 
-`min` and `max` resolve a tie between zeros of opposite sign by the IEEE minNum/maxNum rule; Triton leaves that tie open, so the emitter computes it explicitly ([the Triton backend](../src/backend/triton_backend.cpp)). An `i32` `dot` is exact and compared like any integer result. SIR has no `sqrt` or low-precision floating-point type, so neither appears in a generated kernel.
+`min` and `max` resolve a tie between zeros of opposite sign by the IEEE minNum/maxNum rule; Triton leaves that tie open, so the emitter computes it explicitly ([the Triton backend](../src/backend/triton_backend.cpp)). An `i32` `dot` is exact and compared like any integer result. SIR has no `sqrt` or low-precision floating-point type; `narrow` rounds an f32 value to f16 or bf16 and keeps it in f32, which Triton computes with one `cvt.rn` conversion each way. The `narrow` rows stay *evidence pending* until that PTX has been recorded on the A800.
 
 On the Triton build of the 2026-10-29 server run, `/` lowers to `div.full.f32` (approximate), `exp` to `ex2.approx.f32`, and `rem` to `div.rn.f32`, `cvt.rzi.f32.f32`, and `fma.rn.f32`, which compute a - trunc(a / b) * b. That formula is not IEEE `fmod`: when a / b rounds up to an integer, the truncated quotient is one too large. Every other operation in the table above lowers to one `.rn` instruction, `min.f32`, or `max.f32`, plus the exact signed-zero tie computation.
 

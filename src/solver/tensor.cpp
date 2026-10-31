@@ -167,12 +167,13 @@ namespace refractir {
                                     ? TypeUtils::asTensor(arg.resolvedType)->elem
                                     : arg.resolvedType;
     const bool isFloat = TypeUtils::getFloatBitWidth(elementType).has_value();
-    const bool numericalOp =
-        arg.op == TensorOp::Add || arg.op == TensorOp::Sub || arg.op == TensorOp::Mul ||
-        arg.op == TensorOp::Div || arg.op == TensorOp::Rem || arg.op == TensorOp::Min ||
-        arg.op == TensorOp::Max || arg.op == TensorOp::Exp || arg.op == TensorOp::Sum ||
-        arg.op == TensorOp::ReduceMin ||
-        arg.op == TensorOp::ReduceMax || arg.op == TensorOp::Softmax;
+    const bool numericalOp = arg.op == TensorOp::Add || arg.op == TensorOp::Sub ||
+                             arg.op == TensorOp::Mul || arg.op == TensorOp::Div ||
+                             arg.op == TensorOp::Rem || arg.op == TensorOp::Min ||
+                             arg.op == TensorOp::Max || arg.op == TensorOp::Exp ||
+                             arg.op == TensorOp::Sum || arg.op == TensorOp::ReduceMin ||
+                             arg.op == TensorOp::ReduceMax || arg.op == TensorOp::Softmax ||
+                             arg.op == TensorOp::NarrowF16 || arg.op == TensorOp::NarrowBF16;
     if (isFloat && numericalOp) {
       throw std::runtime_error(
           "unsupported_theory: numerical tensor operator '" + std::string(tensorOpName(arg.op)) +

@@ -370,6 +370,8 @@ namespace refractir {
         case TensorOp::ReduceMax:
         case TensorOp::Window:
         case TensorOp::Dot:
+        case TensorOp::NarrowF16:
+        case TensorOp::NarrowBF16:
           return true;
         default:
           return false;

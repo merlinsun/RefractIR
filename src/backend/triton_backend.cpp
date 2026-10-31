@@ -803,6 +803,10 @@ namespace refractir {
       }
       return "tl.broadcast_to(" + operand + ", " + pythonShape(targetTileShape) + ")";
     }
+    if (atom.op == TensorOp::NarrowF16 || atom.op == TensorOp::NarrowBF16) {
+      const auto format = atom.op == TensorOp::NarrowF16 ? "tl.float16" : "tl.bfloat16";
+      return operands.front() + ".to(" + format + ", fp_downcast_rounding=\"rtne\").to(tl.float32)";
+    }
     if (atom.op == TensorOp::Dot) {
       // SIR makes an integer operand outside int8 undefined, so the cast to
       // the only integer input `tl.dot` accepts loses nothing. f32 operands
