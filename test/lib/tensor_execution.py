@@ -170,13 +170,15 @@ def layout_manifest(case):
   return {"buffers": buffers}
 
 
-def emit_kernel(case, symirc, artifact_dir):
+def emit_kernel(case, symirc, artifact_dir, extra_args=()):
   """Emit one ordinary Triton kernel and return its path with both logs.
 
   The command line is the ordinary `symirc` invocation for the case's profile:
   v2 and v3 carry the layout manifest, v4 carries only the profile version, and
   a bundle's `loop_bound` and `loop_hint` add `--tensor-loop-bound` and
-  `--tensor-loop-hint`. The
+  `--tensor-loop-hint`. v5 carries the layout manifest like v3, and
+  `extra_args` (grid tiling, stride arguments, boundary dtypes, a launch record)
+  are appended for a generation export. The
   kernel is written to a temporary name, parsed, then moved into place, so a
   failed emission leaves no kernel artifact. A failure returns a missing path
   with the compiler's stderr and stdout; callers turn that into a compile
@@ -202,14 +204,17 @@ def emit_kernel(case, symirc, artifact_dir):
     str(temporary),
     str(case.path / "program.sir"),
   ]
-  if case.manifest["profile"] in {"tensor-v2", "tensor-v3"}:
+  command[-3:-3] = list(extra_args)
+  if case.manifest["profile"] in {"tensor-v2", "tensor-v3", "tensor-v5"}:
     staged_layout = layout_manifest(case)
     layout_path = artifact_dir / "tensor-layout.json"
     layout_path.write_text(
       canonical_json(staged_layout) + "\n",
       encoding="utf-8",
     )
-    version = "v2" if case.manifest["profile"] == "tensor-v2" else "v3"
+    version = {"tensor-v2": "v2", "tensor-v3": "v3", "tensor-v5": "v5"}[
+      case.manifest["profile"]
+    ]
     command[1:1] = ["--tensor-profile-version", version]
     command[1:1] = ["--tensor-layout-manifest", str(layout_path)]
   elif case.manifest["profile"] == "tensor-v4":

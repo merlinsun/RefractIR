@@ -15,7 +15,9 @@ reconstructed, which no exported block needs yet.
 import ast
 import hashlib
 import json
+import re
 import shutil
+import struct
 import tempfile
 from pathlib import Path
 
@@ -71,14 +73,22 @@ def _kernel_parameters(source):
   raise ExportError("the emitted source has no kernel function")
 
 
-def _emit(case, symirc):
+def _emit(case, symirc, extra_args=(), launch_record=False):
+  """The kernel text, and with `launch_record` the launch record symirc wrote."""
   with tempfile.TemporaryDirectory() as scratch:
-    path, stderr, stdout = tensor_execution.emit_kernel(case, symirc, Path(scratch))
+    record_path = Path(scratch) / "launch-record.json"
+    arguments = (
+      [*extra_args, "--tensor-launch-json", str(record_path)] if launch_record else []
+    )
+    path, stderr, stdout = tensor_execution.emit_kernel(
+      case, symirc, Path(scratch) / "kernel", extra_args=arguments
+    )
     if path is None:
       raise ExportError(
         f"symirc refused the bundle: {(stderr or stdout).strip()[-500:]}"
       )
-    return path.read_text(encoding="utf-8")
+    record = json.loads(record_path.read_text("utf-8")) if launch_record else None
+    return path.read_text(encoding="utf-8"), record
 
 
 def _tensor(record, **storage):
@@ -108,13 +118,98 @@ def _launch(case, names):
   }
 
 
-def _raw_inputs(case):
+def _raw_inputs(case, halves=None):
+  """Each input's bytes; an f32 input held as float16 is narrowed, exactly,
+  since its values were rounded to f16 before P0 saw them."""
+  halves = halves or {}
+  raw = {}
+  for r in case.record["inputs"]:
+    data = case.inputs[r["byte_offset"] : r["byte_offset"] + r["byte_length"]]
+    if halves.get(_plain(r["name"])) == "float16":
+      values = struct.unpack(f"<{len(data) // 4}f", data)
+      data = struct.pack(f"<{len(values)}e", *values)
+    raw[f"{_plain(r['name'])}.bin"] = data
+  return raw
+
+
+def _signature(source):
+  """Every kernel parameter in order, as (name, default, constexpr)."""
+  for node in ast.walk(ast.parse(source)):
+    if isinstance(node, ast.FunctionDef) and node.name == "kernel":
+      positional = node.args.args
+      defaults = [None] * (len(positional) - len(node.args.defaults)) + list(
+        node.args.defaults
+      )
+      return [
+        (
+          arg.arg,
+          None if default is None else ast.literal_eval(default),
+          arg.annotation is not None and "constexpr" in ast.unparse(arg.annotation),
+        )
+        for arg, default in zip(positional, defaults)
+      ]
+  raise ExportError("the emitted source has no kernel function")
+
+
+def _generation_launch(case, kernel, record, halves):
+  """A launch naming every kernel parameter in signature order: layout-mutator
+  passes arguments positionally, and its launch relation varies the block
+  constexpr and the stride and offset scalars by name."""
+  inputs = {f"{_plain(r['name'])}_ptr": r for r in case.record["inputs"]}
+  names, args = [], []
+  for name, default, constexpr in _signature(kernel):
+    names.append(name)
+    if name in inputs or name == "out_ptr":
+      tensor = inputs.get(name, case.record["output"])
+      buffer = "return" if name == "out_ptr" else _plain(tensor["name"])
+      storage = (
+        {"fill": {"rule": "zeros"}, "raw": None}
+        if name == "out_ptr"
+        else {"fill": None, "raw": f"{_plain(tensor['name'])}.bin"}
+      )
+      arg = _tensor(tensor, **storage)
+      if buffer in halves:
+        arg["dtype"] = halves[buffer]
+      args.append(arg)
+    elif constexpr:
+      args.append(
+        {"kind": "constexpr", "value": record["constexprs"].get(name, default)}
+      )
+    else:
+      args.append(
+        {"kind": "scalar", "value": record["scalars"].get(name, default), "type": "int"}
+      )
   return {
-    f"{_plain(r['name'])}.bin": case.inputs[
-      r["byte_offset"] : r["byte_offset"] + r["byte_length"]
-    ]
-    for r in case.record["inputs"]
+    "kernel": "kernel",
+    "grid": list(record["grid"]),
+    "options": dict(case.record["launch"]),
+    "names": names,
+    "args": args,
   }
+
+
+_LITERAL = re.compile(r"(?<![%\w.])-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?![\w.])")
+
+
+def literals(source):
+  """Each literal operand of a tensor operation, with the operation's name."""
+  found = []
+  for line in source.splitlines():
+    match = re.search(r"= tensor (\w+)(?: (?:lt|le|eq|f16|bf16))? (.*);", line)
+    if not match or match.group(1) in {
+      "sum",
+      "rmin",
+      "rmax",
+      "cumsum",
+      "expand",
+      "transpose",
+      "broadcast",
+      "window",
+    }:
+      continue
+    for token in _LITERAL.findall(match.group(2)):
+      found.append({"value": float(token), "role": match.group(1), "lifted_to": None})
+  return found
 
 
 def _scalar(case, name):
@@ -149,12 +244,16 @@ def sidecar(case, region, *, narrow_bf16="excluded"):
     element=region["dtype"],
     narrow_bf16=narrow_bf16,
   )
+  path = {"trip_counts": trip_counts}
+  if region.get("range"):
+    path["scalars"] = {_plain(name): value for name, value in scalars.items()}
+    path["step"] = region["range"]["step"]
   return {
     "schema": SIDECAR_SCHEMA,
     "source": "refractir",
     "inputs": facts["inputs"],
     "outputs": facts["outputs"],
-    "path": {"trip_counts": trip_counts},
+    "path": path,
     "expected": {"p0_sha256": None, "p0_file": None},
   }
 
@@ -193,18 +292,31 @@ def export_seed(
   symiri=None,
   provenance=None,
   narrow_bf16="excluded",
+  generation=None,
 ):
   """Write one seed directory for a bundle and its region record; return it.
 
   With `symiri`, P0's output becomes the seed's expected output. `narrow_bf16`
   is the class `narrow bf16` has on the host that will run the seed (see
-  `tensor_relations_sidecar.analyze`).
+  `tensor_relations_sidecar.analyze`). `generation` (generation plan G9/G10)
+  states `emit_args` for symirc, `halves` (buffer name or `return` to
+  `float16`/`bfloat16`), and the steering `target`; the launch then names every
+  kernel parameter and the sidecar gains `launch`, `literals` and `path.target`.
   """
   case = tensor_target_case.load(bundle_dir)
   for record in [*case.record["inputs"], case.record["output"]]:
     _require_dense(record)
-  kernel = _emit(case, symirc)
-  launch = _launch(case, _kernel_parameters(kernel))
+  generation = generation or {}
+  halves = dict(generation.get("halves", {}))
+  emit_args = list(generation.get("emit_args", ()))
+  for name, dtype in halves.items():
+    emit_args += ["--tensor-boundary-dtype", f"{name}={dtype}"]
+  kernel, record = _emit(case, symirc, emit_args, launch_record=bool(generation))
+  launch = (
+    _generation_launch(case, kernel, record, halves)
+    if record is not None
+    else _launch(case, _kernel_parameters(kernel))
+  )
   out = Path(out_dir)
   if out.exists():
     shutil.rmtree(out)
@@ -213,9 +325,16 @@ def export_seed(
   (out / "launch.json").write_text(
     json.dumps(launch, indent=2) + "\n", encoding="utf-8"
   )
-  for name, data in _raw_inputs(case).items():
+  for name, data in _raw_inputs(case, halves).items():
     (out / "inputs" / name).write_bytes(data)
   relations = sidecar(case, region, narrow_bf16=narrow_bf16)
+  if record is not None:
+    relations["launch"] = {
+      key: record[key] for key in ("tiles", "strides", "offsets") if record.get(key)
+    }
+    relations["literals"] = literals(case.source)
+    if generation.get("target"):
+      relations["path"]["target"] = generation["target"]
   p0 = None
   if symiri is not None:
     relations["expected"], p0 = _expected(case, out, symiri)

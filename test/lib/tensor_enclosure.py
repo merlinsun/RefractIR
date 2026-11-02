@@ -350,7 +350,7 @@ class _Machine:
         columns = values.shape[1]
         return np.array(
           [
-            list(values[start + row]) if start + row < active else [pad] * columns
+            list(values[start + row]) if 0 <= start + row < active else [pad] * columns
             for row in range(rows)
           ],
           dtype=object,
@@ -392,8 +392,11 @@ class _Machine:
       self.values[target] = self.values[expression]
     elif re.fullmatch(r"-?\d+", expression):
       self.scalars[target] = int(expression)
-    elif re.fullmatch(rf"{re.escape(target)} \+ 1", expression):
-      self.scalars[target] += 1
+    elif expression in self.scalars:
+      # A range loop starts from a ranged i32 parameter (tensor-v5).
+      self.scalars[target] = self.scalars[expression]
+    elif step := re.fullmatch(rf"{re.escape(target)} \+ (-?\d+)", expression):
+      self.scalars[target] += int(step.group(1))
     else:
       raise Unsupported(expression)
 
@@ -411,13 +414,18 @@ class _Machine:
           # P0 refuses an input outside an assumed range; the inputs here passed it.
           continue
         jump = re.fullmatch(r"br (\^\w+);", line)
-        branch = re.fullmatch(r"br (%\w+) < (%\w+|\d+), (\^\w+), (\^\w+);", line)
+        branch = re.fullmatch(r"br (%\w+) ([<>]) (%\w+|-?\d+), (\^\w+), (\^\w+);", line)
         if jump:
           label = jump.group(1)
         elif branch:
-          name, bound, taken, other = branch.groups()
+          name, relation, bound, taken, other = branch.groups()
           limit = self.scalars[bound] if bound.startswith("%") else int(bound)
-          label = taken if self.scalars[name] < limit else other
+          holds = (
+            self.scalars[name] < limit
+            if relation == "<"
+            else self.scalars[name] > limit
+          )
+          label = taken if holds else other
         else:
           raise Unsupported(line)
         break

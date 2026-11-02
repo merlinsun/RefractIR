@@ -296,11 +296,21 @@ $(TENSOR_FREE_FORM_EXPORT): test/unit/tensor_free_form_export.cpp $(TENSOR_FREE_
 	mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ test/unit/tensor_free_form_export.cpp $(TENSOR_FREE_FORM_SRCS)
 
-test-tensor-free-form: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_FREE_FORM_API) $(TENSOR_FREE_FORM_EXPORT)
+TENSOR_PATH_STEERING = $(BIN_DIR)/tensor_path_steering
+
+$(TENSOR_PATH_STEERING): test/unit/tensor_path_steering.cpp $(COMMON_OBJS) src/reify/tensor_path_steering.o
+	mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+test-tensor-free-form: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TENSOR_FREE_FORM_API) $(TENSOR_FREE_FORM_EXPORT) $(TENSOR_PATH_STEERING)
 	REFRACTIR_TENSOR_FREE_FORM_API=$(TENSOR_FREE_FORM_API) \
 	  REFRACTIR_TENSOR_FREE_FORM_EXPORT=$(TENSOR_FREE_FORM_EXPORT) \
+	  REFRACTIR_TENSOR_PATH_STEERING=$(TENSOR_PATH_STEERING) \
 	  REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \
 	  $(PY) -m unittest test.unit.test_tensor_free_form \
+	    test.unit.test_tensor_free_form_ranges test.unit.test_tensor_path_steering \
+	    test.unit.test_tensor_free_form_literals test.unit.test_tensor_free_form_approximate \
+	    test.unit.test_tensor_pointwise_dtypes test.unit.test_export_generation_block \
 	    test.unit.test_tensor_free_form_inputs test.unit.test_tensor_free_form_case \
 	    test.unit.test_tensor_target_case test.unit.test_tensor_target_run \
 	    test.unit.test_tensor_target_reference test.unit.test_tensor_state_diagnostics \
@@ -585,7 +595,9 @@ test-tensor-solver: $(TARGET_SOLVER)
 test-tensor-emit: $(TARGET_COMPILER) $(TENSOR_EMIT_API)
 	REFRACTIR_SYMIRC=./$(TARGET_COMPILER) REFRACTIR_EMIT_API=$(TENSOR_EMIT_API) \
 	  $(PY) -m unittest test.unit.test_tensor_emit test.unit.test_tensor_signed_zero_extrema \
-	    test.unit.test_tensor_loop_options test.unit.test_tensor_parameter_loops
+	    test.unit.test_tensor_loop_options test.unit.test_tensor_parameter_loops \
+	    test.unit.test_tensor_v5_profile test.unit.test_tensor_general_loops \
+	    test.unit.test_tensor_grid_tiles test.unit.test_tensor_stride_arguments
 
 test-tensor-runner: $(TARGET_INTERP) $(TARGET_COMPILER)
 	REFRACTIR_SYMIRI=./$(TARGET_INTERP) REFRACTIR_SYMIRC=./$(TARGET_COMPILER) \

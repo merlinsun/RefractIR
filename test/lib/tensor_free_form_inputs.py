@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 PROPOSAL_SCHEMA = "refractir.free-form-input-proposal.v1"
 WINDOW_PROBE_SCHEMA = "refractir.free-form-window-probes.v1"
+UNIFORM_PROBE_SCHEMA = "refractir.free-form-uniform-probe.v1"
 PATTERNS = ("distinct-integer", "mixed-sign", "repeated-value", "seeded-random")
 WINDOW_PROBES = ("i0-base", "i1-read-plus-one", "i2-late-row", "i3-unused-rows")
 CORNER_PROBES = ("i4-signed-zero", "i5-denormal", "i6-cancel", "i7-ties", "i8-large")
@@ -479,4 +480,48 @@ def corner_probes(region, *, group, column, trips=None, branch=None):
       branch=branch,
     )
     for probe in CORNER_PROBES
+  )
+
+
+def uniform_probe(region, *, seed, scalars=None, halves=(), probe="uniform"):
+  """f32 parameters uniform in [-1, 1], i32 scalars from `scalars` (by name,
+  `%` optional, 0 when absent), for generation without an expected output.
+
+  A parameter named in `halves` is rounded to f16, so a kernel that reads it
+  as a half buffer sees exactly the value P0 sees.
+  """
+  if type(seed) is not int or seed < 0:
+    raise SpecError("uniform probe seed must be a nonnegative integer")
+  scalars = {name.lstrip("%"): value for name, value in (scalars or {}).items()}
+  names, shapes, rows = [], [], []
+  payload = bytearray()
+  for position, record in enumerate(parameters(region)):
+    names.append(record["name"])
+    shapes.append(tuple(record["shape"]))
+    if record["dtype"] == "i32":
+      value = int(scalars.get(record["name"].lstrip("%"), 0))
+      rows.append((value,))
+      payload.extend(struct.pack("<i", value))
+      continue
+    count = _element_count(record["shape"])
+    stream = seed * 1_000_003 + position * 65_537
+    row = []
+    for index in range(count):
+      unit = _splitmix64(stream + index) / float(1 << 64)
+      value = struct.unpack("<f", struct.pack("<f", 2.0 * unit - 1.0))[0]
+      if record["name"].lstrip("%") in halves:
+        value = struct.unpack("<e", struct.pack("<e", value))[0]
+      row.append(value)
+    rows.append(tuple(row))
+    payload.extend(struct.pack(f"<{count}f", *row))
+  return Proposal(
+    schema=UNIFORM_PROBE_SCHEMA,
+    pattern="uniform",
+    seed=seed,
+    names=tuple(names),
+    shapes=tuple(shapes),
+    dtype="f32",
+    values=tuple(rows),
+    data=bytes(payload),
+    probe=probe,
   )

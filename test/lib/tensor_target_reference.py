@@ -24,7 +24,12 @@ FAILED = "failed"
 TIMED_OUT = "timed_out"
 STATUSES = frozenset({COMPLETED, UB, UNAVAILABLE, FAILED, TIMED_OUT, NOT_RUN})
 
-PROFILE_VERSIONS = {"tensor-v2": "v2", "tensor-v3": "v3", "tensor-v4": "v4"}
+PROFILE_VERSIONS = {
+  "tensor-v2": "v2",
+  "tensor-v3": "v3",
+  "tensor-v4": "v4",
+  "tensor-v5": "v5",
+}
 UB_EXIT_CODE = 5
 
 

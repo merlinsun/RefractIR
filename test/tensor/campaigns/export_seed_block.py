@@ -12,6 +12,13 @@ it wrote.
 
 Blocks follow the census order: dot, narrow, where, nested, scan.
 
+Generation blocks (generation plan G9) build tensor-v5 bodies directly: a
+general range loop, the block's features, inputs uniform in [-1, 1], and no
+rule that exists only to certify P0. Each body is steered toward its corner
+paths, and every reached target becomes one seed directory (the first the seed
+itself, the rest variants) sharing the body's kernel, with `path.target` in
+its sidecar. A target the replay misses is a defect and refuses the body.
+
 Usage:
   python export_seed_block.py dot --seed-start N --seed-count K --out DIR \\
     [--exporter PATH] [--symirc PATH] [--symiri PATH] [--narrow-bf16 specified]
@@ -34,6 +41,7 @@ if str(ROOT) not in sys.path:
 from test.lib import (  # noqa: E402
   tensor_free_form_case,
   tensor_free_form_inputs,
+  tensor_path_steering,
   tensor_seed_export,
 )
 
@@ -63,6 +71,172 @@ BLOCKS = {
   },
   "scan": {"columns": sweep.COLUMNS, "features": ["scan", *STUDY]},
 }
+
+
+# Generation blocks: each aims at what one relation sees (generation plan,
+# Part I). Ranges are `START:STOP:STEP` with `%name[lo,hi]` parameters.
+TILE_BLOCK = 16
+TILE_CORNERS = ("one_past", "one_short", "below_block", "divisible")
+TILE_EXTENTS = {"one_past": 17, "one_short": 31, "below_block": 13, "divisible": 32}
+GENERATION_SHAPE = (8, 4)
+GENERATION_BLOCKS = {
+  "generation-loops": {
+    "range": "%lo[-8,8]:%hi[-8,8]:-2",
+    "features": ["extrema", "where", "literals"],
+  },
+  "generation-literals": {
+    "range": "0:%n[0,4]:1",
+    "features": ["extrema", "where", "literals", "narrow"],
+  },
+  "generation-approximate": {
+    "range": "0:%n[0,4]:1",
+    "features": ["literals", "div", "exp", "rem"],
+  },
+  "generation-tiled": {
+    "range": "0:%n[0,3]:1",
+    "features": ["extrema", "where", "literals", "narrow"],
+    "policy": "pointwise",
+    "parallel_axis": 0,
+    "emit_args": ["--tensor-grid-block", str(TILE_BLOCK)],
+    "tiled": True,
+  },
+  "generation-strides": {
+    "range": "0:%n[0,3]:1",
+    "features": ["extrema", "literals"],
+    "emit_args": ["--tensor-stride-arguments"],
+  },
+  "generation-dtypes": {
+    "range": "0:%n[0,3]:1",
+    "features": ["narrow", "literals", "extrema"],
+    "policy": "pointwise",
+    "halves": {"x": "float16"},
+  },
+}
+
+
+def _tile_corner(seed):
+  return TILE_CORNERS[seed % len(TILE_CORNERS)]
+
+
+def generation_command(exporter, kind, seed, out):
+  """The exporter call for one generation body: tensor-v5, no exact rule."""
+  options = GENERATION_BLOCKS[kind]
+  rows = (
+    TILE_EXTENTS[_tile_corner(seed)] if options.get("tiled") else GENERATION_SHAPE[0]
+  )
+  command = [
+    str(exporter),
+    "--seed",
+    str(seed),
+    "--shape",
+    f"{rows},{GENERATION_SHAPE[1]}",
+    "--states",
+    "2",
+    "--dtype",
+    "f32",
+    "--profile",
+    "v5",
+    "--policy",
+    options.get("policy", "unguided"),
+    "--features",
+    ",".join(options["features"]),
+    "--range",
+    options["range"],
+    "--max-nodes",
+    str(EXPORT_MAX_NODES),
+    "--max-multiplications",
+    str(EXPORT_MAX_NODES),
+    "--out",
+    str(out),
+  ]
+  if "parallel_axis" in options:
+    command += ["--parallel-axis", str(options["parallel_axis"])]
+  return command
+
+
+def _export_generation_body(kind, seed, out, **tools):
+  """Export one generation body with a seed per reached target, or say why not."""
+  options = GENERATION_BLOCKS[kind]
+  with tempfile.TemporaryDirectory() as scratch:
+    scratch = Path(scratch)
+    completed = subprocess.run(
+      generation_command(tools["exporter"], kind, seed, scratch / "export"),
+      capture_output=True,
+      text=True,
+      check=False,
+      timeout=120,
+    )
+    if completed.returncode != 0:
+      reason = (completed.stderr or completed.stdout).strip()[-500:]
+      return {"status": "refused", "reason": reason or "the exporter failed"}
+    region = json.loads((scratch / "export" / "region.json").read_text("utf-8"))
+    source = (scratch / "export" / "program.sir").read_text("utf-8")
+    try:
+      results = tensor_path_steering.steer(source)
+    except RuntimeError as error:
+      return {"status": "steering_failed", "reason": str(error)[-500:]}
+    missed = [result["name"] for result in results if result["status"] == "missed"]
+    if missed:
+      return {"status": "steering_missed", "reason": ", ".join(missed)}
+    reached = [result for result in results if result["status"] == "reached"]
+    tile = {}
+    if options.get("tiled"):
+      corner = _tile_corner(seed)
+      tile = {
+        "tile": {"N": TILE_EXTENTS[corner], "BLOCK": TILE_BLOCK, "corner": corner}
+      }
+    staged = scratch / "staged"
+    try:
+      for position, result in enumerate(reached):
+        probe = tensor_free_form_inputs.uniform_probe(
+          region,
+          seed=seed,
+          scalars=result["scalars"],
+          halves=tuple(options.get("halves", {})),
+          probe=result["name"],
+        )
+        case = tensor_free_form_case.build_bundle(
+          scratch / "bundles" / result["name"],
+          region=region,
+          source=source,
+          proposal=probe,
+        )
+        exported = tensor_seed_export.export_seed(
+          case.path,
+          region,
+          scratch / "seeds" / result["name"],
+          symirc=tools["symirc"],
+          symiri=tools["symiri"],
+          narrow_bf16=tools["narrow_bf16"],
+          provenance={
+            "seed": seed,
+            "block": kind,
+            "input": "uniform",
+            "target": result["name"],
+            "exporter_sha256": tensor_seed_export._sha256(
+              Path(tools["exporter"]).read_bytes()
+            ),
+            **tile,
+          },
+          generation={
+            "emit_args": options.get("emit_args", []),
+            "halves": options.get("halves", {}),
+            "target": result["name"],
+          },
+        )
+        target = staged if position == 0 else staged / "variants" / result["name"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        exported.rename(target)
+    except (tensor_seed_export.ExportError, tensor_free_form_inputs.SpecError) as error:
+      return {"status": "export_failed", "reason": str(error)[-500:]}
+    seed_dir = out / f"seed-{seed}"
+    shutil.move(str(staged), str(seed_dir))
+    return {
+      "status": "exported",
+      "directory": seed_dir.name,
+      "targets": [result["name"] for result in reached],
+      "unsatisfiable": [r["name"] for r in results if r["status"] == "unsatisfiable"],
+    }
 
 
 def _spec_for(feature, seed_start, seed_count=1):
@@ -186,19 +360,18 @@ def export_block(
   """Export every request of the block; write and return `BLOCK.json`."""
   out = Path(out)
   out.mkdir(parents=True, exist_ok=True)
-  spec = _spec_for(feature, seed_start, seed_count)
   entries = []
-  for index in range(seed_count):
-    request = block_request(feature, seed_start, index, spec)
-    outcome = _export_body(
-      request,
-      out,
-      exporter=exporter,
-      symirc=symirc,
-      symiri=symiri,
-      narrow_bf16=narrow_bf16,
-    )
-    entries.append({"seed": request["seed"], **outcome})
+  tools = dict(exporter=exporter, symirc=symirc, symiri=symiri, narrow_bf16=narrow_bf16)
+  if feature in GENERATION_BLOCKS:
+    for seed in range(seed_start, seed_start + seed_count):
+      entries.append(
+        {"seed": seed, **_export_generation_body(feature, seed, out, **tools)}
+      )
+  else:
+    spec = _spec_for(feature, seed_start, seed_count)
+    for index in range(seed_count):
+      request = block_request(feature, seed_start, index, spec)
+      entries.append({"seed": request["seed"], **_export_body(request, out, **tools)})
   record = {
     "schema": SCHEMA,
     "feature": feature,
@@ -206,7 +379,7 @@ def export_block(
     "seed_count": seed_count,
     "max_nodes": EXPORT_MAX_NODES,
     "narrow_bf16": narrow_bf16,
-    "variants": list(VARIANTS),
+    "variants": [] if feature in GENERATION_BLOCKS else list(VARIANTS),
     "entries": entries,
     "exported": sum(entry["status"] == "exported" for entry in entries),
     "digest": _digest(out),
@@ -219,7 +392,7 @@ def export_block(
 
 def main(argv=None):
   parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-  parser.add_argument("feature", choices=sorted(BLOCKS))
+  parser.add_argument("feature", choices=sorted(BLOCKS) + sorted(GENERATION_BLOCKS))
   parser.add_argument("--seed-start", type=int, required=True)
   parser.add_argument("--seed-count", type=int, required=True)
   parser.add_argument("--out", type=Path, required=True)
