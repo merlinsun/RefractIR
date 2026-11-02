@@ -40,6 +40,8 @@ The 31 October plan's local phase is complete at `64318974`: the census (`.plann
 }
 ```
 
+Three optional fields come from the generation plan (`.planning/2026-11-03-generation-without-expected-output/`, G10): `launch` (`tiles`, `strides`, `offsets`, from the launch record `symirc --tensor-launch-json` writes), `literals` (each literal operand with its operation and the parameter a lifted twin replaced it with, or null), and in `path` the steering `target` with its `scalars` and the range `step`. Generation seeds name every kernel parameter in `launch.json`, in signature order, so the block constexpr and the stride and offset scalars are launch arguments the relations can vary. A seed without them reads as before.
+
 Classes from the contract (`docs/tensor-paths-and-fp-contract.md`): specified = `add`, `sub`, `mul`, `min`, `max`, `rmin`, `rmax`, `where`, `narrow f16`, data movement; `narrow bf16` specified only if R0's PTX row shows one `cvt.rn.bf16.f32` on the host that runs; order_dependent = `sum`, f32 `dot`, f32 `cumsum` (i32 `dot` and `cumsum` are exact, hence specified); excluded = `div`, `exp`, `rem`. Weights and degrees solve the homogeneity equations over the DAG; parity likewise with the dual rules (`min`/`max` swap under negation; a comparison flips). `producer_op` is the operation that writes the output lane, so the zero-sign rule can be exact for generated kernels (zero by value only when the producer is `add` or `sub`).
 
 ## Part III. Work packages [LOCAL unless marked]
