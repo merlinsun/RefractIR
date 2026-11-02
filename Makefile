@@ -312,7 +312,9 @@ test-tensor-free-form: $(TARGET_INTERP) $(TARGET_COMPILER) $(TENSOR_FREE_FORM_AP
 	    test.unit.test_compare_p0 test.unit.test_tensor_enclosure \
 	    test.unit.test_enclose_sweep_bodies test.unit.test_fp_contract_evidence \
 	    test.unit.test_tensor_steering test.unit.test_tensor_scalar_inputs \
-	    test.unit.test_issue_feature_census test.unit.test_build_gluon_corpus
+	    test.unit.test_issue_feature_census test.unit.test_build_gluon_corpus \
+	    test.unit.test_tensor_seed_export test.unit.test_tensor_relations_sidecar \
+	    test.unit.test_export_seed_block
 
 TENSOR_GRAPH_REGION_API = $(BIN_DIR)/tensor_graph_region_api
 TENSOR_GRAPH_REGION_EXPORT = $(BIN_DIR)/tensor_graph_region_export

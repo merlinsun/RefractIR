@@ -949,17 +949,24 @@ def _export_command(exporter, request, out):
     command += ["--branch-parameter"]
   if "outer_trips" in request:
     command += ["--outer-trips", str(request["outer_trips"])]
-  return command + [
+  command += [
     "--max-attempts",
     "1",
     "--max-nodes",
     str(request["max_nodes"]),
     "--max-multiplications",
     str(request["max_multiplications"]),
-    "--exact-input-bound",
-    str(request["exact_input_bound"]),
-    "--exact-contract",
-    request["exact_contract"],
+  ]
+  # A request without an input bound (a seed export) builds bodies without
+  # the exact-value contract, which exists only to certify P0's output.
+  if request["exact_input_bound"] is not None:
+    command += [
+      "--exact-input-bound",
+      str(request["exact_input_bound"]),
+      "--exact-contract",
+      request["exact_contract"],
+    ]
+  return command + [
     "--root-selection",
     request["root_selection"],
     "--require-computed-roots",
