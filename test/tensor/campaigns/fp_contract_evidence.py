@@ -102,7 +102,11 @@ def classify_ptx(text):
   }
   # Fusion is off, so an fma in a one-operation kernel means the operation is
   # computed by a formula (rem: a - trunc(a / b) * b), not one IEEE operation.
-  found["specified"] = not (found["approximate"] or found["ftz"] or found["fma"])
+  # With no f32 instruction at all (a conversion done in integer arithmetic,
+  # as bf16 is below sm_80) the table cannot vouch for the operation.
+  found["specified"] = bool(instructions) and not (
+    found["approximate"] or found["ftz"] or found["fma"]
+  )
   return found
 
 

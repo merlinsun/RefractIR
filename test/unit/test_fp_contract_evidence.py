@@ -62,6 +62,19 @@ class ClassifyTests(unittest.TestCase):
   def test_non_float_instructions_are_ignored(self):
     self.assertEqual(evidence.classify_ptx("add.s32 %r1, %r2, 1;")["instructions"], [])
 
+  def test_a_row_with_no_float_instruction_is_not_specified(self):
+    # The V100's software f32 -> bf16 conversion: integer arithmetic only, so
+    # the table cannot vouch for it; a person reads the PTX instead.
+    bf16 = (
+      "shr.u32 %r6, %r1, 16;\nand.b32 %r7, %r6, 1;\nadd.s32 %r8, %r7, %r1;\n"
+      "add.s32 %r9, %r8, 32767;\nsetp.nan.f32 %p3, %r1, %r1;\n"
+      "or.b32 %r10, %r1, 4194304;\nselp.b32 %r11, %r10, %r9, %p3;\n"
+      "and.b32 %r3, %r11, -65536;"
+    )
+    found = evidence.classify_ptx(bf16)
+    self.assertEqual(found["instructions"], [])
+    self.assertFalse(found["specified"])
+
 
 @unittest.skipUnless(SYMIRC.is_file(), "symirc is unavailable")
 class EvidenceRunTests(unittest.TestCase):
