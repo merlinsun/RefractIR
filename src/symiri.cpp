@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     ("main", "Entry function to execute", cxxopts::value<std::string>()->default_value("@main"))
     ("entry", "Entry function for typed tensor input/output", cxxopts::value<std::string>())
     ("tensor-describe", "Describe a checked entry's typed buffer signature", cxxopts::value<bool>()->default_value("false"))
-    ("tensor-profile-version", "Tensor profile version: v1|v2|v3|v4", cxxopts::value<std::string>()->default_value("v1"))
+    ("tensor-profile-version", "Tensor profile version: v1|v2|v3|v4|v5", cxxopts::value<std::string>()->default_value("v1"))
     ("tensor-input", "Little-endian typed input buffer", cxxopts::value<std::string>())
     ("tensor-output", "Little-endian typed result buffer", cxxopts::value<std::string>())
     ("tensor-reference-bits", "Numerical tensor reference precision (128 or 256)", cxxopts::value<unsigned>()->default_value("128"))
@@ -233,7 +233,9 @@ int main(int argc, char **argv) {
       } else {
         setTensorReferenceBits(result["tensor-reference-bits"].as<unsigned>());
         Interpreter interpreter(prog);
-        value = interpreter.runTyped(entryName, symBindings, arguments);
+        value = interpreter.runTyped(
+            entryName, symBindings, arguments, result["dump-trace"].as<bool>()
+        );
       }
       if (!value)
         throw std::runtime_error("typed tensor entry returned no value");

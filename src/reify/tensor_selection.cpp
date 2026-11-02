@@ -189,6 +189,8 @@ namespace refractir::reify {
           return "v3";
         case TensorProfileId::V4:
           return "v4";
+        case TensorProfileId::V5:
+          return "v5";
       }
       return "v1";
     }

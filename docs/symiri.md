@@ -37,13 +37,13 @@ Expressions evaluate left to right, `select` evaluates only the arm it takes, an
 
 Undefined behaviour aborts the run with a diagnostic naming the rule and the source span, and the process exits non-zero. [undefined.md](./undefined.md) states each rule and how the interpreter enforces it.
 
-`--check` stops after the frontend, reporting type and semantic errors without executing. `--dump-trace` prints each executed block and every variable update. `--max-bbl-steps <n>` aborts after entering `n` blocks, which bounds a program that may not terminate. `--dump-call` prints each function calls.
+`--check` stops after the frontend, reporting type and semantic errors without executing. `--dump-trace` prints each executed block and every variable update, in typed tensor runs too. `--max-bbl-steps <n>` aborts after entering `n` blocks, which bounds a program that may not terminate. `--dump-call` prints each function calls.
 
 ## Typed tensor execution
 
 `--tensor-profile-version v1|v2|v3|v4` selects the bounded tensor profile (default `v1`). `--tensor-describe --entry @kernel` prints the checked entry signature and its little-endian buffer layout. `--entry @kernel --tensor-input inputs.bin --tensor-output output.bin` runs that entry with input buffers in parameter order and writes the complete result buffer. The input and output options must be supplied together. [Tensor capability analysis](../src/analysis/tensor.cpp) enforces the profile; [tensor I/O](../src/interp/tensor_io.cpp) implements the binary format.
 
-A tensor window reads row `r` of its tensor parameter at address `index * stride + r`, computed in 64-bit arithmetic, while that address is below `active`, and reads its literal fill otherwise. A negative index is undefined behaviour; a large positive index takes the fill without accessing the source. Windows are admitted under the v2 and v3 profiles only.
+A tensor window reads row `r` of its tensor parameter at address `index * stride + r`, computed in 64-bit arithmetic, while that address is below `active`, and reads its literal fill otherwise. A position is active when its address lies in `[0, active)`; a position below zero or at or above `active` takes the fill without accessing the source. Windows are admitted under the v2, v3, and v5 profiles.
 
 Numerical tensor atoms use the Boost.Multiprecision reference when built with `TENSOR_REF=1`, which is the default. `--tensor-reference-bits 128|256` selects its precision, and `--tensor-reference-stability` compares each atom at both precisions and rejects an unstable result. A `TENSOR_REF=0` build retains exact tensor execution and reports numerical reference requests as unavailable.
 

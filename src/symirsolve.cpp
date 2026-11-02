@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     ("emit-model", "Emit symbol assignments to a JSON-like file", cxxopts::value<std::string>())
     ("emit-outcome", "Emit the terminal result with its typed reason to a JSON file", cxxopts::value<std::string>())
     ("emit-tensor-params", "Emit entry tensor-parameter witnesses to a JSON file", cxxopts::value<std::string>())
-    ("tensor-profile-version", "Tensor profile to check against (v1|v2|v3|v4)", cxxopts::value<std::string>()->default_value("v1"))
+    ("tensor-profile-version", "Tensor profile to check against (v1|v2|v3|v4|v5)", cxxopts::value<std::string>()->default_value("v1"))
     ("tensor-param-domain", "Bound every entry-parameter integer leaf to [lo,hi] (lo,hi)", cxxopts::value<std::string>())
     ("sym", "Fix a symbol to a value (name=val)", cxxopts::value<std::vector<std::string>>())
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())

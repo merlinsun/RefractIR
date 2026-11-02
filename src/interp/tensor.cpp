@@ -320,8 +320,6 @@ namespace refractir {
         throw std::runtime_error("tensor window source is not a tensor");
       if (index.kind != RuntimeValue::Kind::Int || index.bits != 32)
         throw std::runtime_error("tensor window index is not i32");
-      if (index.intVal < 0)
-        throw UndefinedBehaviorError("UB: negative tensor window index");
       if (!atom.fill)
         throw std::runtime_error("tensor window has no fill literal");
       RuntimeValue fill;
@@ -342,14 +340,15 @@ namespace refractir {
       const auto active = atom.attribute.size() == 3 ? atom.attribute[2] : 0;
       if (resultType.shape.empty() || resultType.shape.front() != rows)
         throw std::runtime_error("tensor window result shape does not match its rows");
-      const auto base = static_cast<std::uint64_t>(index.intVal) *
-                        static_cast<std::uint64_t>(stride);
+      // A position is active when it lies in [0, active); every other
+      // position, below zero included, reads the fill.
+      const auto base = static_cast<std::int64_t>(index.intVal) * static_cast<std::int64_t>(stride);
       std::vector<RuntimeValue> output;
       output.reserve(tensorElementCount(resultType.shape));
       for (std::uint32_t i = 0; i < tensorElementCount(resultType.shape); ++i) {
         const auto coords = coordinates(i, resultType.shape);
-        const auto address = base + coords.front();
-        if (address < active) {
+        const auto address = base + static_cast<std::int64_t>(coords.front());
+        if (address >= 0 && address < static_cast<std::int64_t>(active)) {
           Coords sourceCoords = coords;
           sourceCoords.front() = static_cast<std::uint32_t>(address);
           output.push_back(

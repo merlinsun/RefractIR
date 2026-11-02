@@ -223,10 +223,10 @@ class TensorWindowInterpreterTests(unittest.TestCase):
     # The stride advances the block start: index 1 with stride 2 begins at row 2.
     self.assertEqual(self.run_window(WINDOW_STRIDE_SOURCE, 1), (30.0, 40.0, 50.0, 60.0))
 
-  def test_window_negative_index_is_ub(self):
-    result, _ = run_typed(WINDOW_INTERP_SOURCE, window_inputs(-1), tensor_profile="v2")
-    self.assertNotEqual(result.returncode, 0)
-    self.assertIn("UB", result.stderr)
+  def test_window_positions_below_zero_read_the_fill(self):
+    # Active positions are those in [0, active); row -1 reads the fill like
+    # any other inactive position (generation plan G2).
+    self.assertEqual(self.run_window(WINDOW_INTERP_SOURCE, -1), (0.0, 10.0, 20.0, 30.0))
 
   def test_window_large_index_masks_to_fill_without_access(self):
     values = struct.unpack("<4f", struct.pack("<4f", -1.0, -1.0, -1.0, -1.0))

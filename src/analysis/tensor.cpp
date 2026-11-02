@@ -24,7 +24,13 @@ namespace refractir {
       return TensorProfile{TensorProfileId::V2, 3, 512, 8};
     if (id == TensorProfileId::V3)
       return TensorProfile{TensorProfileId::V3, 2, 512, 8};
+    if (id == TensorProfileId::V5)
+      return TensorProfile{TensorProfileId::V5, 2, 65536, 64};
     return TensorProfile{TensorProfileId::V4, 1, 512, 0};
+  }
+
+  bool tensorProfilePadsTiles(const TensorProfile &profile) {
+    return profile.id == TensorProfileId::V3 || profile.id == TensorProfileId::V5;
   }
 
   TensorProfileId parseTensorProfileVersion(std::string_view version) {
@@ -36,6 +42,8 @@ namespace refractir {
       return TensorProfileId::V3;
     if (version == "v4")
       return TensorProfileId::V4;
+    if (version == "v5")
+      return TensorProfileId::V5;
     throw std::invalid_argument("tensor-profile: unknown tensor profile version '" +
                                 std::string(version) + "'");
   }
@@ -66,7 +74,7 @@ namespace refractir {
     for (const auto dimension: shape) {
       if (dimension == 0)
         throw std::invalid_argument("tensor-shape: dimensions must be positive");
-      if (profile.id != TensorProfileId::V3) {
+      if (!tensorProfilePadsTiles(profile)) {
         if ((dimension & (dimension - 1)) != 0)
           throw std::invalid_argument("tensor-profile: dimensions must be powers of two");
         tileShape.push_back(dimension);
@@ -84,7 +92,7 @@ namespace refractir {
         );
       tileShape.push_back(static_cast<std::uint32_t>(extent));
     }
-    if (profile.id != TensorProfileId::V3) {
+    if (!tensorProfilePadsTiles(profile)) {
       const auto elements = tensorElementCount(shape);
       if (elements > profile.maxElements)
         throw std::invalid_argument(
@@ -480,76 +488,22 @@ namespace refractir {
       return true;
     }
 
-    bool atomHasUnsupportedV3TensorOperation(const Atom &atom);
-
-    bool expressionHasUnsupportedV3TensorOperation(const Expr &expr) {
-      if (atomHasUnsupportedV3TensorOperation(expr.first))
+    /// Whether a padded profile (v3, or v5 extending it) admits a tensor
+    /// operation. v5 adds the operations whose GPU results are approximate,
+    /// because its kernels are judged by relations rather than by P0's bits.
+    bool paddedProfileSupportsTensorOperation(TensorProfileId id, TensorOp op) {
+      if (id == TensorProfileId::V5 &&
+          (op == TensorOp::Div || op == TensorOp::Exp || op == TensorOp::Rem))
         return true;
-      return std::any_of(expr.rest.begin(), expr.rest.end(), [](const Expr::Tail &tail) {
-        return atomHasUnsupportedV3TensorOperation(tail.atom);
+      return v3SupportsTensorOperation(op);
+    }
+
+    bool functionHasUnsupportedPaddedTensorOperation(const FunDecl &function, TensorProfileId id) {
+      bool unsupported = false;
+      eachTensorAtom(function, [&](const TensorAtom &atom) {
+        unsupported = unsupported || !paddedProfileSupportsTensorOperation(id, atom.op);
       });
-    }
-
-    bool conditionHasUnsupportedV3TensorOperation(const Cond &condition) {
-      return expressionHasUnsupportedV3TensorOperation(condition.lhs) ||
-             expressionHasUnsupportedV3TensorOperation(condition.rhs);
-    }
-
-    bool atomHasUnsupportedV3TensorOperation(const Atom &atom) {
-      if (const auto *tensor = std::get_if<TensorAtom>(&atom.v))
-        return !v3SupportsTensorOperation(tensor->op);
-      return std::visit(
-          [](const auto &value) {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, SelectAtom>) {
-              return (value.cond && conditionHasUnsupportedV3TensorOperation(*value.cond)) ||
-                     (value.maskExpr &&
-                      expressionHasUnsupportedV3TensorOperation(*value.maskExpr));
-            } else if constexpr (std::is_same_v<T, CallAtom>) {
-              return std::any_of(value.args.begin(), value.args.end(), [](const auto &arg) {
-                return arg && expressionHasUnsupportedV3TensorOperation(*arg);
-              });
-            }
-            return false;
-          },
-          atom.v
-      );
-    }
-
-    bool functionHasUnsupportedV3TensorOperation(const FunDecl &function) {
-      for (const auto &local: function.lets)
-        if (local.init && local.init->kind == InitVal::Kind::Atom &&
-            atomHasUnsupportedV3TensorOperation(*std::get<AtomPtr>(local.init->value)))
-          return true;
-      for (const auto &block: function.blocks) {
-        for (const auto &instruction: block.instrs) {
-          const bool unsupported = std::visit(
-              [](const auto &ins) {
-                using T = std::decay_t<decltype(ins)>;
-                if constexpr (std::is_same_v<T, AssignInstr>)
-                  return expressionHasUnsupportedV3TensorOperation(ins.rhs);
-                else if constexpr (std::is_same_v<T, StoreInstr>)
-                  return expressionHasUnsupportedV3TensorOperation(ins.ptr) ||
-                         expressionHasUnsupportedV3TensorOperation(ins.val);
-                else if constexpr (std::is_same_v<T, AssumeInstr> ||
-                                   std::is_same_v<T, RequireInstr>)
-                  return conditionHasUnsupportedV3TensorOperation(ins.cond);
-                return false;
-              },
-              instruction
-          );
-          if (unsupported)
-            return true;
-        }
-        if (const auto branch = std::get_if<BrTerm>(&block.term);
-            branch && branch->cond &&
-            conditionHasUnsupportedV3TensorOperation(*branch->cond))
-          return true;
-        if (const auto ret = std::get_if<RetTerm>(&block.term);
-            ret && ret->value && expressionHasUnsupportedV3TensorOperation(*ret->value))
-          return true;
-      }
-      return false;
+      return unsupported;
     }
 
     bool tensorFunctionHasCall(const FunDecl &function) {
@@ -723,11 +677,23 @@ namespace refractir {
       return assignment->lhs.base.name;
     }
 
-    bool isIncrementByOne(const Expr &expr, const std::string &name) {
-      if (expr.rest.size() != 1 || simpleLocalAtom(expr.first) != name ||
-          expr.rest.front().op != AddOp::Plus)
-        return false;
-      return simpleIntegerAtom(expr.rest.front().atom) == 1;
+    /// The literal step of `%name + c` or `%name - c`, if the expression has
+    /// that form.
+    std::optional<std::int64_t> incrementStep(const Expr &expr, const std::string &name) {
+      if (expr.rest.size() != 1 || simpleLocalAtom(expr.first) != name)
+        return std::nullopt;
+      const auto literal = simpleIntegerAtom(expr.rest.front().atom);
+      if (!literal)
+        return std::nullopt;
+      return expr.rest.front().op == AddOp::Plus ? *literal : -*literal;
+    }
+
+    /// The parameter `%name = %param;` copies, if the instruction has that form.
+    std::optional<std::string> copiedLocal(const Instr &instruction, const std::string &name) {
+      const auto *assignment = std::get_if<AssignInstr>(&instruction);
+      if (!assignment || assignment->lhs.base.name != name || !assignment->lhs.accesses.empty())
+        return std::nullopt;
+      return simpleLocal(assignment->rhs);
     }
 
     bool assignsLiteral(const Instr &instruction, const std::string &name, std::int64_t *value) {
@@ -798,6 +764,10 @@ namespace refractir {
     TensorLoopAnalysis result;
     if (!profile.maxLoopBodyExecutions)
       return result;
+    // One loop may use the whole execution budget; v2 and v3 keep their
+    // historical wording for a budget of eight.
+    const std::int64_t cap = profile.maxLoopBodyExecutions;
+    const std::string capWord = cap == 8 ? "eight" : std::to_string(cap);
 
     CFG cfg = CFG::build(function, diags);
     if (diags.hasErrors())
@@ -874,8 +844,16 @@ namespace refractir {
       if (!preheaderBranch || preheaderBranch->isConditional ||
           preheaderBranch->dest.name != function.blocks[header].label.name)
         return fail("tensor-profile: counted-loop preheader must branch directly to its header", header);
-      if (branch->cond->op != RelOp::LT)
-        return fail("tensor-profile: counted-loop condition must use <", header);
+      // tensor-v5 admits `for i in range(lo, hi, s)`: a ranged start, any
+      // nonzero literal step, and a `>` header for a negative step.
+      const bool general = profile.id == TensorProfileId::V5;
+      const auto relation = branch->cond->op;
+      if (relation != RelOp::LT && !(general && relation == RelOp::GT))
+        return fail(
+            general ? "tensor-profile: counted-loop condition must use < or >"
+                    : "tensor-profile: counted-loop condition must use <",
+            header
+        );
       const auto induction = simpleLocal(branch->cond->lhs);
       auto bound = simpleInteger(branch->cond->rhs);
       const auto boundParameter = bound ? std::nullopt : simpleLocal(branch->cond->rhs);
@@ -906,6 +884,12 @@ namespace refractir {
         return fail("tensor-profile: induction variable must be a mutable uninitialized i32 local", header);
 
       std::int64_t initial = 0;
+      std::optional<std::string> startParameter;
+      std::int64_t step = 1;
+      const std::string stepRule =
+          general
+              ? "tensor-profile: latch must add a nonzero literal step to the induction variable"
+              : "tensor-profile: latch must increment induction variable by one";
       std::size_t preheaderInitializers = 0;
       std::size_t latchIncrements = 0;
       std::size_t writes = 0;
@@ -918,13 +902,25 @@ namespace refractir {
           if (!target || *target != *induction)
             continue;
           ++writes;
-          if (block == preheader && assignsLiteral(instruction, *induction, &initial))
-            ++preheaderInitializers;
+          if (block == preheader) {
+            if (assignsLiteral(instruction, *induction, &initial)) {
+              ++preheaderInitializers;
+            } else if (const auto copied = copiedLocal(instruction, *induction);
+                       general && copied) {
+              startParameter = *copied;
+              ++preheaderInitializers;
+            }
+          }
           if (block == natural.latches.front()) {
             const auto *assignment = std::get_if<AssignInstr>(&instruction);
-            if (!assignment || !isIncrementByOne(assignment->rhs, *induction) ||
-                instructionIndex + 1 != instructions.size())
-              return fail("tensor-profile: latch must increment induction variable by one", header);
+            const auto increment =
+                assignment ? incrementStep(assignment->rhs, *induction) : std::nullopt;
+            if (!increment || instructionIndex + 1 != instructions.size() ||
+                (!general && *increment != 1))
+              return fail(stepRule, header);
+            if (*increment == 0)
+              return fail("tensor-profile: counted-loop step must be a nonzero literal", header);
+            step = *increment;
             ++latchIncrements;
           }
         }
@@ -932,22 +928,71 @@ namespace refractir {
       if (preheaderInitializers != 1)
         return fail("tensor-profile: preheader must reset induction variable on every entry", header);
       if (latchIncrements != 1)
-        return fail("tensor-profile: latch must increment induction variable by one", header);
+        return fail(stepRule, header);
       if (writes != 2)
         return fail("tensor-profile: induction variable may only be initialized and incremented", header);
-      if (initial < INT32_MIN || initial > INT32_MAX || *bound < INT32_MIN || *bound > INT32_MAX ||
-          *bound <= initial || *bound - initial > 8)
-        return fail(
-            range ? "tensor-profile: a parameter loop bound's range must allow one to eight trips"
-                  : "tensor-profile: loop trip count must be in [1, 8] without i32 overflow",
-            header
-        );
-      // A parameter bound below the start would leave the induction variable
-      // at its start, not at the bound, after the loop.
-      if (range && range->first < initial)
-        return fail(
-            "tensor-profile: a parameter loop bound's range starts below the loop's start", header
-        );
+      std::int64_t tripCount = 0;
+      bool exitsAtBound = true;
+      std::int64_t minimumValue = initial;
+      if (general) {
+        auto start = std::pair{initial, initial};
+        if (startParameter) {
+          const auto startRange = assumedParameterRange(function, *startParameter);
+          if (!startRange)
+            return fail(
+                "tensor-profile: a parameter loop start must be an i32 entry parameter ranged by "
+                "`assume " +
+                    *startParameter + " >= lo;` and `assume " + *startParameter +
+                    " <= hi;` in ^entry",
+                header
+            );
+          start = *startRange;
+        }
+        const auto end = range ? *range : std::pair{*bound, *bound};
+        if ((step > 0) != (relation == RelOp::LT))
+          return fail(
+              "tensor-profile: a positive step needs a < header and a negative step a > header",
+              header
+          );
+        // Endpoints within 2^30 keep every value the induction variable takes,
+        // one step past either endpoint included, inside i32.
+        constexpr std::int64_t limit = std::int64_t{1} << 30;
+        for (const auto value: {start.first, start.second, end.first, end.second})
+          if (value < -limit || value > limit)
+            return fail("tensor-profile: loop endpoints must lie within 2^30 of zero", header);
+        if (step < -limit || step > limit)
+          return fail("tensor-profile: loop step must lie within 2^30 of zero", header);
+        const auto span = step > 0 ? end.second - start.first : start.second - end.first;
+        const auto stride = step > 0 ? step : -step;
+        tripCount = span <= 0 ? 0 : (span + stride - 1) / stride;
+        if (tripCount > cap)
+          return fail(
+              "tensor-profile: a counted loop may run at most " + std::to_string(cap) +
+                  " trips; this one may run " + std::to_string(tripCount),
+              header
+          );
+        exitsAtBound = !startParameter && step == 1 && end.first >= initial;
+        // A body value is at least the lowest start when counting up, and
+        // above the lowest bound when counting down.
+        minimumValue = step > 0 ? start.first : end.first + 1;
+      } else {
+        if (initial < INT32_MIN || initial > INT32_MAX || *bound < INT32_MIN ||
+            *bound > INT32_MAX || *bound <= initial || *bound - initial > cap)
+          return fail(
+              range ? "tensor-profile: a parameter loop bound's range must allow one to " +
+                          capWord + " trips"
+                    : "tensor-profile: loop trip count must be in [1, " + std::to_string(cap) +
+                          "] without i32 overflow",
+              header
+          );
+        // A parameter bound below the start would leave the induction variable
+        // at its start, not at the bound, after the loop.
+        if (range && range->first < initial)
+          return fail(
+              "tensor-profile: a parameter loop bound's range starts below the loop's start", header
+          );
+        tripCount = *bound - initial;
+      }
 
       const auto latch = natural.latches.front();
       const auto *latchBranch = std::get_if<BrTerm>(&function.blocks[latch].term);
@@ -962,10 +1007,15 @@ namespace refractir {
       loop.exit = elseIt->second;
       loop.inductionVariable = *induction;
       loop.initialValue = static_cast<std::int32_t>(initial);
+      if (startParameter)
+        loop.startParameter = *startParameter;
       loop.bound = static_cast<std::int32_t>(*bound);
       if (boundParameter)
         loop.boundParameter = *boundParameter;
-      loop.tripCount = static_cast<std::uint32_t>(*bound - initial);
+      loop.step = static_cast<std::int32_t>(step);
+      loop.exitsAtBound = exitsAtBound;
+      loop.minimumValue = minimumValue;
+      loop.tripCount = static_cast<std::uint32_t>(tripCount);
       loop.parentIndex = natural.parent;
       loop.blocks = natural.blocks;
       result.loops.push_back(std::move(loop));
@@ -1004,7 +1054,8 @@ namespace refractir {
     }
     if (totalExecutions > profile.maxLoopBodyExecutions) {
       diags.error(
-          "tensor-profile: counted loops exceed eight total body executions", function.span
+          "tensor-profile: counted loops exceed " + capWord + " total body executions",
+          function.span
       );
       return std::nullopt;
     }
@@ -1058,8 +1109,14 @@ namespace refractir {
     for (const auto &function: prog.funs) {
       if (!functionHasTensorType(function, structs, profile) && !functionHasTensorAtom(function))
         continue;
+      if (profile.id == TensorProfileId::V5 && consumer == TensorConsumer::ExactSolver)
+        diags.error(
+            "tensor-profile: tensor-v5 is judged by relations, not solved; the exact solver "
+            "does not accept it",
+            function.span
+        );
       const bool hasRemainder = functionHasTensorOperation(function, TensorOp::Rem);
-      if (profile.id != TensorProfileId::V4 && hasRemainder)
+      if (profile.id != TensorProfileId::V4 && profile.id != TensorProfileId::V5 && hasRemainder)
         diags.error("tensor-profile: tensor rem requires tensor-v4", function.span);
       if (profile.id == TensorProfileId::V4 && !isV4RemainderKernel(function))
         diags.error(
@@ -1071,25 +1128,28 @@ namespace refractir {
         diags.error(
             "unsupported_theory: exact solver does not implement f32 tensor rem", function.span
         );
-      if (profile.id == TensorProfileId::V3 &&
-          functionHasUnsupportedV3TensorOperation(function))
+      if (tensorProfilePadsTiles(profile) &&
+          functionHasUnsupportedPaddedTensorOperation(function, profile.id))
         diags.error(
-            "tensor-profile: unsupported tensor operation in tensor-v3 profile",
+            std::string("tensor-profile: unsupported tensor operation in ") +
+                (profile.id == TensorProfileId::V5 ? "tensor-v5" : "tensor-v3") + " profile",
             function.span
         );
-      if (profile.id != TensorProfileId::V2 && profile.id != TensorProfileId::V3 &&
-          functionHasTensorOperation(function, TensorOp::Window))
+      const bool loopProfile = profile.id == TensorProfileId::V2 || tensorProfilePadsTiles(profile);
+      if (!loopProfile && functionHasTensorOperation(function, TensorOp::Window))
         diags.error(
-            "tensor-profile: tensor window requires tensor-v2 or tensor-v3", function.span
+            "tensor-profile: tensor window requires tensor-v2, tensor-v3, or tensor-v5",
+            function.span
         );
       eachTensorAtom(function, [&](const TensorAtom &atom) {
-        if (isTensorWhere(atom.op) && profile.id != TensorProfileId::V2 &&
-            profile.id != TensorProfileId::V3)
-          diags.error("tensor-profile: where requires tensor-v2 or tensor-v3", atom.span);
+        if (isTensorWhere(atom.op) && !loopProfile)
+          diags.error(
+              "tensor-profile: where requires tensor-v2, tensor-v3, or tensor-v5", atom.span
+          );
         if (atom.op != TensorOp::Dot)
           return;
-        if (profile.id != TensorProfileId::V2 && profile.id != TensorProfileId::V3)
-          diags.error("tensor-profile: dot requires tensor-v2 or tensor-v3", atom.span);
+        if (!loopProfile)
+          diags.error("tensor-profile: dot requires tensor-v2, tensor-v3, or tensor-v5", atom.span);
         else if (!dotExtentsFitTriton(function, atom))
           diags.error(
               "tensor-profile: dot extents must be powers of two of at least 16", atom.span

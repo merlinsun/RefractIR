@@ -64,9 +64,10 @@ namespace refractir {
         bool dumpCall = false);
 
     /// Execute with already-decoded, type-checked parameter values.
+    /// `dumpExec` prints executed blocks and updates, as `run` does.
     std::optional<RuntimeValue> runTyped(
         const std::string &entryFuncName, const SymBindings &symBindings,
-        const std::vector<RuntimeValue> &paramArgs
+        const std::vector<RuntimeValue> &paramArgs, bool dumpExec = false
     );
 
     // RuntimeValue and Store are defined in interp/value.hpp at namespace

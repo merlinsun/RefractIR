@@ -144,9 +144,9 @@ namespace refractir {
 
   std::optional<RuntimeValue> Interpreter::runTyped(
       const std::string &entryFuncName, const SymBindings &symBindings,
-      const std::vector<RuntimeValue> &paramArgs
+      const std::vector<RuntimeValue> &paramArgs, bool dumpExec
   ) {
-    beginRun(false, false);
+    beginRun(dumpExec, false);
 
     const FunDecl *entry = nullptr;
     const std::string globalEntryName = !entryFuncName.empty() && entryFuncName.front() == '@'
