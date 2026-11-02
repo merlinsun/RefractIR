@@ -1367,13 +1367,13 @@ namespace refractir {
     for (const auto &[name, dtype]: launch_.boundaryDtypes) {
       if (dtype != "float16" && dtype != "bfloat16")
         throw std::runtime_error("tensor-launch: a boundary dtype is float16 or bfloat16");
-      const auto &type = name == "return" ? function.retType : [&]() -> const TypePtr & {
-        for (const auto &param: function.params)
-          if (param.name.name == "%" + name)
-            return param.type;
+      const TypePtr *type = name == "return" ? &function.retType : nullptr;
+      for (const auto &param: function.params)
+        if (!type && param.name.name == "%" + name)
+          type = &param.type;
+      if (!type)
         throw std::runtime_error("tensor-launch: no tensor parameter named " + name);
-      }();
-      const auto *tensor = TypeUtils::asTensor(type);
+      const auto *tensor = TypeUtils::asTensor(*type);
       if (!tensor || TypeUtils::getFloatBitWidth(tensor->elem) != 32U)
         throw std::runtime_error("tensor-launch: a boundary dtype needs an f32 tensor: " + name);
     }
