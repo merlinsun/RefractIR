@@ -30,7 +30,7 @@ class Pointer:
 class _Tensor(np.ndarray if np is not None else object):
   """A numpy array with Triton's `.to(dtype, bitcast=...)`."""
 
-  def to(self, dtype, bitcast=False):
+  def to(self, dtype, bitcast=False, **_options):
     return _wrap(self.view(dtype) if bitcast else self.astype(dtype))
 
 
@@ -39,14 +39,26 @@ def _wrap(value):
 
 
 def language():
-  """`triton.language` over numpy, breaking every extrema tie the wrong way."""
+  """`triton.language` over numpy, breaking every extrema tie the wrong way.
+
+  `tl.program_id(0)` reads `tl.current_program`, which `run` sets per program.
+  """
   tl = types.ModuleType("triton.language")
-  tl.float32, tl.int32, tl.int64 = np.float32, np.int32, np.int64
-  tl.arange = lambda start, end: np.arange(start, end, dtype=np.int32)
+  tl.constexpr = int
+  tl.current_program = 0
+  tl.program_id = lambda axis: np.int32(tl.current_program if axis == 0 else 0)
+  tl.float32, tl.int32, tl.int64, tl.float16 = (
+    np.float32,
+    np.int32,
+    np.int64,
+    np.float16,
+  )
+  tl.arange = lambda start, end: _wrap(np.arange(start, end, dtype=np.int32))
   tl.full = lambda shape, value, dtype=np.float32: _wrap(
     np.full(shape, value, dtype=dtype)
   )
-  tl.range = lambda start, end, **_hints: range(start, end)
+  tl.range = lambda start, end, step=1, **_hints: range(int(start), int(end), int(step))
+  tl.reshape = lambda value, shape, **_options: _wrap(np.reshape(value, shape))
   tl.where = lambda condition, left, right: _wrap(
     np.where(condition, left, right).astype(np.result_type(left, right))
   )
@@ -95,10 +107,11 @@ def _jit(function=None, **_options):
   return function if function is not None else (lambda inner: inner)
 
 
-def run(kernel_source, inputs, output_length, dtype=None, **arguments):
+def run(kernel_source, inputs, output_length, dtype=None, grid=None, **arguments):
   """Run an emitted kernel on the inputs and return the output words as integers.
 
   `arguments` are passed by keyword, as a launcher passes a scalar argument.
+  `grid` runs the kernel once per program along axis 0, in order.
   """
   dtype = np.float32 if dtype is None else dtype
   triton = types.ModuleType("triton")
@@ -111,9 +124,13 @@ def run(kernel_source, inputs, output_length, dtype=None, **arguments):
     with mock.patch.dict(sys.modules, {"triton": triton, "triton.language": tl}):
       kernel = runpy.run_path(str(path))["kernel"]
       out = np.zeros(output_length, dtype=dtype)
-      kernel(
-        *[Pointer(np.asarray(values, dtype)) for values in inputs],
-        Pointer(out),
-        **arguments,
-      )
-  return [struct.unpack("<I", value.tobytes())[0] for value in out]
+      # An input that is already an array keeps its own dtype, as a half buffer must.
+      pointers = [
+        Pointer(values if isinstance(values, np.ndarray) else np.asarray(values, dtype))
+        for values in inputs
+      ]
+      for program in range(grid[0] if grid else 1):
+        tl.current_program = program
+        kernel(*pointers, Pointer(out), **arguments)
+  word = {2: "<H", 4: "<I"}[out.dtype.itemsize]
+  return [struct.unpack(word, value.tobytes())[0] for value in out]

@@ -60,6 +60,10 @@ namespace refractir {
     TensorProfileId tensorProfile = TensorProfileId::V1;
     // Physical input/output memory mappings selected by one case manifest.
     std::vector<TritonBufferLayout> tritonBufferLayouts;
+    // Triton grid tiling over the returned tensor's leading axis.
+    TritonLaunchOptions tritonLaunch;
+    // Nonempty: write the kernel's launch record (grid, arguments, tiles) here.
+    std::string tritonLaunchJson;
   };
 
   // Compile to C. Writes `<outDir>/<primaryStem>.c`, or one file per source

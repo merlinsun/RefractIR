@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <numeric>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <type_traits>
 
@@ -162,10 +164,194 @@ namespace refractir {
 
   TritonBackend::TritonBackend(
       std::ostream &out, std::string entry, std::string softmaxLowering, TensorProfile profile,
-      std::vector<TritonBufferLayout> layouts, TritonLoopOptions loops
+      std::vector<TritonBufferLayout> layouts, TritonLoopOptions loops, TritonLaunchOptions launch
   ) :
       out_(out), entry_(std::move(entry)), softmaxLowering_(std::move(softmaxLowering)),
-      profile_(profile), layouts_(std::move(layouts)), loops_(std::move(loops)) {}
+      profile_(profile), layouts_(std::move(layouts)), loops_(std::move(loops)), launch_(launch) {}
+
+  Shape TritonBackend::tileShapeOf(const Shape &shape) const {
+    auto tile = tensorExecutionTileShape(shape, profile_);
+    if (launch_.gridBlock != 0 && !shape.empty() && shape.front() == gridExtent_)
+      tile.front() = launch_.gridBlock;
+    return tile;
+  }
+
+  void TritonBackend::validateGridTiling(const FunDecl &function) {
+    if (profile_.id != TensorProfileId::V5)
+      throw std::runtime_error("tensor-grid: grid tiling requires tensor-v5");
+    if ((launch_.gridBlock & (launch_.gridBlock - 1)) != 0)
+      throw std::runtime_error("tensor-grid: the block must be a power of two");
+    const auto *returned = TypeUtils::asTensor(function.retType);
+    if (!returned || returned->shape.empty())
+      throw std::runtime_error("tensor-grid: a tiled kernel must return a tensor");
+    gridExtent_ = returned->shape.front();
+    std::unordered_map<std::string, Shape> shapes;
+    for (const auto &param: function.params)
+      if (const auto *tensor = TypeUtils::asTensor(param.type))
+        shapes.emplace(param.name.name, tensor->shape);
+    for (const auto &let: function.lets) {
+      if (const auto *tensor = TypeUtils::asTensor(let.type))
+        shapes.emplace(let.name.name, tensor->shape);
+      if (let.init && let.init->kind == InitVal::Kind::Aggregate)
+        throw std::runtime_error("tensor-grid: a tiled kernel takes no flat tensor initializer");
+    }
+    const auto leadingAxisTiled = [&](const Coef &operand) {
+      const auto *named = std::get_if<LocalOrSymId>(&operand);
+      const auto *local = named ? std::get_if<LocalId>(named) : nullptr;
+      const auto shape = local ? shapes.find(local->name) : shapes.end();
+      return shape != shapes.end() && !shape->second.empty() &&
+             shape->second.front() == gridExtent_;
+    };
+    const auto check = [&](const TensorAtom &atom) {
+      const auto name = std::string(tensorOpName(atom.op));
+      switch (atom.op) {
+        case TensorOp::Transpose:
+        case TensorOp::Dot:
+        case TensorOp::Window:
+        case TensorOp::Extract:
+        case TensorOp::Iota:
+          throw std::runtime_error("tensor-grid: " + name + " is not supported in a tiled kernel");
+        case TensorOp::Sum:
+        case TensorOp::ReduceMin:
+        case TensorOp::ReduceMax:
+        case TensorOp::Cumsum:
+        case TensorOp::Softmax:
+          // Along axis 0 the operand's rows would be split across programs,
+          // or the result's rows would come from an untiled axis.
+          if (atom.axis == 0)
+            throw std::runtime_error(
+                "tensor-grid: " + name + " along axis 0 mixes the rows of programs"
+            );
+          return;
+        case TensorOp::Expand:
+          if (atom.axis == 0)
+            throw std::runtime_error("tensor-grid: expand at axis 0 moves the tiled axis");
+          return;
+        case TensorOp::Broadcast: {
+          // Broadcasting aligns ranks on the right, so a tiled source of lower
+          // rank would land its tiled axis on another axis of the target.
+          const auto *named = std::get_if<LocalOrSymId>(&atom.operands.front());
+          const auto *local = named ? std::get_if<LocalId>(named) : nullptr;
+          const auto source = local ? shapes.find(local->name) : shapes.end();
+          if (leadingAxisTiled(atom.operands.front()) && source != shapes.end() &&
+              source->second.size() < atom.attribute.size())
+            throw std::runtime_error(
+                "tensor-grid: broadcast to a higher rank moves the tiled axis"
+            );
+          return;
+        }
+        default:
+          return;
+      }
+    };
+    for (const auto &block: function.blocks)
+      for (const auto &instruction: block.instrs)
+        if (const auto *assignment = std::get_if<AssignInstr>(&instruction)) {
+          if (const auto *atom = std::get_if<TensorAtom>(&assignment->rhs.first.v))
+            check(*atom);
+          for (const auto &tail: assignment->rhs.rest)
+            if (const auto *atom = std::get_if<TensorAtom>(&tail.atom.v))
+              check(*atom);
+        }
+  }
+
+  std::string TritonBackend::boundaryDtype(const std::string &buffer) const {
+    for (const auto &[name, dtype]: launch_.boundaryDtypes)
+      if (name == buffer)
+        return dtype;
+    return {};
+  }
+
+  void TritonBackend::requireNarrowedReturn(
+      const FunDecl &function, const Expr &returned, const std::string &dtype
+  ) const {
+    const auto expected = dtype == "float16" ? TensorOp::NarrowF16 : TensorOp::NarrowBF16;
+    const auto rule = std::string("tensor-launch: a ") + dtype +
+                      " output must be the result of narrow " +
+                      (dtype == "float16" ? "f16" : "bf16");
+    const auto *read = std::get_if<RValueAtom>(&returned.first.v);
+    const auto *coef = std::get_if<CoefAtom>(&returned.first.v);
+    const auto *named = coef ? std::get_if<LocalOrSymId>(&coef->coef) : nullptr;
+    const auto *local = named ? std::get_if<LocalId>(named) : nullptr;
+    std::string name = read ? read->rval.base.name : local ? local->name : std::string();
+    if (name.empty() || !returned.rest.empty())
+      throw std::runtime_error(rule);
+    bool assigned = false;
+    for (const auto &block: function.blocks)
+      for (const auto &instruction: block.instrs) {
+        const auto *assignment = std::get_if<AssignInstr>(&instruction);
+        if (!assignment || assignment->lhs.base.name != name)
+          continue;
+        const auto *atom = std::get_if<TensorAtom>(&assignment->rhs.first.v);
+        if (!atom || atom->op != expected || !assignment->rhs.rest.empty())
+          throw std::runtime_error(rule);
+        assigned = true;
+      }
+    if (!assigned)
+      throw std::runtime_error(rule);
+  }
+
+  std::string TritonBackend::tileText(const Shape &logical) const {
+    const auto tile = tileShapeOf(logical);
+    if (launch_.gridBlock == 0 || logical.empty() || logical.front() != gridExtent_)
+      return pythonShape(tile);
+    // The launch may choose another block, so a tiled extent stays symbolic.
+    std::string text = "(BLOCK";
+    for (std::size_t axis = 1; axis < tile.size(); ++axis)
+      text += ", " + std::to_string(tile[axis]);
+    return text + (tile.size() == 1 ? ",)" : ")");
+  }
+
+  std::string TritonBackend::launchRecord() const {
+    const bool tiled = launch_.gridBlock != 0;
+    const auto programs = tiled ? (gridExtent_ + launch_.gridBlock - 1) / launch_.gridBlock : 1U;
+    const auto quoted = [](const std::string &text) { return "\"" + text + "\""; };
+    std::ostringstream out;
+    out << "{\"grid\": [" << programs << ", 1, 1], \"constexprs\": {";
+    if (tiled)
+      out << "\"BLOCK\": " << launch_.gridBlock;
+    out << "}, \"scalars\": {";
+    bool first = true;
+    if (tiled) {
+      out << "\"N\": " << gridExtent_;
+      first = false;
+    }
+    for (const auto &[name, value]: strideParameters_) {
+      out << (first ? "" : ", ") << quoted(name) << ": " << value;
+      first = false;
+    }
+    out << "}, \"tiles\": {";
+    if (tiled)
+      out << "\"BLOCK\": {\"extent_arg\": \"N\", \"grid_axis\": 0}";
+    out << "}";
+    if (!launch_.boundaryDtypes.empty()) {
+      out << ", \"dtypes\": {";
+      bool firstDtype = true;
+      for (const auto &[name, dtype]: launch_.boundaryDtypes) {
+        const auto pointer =
+            name == "return" ? std::string("out_ptr") : parameterPointers_.at("%" + name);
+        out << (firstDtype ? "" : ", ") << quoted(pointer) << ": " << quoted(dtype);
+        firstDtype = false;
+      }
+      out << "}";
+    }
+    if (launch_.strideArguments) {
+      out << ", \"strides\": {";
+      for (std::size_t index = 0; index < bufferStrides_.size(); ++index) {
+        out << (index ? ", " : "") << quoted(bufferStrides_[index].first) << ": [";
+        for (std::size_t axis = 0; axis < bufferStrides_[index].second.size(); ++axis)
+          out << (axis ? ", " : "") << quoted(bufferStrides_[index].second[axis]);
+        out << "]";
+      }
+      out << "}, \"offsets\": {";
+      for (std::size_t index = 0; index < bufferOffsets_.size(); ++index)
+        out << (index ? ", " : "") << quoted(bufferOffsets_[index].first) << ": "
+            << quoted(bufferOffsets_[index].second);
+      out << "}";
+    }
+    out << "}\n";
+    return out.str();
+  }
 
   std::optional<std::string> parseTritonLoopHint(const std::string &text) {
     if (text == "flatten")
@@ -403,23 +589,66 @@ namespace refractir {
     return "tl.where(" + extreme + " == 0.0, " + zero + ", " + extreme + ")";
   }
 
+  std::string TritonBackend::loopExitValue(
+      const TensorCountedLoop &loop, const std::string &start, const std::string &bound
+  ) {
+    if (loop.exitsAtBound)
+      return bound;
+    // Python's `range` leaves `start + k * step` after `k` trips. The trip
+    // count divides a positive span only, where `//` truncates and floors
+    // alike, and is zero for an empty range.
+    const auto stride = std::abs(static_cast<std::int64_t>(loop.step));
+    const auto &high = loop.step > 0 ? bound : start;
+    const auto &low = loop.step > 0 ? start : bound;
+    const auto literal = [](const std::string &text) {
+      return !text.empty() &&
+             (std::isdigit(static_cast<unsigned char>(text.front())) || text.front() == '-');
+    };
+    if (literal(start) && literal(bound)) {
+      const auto span = std::stoll(high) - std::stoll(low);
+      const auto trips = span <= 0 ? 0 : (span + stride - 1) / stride;
+      return std::to_string(std::stoll(start) + trips * loop.step);
+    }
+    const auto trips = nextTemporary("loop_trips");
+    addLine(
+        trips + " = tl.where(" + high + " > " + low + ", (" + high + " - " + low + " + " +
+        std::to_string(stride - 1) + ") // " + std::to_string(stride) + ", 0)"
+    );
+    return "(" + start + " + " + trips + " * " + std::to_string(loop.step) + ")";
+  }
+
+  bool TritonBackend::windowIndexMayBeNegative(const Coef &index) const {
+    if (const auto *literal = std::get_if<IntLit>(&index))
+      return literal->value < 0;
+    const auto *named = std::get_if<LocalOrSymId>(&index);
+    if (named == nullptr)
+      return true;
+    const auto minimum = inductionMinimum_.find(localId(*named));
+    return minimum == inductionMinimum_.end() || minimum->second < 0;
+  }
+
   std::string TritonBackend::nextTemporary(const std::string &stem) {
     return freshPythonName("_sir_" + stem + "_tmp" + std::to_string(temporaryId_++));
   }
 
   std::string TritonBackend::emitOffsets(
       const std::string &name, const Shape &shape, const TritonBufferLayout *layout,
-      std::string *validity, bool includeOffsets
+      std::string *validity, bool includeOffsets, const std::string &buffer
   ) {
     if (shape.empty())
       return {};
-    const auto tileShape = tensorExecutionTileShape(shape, profile_);
+    const auto tileShape = tileShapeOf(shape);
+    const bool arguments = launch_.strideArguments && includeOffsets && !buffer.empty();
+    std::vector<std::string> strideNames;
     std::vector<std::string> terms;
     terms.reserve(shape.size());
     std::vector<std::string> validTerms;
     for (std::size_t axis = 0; axis < shape.size(); ++axis) {
       const auto axisName = freshPythonName(name + "_d" + std::to_string(axis));
-      std::string range = "tl.arange(0, " + std::to_string(tileShape[axis]) + ")";
+      // Under grid tiling a tiled leading axis is this program's rows.
+      const bool rows = launch_.gridBlock != 0 && axis == 0 && shape.front() == gridExtent_;
+      std::string range = rows ? "(tl.program_id(0) * BLOCK + tl.arange(0, BLOCK))"
+                               : "tl.arange(0, " + std::to_string(tileShape[axis]) + ")";
       if (shape.size() > 1) {
         range += "[";
         for (std::size_t dim = 0; dim < shape.size(); ++dim) {
@@ -432,12 +661,28 @@ namespace refractir {
       addLine(axisName + " = " + range);
       if (includeOffsets) {
         const auto stride = layout ? layout->elementStrides[axis] : productAfter(shape, axis);
-        terms.push_back(axisName + (stride == 1 ? "" : " * " + std::to_string(stride)));
-        if (layout && axis == 0 && layout->elementOffset != 0)
-          terms.insert(terms.begin(), std::to_string(layout->elementOffset));
+        if (arguments) {
+          const auto argument = buffer + "_stride" + std::to_string(axis);
+          strideParameters_.emplace_back(argument, static_cast<std::int64_t>(stride));
+          strideNames.push_back(argument);
+          terms.push_back(axisName + " * " + argument);
+        } else {
+          terms.push_back(axisName + (stride == 1 ? "" : " * " + std::to_string(stride)));
+          if (layout && axis == 0 && layout->elementOffset != 0)
+            terms.insert(terms.begin(), std::to_string(layout->elementOffset));
+        }
       }
-      if (profile_.id == TensorProfileId::V3)
-        validTerms.push_back(axisName + " < " + std::to_string(shape[axis]));
+      if (tensorProfilePadsTiles(profile_))
+        validTerms.push_back(
+            axisName + " < " + (rows ? std::string("N") : std::to_string(shape[axis]))
+        );
+    }
+    if (arguments) {
+      const auto offset = buffer + "_offset";
+      strideParameters_.emplace_back(offset, layout ? layout->elementOffset : 0);
+      terms.insert(terms.begin(), offset);
+      bufferStrides_.emplace_back(buffer + "_ptr", std::move(strideNames));
+      bufferOffsets_.emplace_back(buffer + "_ptr", offset);
     }
     if (validity) {
       if (validTerms.empty()) {
@@ -467,7 +712,7 @@ namespace refractir {
   }
 
   std::string TritonBackend::emitValidity(const std::string &name, const Shape &shape) {
-    if (profile_.id != TensorProfileId::V3 || shape.empty())
+    if (!tensorProfilePadsTiles(profile_) || shape.empty())
       return {};
     std::string validity;
     (void) emitOffsets(name, shape, nullptr, &validity, false);
@@ -481,10 +726,10 @@ namespace refractir {
     const auto shape = valueShape(param.type);
     types_[param.name.name] = param.type;
     std::string validity;
-    parameterOffsets_[param.name.name] =
-        emitOffsets(
-            variable, shape, findLayout(param.name.name, TritonBufferRole::Input), &validity
-        );
+    parameterOffsets_[param.name.name] = emitOffsets(
+        variable, shape, findLayout(param.name.name, TritonBufferRole::Input), &validity, true,
+        pointer.substr(0, pointer.size() - 4)
+    );
     values_[param.name.name] = Value{param.type, {}, validity};
   }
 
@@ -528,15 +773,18 @@ namespace refractir {
         const auto offsets = parameterOffsets_.at(name);
         const auto address = shape.empty() ? pointer->second : pointer->second + " + " + offsets;
         const auto loaded = nextTemporary("input_load");
-        if (profile_.id == TensorProfileId::V3 && !shape.empty()) {
+        // A half-precision buffer is widened as it is read.
+        const auto widen = boundaryDtype(name.substr(1)).empty() ? "" : ".to(tl.float32)";
+        if (tensorProfilePadsTiles(profile_) && !shape.empty()) {
           const auto validity = values_.at(name).validity;
           const auto elementType = TypeUtils::asTensor(types_.at(name))->elem;
           const auto fallback = TypeUtils::getFloatBitWidth(elementType) ? "0.0" : "0";
           addLine(
-              loaded + " = tl.load(" + address + ", mask=" + validity + ", other=" + fallback + ")"
+              loaded + " = tl.load(" + address + ", mask=" + validity + ", other=" + fallback +
+              ")" + widen
           );
         } else {
-          addLine(loaded + " = tl.load(" + address + ")");
+          addLine(loaded + " = tl.load(" + address + ")" + widen);
         }
         return loaded;
       }
@@ -624,6 +872,10 @@ namespace refractir {
     if (!atom.resolvedType)
       throw std::runtime_error("tensor-profile: tensor atom is missing checked type metadata");
     if (atom.op == TensorOp::Window) {
+      if (launch_.strideArguments)
+        throw std::runtime_error("tensor-launch: a window is not supported with stride arguments");
+      if (!launch_.boundaryDtypes.empty())
+        throw std::runtime_error("tensor-launch: a window is not supported with boundary dtypes");
       const auto *named = std::get_if<LocalOrSymId>(&atom.operands[0]);
       const auto *local = named ? std::get_if<LocalId>(named) : nullptr;
       if (local == nullptr)
@@ -644,7 +896,7 @@ namespace refractir {
       const auto active = atom.attribute[2];
       Shape resultShape = sourceShape;
       resultShape.front() = rows;
-      const auto resultTile = tensorExecutionTileShape(resultShape, profile_);
+      const auto resultTile = tileShapeOf(resultShape);
       const auto rawIndex = nextTemporary("window_index");
       addLine(rawIndex + " = " + lowerCoef(atom.operands[1]) + " + tl.full((), 0, tl.int32)");
       const auto index64 = nextTemporary("window_index64");
@@ -669,9 +921,11 @@ namespace refractir {
       );
 
       std::vector<std::string> maskTerms;
-      if (profile_.id == TensorProfileId::V3)
+      if (tensorProfilePadsTiles(profile_))
         maskTerms.push_back("(" + rowName + " < " + std::to_string(rows) + ")");
       maskTerms.push_back("(" + linear + " < " + std::to_string(active) + ")");
+      if (windowIndexMayBeNegative(atom.operands[1]))
+        maskTerms.push_back("(" + linear + " >= 0)");
 
       const auto stride0 = layout ? layout->elementStrides[0] : productAfter(sourceShape, 0);
       std::string address = linear + " * " + std::to_string(stride0);
@@ -686,7 +940,7 @@ namespace refractir {
         range += "]";
         const auto coordName = nextTemporary("window_d" + std::to_string(axis));
         addLine(coordName + " = " + range);
-        if (profile_.id == TensorProfileId::V3)
+        if (tensorProfilePadsTiles(profile_))
           maskTerms.push_back(
               "(" + coordName + " < " + std::to_string(sourceShape[axis]) + ")"
           );
@@ -732,7 +986,7 @@ namespace refractir {
       const auto axis =
           normalizeTensorAxis(atom.axis, static_cast<std::uint32_t>(atom.attribute.size()));
       const Shape shape(atom.attribute.begin(), atom.attribute.end());
-      const auto tileShape = tensorExecutionTileShape(shape, profile_);
+      const auto tileShape = tileShapeOf(shape);
       const auto range = nextTemporary("iota_axis");
       const auto reshaped = nextTemporary("iota_axis_shape");
       addLine(range + " = tl.arange(0, " + std::to_string(tileShape[axis]) + ")");
@@ -744,7 +998,7 @@ namespace refractir {
     if (atom.op == TensorOp::Extract) {
       const auto sourceType = valueType(atom.operands.front());
       const auto sourceShape = valueShape(sourceType);
-      const auto sourceTileShape = tensorExecutionTileShape(sourceShape, profile_);
+      const auto sourceTileShape = tileShapeOf(sourceShape);
       const auto offset = [&]() {
         if (sourceShape.size() != atom.attribute.size())
           throw std::runtime_error("tensor-profile: extraction rank differs from its source");
@@ -777,7 +1031,6 @@ namespace refractir {
     }
     if (atom.op == TensorOp::Broadcast) {
       const Shape shape(atom.attribute.begin(), atom.attribute.end());
-      const auto targetTileShape = tensorExecutionTileShape(shape, profile_);
       const auto sourceType = valueType(atom.operands.front());
       const auto sourceShape = valueShape(sourceType);
       std::string operand = operands.front();
@@ -795,13 +1048,13 @@ namespace refractir {
               (isInteger ? "tl.int32" : "tl.float32") + ")"
           );
         } else {
-          const auto sourceTileShape = tensorExecutionTileShape(sourceShape, profile_);
+          const auto sourceTileShape = tileShapeOf(sourceShape);
           aligned.insert(aligned.end(), sourceTileShape.begin(), sourceTileShape.end());
           addLine(reshaped + " = tl.reshape(" + operand + ", " + pythonShape(aligned) + ")");
         }
         operand = reshaped;
       }
-      return "tl.broadcast_to(" + operand + ", " + pythonShape(targetTileShape) + ")";
+      return "tl.broadcast_to(" + operand + ", " + tileText(shape) + ")";
     }
     if (atom.op == TensorOp::Cumsum) {
       // A padded lane follows every logical lane on its axis, so no logical
@@ -868,7 +1121,7 @@ namespace refractir {
       const auto keep = atom.keepDims ? "True" : "False";
       if (atom.op == TensorOp::Sum) {
         std::string value = operands.front();
-        if (profile_.id == TensorProfileId::V3) {
+        if (tensorProfilePadsTiles(profile_)) {
           const auto validity = valueValidity(atom.operands.front());
           if (validity.empty())
             throw std::runtime_error("tensor-profile: v3 reduction operand lacks validity");
@@ -883,7 +1136,7 @@ namespace refractir {
       }
       std::string value = operands.front();
       const bool minimum = atom.op == TensorOp::ReduceMin;
-      if (profile_.id == TensorProfileId::V3) {
+      if (tensorProfilePadsTiles(profile_)) {
         // An inactive lane must not win an extrema reduction, so the mask
         // replaces it with the identity of the operation before the call.
         const auto validity = valueValidity(atom.operands.front());
@@ -933,7 +1186,7 @@ namespace refractir {
       return;
     const auto variable = pythonName(let.name.name);
     const auto shape = valueShape(let.type);
-    const auto tileShape = shape.empty() ? Shape{} : tensorExecutionTileShape(shape, profile_);
+    const auto tileShape = shape.empty() ? Shape{} : tileShapeOf(shape);
     const auto dtype =
         dtypeName(TypeUtils::asTensor(let.type) ? TypeUtils::asTensor(let.type)->elem : let.type);
     // A scalar initializer reaches the declared tensor shape before any
@@ -942,9 +1195,7 @@ namespace refractir {
     // so a tensor source must never become the fill value.
     const auto bindMaterialized = [&](const std::string &value, bool sourceIsTensor) {
       if (TypeUtils::asTensor(let.type) && !sourceIsTensor)
-        addLine(
-            variable + " = tl.full(" + pythonShape(tileShape) + ", " + value + ", " + dtype + ")"
-        );
+        addLine(variable + " = tl.full(" + tileText(shape) + ", " + value + ", " + dtype + ")");
       else
         addLine(variable + " = " + value);
     };
@@ -974,7 +1225,7 @@ namespace refractir {
           return lowerCoef(Coef{LocalOrSymId{std::get<SymId>(item.value)}});
         throw std::runtime_error("tensor-profile: unsupported tensor initializer leaf");
       };
-      if (profile_.id == TensorProfileId::V3) {
+      if (tensorProfilePadsTiles(profile_)) {
         const auto tileElements = tensorElementCount(tileShape);
         const auto index = nextTemporary("init_index");
         auto current = nextTemporary("init_flat");
@@ -1109,6 +1360,28 @@ namespace refractir {
     boundParameters_.clear();
     temporaryId_ = 0;
     indent_ = 0;
+    gridExtent_ = 0;
+    strideParameters_.clear();
+    bufferStrides_.clear();
+    bufferOffsets_.clear();
+    for (const auto &[name, dtype]: launch_.boundaryDtypes) {
+      if (dtype != "float16" && dtype != "bfloat16")
+        throw std::runtime_error("tensor-launch: a boundary dtype is float16 or bfloat16");
+      const auto &type = name == "return" ? function.retType : [&]() -> const TypePtr & {
+        for (const auto &param: function.params)
+          if (param.name.name == "%" + name)
+            return param.type;
+        throw std::runtime_error("tensor-launch: no tensor parameter named " + name);
+      }();
+      const auto *tensor = TypeUtils::asTensor(type);
+      if (!tensor || TypeUtils::getFloatBitWidth(tensor->elem) != 32U)
+        throw std::runtime_error("tensor-launch: a boundary dtype needs an f32 tensor: " + name);
+    }
+    if (launch_.gridBlock != 0) {
+      validateGridTiling(function);
+      usedPythonNames_.insert("N");
+      usedPythonNames_.insert("BLOCK");
+    }
     for (const auto &param: function.params)
       usedPythonNames_.insert(pythonName(param.name.name));
     for (const auto &let: function.lets)
@@ -1129,9 +1402,15 @@ namespace refractir {
     std::unordered_map<std::size_t, TensorScalarBranch> branchAt;
     for (const auto &branch: analysis->branches)
       branchAt.emplace(branch.block, branch);
+    inductionMinimum_.clear();
     for (std::size_t i = 0; i < analysis->loops.size(); ++i) {
-      loopAtPreheader.emplace(analysis->loops[i].preheader, i);
-      loopAtLatch.emplace(analysis->loops[i].latch, i);
+      const auto &loop = analysis->loops[i];
+      loopAtPreheader.emplace(loop.preheader, i);
+      loopAtLatch.emplace(loop.latch, i);
+      const auto [entry, inserted] =
+          inductionMinimum_.emplace(loop.inductionVariable, loop.minimumValue);
+      if (!inserted)
+        entry->second = std::min(entry->second, loop.minimumValue);
     }
 
     auto emitReturn = [&](const RetTerm &ret) {
@@ -1144,9 +1423,15 @@ namespace refractir {
       } else {
         std::string validity;
         const auto offsets = emitOffsets(
-            "_sir_out", returnShape, findLayout("return", TritonBufferRole::Output), &validity
+            "_sir_out", returnShape, findLayout("return", TritonBufferRole::Output), &validity,
+            true, "out"
         );
-        std::string store = "tl.store(out_ptr + " + offsets + ", " + result;
+        std::string stored = result;
+        if (const auto dtype = boundaryDtype("return"); !dtype.empty()) {
+          requireNarrowedReturn(function, *ret.value, dtype);
+          stored = "(" + result + ").to(tl." + dtype + ")";
+        }
+        std::string store = "tl.store(out_ptr + " + offsets + ", " + stored;
         if (!validity.empty())
           store += ", mask=" + validity;
         addLine(store + ")");
@@ -1162,6 +1447,11 @@ namespace refractir {
       const auto body = cfg.indexOf.at(branch.thenLabel.name);
       const auto variable = pythonName(loop.inductionVariable);
       const auto type = types_.at(loop.inductionVariable);
+      std::string start = std::to_string(loop.initialValue);
+      if (!loop.startParameter.empty()) {
+        start = nextTemporary("loop_start");
+        addLine(start + " = tl.load(" + parameterPointers_.at(loop.startParameter) + ")");
+      }
       std::string bound = std::to_string(loop.bound);
       if (!loop.boundParameter.empty()) {
         // The trip count is the scalar argument, loaded once before the loop;
@@ -1173,20 +1463,20 @@ namespace refractir {
         bound = freshPythonName(variable + "_bound");
         boundParameters_.emplace_back(bound, loop.bound);
       }
-      addLine(variable + " = tl.full((), " + std::to_string(loop.initialValue) + ", " +
-              dtypeName(type) + ")");
+      addLine(variable + " = tl.full((), " + start + ", " + dtypeName(type) + ")");
+      const auto step = loop.step == 1 ? std::string() : ", " + std::to_string(loop.step);
       const auto hint = loops_.hint.empty() ? "" : ", " + loops_.hint;
-      addLine(
-          "for " + variable + " in tl.range(" + std::to_string(loop.initialValue) + ", " + bound +
-          hint + "):"
-      );
+      addLine("for " + variable + " in tl.range(" + start + ", " + bound + step + hint + "):");
       const auto bodyStartLine = body_.size();
       ++indent_;
       emitFlow(body, loop.exit, static_cast<int>(loopIndex));
       if (body_.size() == bodyStartLine)
         addLine("pass");
       --indent_;
-      addLine(variable + " = tl.full((), " + bound + ", " + dtypeName(type) + ")");
+      addLine(
+          variable + " = tl.full((), " + loopExitValue(loop, start, bound) + ", " +
+          dtypeName(type) + ")"
+      );
       values_[loop.inductionVariable] = Value{type, variable, {}};
     };
 
@@ -1272,10 +1562,16 @@ namespace refractir {
     // A specialized integer argument equal to one becomes a constant, so the
     // runtime bounds are excluded from specialization to keep one-trip loops.
     out_ << "@triton.jit";
-    if (!boundParameters_.empty()) {
+    std::vector<std::string> unspecialized;
+    for (const auto &[name, literal]: boundParameters_)
+      unspecialized.push_back(name);
+    // A runtime extent keeps the partial last tile unknown to the compiler.
+    if (launch_.gridBlock != 0)
+      unspecialized.push_back("N");
+    if (!unspecialized.empty()) {
       out_ << "(do_not_specialize=[";
-      for (std::size_t i = 0; i < boundParameters_.size(); ++i)
-        out_ << (i ? ", " : "") << '"' << boundParameters_[i].first << '"';
+      for (std::size_t i = 0; i < unspecialized.size(); ++i)
+        out_ << (i ? ", " : "") << '"' << unspecialized[i] << '"';
       out_ << "])";
     }
     out_ << "\n";
@@ -1285,6 +1581,10 @@ namespace refractir {
     out_ << "out_ptr";
     for (const auto &[name, literal]: boundParameters_)
       out_ << ", " << name << "=" << literal;
+    for (const auto &[name, value]: strideParameters_)
+      out_ << ", " << name << "=" << value;
+    if (launch_.gridBlock != 0)
+      out_ << ", N=" << gridExtent_ << ", BLOCK: tl.constexpr = " << launch_.gridBlock;
     out_ << "):\n";
     for (const auto &line: body_)
       out_ << "    " << line << "\n";

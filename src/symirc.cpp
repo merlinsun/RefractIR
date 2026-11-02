@@ -30,12 +30,16 @@ int main(int argc, char **argv) {
     ("input", "Input .sir file", cxxopts::value<std::string>())
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
     ("target", "Backend target (c, wasm, python, triton)", cxxopts::value<std::string>()->default_value("c"))
-    ("tensor-profile-version", "Tensor profile version: v1|v2|v3|v4", cxxopts::value<std::string>()->default_value("v1"))
+    ("tensor-profile-version", "Tensor profile version: v1|v2|v3|v4|v5", cxxopts::value<std::string>()->default_value("v1"))
     ("tensor-layout-manifest", "Triton target: JSON file with physical tensor buffer layouts", cxxopts::value<std::string>())
     ("entry", "Triton entry function", cxxopts::value<std::string>()->default_value("kernel"))
     ("tensor-softmax-lowering", "Triton softmax lowering: direct|decomposed", cxxopts::value<std::string>()->default_value("direct"))
     ("tensor-loop-bound", "Triton counted-loop bounds: literal|runtime", cxxopts::value<std::string>()->default_value("literal"))
     ("tensor-loop-hint", "Triton counted-loop hint: num_stages=N|loop_unroll_factor=N|flatten", cxxopts::value<std::string>())
+    ("tensor-grid-block", "Triton grid tiling block over the returned tensor's leading axis (tensor-v5)", cxxopts::value<unsigned>())
+    ("tensor-launch-json", "Write the Triton kernel's launch record (grid, arguments, tiles)", cxxopts::value<std::string>())
+    ("tensor-stride-arguments", "Pass every Triton buffer's strides and offset as kernel arguments", cxxopts::value<bool>()->default_value("false"))
+    ("tensor-boundary-dtype", "Hold one f32 tensor buffer as float16 or bfloat16: name=dtype (name or return; repeatable)", cxxopts::value<std::vector<std::string>>())
     ("keep-require", "Triton target: reject emission when source require checks are retained", cxxopts::value<bool>()->default_value("false"))
     ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("structured-lowering", "Emit structured control flow (loops/ifs) instead of goto; implies --require-reducible (C target)", cxxopts::value<bool>()->default_value("false"))
@@ -207,6 +211,27 @@ int main(int argc, char **argv) {
         }
         tensorOptions.tritonLoops.hint = *hint;
       }
+      if (result.count("tensor-grid-block")) {
+        tensorOptions.tritonLaunch.gridBlock = result["tensor-grid-block"].as<unsigned>();
+        if (tensorOptions.tritonLaunch.gridBlock == 0) {
+          std::cerr << "Error: --tensor-grid-block must be positive\n";
+          return 1;
+        }
+      }
+      tensorOptions.tritonLaunch.strideArguments = result["tensor-stride-arguments"].as<bool>();
+      if (result.count("tensor-boundary-dtype"))
+        for (const auto &entry: result["tensor-boundary-dtype"].as<std::vector<std::string>>()) {
+          const auto equals = entry.find('=');
+          if (equals == std::string::npos) {
+            std::cerr << "Error: --tensor-boundary-dtype takes name=dtype\n";
+            return 1;
+          }
+          tensorOptions.tritonLaunch.boundaryDtypes.emplace_back(
+              entry.substr(0, equals), entry.substr(equals + 1)
+          );
+        }
+      if (result.count("tensor-launch-json"))
+        tensorOptions.tritonLaunchJson = result["tensor-launch-json"].as<std::string>();
       if (result.count("tensor-layout-manifest"))
         tensorOptions.tritonBufferLayouts =
             readTritonBufferLayouts(result["tensor-layout-manifest"].as<std::string>());

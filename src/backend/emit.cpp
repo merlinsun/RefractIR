@@ -430,9 +430,15 @@ namespace refractir {
     try {
       TritonBackend backend(
           rendered, opts.entry, opts.tensorSoftmaxLowering, tensorProfile(opts.tensorProfile),
-          opts.tritonBufferLayouts, opts.tritonLoops
+          opts.tritonBufferLayouts, opts.tritonLoops, opts.tritonLaunch
       );
       backend.emit(prog);
+      if (!opts.tritonLaunchJson.empty()) {
+        std::ofstream launch(opts.tritonLaunchJson, std::ios::trunc);
+        if (!launch)
+          throw std::runtime_error("could not open the launch record " + opts.tritonLaunchJson);
+        launch << backend.launchRecord();
+      }
     } catch (const std::exception &e) {
       note(opts.verbose, e.what());
       return false;
