@@ -65,10 +65,13 @@ namespace {
     bool branchParameter = false;
     bool canonicalOut = false;
     std::uint32_t outerTrips = 0;
+    std::optional<FreeFormRange> range;
+    std::optional<FreeFormRange> outerRange;
     std::uint32_t stateCount = 2;
     std::uint32_t maxNodes = 12;
     std::uint32_t numWarps = 4;
     FreeFormFeatures features;
+    std::optional<std::uint32_t> parallelAxis;
     std::uint32_t maxRank = 2;
     std::string profile = "tensor-v2";
     TensorElement element = TensorElement::F32;
@@ -114,6 +117,64 @@ namespace {
     return shape;
   }
 
+  /// One range endpoint: an integer, or `%name[lo,hi]` for a ranged parameter.
+  FreeFormEndpoint parseEndpoint(const std::string &text) {
+    FreeFormEndpoint endpoint;
+    if (!text.empty() && text.front() == '%') {
+      const auto open = text.find('[');
+      const auto comma = text.find(',', open);
+      if (open == std::string::npos || comma == std::string::npos || text.back() != ']')
+        throw std::invalid_argument("free-form export range parameter needs %name[lo,hi]: " + text);
+      endpoint.parameter = text.substr(0, open);
+      endpoint.low = std::stoi(text.substr(open + 1, comma - open - 1));
+      endpoint.high = std::stoi(text.substr(comma + 1, text.size() - comma - 2));
+      return endpoint;
+    }
+    endpoint.value = std::stoi(text);
+    return endpoint;
+  }
+
+  /// `START:STOP:STEP`, each endpoint as `parseEndpoint` reads it.
+  FreeFormRange parseRange(const std::string &text) {
+    const auto first = text.find(':');
+    const auto second = text.rfind(':');
+    if (first == std::string::npos || first == second)
+      throw std::invalid_argument("free-form export range needs START:STOP:STEP: " + text);
+    FreeFormRange range;
+    range.start = parseEndpoint(text.substr(0, first));
+    range.stop = parseEndpoint(text.substr(first + 1, second - first - 1));
+    range.step = std::stoi(text.substr(second + 1));
+    return range;
+  }
+
+  std::string endpointJson(const FreeFormEndpoint &endpoint) {
+    if (endpoint.parameter.empty())
+      return "{\"value\":" + std::to_string(endpoint.value) + "}";
+    return "{\"parameter\":\"" + endpoint.parameter + "\",\"low\":" + std::to_string(endpoint.low) +
+           ",\"high\":" + std::to_string(endpoint.high) + "}";
+  }
+
+  std::string rangeJson(const FreeFormRange &range) {
+    return "{\"start\":" + endpointJson(range.start) + ",\"stop\":" + endpointJson(range.stop) +
+           ",\"step\":" + std::to_string(range.step) + "}";
+  }
+
+  /// The range parameters in the order the assembler declares them.
+  std::vector<FreeFormEndpoint> rangeParameters(const Options &options) {
+    std::vector<FreeFormEndpoint> parameters;
+    for (const auto *range: {&options.range, &options.outerRange}) {
+      if (!*range)
+        continue;
+      for (const auto *endpoint: {&(*range)->start, &(*range)->stop})
+        if (!endpoint->parameter.empty() &&
+            std::none_of(parameters.begin(), parameters.end(), [&](const auto &seen) {
+              return seen.parameter == endpoint->parameter;
+            }))
+          parameters.push_back(*endpoint);
+    }
+    return parameters;
+  }
+
   Options parseOptions(int argc, char **argv) {
     Options options;
     for (int index = 1; index < argc; ++index) {
@@ -144,8 +205,10 @@ namespace {
           options.profile = "tensor-v2";
         } else if (text == "v3") {
           options.profile = "tensor-v3";
+        } else if (text == "v5") {
+          options.profile = "tensor-v5";
         } else {
-          throw std::invalid_argument("free-form export profile must be v2 or v3");
+          throw std::invalid_argument("free-form export profile must be v2, v3, or v5");
         }
       } else if (flag == "--dtype") {
         const std::string text = value();
@@ -158,6 +221,12 @@ namespace {
         } else {
           throw std::invalid_argument("free-form export dtype must be f32 or i32");
         }
+      } else if (flag == "--range") {
+        options.range = parseRange(value());
+      } else if (flag == "--outer-range") {
+        options.outerRange = parseRange(value());
+      } else if (flag == "--parallel-axis") {
+        options.parallelAxis = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--max-rank") {
         options.maxRank = static_cast<std::uint32_t>(std::stoul(value()));
       } else if (flag == "--features") {
@@ -182,6 +251,14 @@ namespace {
             options.features.where = true;
           else if (item == "scan")
             options.features.scan = true;
+          else if (item == "literals")
+            options.features.literals = true;
+          else if (item == "div")
+            options.features.div = true;
+          else if (item == "exp")
+            options.features.exp = true;
+          else if (item == "rem")
+            options.features.rem = true;
           else
             throw std::invalid_argument("unknown free-form feature: " + item);
           if (end == std::string::npos)
@@ -335,6 +412,11 @@ namespace {
         options.window.fillInteger = 0;
       }
     }
+    if ((options.range || options.outerRange) && options.profile != "tensor-v5")
+      throw std::invalid_argument("free-form export ranges need --profile v5");
+    if ((options.features.div || options.features.exp || options.features.rem) &&
+        options.profile != "tensor-v5")
+      throw std::invalid_argument("free-form export features div, exp, and rem need --profile v5");
     return options;
   }
 
@@ -544,6 +626,7 @@ namespace {
     request.features = options.features;
     request.seed = options.seed;
     request.rootSelection = options.rootSelection;
+    request.parallelAxis = options.parallelAxis;
     request.limits.maxNodes = options.maxNodes;
     request.limits.maxRank = options.maxRank;
     if (options.maxAttemptsSet)
@@ -577,6 +660,8 @@ namespace {
     if (options.branchParameter)
       loop.branchParameter = "%sel";
     loop.outerTrips = options.outerTrips;
+    loop.range = options.range;
+    loop.outerRange = options.outerRange;
     if (options.windowEnabled) {
       loop.windows = {options.window};
       if (options.windowBufferRows != 0)
@@ -642,6 +727,9 @@ namespace {
            << (options.branchParameter ? ",\"branch_parameter\":\"%sel\"" : "")
            << (options.outerTrips > 1 ? ",\"outer_trips\":" + std::to_string(options.outerTrips)
                                       : std::string())
+           << (options.range ? ",\"range\":" + rangeJson(*options.range) : std::string())
+           << (options.outerRange ? ",\"outer_range\":" + rangeJson(*options.outerRange)
+                                  : std::string())
            << ",\"state_count\":" << options.stateCount << ",\"max_nodes\":" << options.maxNodes
            << ",\"max_rank\":" << options.maxRank << ",\"num_warps\":" << options.numWarps;
     if (options.exactInputBound > 0.0)
@@ -660,13 +748,17 @@ namespace {
            << (options.features.dot ? ",\"dot\":true" : "")
            << (options.features.narrow ? ",\"narrow\":true" : "")
            << (options.features.where ? ",\"where\":true" : "")
-           << (options.features.scan ? ",\"scan\":true" : "") << "},"
+           << (options.features.scan ? ",\"scan\":true" : "")
+           << (options.features.literals ? ",\"literals\":true" : "")
+           << (options.features.div ? ",\"div\":true" : "")
+           << (options.features.exp ? ",\"exp\":true" : "")
+           << (options.features.rem ? ",\"rem\":true" : "") << "},"
            << "\"window\":";
     if (options.windowEnabled) {
       const auto sourceExtent =
           options.windowBufferRows != 0 ? options.windowBufferRows : options.shape[0];
       const auto witness = witnessWindow(options.window, options.tripCount, sourceExtent);
-      const bool v3 = options.profile == "tensor-v3";
+      const bool v3 = options.profile == "tensor-v3" || options.profile == "tensor-v5";
       const auto isPowerOfTwo = [](std::uint32_t value) {
         return value != 0 && (value & (value - 1)) == 0;
       };
@@ -742,6 +834,12 @@ namespace {
       record << (first ? "" : ",")
              << "{\"name\":\"%trips\",\"shape\":[],\"dtype\":\"i32\",\"role\":\"trip_count\","
                 "\"init\":\"runtime\"}";
+      first = false;
+    }
+    for (const auto &endpoint: rangeParameters(options)) {
+      record << (first ? "" : ",") << "{\"name\":" << jsonString(endpoint.parameter)
+             << ",\"shape\":[],\"dtype\":\"i32\",\"role\":\"loop_bound\",\"init\":\"runtime\","
+             << "\"low\":" << endpoint.low << ",\"high\":" << endpoint.high << "}";
       first = false;
     }
     if (options.branchParameter)

@@ -179,12 +179,17 @@ namespace refractir::reify {
       TensorOp op = TensorOp::Add;
     };
 
+    /// A literal operand: its position among the operation's operands and its
+    /// value. The value operands fill the remaining positions in order.
+    using LiteralOperand = std::pair<std::uint32_t, double>;
+
     struct NodeRecord {
       TensorOp op = TensorOp::Add;
       std::vector<std::int32_t> operands;
       std::int64_t axis = 0;
       bool keepDims = false;
       Shape attribute;
+      std::vector<LiteralOperand> literals;
     };
 
     struct Action {
@@ -196,7 +201,39 @@ namespace refractir::reify {
       Shape attribute;
       TensorTypeInfo type;
       FreeFormActionTraits traits;
+      /// With literals, the value operands in order; otherwise unused.
+      std::vector<std::int32_t> valueOperands;
+      std::vector<LiteralOperand> literals;
     };
+
+    /// One binary operation with a literal operand, `value op literal` or,
+    /// when `literalFirst`, `literal op value`.
+    struct LiteralBinary {
+      TensorOp op;
+      double literal;
+      bool literalFirst;
+    };
+
+    std::vector<LiteralBinary> literalBinaries(TensorElement element) {
+      std::vector<LiteralBinary> actions;
+      // A product of integer leaves could leave the i32 domain within a few
+      // trips, so integer regions take no literal factor.
+      if (element == TensorElement::F32)
+        for (const double factor: {2.0, 0.5, 3.0, -1.0})
+          actions.push_back({TensorOp::Mul, factor, false});
+      actions.push_back({TensorOp::Add, 1.0, false});
+      actions.push_back({TensorOp::Add, -1.0, false});
+      actions.push_back({TensorOp::Sub, 1.0, true});
+      actions.push_back({TensorOp::Max, 0.0, false});
+      actions.push_back({TensorOp::Min, 0.0, false});
+      return actions;
+    }
+
+    std::vector<double> literalThresholds(TensorElement element) {
+      if (element == TensorElement::F32)
+        return {0.0, std::ldexp(1.0, -10)};
+      return {0.0, 1.0};
+    }
 
     std::uint32_t distinctInputs(std::uint64_t mask) {
       std::uint32_t count = 0;
@@ -231,6 +268,8 @@ namespace refractir::reify {
         requirements_ = requirements;
       }
 
+      void setParallelAxis(std::optional<std::uint32_t> axis) { parallelAxis_ = axis; }
+
       /// Place up to `growthNodes_` actions. Returns whether any action was
       /// placed; an attempt that places none still has its inputs to root.
       bool grow() {
@@ -253,7 +292,10 @@ namespace refractir::reify {
                 (action.op == TensorOp::Dot && features_.dot) ||
                 (isNarrow(action.op) && features_.narrow) ||
                 (isTensorWhere(action.op) && features_.where) ||
-                (action.op == TensorOp::Cumsum && features_.scan))
+                (action.op == TensorOp::Cumsum && features_.scan) ||
+                (action.op == TensorOp::Div && features_.div) ||
+                (action.op == TensorOp::Exp && features_.exp) ||
+                (action.op == TensorOp::Rem && features_.rem))
               weight *= 3.0;
             weight *= requirementMultiplier(action);
             weights.push_back(weight);
@@ -531,9 +573,13 @@ namespace refractir::reify {
         std::vector<Action> actions;
         std::unordered_set<std::string> seen;
         const auto push = [&](Action action) {
+          if (parallelAxis_ && mixesAxis(action, *parallelAxis_))
+            return;
           auto key = actionKey(
               action.op, action.lhs, action.rhs, action.axis, action.keepDims, action.attribute
           );
+          for (const auto &[position, literal]: action.literals)
+            key += "#" + std::to_string(position) + "=" + formatDouble(literal);
           if (seen.insert(std::move(key)).second)
             actions.push_back(std::move(action));
         };
@@ -613,6 +659,23 @@ namespace refractir::reify {
               maximum.traits = traitsOf(TensorOp::Max, lhs, rhs, type);
               push(maximum);
             }
+            if (element == TensorElement::F32 && lhs != rhs)
+              for (const auto op: {TensorOp::Div, TensorOp::Rem}) {
+                // `rem` takes equal-shaped operands only; it does not broadcast.
+                if ((op == TensorOp::Div && !features_.div) ||
+                    (op == TensorOp::Rem &&
+                     (!features_.rem || left.type.shape != right.type.shape)))
+                  continue;
+                for (const auto &[dividend, divisor]: {std::pair{lhs, rhs}, std::pair{rhs, lhs}}) {
+                  Action quotient{};
+                  quotient.op = op;
+                  quotient.lhs = dividend;
+                  quotient.rhs = divisor;
+                  quotient.type = type;
+                  quotient.traits = traitsOf(op, dividend, divisor, type);
+                  push(quotient);
+                }
+              }
             // Multiplication is admitted for f32 only: repeated products of
             // integer leaves would leave the i32 domain before a case is run.
             if (element == TensorElement::F32 && multiplications_ < limits_.maxMultiplications) {
@@ -624,6 +687,40 @@ namespace refractir::reify {
               mul.traits = traitsOf(TensorOp::Mul, lhs, rhs, type);
               push(mul);
             }
+          }
+        }
+
+        if (features_.literals) {
+          for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
+            const auto &value = pool_[static_cast<std::size_t>(index)];
+            auto binaries = literalBinaries(element);
+            if (features_.div && element == TensorElement::F32)
+              for (const double divisor: {2.0, 3.0})
+                binaries.push_back({TensorOp::Div, divisor, false});
+            for (const auto &binary: binaries) {
+              Action action{};
+              action.op = binary.op;
+              action.lhs = index;
+              action.type = value.type;
+              action.valueOperands = {index};
+              action.literals = {{binary.literalFirst ? 0U : 1U, binary.literal}};
+              action.traits = traitsOf(binary.op, index, -1, value.type);
+              push(action);
+            }
+            if (!features_.where)
+              continue;
+            // `where lt|le t, v, v, 0`: v where it exceeds the threshold, else 0.
+            for (const auto threshold: literalThresholds(element))
+              for (const auto op: {TensorOp::WhereLt, TensorOp::WhereLe}) {
+                Action action{};
+                action.op = op;
+                action.lhs = index;
+                action.type = value.type;
+                action.valueOperands = {index, index};
+                action.literals = {{0U, threshold}, {3U, 0.0}};
+                action.traits = traitsOf(op, index, -1, value.type);
+                push(action);
+              }
           }
         }
 
@@ -688,6 +785,17 @@ namespace refractir::reify {
               scan.traits = traitsOf(TensorOp::Cumsum, index, -1, scan.type);
               push(scan);
             }
+          }
+        }
+
+        if (features_.exp && element == TensorElement::F32) {
+          for (std::int32_t index = 0; index < static_cast<std::int32_t>(pool_.size()); ++index) {
+            Action exponential{};
+            exponential.op = TensorOp::Exp;
+            exponential.lhs = index;
+            exponential.type = pool_[static_cast<std::size_t>(index)].type;
+            exponential.traits = traitsOf(TensorOp::Exp, index, -1, exponential.type);
+            push(exponential);
           }
         }
 
@@ -827,10 +935,12 @@ namespace refractir::reify {
 
       void apply(const Action &action) {
         std::vector<std::int32_t> operands{action.lhs};
-        if (action.rhs >= 0)
+        if (!action.literals.empty())
+          operands = action.valueOperands;
+        else if (action.rhs >= 0)
           operands.push_back(action.rhs);
         Shape attribute = action.attribute;
-        if (isTensorWhere(action.op)) {
+        if (isTensorWhere(action.op) && action.literals.empty()) {
           for (const auto arm: action.attribute)
             operands.push_back(static_cast<std::int32_t>(arm));
           attribute.clear();
@@ -847,15 +957,41 @@ namespace refractir::reify {
         pool_.push_back(std::move(value));
         for (const auto operand: operands)
           ++pool_[static_cast<std::size_t>(operand)].consumers;
-        if (action.op == TensorOp::Mul || action.op == TensorOp::Dot)
+        if ((action.op == TensorOp::Mul && action.literals.empty()) || action.op == TensorOp::Dot)
           ++multiplications_;
         nodes_.push_back(
             NodeRecord{
-                action.op, std::move(operands), action.axis, action.keepDims, std::move(attribute)
+                action.op, std::move(operands), action.axis, action.keepDims, std::move(attribute),
+                action.literals
             }
         );
       }
 
+      /// Whether an action mixes the lanes along `axis` or moves the axis.
+      bool mixesAxis(const Action &action, std::uint32_t axis) const {
+        const auto signedAxis = static_cast<std::int64_t>(axis);
+        switch (action.op) {
+          case TensorOp::Sum:
+          case TensorOp::ReduceMin:
+          case TensorOp::ReduceMax:
+            return action.axis == signedAxis || (action.axis < signedAxis && !action.keepDims);
+          case TensorOp::Cumsum:
+            return action.axis == signedAxis;
+          case TensorOp::Transpose:
+            return action.attribute.size() <= axis || action.attribute[axis] != axis;
+          case TensorOp::Dot:
+            return true;
+          case TensorOp::Expand:
+            return action.axis <= signedAxis;
+          case TensorOp::Broadcast:
+            return action.attribute.size() !=
+                   pool_[static_cast<std::size_t>(action.lhs)].type.shape.size();
+          default:
+            return false;
+        }
+      }
+
+      std::optional<std::uint32_t> parallelAxis_;
       FreeFormLimits limits_;
       FreeFormFeatures features_;
       TensorElement element_ = TensorElement::I32;
@@ -979,6 +1115,8 @@ namespace refractir::reify {
           return "reductions";
         case FreeFormPolicy::CrossState:
           return "cross-input";
+        case FreeFormPolicy::Pointwise:
+          return "pointwise";
         case FreeFormPolicy::Balanced:
           return "balanced";
         case FreeFormPolicy::Unguided:
@@ -1004,6 +1142,8 @@ namespace refractir::reify {
       return FreeFormPolicy::ReductionHeavy;
     if (text == "cross-state")
       return FreeFormPolicy::CrossState;
+    if (text == "pointwise")
+      return FreeFormPolicy::Pointwise;
     return std::nullopt;
   }
 
@@ -1023,6 +1163,8 @@ namespace refractir::reify {
         return "reduction-heavy";
       case FreeFormPolicy::CrossState:
         return "cross-state";
+      case FreeFormPolicy::Pointwise:
+        return "pointwise";
     }
     return "unknown";
   }
@@ -1051,6 +1193,17 @@ namespace refractir::reify {
         return 1.0 + 4.0 * (isReduction(traits.op) ? 1.0 : 0.0);
       case FreeFormPolicy::CrossState:
         return 1.0 + 4.0 * (inputs >= 2.0 ? 1.0 : 0.0) + 2.0 * (inputs >= 3.0 ? 1.0 : 0.0);
+      case FreeFormPolicy::Pointwise: {
+        // Lane-for-lane operations carry the score, narrowing the most, since
+        // a conversion's rounding is what the values relation with sign sees.
+        const bool elementwise = !traits.shapeChange && !isReduction(traits.op) &&
+                                 traits.op != TensorOp::Cumsum && traits.op != TensorOp::Dot &&
+                                 traits.op != TensorOp::Transpose &&
+                                 traits.op != TensorOp::Expand && traits.op != TensorOp::Broadcast;
+        if (!elementwise)
+          return 0.25;
+        return isNarrow(traits.op) ? 6.0 : 3.0;
+      }
     }
     return 1.0;
   }
@@ -1398,6 +1551,27 @@ namespace refractir::reify {
         if (!result.name.empty() && !names.insert(result.name).second)
           throw std::invalid_argument("free-form result name repeats another name");
       }
+      if (request.parallelAxis) {
+        // Dot and transpose cannot keep the axis, so a requirement that only
+        // they satisfy can never be met.
+        const auto mixingOnly = [](const std::vector<TensorOp> &ops) {
+          return !ops.empty() && std::all_of(ops.begin(), ops.end(), [](TensorOp op) {
+            return op == TensorOp::Dot || op == TensorOp::Transpose;
+          });
+        };
+        for (const auto &requirement: request.requirements)
+          for (const auto *ops: {&requirement.pathOps, &requirement.shapeOps})
+            if (mixingOnly(*ops)) {
+              std::string names;
+              for (const auto op: *ops)
+                names += (names.empty() ? "" : ", ") + std::string(tensorOpName(op));
+              throw std::invalid_argument(
+                  "free-form parallel axis " + std::to_string(*request.parallelAxis) +
+                  " forbids every operation the requirement on " + requirement.input +
+                  " needs: " + names
+              );
+            }
+      }
       std::unordered_set<std::string> inputNames;
       for (const auto &input: request.inputs)
         inputNames.insert(input.value.name);
@@ -1493,6 +1667,7 @@ namespace refractir::reify {
       Growth growth(seed, growthNodes);
       growth.setPolicy(request.policy);
       growth.setRequirements(request.requirements);
+      growth.setParallelAxis(request.parallelAxis);
       growth.grow();
 
       std::unordered_map<std::string, std::uint64_t> inputBits;
@@ -1662,11 +1837,25 @@ namespace refractir::reify {
       for (const auto &input: request.inputs)
         regionInputs.push_back(input.value);
       TensorRegion region(std::move(regionInputs));
+      const auto element = request.inputs.front().value.type.element;
+      std::uint32_t literalCount = 0;
       for (std::size_t node = 0; node < nodes.size(); ++node) {
         const auto &record = nodes[node];
-        std::vector<std::string> operands;
-        for (const auto operand: record.operands)
-          operands.push_back(emittedNames[static_cast<std::size_t>(operand)]);
+        std::vector<std::string> operands(record.operands.size() + record.literals.size());
+        std::vector<char> literal(operands.size(), 0);
+        for (const auto &[position, value]: record.literals) {
+          std::string name;
+          do {
+            name = "%lit_" + std::to_string(literalCount++);
+          } while (uniqueNames.contains(name));
+          region.addLiteral(name, element, value);
+          operands[position] = name;
+          literal[position] = 1;
+        }
+        std::size_t next = 0;
+        for (std::size_t position = 0; position < operands.size(); ++position)
+          if (!literal[position])
+            operands[position] = emittedNames[static_cast<std::size_t>(record.operands[next++])];
         region.add(
             emittedNames[request.inputs.size() + node], record.op, std::move(operands),
             record.axis, record.keepDims, record.attribute
@@ -1971,11 +2160,13 @@ namespace refractir::reify {
         throw std::invalid_argument(
             "free-form window: rows, stride, and active must fit the source extent"
         );
+      // A range loop's window positions outside [0, active) read the fill, so
+      // only a counted loop needs every address it forms inside the source.
       const auto maximum =
           static_cast<std::uint64_t>(window.stride) *
               static_cast<std::uint64_t>(loop.tripCount - 1) +
           window.rows;
-      if (maximum > extent)
+      if (!loop.range && maximum > extent)
         throw std::invalid_argument(
             "free-form window: rows, stride, and active must fit the source extent"
         );
@@ -1997,6 +2188,65 @@ namespace refractir::reify {
             "free-form window: every window-initialized input needs a window"
         );
   }
+
+  namespace {
+    std::string endpointText(const FreeFormEndpoint &endpoint) {
+      return endpoint.parameter.empty() ? std::to_string(endpoint.value) : endpoint.parameter;
+    }
+
+    void validateRange(const FreeFormRange &range, const std::string &what) {
+      if (range.step == 0)
+        throw std::invalid_argument(what + ": step must be a nonzero literal");
+      for (const auto *endpoint: {&range.start, &range.stop}) {
+        if (endpoint->parameter.empty())
+          continue;
+        requireLocalName(endpoint->parameter, what + " parameter");
+        if (endpoint->parameter == "%i" || endpoint->parameter == "%o" ||
+            endpoint->parameter == "%out")
+          throw std::invalid_argument(what + " parameter reuses a loop local");
+        if (endpoint->low > endpoint->high)
+          throw std::invalid_argument(
+              what + " parameter " + endpoint->parameter + " has an empty range"
+          );
+      }
+    }
+
+    /// The most trips a range can run over its parameters' ranges.
+    std::uint32_t mostTrips(const FreeFormRange &range) {
+      const auto start =
+          range.start.parameter.empty()
+              ? std::pair<std::int64_t, std::int64_t>{range.start.value, range.start.value}
+              : std::pair<std::int64_t, std::int64_t>{range.start.low, range.start.high};
+      const auto stop =
+          range.stop.parameter.empty()
+              ? std::pair<std::int64_t, std::int64_t>{range.stop.value, range.stop.value}
+              : std::pair<std::int64_t, std::int64_t>{range.stop.low, range.stop.high};
+      const std::int64_t step = range.step;
+      const auto span = step > 0 ? stop.second - start.first : start.second - stop.first;
+      const auto stride = step > 0 ? step : -step;
+      return span <= 0 ? 0U : static_cast<std::uint32_t>((span + stride - 1) / stride);
+    }
+
+    /// The `%loop = start; ... br %loop <|> stop` pieces of one loop level.
+    struct LoopLevel {
+      std::string start;
+      std::string condition;
+      std::string step;
+    };
+
+    LoopLevel loopLevel(
+        const std::string &variable, const std::optional<FreeFormRange> &range,
+        const std::string &countedBound
+    ) {
+      if (!range)
+        return {"0", variable + " < " + countedBound, "1"};
+      return {
+          endpointText(range->start),
+          variable + (range->step > 0 ? " < " : " > ") + endpointText(range->stop),
+          std::to_string(range->step)
+      };
+    }
+  } // namespace
 
   std::string windowFillText(const FreeFormWindow &window) {
     if (window.fillKind == FreeFormFillKind::Integer)
@@ -2034,12 +2284,25 @@ namespace refractir::reify {
   std::string assembleCountedLoop(const TensorRegion &region, const FreeFormLoop &loop) {
     if (loop.entry.empty())
       throw std::invalid_argument("counted loop needs an entry name");
-    if (loop.tripCount == 0 || loop.tripCount > 64)
-      throw std::invalid_argument("counted loop trip count must be in [1, 64]");
-    if (loop.outerTrips > 1 && loop.outerTrips * (loop.tripCount + 1) > 8)
-      throw std::invalid_argument(
-          "counted loop: outer and inner trips exceed eight total body executions"
-      );
+    if (loop.range) {
+      // The profile bounds a range loop's trips; the assembler checks only
+      // that the range is well formed.
+      if (!loop.tripParameter.empty())
+        throw std::invalid_argument("a range loop takes no trip parameter");
+      validateRange(*loop.range, "counted loop range");
+    } else {
+      if (loop.tripCount == 0 || loop.tripCount > 64)
+        throw std::invalid_argument("counted loop trip count must be in [1, 64]");
+      if (!loop.outerRange && loop.outerTrips > 1 && loop.outerTrips * (loop.tripCount + 1) > 8)
+        throw std::invalid_argument(
+            "counted loop: outer and inner trips exceed eight total body executions"
+        );
+    }
+    if (loop.outerRange) {
+      if (loop.outerTrips > 1)
+        throw std::invalid_argument("an outer range replaces the outer trip count");
+      validateRange(*loop.outerRange, "counted loop outer range");
+    }
     if (loop.inputs.empty())
       throw std::invalid_argument("counted loop needs at least one input");
     if (loop.results.empty())
@@ -2170,11 +2433,31 @@ namespace refractir::reify {
       source << (first ? "" : ", ") << loop.tripParameter << ": i32";
       first = false;
     }
+    std::vector<const FreeFormEndpoint *> rangeParameters;
+    for (const auto *range: {&loop.range, &loop.outerRange}) {
+      if (!*range)
+        continue;
+      for (const auto *endpoint: {&(*range)->start, &(*range)->stop}) {
+        if (endpoint->parameter.empty() ||
+            std::any_of(rangeParameters.begin(), rangeParameters.end(), [&](const auto *seen) {
+              return seen->parameter == endpoint->parameter;
+            }))
+          continue;
+        if (!parameters.insert(endpoint->parameter).second)
+          throw std::invalid_argument(
+              "counted loop range parameter repeats a parameter: " + endpoint->parameter
+          );
+        rangeParameters.push_back(endpoint);
+        source << (first ? "" : ", ") << endpoint->parameter << ": i32";
+        first = false;
+      }
+    }
     if (!loop.branchParameter.empty())
       source << (first ? "" : ", ") << loop.branchParameter << ": i32";
     source << ") : " << tensorTypeText(returnType) << " {\n"
            << "  let mut %i: i32 = undef;\n";
-    if (loop.outerTrips > 1)
+    const bool nested = loop.outerTrips > 1 || loop.outerRange;
+    if (nested)
       source << "  let mut %o: i32 = undef;\n";
     for (const auto &input: loop.inputs) {
       source << "  let mut " << input.value.name << ": " << tensorTypeText(input.value.type)
@@ -2199,22 +2482,27 @@ namespace refractir::reify {
     if (!loop.tripParameter.empty())
       source << "  assume " << loop.tripParameter << " >= 0;\n"
              << "  assume " << loop.tripParameter << " <= " << loop.tripCount << ";\n";
+    for (const auto *endpoint: rangeParameters)
+      source << "  assume " << endpoint->parameter << " >= " << endpoint->low << ";\n"
+             << "  assume " << endpoint->parameter << " <= " << endpoint->high << ";\n";
     if (!loop.branchParameter.empty())
       source << "  assume " << loop.branchParameter << " >= 0;\n"
              << "  assume " << loop.branchParameter << " <= 1;\n";
     const auto bound =
         loop.tripParameter.empty() ? std::to_string(loop.tripCount) : loop.tripParameter;
-    const bool nested = loop.outerTrips > 1;
+    const auto inner = loopLevel("%i", loop.range, bound);
+    const auto outer = loopLevel("%o", loop.outerRange, std::to_string(loop.outerTrips));
     if (nested)
-      source << "  %o = 0;\n"
+      source << "  %o = " << outer.start << ";\n"
              << "  br ^outer;\n"
              << "^outer:\n"
-             << "  br %o < " << loop.outerTrips << ", ^outer_body, ^exit;\n"
+             << "  br " << outer.condition << ", ^outer_body, ^exit;\n"
              << "^outer_body:\n";
-    source << "  %i = 0;\n"
+    source << "  %i = " << inner.start << ";\n"
            << "  br ^header;\n"
            << "^header:\n"
-           << "  br %i < " << bound << ", ^body, " << (nested ? "^outer_latch" : "^exit") << ";\n"
+           << "  br " << inner.condition << ", ^body, " << (nested ? "^outer_latch" : "^exit")
+           << ";\n"
            << "^body:\n";
     for (const auto &window: loop.windows) {
       source << "  " << window.result << " = tensor window " << window.source << ", "
@@ -2232,11 +2520,11 @@ namespace refractir::reify {
         source << line << '\n';
       source << "  br ^latch;\n" << "^latch:\n";
     }
-    source << "  %i = %i + 1;\n"
+    source << "  %i = %i + " << inner.step << ";\n"
            << "  br ^header;\n";
     if (nested)
       source << "^outer_latch:\n"
-             << "  %o = %o + 1;\n"
+             << "  %o = %o + " << outer.step << ";\n"
              << "  br ^outer;\n";
     source << "^exit:\n";
     if (loop.finalTerms.size() == 1) {
@@ -2295,7 +2583,10 @@ namespace refractir::reify {
     // Each trip reads the states the previous trip wrote; invariants, window
     // tiles included, keep the bound they started with. A branch may take
     // either arm, so a state keeps the larger of its two results.
-    const auto trips = loop.tripCount * std::max<std::uint32_t>(loop.outerTrips, 1);
+    const auto innerTrips = loop.range ? mostTrips(*loop.range) : loop.tripCount;
+    const auto outerTrips =
+        loop.outerRange ? mostTrips(*loop.outerRange) : std::max<std::uint32_t>(loop.outerTrips, 1);
+    const auto trips = innerTrips * outerTrips;
     for (std::uint32_t trip = 0; trip < trips; ++trip) {
       const auto bounds = region.magnitudeBounds(current);
       for (const auto &[name, bound]: bounds)

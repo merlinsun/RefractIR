@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -1120,6 +1121,195 @@ namespace {
     return loop;
   }
 
+  FreeFormEndpoint literalEnd(std::int32_t value) {
+    FreeFormEndpoint endpoint;
+    endpoint.value = value;
+    return endpoint;
+  }
+
+  FreeFormEndpoint parameterEnd(std::string name, std::int32_t low, std::int32_t high) {
+    FreeFormEndpoint endpoint;
+    endpoint.parameter = std::move(name);
+    endpoint.low = low;
+    endpoint.high = high;
+    return endpoint;
+  }
+
+  /// The window loop over `range(%lo, %hi, -1)`: rows may be read in reverse
+  /// and from below zero, where the window reads its fill.
+  FreeFormLoop rangeWindowLoop() {
+    auto loop = windowLoop();
+    loop.range = FreeFormRange{parameterEnd("%lo", -2, 4), parameterEnd("%hi", -3, 4), -1};
+    return loop;
+  }
+
+  void rangeWindowSource() { std::cout << assembleCountedLoop(windowRegion(), rangeWindowLoop()); }
+
+  /// Two runtime ranges, one nested in the other.
+  void rangeNestedSource() {
+    auto loop = threeStateLoop();
+    loop.range = FreeFormRange{literalEnd(0), parameterEnd("%n", 0, 6), 2};
+    loop.outerRange = FreeFormRange{parameterEnd("%m", 0, 3), literalEnd(-1), -1};
+    std::cout << assembleCountedLoop(threeStateRegion(), loop);
+  }
+
+  void rangeRefusesATripParameter() {
+    auto loop = rangeWindowLoop();
+    loop.tripParameter = "%trips";
+    requireInvalid([&] { (void) assembleCountedLoop(windowRegion(), loop); }, "trip parameter");
+  }
+
+  void rangeRefusesAZeroStep() {
+    auto loop = rangeWindowLoop();
+    loop.range->step = 0;
+    requireInvalid([&] { (void) assembleCountedLoop(windowRegion(), loop); }, "step");
+  }
+
+  void rangeRefusesAnEmptyParameterRange() {
+    auto loop = rangeWindowLoop();
+    loop.range->start = parameterEnd("%lo", 3, 2);
+    requireInvalid([&] { (void) assembleCountedLoop(windowRegion(), loop); }, "range");
+  }
+
+  void rangeWindowMayReachPastTheSource() {
+    // Every window position outside [0, active) reads the fill, so a range
+    // loop does not need the counted loop's address bound.
+    auto loop = rangeWindowLoop();
+    loop.windows.front().stride = 3;
+    validateFreeFormWindows(loop);
+    auto counted = windowLoop();
+    counted.windows.front().stride = 3;
+    requireInvalid([&] { validateFreeFormWindows(counted); }, "fit the source extent");
+  }
+
+  /// `2 * max(where(2^-10 < x, x, 0), 0)`, one trip from `%x`.
+  void literalRegionSource() {
+    TensorRegion region({{"%acc_x", type({4})}});
+    region.addLiteral("%t", TensorElement::F32, std::ldexp(1.0, -10));
+    region.addLiteral("%zero", TensorElement::F32, 0.0);
+    region.addLiteral("%two", TensorElement::F32, 2.0);
+    region.add("%w", TensorOp::WhereLt, {"%t", "%acc_x", "%acc_x", "%zero"});
+    region.add("%m", TensorOp::Max, {"%w", "%zero"});
+    region.add("%next_x", TensorOp::Mul, {"%m", "%two"});
+    region.setResults({"%next_x"});
+    FreeFormLoop loop;
+    loop.inputs = {state("%acc_x", {4}, "%x")};
+    loop.results = {"%next_x"};
+    loop.updates = {{"%acc_x", "%next_x"}};
+    loop.tripCount = 1;
+    loop.finalTerms = {"%acc_x"};
+    std::cout << assembleCountedLoop(region, loop);
+  }
+
+  void literalMagnitudeBound() {
+    TensorRegion region({{"%x", type({4})}});
+    region.addLiteral("%three", TensorElement::F32, 3.0);
+    region.addLiteral("%minus", TensorElement::F32, -1.0);
+    region.add("%p", TensorOp::Mul, {"%x", "%three"});
+    region.add("%q", TensorOp::Add, {"%p", "%minus"});
+    region.setResults({"%q"});
+    const auto bounds = region.magnitudeBounds({{"%x", 2.0}});
+    require(bounds.at("%p") == 6.0, "a literal factor scales the bound by its magnitude");
+    require(bounds.at("%q") == 7.0, "a literal term adds its magnitude");
+    requireInvalid(
+        [] {
+          TensorRegion integer({{"%x", type({4}, TensorElement::I32)}});
+          integer.addLiteral("%half", TensorElement::I32, 0.5);
+        },
+        "literal"
+    );
+  }
+
+  /// `rem(exp(x / y), y)`, one trip, with `%y` a read-only input.
+  void approximateRegionSource() {
+    TensorRegion region({{"%acc_x", type({4})}, {"%acc_y", type({4})}});
+    region.add("%d", TensorOp::Div, {"%acc_x", "%acc_y"});
+    region.add("%e", TensorOp::Exp, {"%d"});
+    region.add("%next_x", TensorOp::Rem, {"%e", "%acc_y"});
+    region.setResults({"%next_x"});
+    FreeFormLoop loop;
+    loop.inputs = {
+        state("%acc_x", {4}, "%x"),
+        input("%acc_y", type({4}), FreeFormRole::Invariant, FreeFormInit::RuntimeInput, "%y"),
+    };
+    loop.results = {"%next_x"};
+    loop.updates = {{"%acc_x", "%next_x"}};
+    loop.tripCount = 1;
+    loop.finalTerms = {"%acc_x"};
+    std::cout << assembleCountedLoop(region, loop);
+  }
+
+  void approximateMagnitudeUnbounded() {
+    TensorRegion region({{"%x", type({4})}, {"%y", type({4})}});
+    region.add("%d", TensorOp::Div, {"%x", "%y"});
+    region.add("%e", TensorOp::Exp, {"%x"});
+    region.add("%r", TensorOp::Rem, {"%x", "%y"});
+    region.setResults({"%d", "%e", "%r"});
+    const auto bounds = region.magnitudeBounds({{"%x", 2.0}, {"%y", 1.0}});
+    require(std::isinf(bounds.at("%d")), "a quotient has no magnitude bound");
+    require(std::isinf(bounds.at("%e")), "an exponential has no magnitude bound");
+    require(bounds.at("%r") == 2.0, "a remainder is bounded by its dividend");
+  }
+
+  FreeFormRequest pointwiseRequest(std::uint32_t seed) {
+    FreeFormRequest request;
+    request.inputs = {state("%a", {8, 4}, "%a_in"), state("%b", {8, 4}, "%b_in")};
+    request.results = {{"%next_a", type({8, 4})}, {"%next_b", type({8, 4})}};
+    request.policy = FreeFormPolicy::Pointwise;
+    request.parallelAxis = 0;
+    request.features.transpose = true;
+    request.features.extrema = true;
+    request.features.where = true;
+    request.features.narrow = true;
+    request.features.scan = true;
+    request.features.literals = true;
+    request.seed = seed;
+    return request;
+  }
+
+  void pointwiseKeepsTheParallelAxis() {
+    std::uint32_t mixingAvailable = 0;
+    for (std::uint32_t seed = 0; seed < 32; ++seed) {
+      const auto built = buildFreeFormRegion(pointwiseRequest(seed));
+      require(
+          built.region.keepsAxisParallel(0),
+          "seed " + std::to_string(seed) + " mixed its parallel axis"
+      );
+      auto unconstrained = pointwiseRequest(seed);
+      unconstrained.parallelAxis.reset();
+      if (!buildFreeFormRegion(unconstrained).region.keepsAxisParallel(0))
+        ++mixingAvailable;
+    }
+    require(mixingAvailable > 0, "without the requirement some seed should mix axis 0");
+  }
+
+  void pointwisePolicyWeights() {
+    FreeFormActionTraits add;
+    add.op = TensorOp::Add;
+    FreeFormActionTraits narrow;
+    narrow.op = TensorOp::NarrowF16;
+    FreeFormActionTraits sum;
+    sum.op = TensorOp::Sum;
+    sum.shapeChange = true;
+    const auto weight = [](const FreeFormActionTraits &traits) {
+      return freeFormActionWeight(FreeFormPolicy::Pointwise, traits);
+    };
+    require(weight(narrow) > weight(add), "narrowing is favoured over other lane operations");
+    require(weight(add) > weight(sum), "lane operations are favoured over reductions");
+    require(weight(sum) > 0.0, "every weight stays positive");
+    require(parseFreeFormPolicy("pointwise") == FreeFormPolicy::Pointwise, "policy parses");
+  }
+
+  void parallelAxisRefusesAMixingRequirement() {
+    auto request = pointwiseRequest(1);
+    FreeFormRequirement requirement;
+    requirement.input = "%a";
+    requirement.results = {0};
+    requirement.pathOps = {TensorOp::Transpose};
+    request.requirements = {requirement};
+    requireInvalid([&] { (void) buildFreeFormRegion(request); }, "transpose");
+  }
+
   std::string assembledWindowSource() {
     const auto source = assembleCountedLoop(windowRegion(), windowLoop());
     require(
@@ -1977,6 +2167,32 @@ int main(int argc, char **argv) {
       windowRangeMustFitTheSource();
     else if (name == "two-windows-share-one-source")
       twoWindowsShareOneSource();
+    else if (name == "pointwise-keeps-the-parallel-axis")
+      pointwiseKeepsTheParallelAxis();
+    else if (name == "pointwise-policy-weights")
+      pointwisePolicyWeights();
+    else if (name == "parallel-axis-refuses-a-mixing-requirement")
+      parallelAxisRefusesAMixingRequirement();
+    else if (name == "approximate-region-source")
+      approximateRegionSource();
+    else if (name == "approximate-magnitude-unbounded")
+      approximateMagnitudeUnbounded();
+    else if (name == "literal-region-source")
+      literalRegionSource();
+    else if (name == "literal-magnitude-bound")
+      literalMagnitudeBound();
+    else if (name == "range-window-source")
+      rangeWindowSource();
+    else if (name == "range-nested-source")
+      rangeNestedSource();
+    else if (name == "range-refuses-a-trip-parameter")
+      rangeRefusesATripParameter();
+    else if (name == "range-refuses-a-zero-step")
+      rangeRefusesAZeroStep();
+    else if (name == "range-refuses-an-empty-parameter-range")
+      rangeRefusesAnEmptyParameterRange();
+    else if (name == "range-window-may-reach-past-the-source")
+      rangeWindowMayReachPastTheSource();
     else if (name == "window-produced-before-region-body")
       windowProducedBeforeRegionBody();
     else if (name == "window-recomputed-each-trip")

@@ -1,5 +1,7 @@
 #include "reify/tensor_region.hpp"
 
+#include "ast/ast.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -61,7 +63,7 @@ namespace refractir::reify {
             return value.name == input.name;
           }))
         throw std::invalid_argument("tensor region value is declared more than once");
-      values_.push_back(Value{std::move(input.name), std::move(input.type), -1});
+      values_.push_back(Value{std::move(input.name), std::move(input.type), -1, std::nullopt});
     }
     if (values_.empty())
       throw std::invalid_argument("tensor region needs at least one input");
@@ -91,21 +93,23 @@ namespace refractir::reify {
         }))
       throw std::invalid_argument("tensor region value is declared more than once");
     const bool binary = op == TensorOp::Add || op == TensorOp::Sub || op == TensorOp::Mul ||
-                        op == TensorOp::Min || op == TensorOp::Max;
+                        op == TensorOp::Min || op == TensorOp::Max || op == TensorOp::Div ||
+                        op == TensorOp::Rem;
     const bool reduction = op == TensorOp::Sum || op == TensorOp::ReduceMin ||
                            op == TensorOp::ReduceMax;
     const bool broadcast = op == TensorOp::Broadcast;
     const bool transpose = op == TensorOp::Transpose;
     const bool expand = op == TensorOp::Expand;
     const bool dot = op == TensorOp::Dot;
-    const bool narrow = op == TensorOp::NarrowF16 || op == TensorOp::NarrowBF16;
+    const bool narrow =
+        op == TensorOp::NarrowF16 || op == TensorOp::NarrowBF16 || op == TensorOp::Exp;
     const bool where = isTensorWhere(op);
     const bool scan = op == TensorOp::Cumsum;
     if (!binary && !reduction && !broadcast && !transpose && !expand && !dot && !narrow && !where &&
         !scan)
       throw std::invalid_argument(
-          "tensor region supports add, sub, mul, min, max, sum, rmin, rmax, broadcast, "
-          "transpose, expand, dot, narrow, where and cumsum"
+          "tensor region supports add, sub, mul, div, rem, min, max, exp, sum, rmin, rmax, "
+          "broadcast, transpose, expand, dot, narrow, where and cumsum"
       );
     const std::size_t expectedOperands = where ? 4 : binary || dot ? 2 : 1;
     if (operandNames.size() != expectedOperands)
@@ -219,9 +223,34 @@ namespace refractir::reify {
     }
     const auto resultIndex = static_cast<std::int32_t>(values_.size());
     const auto nodeIndex = static_cast<std::int32_t>(nodes_.size());
-    values_.push_back(Value{std::move(name), std::move(resultType), nodeIndex});
+    values_.push_back(Value{std::move(name), std::move(resultType), nodeIndex, std::nullopt});
     nodes_.push_back(Node{
         op, std::move(operands), axis, keepDims, std::move(attribute), resultIndex});
+  }
+
+  void TensorRegion::addLiteral(std::string name, TensorElement element, double value) {
+    if (name.empty() || name.front() != '%')
+      throw std::invalid_argument("tensor region names must be local identifiers");
+    if (std::any_of(values_.begin(), values_.end(), [&](const Value &existing) {
+          return existing.name == name;
+        }))
+      throw std::invalid_argument("tensor region value is declared more than once");
+    if (!std::isfinite(value) || (element == TensorElement::I32 &&
+                                  (value != std::trunc(value) || std::fabs(value) > 2147483647.0)))
+      throw std::invalid_argument("tensor region literal does not fit its element type");
+    values_.push_back(Value{std::move(name), TensorTypeInfo{Shape{}, element}, -1, value});
+  }
+
+  std::string TensorRegion::operandText(std::int32_t index) const {
+    const auto &value = values_[static_cast<std::size_t>(index)];
+    if (!value.literal)
+      return value.name;
+    if (value.type.element == TensorElement::I32)
+      return std::to_string(static_cast<std::int64_t>(*value.literal));
+    auto text = formatDouble(*value.literal);
+    if (text.find_first_of(".eEni") == std::string::npos)
+      text += ".0";
+    return text;
   }
 
   void TensorRegion::setResults(std::vector<std::string> resultNames) {
@@ -242,10 +271,11 @@ namespace refractir::reify {
     std::ostringstream out;
     const auto &result = values_[static_cast<std::size_t>(node.result)];
     out << "  " << result.name << " = tensor " << tensorOpName(node.op) << ' '
-        << values_[static_cast<std::size_t>(node.operands.front())].name;
+        << operandText(node.operands.front());
     if (node.op == TensorOp::Add || node.op == TensorOp::Sub || node.op == TensorOp::Mul ||
-        node.op == TensorOp::Min || node.op == TensorOp::Max || node.op == TensorOp::Dot) {
-      out << ", " << values_[static_cast<std::size_t>(node.operands[1])].name;
+        node.op == TensorOp::Div || node.op == TensorOp::Rem || node.op == TensorOp::Min ||
+        node.op == TensorOp::Max || node.op == TensorOp::Dot) {
+      out << ", " << operandText(node.operands[1]);
     } else if (node.op == TensorOp::Sum || node.op == TensorOp::ReduceMin ||
                node.op == TensorOp::ReduceMax) {
       out << ", " << node.axis << ", " << (node.keepDims ? "keep" : "drop");
@@ -255,9 +285,10 @@ namespace refractir::reify {
       out << ", " << node.axis;
     } else if (isTensorWhere(node.op)) {
       for (std::size_t index = 1; index < node.operands.size(); ++index)
-        out << ", " << values_[static_cast<std::size_t>(node.operands[index])].name;
-    } else if (node.op == TensorOp::NarrowF16 || node.op == TensorOp::NarrowBF16) {
-      // The format is part of the operator name; there is no attribute.
+        out << ", " << operandText(node.operands[index]);
+    } else if (node.op == TensorOp::NarrowF16 || node.op == TensorOp::NarrowBF16 ||
+               node.op == TensorOp::Exp) {
+      // A unary operation: the format, if any, is part of the operator name.
     } else {
       out << ", " << shapeText(node.attribute);
     }
@@ -320,6 +351,10 @@ namespace refractir::reify {
     for (std::size_t index = 0; index < values_.size(); ++index) {
       if (values_[index].producer >= 0)
         continue;
+      if (values_[index].literal) {
+        bound[index] = std::fabs(*values_[index].literal);
+        continue;
+      }
       const auto found = inputs.find(values_[index].name);
       if (found == inputs.end())
         throw std::invalid_argument(
@@ -350,6 +385,16 @@ namespace refractir::reify {
         case TensorOp::Min:
         case TensorOp::Max:
           result = std::max(operand(0), operand(1));
+          break;
+        case TensorOp::Rem:
+          // C's fmod never exceeds its dividend in magnitude.
+          result = operand(0);
+          break;
+        case TensorOp::Div:
+        case TensorOp::Exp:
+          // A quotient by a small divisor and an exponential have no bound in
+          // terms of their operands' magnitudes.
+          result = std::numeric_limits<double>::infinity();
           break;
         case TensorOp::WhereLt:
         case TensorOp::WhereLe:
@@ -409,6 +454,47 @@ namespace refractir::reify {
            nodes_[position].op == TensorOp::Cumsum))
         names.push_back(values_[static_cast<std::size_t>(nodes_[position].result)].name);
     return names;
+  }
+
+  bool TensorRegion::keepsAxisParallel(std::uint32_t axis) const {
+    const auto live = liveNodes();
+    const auto signedAxis = static_cast<std::int64_t>(axis);
+    for (std::size_t position = 0; position < nodes_.size(); ++position) {
+      if (!live[position])
+        continue;
+      const auto &node = nodes_[position];
+      const auto &operand = values_[static_cast<std::size_t>(node.operands.front())].type;
+      const auto &result = values_[static_cast<std::size_t>(node.result)].type;
+      switch (node.op) {
+        case TensorOp::Sum:
+        case TensorOp::ReduceMin:
+        case TensorOp::ReduceMax:
+          if (node.axis == signedAxis || (node.axis < signedAxis && !node.keepDims))
+            return false;
+          break;
+        case TensorOp::Cumsum:
+          if (node.axis == signedAxis)
+            return false;
+          break;
+        case TensorOp::Transpose:
+          if (node.attribute.size() <= axis || node.attribute[axis] != axis)
+            return false;
+          break;
+        case TensorOp::Dot:
+          return false;
+        case TensorOp::Expand:
+          if (node.axis <= signedAxis)
+            return false;
+          break;
+        case TensorOp::Broadcast:
+          if (operand.shape.size() != result.shape.size())
+            return false;
+          break;
+        default:
+          break;
+      }
+    }
+    return true;
   }
 
   std::vector<std::string> TensorRegion::renderInstructions() const {

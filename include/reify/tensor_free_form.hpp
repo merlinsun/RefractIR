@@ -23,11 +23,12 @@ namespace refractir::reify {
     Shared,
     ReductionHeavy,
     CrossState,
+    Pointwise,
   };
 
   /// Every policy name the command line accepts, in the documented order.
   inline constexpr std::string_view freeFormPolicyNames =
-      "unguided, balanced, deep, wide, shared, reduction-heavy, cross-state";
+      "unguided, balanced, deep, wide, shared, reduction-heavy, cross-state, pointwise";
 
   /// Parse the command-line spelling of a free-form policy. An unknown name
   /// has no policy, so a caller refuses the request instead of generating the
@@ -90,6 +91,19 @@ namespace refractir::reify {
     bool where = false;
     /// `tensor cumsum` along any axis of extent above one.
     bool scan = false;
+    /// Literal operands: a value times 2, 0.5, 3 or -1 (f32 only), plus or
+    /// minus 1, `1 - value`, `max` and `min` against 0, and under `where` the
+    /// thresholded relu `where lt|le t, v, v, 0` with t = 0 or 2^-10 (0 or 1
+    /// for i32). A literal never enters the value pool, and a product with a
+    /// literal does not count as a multiplication.
+    bool literals = false;
+    /// f32 `tensor div` of two values, and by 2 or 3 under `literals`. A
+    /// divisor may be zero; Triton defines the quotient and P0 calls it UB.
+    bool div = false;
+    /// f32 `tensor exp` of a value.
+    bool exp = false;
+    /// f32 `tensor rem` of two equal-shaped values (C's `fmod`).
+    bool rem = false;
   };
 
   /// Bounds the builder honours. `maxNodes` counts emitted tensor operations;
@@ -160,6 +174,11 @@ namespace refractir::reify {
     std::uint32_t seed = 0;
     std::vector<FreeFormRequirement> requirements;
     FreeFormRootSelection rootSelection = FreeFormRootSelection::Deepest;
+    /// Set: no action may mix this axis: no reduction or scan along it, no
+    /// reduction that drops an axis before it, no transpose that moves it, no
+    /// dot, no expansion at or before it, and no broadcast that changes rank.
+    /// Grid tiling can then split the axis, and permuting it stays exact.
+    std::optional<std::uint32_t> parallelAxis;
   };
 
   /// The observable traits one legal action has. A policy can only bias what
@@ -342,6 +361,24 @@ namespace refractir::reify {
     TensorTypeInfo type;
   };
 
+  /// One endpoint of a free-form loop's range: the literal `value`, or the
+  /// i32 entry parameter `parameter`, ranged by `assume` from `low` to `high`.
+  struct FreeFormEndpoint {
+    std::string parameter;
+    std::int32_t value = 0;
+    std::int32_t low = 0;
+    std::int32_t high = 0;
+  };
+
+  /// `for i in range(start, stop, step)`, the general loop form of tensor-v5:
+  /// either endpoint may be a runtime parameter, the step is any nonzero
+  /// literal, and an empty range runs no trip.
+  struct FreeFormRange {
+    FreeFormEndpoint start;
+    FreeFormEndpoint stop;
+    std::int32_t step = 1;
+  };
+
   struct FreeFormLoop {
     std::string entry = "kernel";
     /// The region's inputs, with the role and initialization each one has.
@@ -366,6 +403,13 @@ namespace refractir::reify {
     /// Above one: an outer counted loop `%o` runs the counted loop this many
     /// times, the states carried across both levels.
     std::uint32_t outerTrips = 0;
+    /// Set: the loop runs over this range instead of `tripCount` and
+    /// `tripParameter`, and each window position outside `[0, active)` reads
+    /// the fill, so a window may index any row.
+    std::optional<FreeFormRange> range;
+    /// Set: an outer loop `%o` runs over this range instead of `outerTrips`,
+    /// the states carried across both levels.
+    std::optional<FreeFormRange> outerRange;
     /// The returned expression: the terms folded left with `finalOp` after the
     /// loop. Each term names a state or an invariant.
     std::vector<std::string> finalTerms;

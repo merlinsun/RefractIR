@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,6 +26,10 @@ namespace refractir::reify {
     void
     add(std::string name, TensorOp op, std::vector<std::string> operands, std::int64_t axis = 0,
         bool keepDims = false, Shape attribute = {});
+    /// A literal operand: a rank-0 value of the region's element type that an
+    /// operation may name like any other value. It renders as its literal text
+    /// where it is used and is never declared.
+    void addLiteral(std::string name, TensorElement element, double value);
     void setResults(std::vector<std::string> results);
 
     [[nodiscard]] const TensorTypeInfo &typeOf(const std::string &name) const;
@@ -41,6 +46,11 @@ namespace refractir::reify {
     /// The live values whose rounding depends on evaluation order: the
     /// results of `sum`, whose lanes a backend may add in any order.
     [[nodiscard]] std::vector<std::string> orderSensitiveValues() const;
+    /// Whether no live node mixes the lanes along `axis` or moves the axis:
+    /// no reduction or scan along it, no dropped axis before it, no transpose
+    /// that moves it, no dot, no expansion at or before it, and no broadcast
+    /// that changes rank.
+    [[nodiscard]] bool keepsAxisParallel(std::uint32_t axis) const;
     [[nodiscard]] std::vector<std::string> renderBody(
         const std::vector<std::pair<std::string, std::string>> &updates,
         const std::vector<std::string> &reservedNames = {}
@@ -55,6 +65,7 @@ namespace refractir::reify {
       std::string name;
       TensorTypeInfo type;
       std::int32_t producer = -1;
+      std::optional<double> literal;
     };
 
     struct Node {
@@ -68,6 +79,7 @@ namespace refractir::reify {
 
     [[nodiscard]] std::int32_t requireValue(const std::string &name) const;
     [[nodiscard]] std::string renderNode(const Node &node) const;
+    [[nodiscard]] std::string operandText(std::int32_t value) const;
     [[nodiscard]] std::vector<char> liveNodes() const;
     using IndexedUpdate = std::pair<std::int32_t, std::int32_t>;
     using Snapshot = std::pair<std::int32_t, std::string>;
